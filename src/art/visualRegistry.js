@@ -1,15 +1,19 @@
 import {
   createArcherModel,
   createArrowModel,
+  createBearModel,
   createMeteorModel,
   createRaiderModel,
-  createSwordsmanModel
+  createSwordsmanModel,
+  createWolfModel
 } from './lowpoly.js';
 
 const UNIT_FACTORIES = {
   swordsman: ({ team }) => createSwordsmanModel(team),
   archer: ({ team }) => createArcherModel(team),
-  raider: () => createRaiderModel()
+  raider: () => createRaiderModel(),
+  wolf: () => createWolfModel(),
+  bear: () => createBearModel()
 };
 
 const PROJECTILE_FACTORIES = {
@@ -119,6 +123,10 @@ function applyAttackPose(unit, root, t, pulse) {
     applyRaiderAttack(root, t, pulse);
     return;
   }
+  if (unit.type === 'wolf' || unit.type === 'bear') {
+    applyBeastAttack(root, t, pulse, unit.type);
+    return;
+  }
   applySwordsmanAttack(root, t, pulse);
 }
 
@@ -189,6 +197,44 @@ function applyArcherAttack(root, t, pulse) {
     heldArrow.visible = t < 0.52;
     heldArrow.position.z -= 0.32 * pull;
     heldArrow.position.y += 0.02 * pull;
+  }
+}
+
+function applyBeastAttack(root, t, pulse, type) {
+  const { headPivot, frontPivot, tailPivot } = root.userData.parts ?? {};
+  const windup = bell(0, 0.28, 0.54, t);
+  const strike = smoothstep(0.34, 0.62, t) * (1 - smoothstep(0.78, 1, t));
+  const snap = bell(0.42, 0.58, 0.78, t);
+
+  if (type === 'bear') {
+    root.position.y = pulse * 0.05 + windup * 0.16;
+    root.rotation.x += -0.13 * windup + 0.09 * strike;
+    root.scale.set(1 + pulse * 0.025, 1 - pulse * 0.012, 1 + pulse * 0.035);
+    if (frontPivot) {
+      frontPivot.rotation.x += -0.92 * windup + 1.28 * strike;
+      frontPivot.position.y += 0.22 * windup - 0.08 * strike;
+    }
+    if (headPivot) {
+      headPivot.rotation.x += -0.22 * windup + 0.28 * snap;
+      headPivot.position.z += 0.12 * strike;
+    }
+    return;
+  }
+
+  root.position.y = pulse * 0.07;
+  root.rotation.x += -0.06 * windup + 0.12 * snap;
+  root.scale.set(1 + snap * 0.08, 1 - snap * 0.05, 1 + snap * 0.14);
+  if (headPivot) {
+    headPivot.rotation.x += 0.2 * windup - 0.42 * snap;
+    headPivot.position.z += 0.24 * snap;
+    headPivot.position.y -= 0.04 * snap;
+  }
+  if (frontPivot) {
+    frontPivot.rotation.x += -0.28 * windup + 0.48 * snap;
+  }
+  if (tailPivot) {
+    tailPivot.rotation.x += -0.22 * pulse;
+    tailPivot.rotation.z += 0.2 * pulse;
   }
 }
 

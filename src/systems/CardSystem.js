@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { basicMat, createReticle } from '../art/lowpoly.js';
-import { BALANCE, CARD_DEFINITIONS, ENCHANTMENTS } from '../data/gameData.js';
+import { BALANCE, CARD_DEFINITIONS } from '../data/gameData.js';
 import { insideBattlefield } from '../utils/math.js';
 
 export class CardSystem {
@@ -101,6 +101,7 @@ export class CardSystem {
     this.raycaster.setFromCamera(this.pointer, this.game.camera);
     const point = new THREE.Vector3();
     this.raycaster.ray.intersectPlane(this.groundPlane, point);
+    point.y = this.game.groundHeightAt(point);
     this.drag.point = point;
     this.drag.valid = false;
     this.drag.targetUnit = null;
@@ -114,7 +115,8 @@ export class CardSystem {
       return;
     }
 
-    const validGround = insideBattlefield(point, BALANCE.battlefield);
+    const validGround =
+      insideBattlefield(point, BALANCE.battlefield) && this.game.isPointWalkable(point);
     this.drag.valid = validGround;
     this.showGroundPreview(point, this.drag.card.radius, validGround, this.drag.card);
     this.enchantTargetRing.visible = false;
@@ -150,7 +152,7 @@ export class CardSystem {
 
   showGroundPreview(point, radius, valid, card) {
     this.reticle.visible = true;
-    this.reticle.position.set(point.x, 0.07, point.z);
+    this.reticle.position.set(point.x, point.y + 0.07, point.z);
     this.reticle.scale.setScalar(radius);
     const color = valid ? card.color : '#b8b8b8';
     this.reticle.userData.disc.material = basicMat(color, {
@@ -170,7 +172,11 @@ export class CardSystem {
   showEnchantPreview(target) {
     this.enchantTargetRing.visible = Boolean(target);
     if (!target) return;
-    this.enchantTargetRing.position.set(target.position.x, 0.12, target.position.z);
+    this.enchantTargetRing.position.set(
+      target.position.x,
+      target.position.y + 0.12,
+      target.position.z
+    );
     this.enchantTargetRing.scale.setScalar(0.9);
     this.enchantTargetRing.userData.disc.material = basicMat('#fff2c7', {
       transparent: true,
@@ -181,20 +187,7 @@ export class CardSystem {
   }
 
   resolveCard(drag) {
-    const { card } = drag;
-    if (card.kind === 'summon') {
-      this.game.summonUnits(card.unitType, card.count, drag.point, card.radius);
-    }
-    if (card.kind === 'spell' && card.id === 'meteor') {
-      this.game.castMeteor(drag.point, card);
-    }
-    if (card.kind === 'enchant') {
-      const enchantment = ENCHANTMENTS[card.enchantmentId];
-      drag.targetUnit.addEnchantment(card.enchantmentId);
-      this.game.effects.spawnRing(drag.targetUnit.position, enchantment.color, 0.85, 0.6);
-      this.game.selectUnit(drag.targetUnit);
-    }
-    this.game.lastCardPlayed = card.id;
+    this.game.cardEffects.resolve(drag);
   }
 
   moveGhost(x, y) {

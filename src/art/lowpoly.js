@@ -593,22 +593,235 @@ export function createEnemyCampModel() {
   return enableShadows(group);
 }
 
-export function createTree(height = 1) {
+export function createCottageModel(options = {}) {
   const group = new THREE.Group();
+  const wall = mat(options.wall ?? '#b88b5c');
+  const roof = mat(options.roof ?? '#8f3f35');
+  const wood = mat('#6d4a2c');
+  const dark = mat('#2d2520');
+
+  const cabin = mesh(
+    new THREE.BoxGeometry(2.25, 1.25, 1.8),
+    wall,
+    new THREE.Vector3(0, 0.65, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const roofCap = mesh(
+    new THREE.ConeGeometry(1.55, 1.15, 4),
+    roof,
+    new THREE.Vector3(0, 1.55, 0),
+    new THREE.Vector3(1.18, 1, 0.88)
+  );
+  roofCap.rotation.y = Math.PI / 4;
+  const door = mesh(
+    new THREE.BoxGeometry(0.48, 0.74, 0.08),
+    wood,
+    new THREE.Vector3(0, 0.42, 0.94),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const windowLeft = mesh(
+    new THREE.BoxGeometry(0.34, 0.28, 0.06),
+    mat('#f2d88a', { emissive: '#5a3a18', emissiveIntensity: 0.2 }),
+    new THREE.Vector3(-0.72, 0.76, 0.94),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const windowRight = windowLeft.clone();
+  windowRight.position.x = 0.72;
+  const chimney = mesh(
+    new THREE.BoxGeometry(0.28, 0.72, 0.28),
+    dark,
+    new THREE.Vector3(0.58, 2.04, -0.18),
+    new THREE.Vector3(1, 1, 1)
+  );
+
+  group.add(cabin, roofCap, door, windowLeft, windowRight, chimney);
+  return enableShadows(group);
+}
+
+export function createBush(size = 1) {
+  const group = new THREE.Group();
+  const leaf = mat('#397c45');
+  const left = mesh(
+    new THREE.DodecahedronGeometry(0.42, 0),
+    leaf,
+    new THREE.Vector3(-0.18 * size, 0.3 * size, 0),
+    new THREE.Vector3(size, size * 0.72, size)
+  );
+  const right = left.clone();
+  right.position.x = 0.22 * size;
+  right.position.z = 0.16 * size;
+  right.scale.set(size * 0.82, size * 0.58, size * 0.82);
+  const berry = mesh(
+    new THREE.DodecahedronGeometry(0.07, 0),
+    mat('#c75c51'),
+    new THREE.Vector3(0.03 * size, 0.6 * size, 0.18 * size),
+    new THREE.Vector3(size, size, size)
+  );
+  group.add(left, right, berry);
+  return enableShadows(group);
+}
+
+export function createGrassTuft(size = 1, color = '#6fb34f') {
+  const group = new THREE.Group();
+  const bladeMat = mat(color, { roughness: 0.92 });
+  for (let i = 0; i < 4; i += 1) {
+    const blade = mesh(
+      new THREE.ConeGeometry(0.055 * size, 0.48 * size, 3),
+      bladeMat,
+      new THREE.Vector3((i - 1.5) * 0.08 * size, 0.24 * size, (i % 2) * 0.08 * size),
+      new THREE.Vector3(1, 1, 1)
+    );
+    blade.rotation.z = (i - 1.5) * 0.18;
+    blade.rotation.y = (Math.PI * 2 * i) / 4;
+    group.add(blade);
+  }
+  return enableShadows(group);
+}
+
+export function createTree(height = 1, options = {}) {
+  const group = new THREE.Group();
+  const trunkColor = options.trunkColor ?? '#765035';
+  const leafColor = options.leafColor ?? '#2f7d55';
   const trunk = mesh(
     new THREE.CylinderGeometry(0.16, 0.22, 1.1 * height, 5),
-    mat('#765035'),
+    mat(trunkColor),
     new THREE.Vector3(0, 0.55 * height, 0),
     new THREE.Vector3(1, 1, 1)
   );
   const top = mesh(
     new THREE.ConeGeometry(0.78 * height, 1.55 * height, 6),
-    mat('#2f7d55'),
+    mat(leafColor),
     new THREE.Vector3(0, 1.45 * height, 0),
     new THREE.Vector3(1, 1, 1)
   );
   group.add(trunk, top);
   return enableShadows(group);
+}
+
+export function createSnowPine(height = 1) {
+  const group = new THREE.Group();
+  const trunk = mesh(
+    new THREE.CylinderGeometry(0.14, 0.21, 1.05 * height, 5),
+    mat('#5d4633'),
+    new THREE.Vector3(0, 0.52 * height, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const lower = mesh(
+    new THREE.ConeGeometry(0.88 * height, 1.22 * height, 7),
+    mat('#2c6757'),
+    new THREE.Vector3(0, 1.22 * height, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const upper = mesh(
+    new THREE.ConeGeometry(0.58 * height, 1.05 * height, 7),
+    mat('#347566'),
+    new THREE.Vector3(0, 1.9 * height, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const snowCap = mesh(
+    new THREE.ConeGeometry(0.5 * height, 0.28 * height, 7),
+    mat('#edf3ef', { roughness: 0.82 }),
+    new THREE.Vector3(0, 2.34 * height, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  group.add(trunk, lower, upper, snowCap);
+  return enableShadows(group);
+}
+
+export function createMountainPeak(width = 1, height = 1, color = '#8c9ca2') {
+  const group = new THREE.Group();
+  const rock = mesh(
+    new THREE.ConeGeometry(width, height, 7),
+    mat(color, { roughness: 0.88 }),
+    new THREE.Vector3(0, height * 0.5, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const snow = mesh(
+    new THREE.ConeGeometry(width * 0.52, height * 0.32, 7),
+    mat('#eef4f1', { roughness: 0.84 }),
+    new THREE.Vector3(0, height * 0.86, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  group.add(rock, snow);
+  return enableShadows(group);
+}
+
+export function createMonsterCampModel() {
+  const group = new THREE.Group();
+  const hide = mat('#5d3f2f');
+  const cloth = mat('#88413c');
+  const bone = mat('#d7d0b8');
+  const wood = mat('#4f3325');
+
+  [-1, 1].forEach((side) => {
+    const tent = mesh(
+      new THREE.ConeGeometry(0.9, 1.1, 4),
+      cloth,
+      new THREE.Vector3(side * 1.25, 0.55, 0.15),
+      new THREE.Vector3(1, 1, 1)
+    );
+    tent.rotation.y = Math.PI / 4;
+    group.add(tent);
+  });
+
+  for (let i = 0; i < 7; i += 1) {
+    const angle = -0.85 + i * 0.28;
+    const spike = mesh(
+      new THREE.ConeGeometry(0.08, 1.05, 5),
+      wood,
+      new THREE.Vector3(Math.cos(angle) * 2.05, 0.52, -0.9 + Math.sin(angle) * 0.55),
+      new THREE.Vector3(1, 1, 1)
+    );
+    spike.rotation.z = 0.12 * Math.sign(angle);
+    group.add(spike);
+  }
+
+  const firePit = mesh(
+    new THREE.CylinderGeometry(0.45, 0.55, 0.14, 7),
+    mat('#38332c'),
+    new THREE.Vector3(0, 0.07, 0.55),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const flame = mesh(
+    new THREE.ConeGeometry(0.24, 0.7, 5),
+    mat('#ff8c3a', { emissive: '#d74917', emissiveIntensity: 0.55 }),
+    new THREE.Vector3(0, 0.48, 0.55),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const trophy = mesh(
+    new THREE.ConeGeometry(0.16, 0.95, 5),
+    bone,
+    new THREE.Vector3(0, 0.72, -1.25),
+    new THREE.Vector3(1, 1, 1)
+  );
+  trophy.rotation.z = Math.PI;
+  group.add(firePit, flame, trophy);
+  return enableShadows(group);
+}
+
+export function createCloudModel(scale = 1) {
+  const group = new THREE.Group();
+  const colors = ['#dac7b2', '#f0ddc7', '#c9ad97'];
+  const lobes = [
+    { x: -1.55, y: 0, z: 0.1, sx: 1.5, sy: 0.34, sz: 0.5 },
+    { x: -0.52, y: 0.12, z: 0, sx: 1.7, sy: 0.44, sz: 0.58 },
+    { x: 0.72, y: 0.05, z: 0.08, sx: 1.45, sy: 0.36, sz: 0.5 },
+    { x: 1.55, y: -0.02, z: -0.02, sx: 1.05, sy: 0.26, sz: 0.42 }
+  ];
+
+  lobes.forEach((item, index) => {
+    const lobe = mesh(
+      new THREE.DodecahedronGeometry(0.62, 0),
+      mat(colors[index % colors.length], { roughness: 0.82 }),
+      new THREE.Vector3(item.x * scale, item.y * scale, item.z * scale),
+      new THREE.Vector3(item.sx * scale, item.sy * scale, item.sz * scale)
+    );
+    lobe.castShadow = false;
+    lobe.receiveShadow = false;
+    group.add(lobe);
+  });
+
+  return group;
 }
 
 export function createRock(size = 1) {
@@ -620,6 +833,205 @@ export function createRock(size = 1) {
       new THREE.Vector3(size, size * 0.62, size * 0.86)
     )
   );
+}
+
+export function createWolfModel() {
+  const group = new THREE.Group();
+  const fur = mat('#59656b');
+  const darkFur = mat('#343b40');
+  const eyeMat = mat('#17191a');
+
+  const body = mesh(
+    new THREE.DodecahedronGeometry(0.5, 0),
+    fur,
+    new THREE.Vector3(0, 0.63, 0),
+    new THREE.Vector3(0.82, 0.72, 1.34)
+  );
+  const chest = mesh(
+    new THREE.DodecahedronGeometry(0.32, 0),
+    mat('#6f7b80'),
+    new THREE.Vector3(0, 0.68, 0.36),
+    new THREE.Vector3(1.02, 0.9, 0.78)
+  );
+  const head = mesh(
+    new THREE.DodecahedronGeometry(0.32, 0),
+    fur,
+    new THREE.Vector3(0, 0.94, 0.72),
+    new THREE.Vector3(1, 0.82, 1.08)
+  );
+  const snout = mesh(
+    new THREE.BoxGeometry(0.32, 0.18, 0.32),
+    darkFur,
+    new THREE.Vector3(0, 0.87, 1),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const nose = mesh(
+    new THREE.DodecahedronGeometry(0.07, 0),
+    eyeMat,
+    new THREE.Vector3(0, 0.9, 1.18),
+    new THREE.Vector3(1, 0.72, 0.72)
+  );
+  const eyeLeft = mesh(
+    new THREE.BoxGeometry(0.035, 0.035, 0.018),
+    eyeMat,
+    new THREE.Vector3(-0.11, 0.99, 1.02),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const eyeRight = eyeLeft.clone();
+  eyeRight.position.x = 0.11;
+  const earLeft = mesh(
+    new THREE.ConeGeometry(0.1, 0.24, 4),
+    darkFur,
+    new THREE.Vector3(-0.18, 1.2, 0.68),
+    new THREE.Vector3(1, 1, 1)
+  );
+  earLeft.rotation.z = -0.24;
+  const earRight = earLeft.clone();
+  earRight.position.x = 0.18;
+  earRight.rotation.z = 0.24;
+  const headPivot = createPivot(
+    'wolfHeadPivot',
+    new THREE.Vector3(0, 0.86, 0.52),
+    [head, snout, nose, eyeLeft, eyeRight, earLeft, earRight]
+  );
+
+  const legMat = mat('#3f484d');
+  const frontLeft = mesh(
+    new THREE.BoxGeometry(0.13, 0.58, 0.13),
+    legMat,
+    new THREE.Vector3(-0.28, 0.3, 0.35),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const frontRight = frontLeft.clone();
+  frontRight.position.x = 0.28;
+  const frontPivot = createPivot(
+    'wolfFrontPivot',
+    new THREE.Vector3(0, 0.62, 0.34),
+    [frontLeft, frontRight]
+  );
+  const hindLeft = mesh(
+    new THREE.BoxGeometry(0.14, 0.54, 0.14),
+    legMat,
+    new THREE.Vector3(-0.28, 0.29, -0.48),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const hindRight = hindLeft.clone();
+  hindRight.position.x = 0.28;
+  const tail = cylinderBetween(
+    new THREE.Vector3(0, 0.75, -0.62),
+    new THREE.Vector3(0, 1.02, -1.08),
+    0.08,
+    0.045,
+    darkFur
+  );
+  const tailPivot = createPivot(
+    'wolfTailPivot',
+    new THREE.Vector3(0, 0.75, -0.62),
+    [tail]
+  );
+
+  group.add(body, chest, headPivot, frontPivot, hindLeft, hindRight, tailPivot);
+  group.userData.parts = {
+    headPivot,
+    frontPivot,
+    tailPivot
+  };
+  return enableShadows(group);
+}
+
+export function createBearModel() {
+  const group = new THREE.Group();
+  const fur = mat('#6b4a34');
+  const darkFur = mat('#3b2b22');
+  const eyeMat = mat('#1b1612');
+
+  const body = mesh(
+    new THREE.DodecahedronGeometry(0.62, 0),
+    fur,
+    new THREE.Vector3(0, 0.74, 0),
+    new THREE.Vector3(1.2, 0.9, 1.55)
+  );
+  const hump = mesh(
+    new THREE.DodecahedronGeometry(0.42, 0),
+    mat('#7a563d'),
+    new THREE.Vector3(0, 1.02, -0.18),
+    new THREE.Vector3(1.18, 0.72, 1.1)
+  );
+  const head = mesh(
+    new THREE.DodecahedronGeometry(0.42, 0),
+    fur,
+    new THREE.Vector3(0, 1.02, 0.75),
+    new THREE.Vector3(1.1, 0.88, 1)
+  );
+  const muzzle = mesh(
+    new THREE.BoxGeometry(0.46, 0.24, 0.34),
+    darkFur,
+    new THREE.Vector3(0, 0.93, 1.08),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const nose = mesh(
+    new THREE.DodecahedronGeometry(0.09, 0),
+    eyeMat,
+    new THREE.Vector3(0, 0.98, 1.3),
+    new THREE.Vector3(1, 0.74, 0.74)
+  );
+  const eyeLeft = mesh(
+    new THREE.BoxGeometry(0.04, 0.04, 0.02),
+    eyeMat,
+    new THREE.Vector3(-0.14, 1.1, 1.02),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const eyeRight = eyeLeft.clone();
+  eyeRight.position.x = 0.14;
+  const earLeft = mesh(
+    new THREE.DodecahedronGeometry(0.12, 0),
+    darkFur,
+    new THREE.Vector3(-0.27, 1.32, 0.68),
+    new THREE.Vector3(1, 0.85, 1)
+  );
+  const earRight = earLeft.clone();
+  earRight.position.x = 0.27;
+  const headPivot = createPivot(
+    'bearHeadPivot',
+    new THREE.Vector3(0, 0.96, 0.58),
+    [head, muzzle, nose, eyeLeft, eyeRight, earLeft, earRight]
+  );
+
+  const legMat = mat('#4a3428');
+  const frontLeft = mesh(
+    new THREE.BoxGeometry(0.22, 0.7, 0.22),
+    legMat,
+    new THREE.Vector3(-0.4, 0.36, 0.38),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const frontRight = frontLeft.clone();
+  frontRight.position.x = 0.4;
+  const frontPivot = createPivot(
+    'bearFrontPivot',
+    new THREE.Vector3(0, 0.78, 0.38),
+    [frontLeft, frontRight]
+  );
+  const hindLeft = mesh(
+    new THREE.BoxGeometry(0.24, 0.66, 0.24),
+    legMat,
+    new THREE.Vector3(-0.42, 0.34, -0.52),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const hindRight = hindLeft.clone();
+  hindRight.position.x = 0.42;
+  const tail = mesh(
+    new THREE.DodecahedronGeometry(0.12, 0),
+    darkFur,
+    new THREE.Vector3(0, 0.78, -0.95),
+    new THREE.Vector3(1, 0.78, 0.78)
+  );
+
+  group.add(body, hump, headPivot, frontPivot, hindLeft, hindRight, tail);
+  group.userData.parts = {
+    headPivot,
+    frontPivot
+  };
+  return enableShadows(group);
 }
 
 export function createReticle() {

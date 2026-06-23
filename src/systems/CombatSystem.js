@@ -5,7 +5,7 @@ import {
   getAnimationEventTime,
   playUnitAnimation
 } from '../art/visualRegistry.js';
-import { BALANCE, ENCHANTMENTS, TEAMS } from '../data/gameData.js';
+import { BALANCE, TEAMS } from '../data/gameData.js';
 import { clamp, direction2D, distance2D } from '../utils/math.js';
 
 const scratch = new THREE.Vector3();
@@ -22,31 +22,12 @@ export class CombatSystem {
     const activeUnits = [...this.game.friendlyUnits, ...this.game.enemyUnits].filter(
       (unit) => unit.alive
     );
-    activeUnits.forEach((unit) => this.updateStatuses(unit, dt));
+    this.game.buffs.update(dt, activeUnits);
     activeUnits.forEach((unit) => this.updateUnit(unit, dt));
     this.applyCrowdSeparation(activeUnits, dt);
     this.updatePendingAttacks(dt);
     this.updateProjectiles(dt);
     this.cleanupDead();
-  }
-
-  updateStatuses(unit, dt) {
-    if (unit.status.burnTime > 0) {
-      unit.status.burnTime -= dt;
-      unit.status.burnTick -= dt;
-      if (unit.status.burnTick <= 0) {
-        unit.status.burnTick = 0.45;
-        unit.takeRawDamage(unit.status.burnDamagePerSecond * 0.45);
-        this.game.effects.spawnFire(unit.position);
-      }
-    }
-
-    unit.enchantments.forEach((value, key) => {
-      value.remaining -= dt;
-      if (value.remaining <= 0) {
-        unit.enchantments.delete(key);
-      }
-    });
   }
 
   updateUnit(unit, dt) {
@@ -65,31 +46,52 @@ export class CombatSystem {
 
     if (target) {
       const targetPosition = target.position ?? target;
-      const distance = distance2D(unit.position, targetPosition);
-      if (distance <= unit.definition.attackRange) {
-        this.face(unit, targetPosition);
+      const routeTarget = this.routeTargetFor(unit, target, targetPosition);
+      const targetDistance = distance2D(unit.position, targetPosition);
+      if (targetDistance <= unit.definition.attackRange) {
+        this.face(unit, targetPosition, dt);
         this.tryAttack(unit, target);
-      } else if (this.shouldHoldMeleeRecovery(unit, distance)) {
-        this.face(unit, targetPosition);
+      } else if (this.shouldHoldMeleeRecovery(unit, targetDistance)) {
+        this.face(unit, targetPosition, dt);
       } else {
-        this.moveToward(unit, targetPosition, dt, target.position ? stopDistance(unit) : 0.18);
+        this.moveToward(
+          unit,
+          routeTarget,
+          dt,
+          routeTarget === targetPosition && target.position ? stopDistance(unit) : 0.2
+        );
       }
-    } else {
-      this.moveToward(unit, unit.moveGoal, dt);
+    } else if (unit.isWildlife) {
+      this.updateWildlifeWander(unit, dt);
+      this.moveToward(unit, unit.wanderGoal, dt, 0.55);
+    } else if (unit.moveGoal) {
+      this.moveToward(unit, this.game.getRouteTarget(unit, unit.moveGoal), dt);
     }
 
     this.applyMotion(unit, dt);
   }
 
   applyMotion(unit, dt) {
+    const previousX = unit.position.x;
+    const previousZ = unit.position.z;
     unit.position.addScaledVector(unit.knockbackVelocity, dt);
     unit.knockbackVelocity.multiplyScalar(Math.pow(0.08, dt));
     this.clampToBattlefield(unit);
+    if (!this.game.isPointWalkable(unit.position)) {
+      unit.position.x = previousX;
+      unit.position.z = previousZ;
+      unit.knockbackVelocity.set(0, 0, 0);
+    }
+    this.game.placeUnitOnGround(unit);
   }
 
   clampToBattlefield(unit) {
-    unit.position.x = clamp(unit.position.x, -22, 22);
-    unit.position.z = clamp(unit.position.z, -20, 20);
+    unit.position.x = clamp(
+      unit.position.x,
+      -BALANCE.battlefield.halfWidth,
+      BALANCE.battlefield.halfWidth
+    );
+    unit.position.z = clamp(unit.position.z, BALANCE.battlefield.minZ, BALANCE.battlefield.maxZ);
   }
 
   applyCrowdSeparation(units, dt) {
@@ -121,19 +123,44 @@ export class CombatSystem {
 
         const overlap = minDistance - distance;
         const push = Math.min(overlap * 0.5, maxPush);
+        const ax = a.position.x;
+        const az = a.position.z;
+        const bx = b.position.x;
+        const bz = b.position.z;
         a.position.x += nx * push;
         a.position.z += nz * push;
         b.position.x -= nx * push;
         b.position.z -= nz * push;
         this.clampToBattlefield(a);
         this.clampToBattlefield(b);
+        if (!this.game.isPointWalkable(a.position)) {
+          a.position.x = ax;
+          a.position.z = az;
+        }
+        if (!this.game.isPointWalkable(b.position)) {
+          b.position.x = bx;
+          b.position.z = bz;
+        }
+        this.game.placeUnitOnGround(a);
+        this.game.placeUnitOnGround(b);
       }
     }
   }
 
   acquireTarget(unit) {
     if (unit.team === TEAMS.PLAYER) {
-      return nearestUnit(unit, this.game.enemyUnits, unit.definition.aggroRange);
+      return nearestUnit(unit, this.game.enemyUnits, unit.definition.aggroRange)
+        ?? (this.game.enemyCamp?.alive ? this.game.enemyCamp : null);
+    }
+    if (unit.isWildlife) {
+      const friendly = nearestUnit(unit, this.game.friendlyUnits, unit.definition.aggroRange);
+      if (
+        friendly &&
+        distance2D(unit.spawnPoint, friendly.position) <= unit.leashRadius + unit.definition.aggroRange
+      ) {
+        return friendly;
+      }
+      return null;
     }
     const friendly = nearestUnit(unit, this.game.friendlyUnits, unit.definition.aggroRange);
     if (friendly) return friendly;
@@ -141,14 +168,32 @@ export class CombatSystem {
   }
 
   moveToward(unit, targetPosition, dt, desiredDistance = 0.18) {
+    if (!targetPosition) return;
     const distance = distance2D(unit.position, targetPosition);
     if (distance <= desiredDistance) return;
     const dir = direction2D(unit.position, targetPosition);
-    const step = Math.min(unit.definition.speed * dt, distance - desiredDistance);
+    const step = Math.min(this.game.modifiers.getMoveSpeed(unit) * dt, distance - desiredDistance);
     if (step <= 0) return;
+    const previousX = unit.position.x;
+    const previousZ = unit.position.z;
     unit.position.addScaledVector(dir, step);
+    this.clampToBattlefield(unit);
+    if (!this.game.isPointWalkable(unit.position)) {
+      unit.position.x = previousX;
+      unit.position.z = previousZ;
+      this.game.placeUnitOnGround(unit);
+      return;
+    }
+    this.game.placeUnitOnGround(unit);
     unit.visualState = 'walk';
-    this.face(unit, targetPosition);
+    this.face(unit, targetPosition, dt);
+  }
+
+  routeTargetFor(unit, target, targetPosition) {
+    if (target === this.game.playerBase || target === this.game.enemyCamp) {
+      return this.game.getRouteTarget(unit, targetPosition);
+    }
+    return targetPosition;
   }
 
   shouldHoldMeleeRecovery(unit, distance) {
@@ -159,15 +204,50 @@ export class CombatSystem {
     );
   }
 
-  face(unit, targetPosition) {
+  updateWildlifeWander(unit, dt) {
+    unit.wanderTimer = Math.max(0, (unit.wanderTimer ?? 0) - dt);
+    const tooFar = distance2D(unit.position, unit.spawnPoint) > unit.leashRadius * 1.08;
+    const reached = !unit.wanderGoal || distance2D(unit.position, unit.wanderGoal) < 0.85;
+    if (!tooFar && !reached && unit.wanderTimer > 0) return;
+
+    if (tooFar) {
+      unit.wanderGoal = unit.spawnPoint.clone();
+      unit.wanderTimer = 0.8;
+      return;
+    }
+
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const angle = Math.random() * Math.PI * 2;
+      const radius = unit.leashRadius * (0.25 + Math.random() * 0.7);
+      const candidate = unit.spawnPoint.clone();
+      candidate.x += Math.cos(angle) * radius;
+      candidate.z += Math.sin(angle) * radius;
+      if (!this.game.isPointWalkable(candidate)) continue;
+      candidate.y = this.game.groundHeightAt(candidate);
+      unit.wanderGoal = candidate;
+      unit.wanderTimer = 1.8 + Math.random() * 2.6;
+      return;
+    }
+
+    unit.wanderGoal = unit.spawnPoint.clone();
+    unit.wanderTimer = 1.2;
+  }
+
+  face(unit, targetPosition, dt = 0) {
     scratch.set(targetPosition.x - unit.position.x, 0, targetPosition.z - unit.position.z);
     if (scratch.lengthSq() < 0.0001) return;
-    unit.mesh.rotation.y = Math.atan2(scratch.x, scratch.z);
+    const desired = Math.atan2(scratch.x, scratch.z);
+    if (dt <= 0) {
+      unit.mesh.rotation.y = desired;
+      return;
+    }
+    const delta = shortestAngle(unit.mesh.rotation.y, desired);
+    unit.mesh.rotation.y += delta * clamp(dt * 7.5, 0, 1);
   }
 
   tryAttack(unit, target) {
     if (unit.attackTimer > 0 || unit.weapon.durability <= 0) return;
-    unit.attackTimer = 1 / unit.definition.attackRate;
+    unit.attackTimer = 1 / this.game.modifiers.getAttackRate(unit);
     unit.visualState = 'idle';
     const eventName = unit.definition.role === 'ranged' ? 'release' : 'impact';
     const duration = getAnimationDuration(unit, 'attack');
@@ -182,7 +262,7 @@ export class CombatSystem {
       fireAt: getAnimationEventTime(unit, 'attack', eventName),
       duration
     });
-    unit.spendDurability(unit.definition.weapon.durabilityCost);
+    unit.spendDurability(this.game.modifiers.getDurabilityCost(unit));
   }
 
   updatePendingAttacks(dt) {
@@ -222,15 +302,15 @@ export class CombatSystem {
       color: source.hasEnchantment('fire') ? '#ffb66c' : '#e7ddc0'
     });
     arrow.position.copy(source.position);
-    arrow.position.y = 1.2;
+    arrow.position.y = source.position.y + 1.18;
     this.game.scene.add(arrow);
     this.projectiles.push({
       object: arrow,
       source,
       target,
-      speed: source.definition.projectileSpeed,
-      damage: source.definition.damage,
-      knockback: source.definition.knockback,
+      speed: this.game.modifiers.getProjectileSpeed(source),
+      damage: this.game.modifiers.getAttackDamage(source),
+      knockback: this.game.modifiers.getKnockback(source),
       age: 0
     });
   }
@@ -239,19 +319,20 @@ export class CombatSystem {
     for (let i = this.projectiles.length - 1; i >= 0; i -= 1) {
       const projectile = this.projectiles[i];
       projectile.age += dt;
-      if (!projectile.target?.alive || projectile.age > 2.5) {
+      if (projectile.target?.alive === false || projectile.age > 2.5) {
         this.game.scene.remove(projectile.object);
         this.projectiles.splice(i, 1);
         continue;
       }
       const targetPosition = projectile.target.position.clone();
-      targetPosition.y = 1;
+      targetPosition.y += projectile.target.projectileHitHeight ?? 1;
       const dir = targetPosition.sub(projectile.object.position);
       const distance = dir.length();
       if (distance < 0.34) {
         this.applyAttack(projectile.source, projectile.target, {
           damage: projectile.damage,
-          knockback: projectile.knockback
+          knockback: projectile.knockback,
+          isProjectile: true
         });
         this.game.scene.remove(projectile.object);
         this.projectiles.splice(i, 1);
@@ -264,31 +345,27 @@ export class CombatSystem {
   }
 
   applyAttack(source, target, override = {}) {
+    const context = this.game.modifiers.createAttackContext(source, target, override);
+    this.game.buffs.modifyAttack(context);
+
     if (target === this.game.playerBase) {
-      this.game.damagePlayerBase(source.definition.damage);
+      this.game.damagePlayerBase(context.damage);
       this.game.effects.spawnHit(source.position.clone().add(new THREE.Vector3(0, 0.8, 0)));
       return;
     }
-
-    const fire = source.hasEnchantment('fire') ? ENCHANTMENTS.fire : null;
-    const damage = (override.damage ?? source.definition.damage) + (fire?.bonusDamage ?? 0);
-    const knockback = override.knockback ?? source.definition.knockback;
-    this.applyDamage(target, damage, source, knockback);
-
-    if (fire) {
-      target.applyBurn(fire.burnSeconds, fire.burnDamagePerSecond);
-      this.game.effects.spawnFire(target.position);
+    if (target === this.game.enemyCamp) {
+      this.game.damageEnemyCamp(context.damage);
+      this.game.effects.spawnHit(target.position.clone().add(new THREE.Vector3(0, 1.6, 0)));
+      return;
     }
 
-    if (target.hasEnchantment('thorns') && source?.alive) {
-      const thorns = ENCHANTMENTS.thorns;
-      source.takeRawDamage(thorns.reflectDamage);
-      this.game.effects.spawnThorns(target.position);
+    if (this.applyDamage(target, context.damage, source, context.knockback, context)) {
+      this.game.buffs.afterDamage(context);
     }
   }
 
   applyDamage(target, amount, source = null, knockback = 0) {
-    if (!target?.alive) return;
+    if (!target?.alive) return false;
     target.takeRawDamage(amount);
     if (source && knockback > 0) {
       const dir = direction2D(source.position, target.position);
@@ -300,6 +377,7 @@ export class CombatSystem {
       target.position.clone().add(new THREE.Vector3(0, 0.9, 0)),
       source?.hasEnchantment?.('fire') ? '#ff9a47' : '#f6e7a0'
     );
+    return true;
   }
 
   cleanupDead() {
@@ -339,6 +417,8 @@ function stopDistance(unit) {
 }
 
 function crowdRadius(unit) {
+  if (unit.type === 'bear') return 0.72;
+  if (unit.type === 'wolf') return 0.48;
   return unit.definition.role === 'ranged' ? 0.36 : 0.42;
 }
 
@@ -349,4 +429,12 @@ function deterministicPairAngle(a, b) {
 
 function hitStunDuration(knockback) {
   return clamp(0.08 + knockback * 0.024, 0.1, 0.24);
+}
+
+function shortestAngle(from, to) {
+  let delta = (to - from + Math.PI) % (Math.PI * 2) - Math.PI;
+  if (delta < -Math.PI) {
+    delta += Math.PI * 2;
+  }
+  return delta;
 }

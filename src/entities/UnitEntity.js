@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ENCHANTMENTS, UNIT_DEFINITIONS } from '../data/gameData.js';
+import { BUFF_DEFINITIONS, ENCHANTMENTS, UNIT_DEFINITIONS } from '../data/gameData.js';
 import { createHealthBar, mat } from '../art/lowpoly.js';
 import { createUnitModel, updateUnitAnimation } from '../art/visualRegistry.js';
 import { clamp } from '../utils/math.js';
@@ -27,6 +27,7 @@ export class UnitEntity {
     this.target = null;
     this.alive = true;
     this.visualState = 'idle';
+    this.buffs = new Map();
     this.enchantments = new Map();
     this.status = {
       burnTime: 0,
@@ -52,13 +53,42 @@ export class UnitEntity {
   }
 
   addEnchantment(id) {
-    const definition = ENCHANTMENTS[id];
-    if (!definition) return;
-    this.enchantments.set(id, {
+    this.addBuff(id, ENCHANTMENTS[id]);
+  }
+
+  addBuff(id, definition = BUFF_DEFINITIONS[id], overrides = {}) {
+    if (!definition) return null;
+    const existing = this.buffs.get(id);
+    const duration = overrides.duration ?? definition.duration ?? 0;
+    const instance = {
       ...definition,
-      remaining: definition.duration
-    });
-    refreshEnchantHalo(this);
+      ...overrides,
+      id,
+      source: overrides.source ?? existing?.source ?? null,
+      remaining: duration,
+      tickTimer: overrides.tickInterval ?? definition.tickInterval ?? existing?.tickTimer ?? 0
+    };
+    this.buffs.set(id, instance);
+
+    if (definition.category === 'enchantment') {
+      this.enchantments.set(id, instance);
+      refreshEnchantHalo(this);
+    }
+    return instance;
+  }
+
+  removeBuff(id) {
+    const buff = this.buffs.get(id);
+    if (!buff) return;
+    this.buffs.delete(id);
+    if (this.enchantments.has(id)) {
+      this.enchantments.delete(id);
+      refreshEnchantHalo(this);
+    }
+  }
+
+  hasBuff(id) {
+    return this.buffs.has(id);
   }
 
   hasEnchantment(id) {
@@ -82,11 +112,10 @@ export class UnitEntity {
   }
 
   applyBurn(seconds, damagePerSecond) {
-    this.status.burnTime = Math.max(this.status.burnTime, seconds);
-    this.status.burnDamagePerSecond = Math.max(
-      this.status.burnDamagePerSecond,
+    this.addBuff('burning', BUFF_DEFINITIONS.burning, {
+      duration: seconds,
       damagePerSecond
-    );
+    });
   }
 
   updateVisual(camera, dt) {
