@@ -1,0 +1,265 @@
+:root {
+  color: #f7f4e8;
+  background: #172016;
+  font-family:
+    "Microsoft YaHei",
+    "PingFang SC",
+    "Segoe UI",
+    Arial,
+    sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  min-width: 320px;
+}
+
+#game-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+
+.hud {
+  position: fixed;
+  z-index: 4;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(23, 29, 24, 0.72);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(16px);
+}
+
+.hud-primary {
+  top: 18px;
+  left: 18px;
+  width: min(280px, calc(100vw - 36px));
+  padding: 14px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.brand {
+  grid-column: 1 / -1;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0;
+  color: #fff2c7;
+}
+
+.meter {
+  min-height: 52px;
+  padding: 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.meter span {
+  display: block;
+  color: rgba(247, 244, 232, 0.68);
+  font-size: 12px;
+}
+
+.meter strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 18px;
+}
+
+.hud-selected {
+  top: 18px;
+  right: 18px;
+  width: min(300px, calc(100vw - 36px));
+  padding: 14px;
+  display: grid;
+  gap: 7px;
+  font-size: 13px;
+}
+
+#selected-name {
+  color: #fff2c7;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+#selected-stats,
+#selected-enchants {
+  color: rgba(247, 244, 232, 0.78);
+  line-height: 1.45;
+}
+
+.card-hand {
+  position: fixed;
+  z-index: 5;
+  right: 16px;
+  bottom: 16px;
+  left: 16px;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(132px, 168px);
+  gap: 10px;
+  overflow-x: auto;
+  padding: 4px 2px 8px;
+  scrollbar-width: thin;
+}
+
+.card {
+  position: relative;
+  height: 142px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.04)),
+    var(--card-color);
+  box-shadow: 0 16px 30px rgba(0, 0, 0, 0.26);
+}
+
+.card:active {
+  cursor: grabbing;
+}
+
+.card[aria-disabled="true"] {
+  cursor: wait;
+  filter: grayscale(0.35) brightness(0.78);
+}
+
+.card-art {
+  height: 54px;
+  display: grid;
+  place-items: center;
+  font-size: 28px;
+  font-weight: 900;
+  color: rgba(255, 255, 255, 0.92);
+  background: rgba(0, 0, 0, 0.14);
+}
+
+.card-body {
+  height: 88px;
+  padding: 9px 10px;
+  display: grid;
+  align-content: start;
+  gap: 5px;
+}
+
+.card-name {
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.card-kind {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 12px;
+}
+
+.card-text {
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.cooldown {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 5px;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.cooldown-fill {
+  width: 0%;
+  height: 100%;
+  background: #ffe071;
+  transition: width 120ms linear;
+}
+
+.drag-ghost {
+  position: fixed;
+  z-index: 9;
+  width: 148px;
+  height: 86px;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  border-radius: 8px;
+  padding: 10px;
+  color: white;
+  background: rgba(30, 34, 32, 0.82);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(10px);
+  font-weight: 800;
+}
+
+@media (max-width: 760px) {
+  .hud-primary {
+    top: 10px;
+    left: 10px;
+    width: 210px;
+    padding: 10px;
+    gap: 7px;
+  }
+
+  .hud-selected {
+    top: 10px;
+    right: 10px;
+    width: calc(100vw - 240px);
+    min-width: 128px;
+    padding: 10px;
+    font-size: 11px;
+  }
+
+  #selected-name {
+    font-size: 13px;
+  }
+
+  .meter {
+    min-height: 42px;
+    padding: 7px;
+  }
+
+  .meter strong {
+    font-size: 15px;
+  }
+
+  .card-hand {
+    right: 10px;
+    bottom: 10px;
+    left: 10px;
+    grid-auto-columns: minmax(116px, 134px);
+  }
+
+  .card {
+    height: 126px;
+  }
+
+  .card-art {
+    height: 44px;
+  }
+
+  .card-body {
+    height: 82px;
+    padding: 8px;
+  }
+}

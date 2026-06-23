@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Village War Prototype</title>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="game-canvas"></canvas>
+
+      <section class="hud hud-primary" aria-label="battle status">
+        <div class="brand">村落战争</div>
+        <div class="meter">
+          <span>基地</span>
+          <strong id="base-health">100%</strong>
+        </div>
+        <div class="meter">
+          <span>波次</span>
+          <strong id="wave-label">1</strong>
+        </div>
+        <div class="meter">
+          <span>友军</span>
+          <strong id="unit-count">0</strong>
+        </div>
+      </section>
+
+      <section class="hud hud-selected" aria-label="selected unit">
+        <div id="selected-name">未选中</div>
+        <div id="selected-stats">HP - / 武器 -</div>
+        <div id="selected-enchants">附魔 -</div>
+      </section>
+
+      <section id="card-hand" class="card-hand" aria-label="card hand"></section>
+      <div id="drag-ghost" class="drag-ghost" hidden></div>
+      <pre id="debug-state" hidden></pre>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
