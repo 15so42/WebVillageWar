@@ -63,6 +63,47 @@ function limb(start, end, radius, material) {
   return object;
 }
 
+function boxBetween(start, end, width, depth, material) {
+  const center = start.clone().lerp(end, 0.5);
+  const direction = end.clone().sub(start);
+  const object = new THREE.Mesh(
+    new THREE.BoxGeometry(width, direction.length(), depth),
+    material
+  );
+  object.position.copy(center);
+  object.quaternion.setFromUnitVectors(
+    new THREE.Vector3(0, 1, 0),
+    direction.normalize()
+  );
+  return object;
+}
+
+function cylinderBetween(start, end, radiusStart, radiusEnd, material) {
+  const center = start.clone().lerp(end, 0.5);
+  const direction = end.clone().sub(start);
+  const object = new THREE.Mesh(
+    new THREE.CylinderGeometry(radiusEnd, radiusStart, direction.length(), 6),
+    material
+  );
+  object.position.copy(center);
+  object.quaternion.setFromUnitVectors(
+    new THREE.Vector3(0, 1, 0),
+    direction.normalize()
+  );
+  return object;
+}
+
+function createPivot(name, position, children) {
+  const pivot = new THREE.Group();
+  pivot.name = name;
+  pivot.position.copy(position);
+  children.forEach((child) => {
+    child.position.sub(position);
+    pivot.add(child);
+  });
+  return pivot;
+}
+
 export function createHealthBar() {
   const group = new THREE.Group();
   const back = new THREE.Mesh(
@@ -128,14 +169,14 @@ export function createSwordsmanModel(team) {
   rightLeg.position.x = 0.17;
   const rightArm = limb(
     new THREE.Vector3(-0.31, 1.18, 0.06),
-    new THREE.Vector3(-0.45, 0.78, 0.14),
+    new THREE.Vector3(-0.24, 0.68, 0.4),
     0.06,
     mat(skin)
   );
   const rightHand = mesh(
     new THREE.DodecahedronGeometry(0.09, 0),
     mat(skin),
-    new THREE.Vector3(-0.45, 0.78, 0.14),
+    new THREE.Vector3(-0.24, 0.68, 0.4),
     new THREE.Vector3(1, 1, 1)
   );
   const leftArm = limb(
@@ -150,22 +191,25 @@ export function createSwordsmanModel(team) {
     new THREE.Vector3(0.48, 0.95, 0.18),
     new THREE.Vector3(1, 1, 1)
   );
-  const sword = new THREE.Group();
-  const blade = mesh(
-    new THREE.BoxGeometry(0.07, 0.95, 0.08),
-    mat('#d8dce2', { metalness: 0.2 }),
-    new THREE.Vector3(-0.6, 1.08, 0.08),
-    new THREE.Vector3(1, 1, 1)
+  const blade = boxBetween(
+    new THREE.Vector3(-0.24, 0.64, 0.44),
+    new THREE.Vector3(-0.14, 1.24, 0.82),
+    0.07,
+    0.08,
+    mat('#d8dce2', { metalness: 0.2 })
   );
-  blade.rotation.z = 0.55;
-  const hilt = mesh(
-    new THREE.BoxGeometry(0.28, 0.08, 0.1),
-    mat('#7b4e2d'),
-    new THREE.Vector3(-0.45, 0.76, 0.08),
-    new THREE.Vector3(1, 1, 1)
+  const hilt = boxBetween(
+    new THREE.Vector3(-0.4, 0.68, 0.34),
+    new THREE.Vector3(-0.11, 0.68, 0.45),
+    0.08,
+    0.1,
+    mat('#7b4e2d')
   );
-  hilt.rotation.z = 0.55;
-  sword.add(blade, hilt);
+  const weaponSwingPivot = createPivot(
+    'swordsmanWeaponSwingPivot',
+    new THREE.Vector3(-0.24, 0.68, 0.4),
+    [blade, hilt]
+  );
   const shield = mesh(
     new THREE.CylinderGeometry(0.24, 0.28, 0.08, 6),
     mat(trim),
@@ -173,6 +217,16 @@ export function createSwordsmanModel(team) {
     new THREE.Vector3(1, 1.2, 1)
   );
   shield.rotation.x = Math.PI / 2;
+  const weaponPivot = createPivot(
+    'swordsmanWeaponPivot',
+    new THREE.Vector3(-0.31, 1.18, 0.06),
+    [rightArm, rightHand, weaponSwingPivot]
+  );
+  const offhandPivot = createPivot(
+    'swordsmanOffhandPivot',
+    new THREE.Vector3(0.31, 1.16, 0.06),
+    [leftArm, leftHand, shield]
+  );
 
   group.add(
     body,
@@ -182,13 +236,14 @@ export function createSwordsmanModel(team) {
     helm,
     leftLeg,
     rightLeg,
-    rightArm,
-    rightHand,
-    leftArm,
-    leftHand,
-    sword,
-    shield
+    weaponPivot,
+    offhandPivot
   );
+  group.userData.parts = {
+    weaponPivot,
+    weaponSwingPivot,
+    offhandPivot
+  };
   return enableShadows(group);
 }
 
@@ -298,6 +353,16 @@ export function createArcherModel(team) {
   );
   const leg2 = leg.clone();
   leg2.position.x = 0.14;
+  const bowPivot = createPivot(
+    'archerBowPivot',
+    new THREE.Vector3(0.3, 1.2, 0.08),
+    [leftArm, leftHand, bow, string]
+  );
+  const drawPivot = createPivot(
+    'archerDrawPivot',
+    new THREE.Vector3(-0.3, 1.18, 0.08),
+    [rightArm, rightHand, heldArrow]
+  );
 
   group.add(
     body,
@@ -305,17 +370,18 @@ export function createArcherModel(team) {
     eyeLeft,
     eyeRight,
     hood,
-    bow,
-    string,
-    leftArm,
-    rightArm,
-    leftHand,
-    rightHand,
-    heldArrow,
+    bowPivot,
+    drawPivot,
     quiver,
     leg,
     leg2
   );
+  group.userData.parts = {
+    bowPivot,
+    drawPivot,
+    string,
+    heldArrow
+  };
   return enableShadows(group);
 }
 
@@ -344,14 +410,14 @@ export function createRaiderModel() {
   eyeRight.position.x = 0.08;
   const rightArm = limb(
     new THREE.Vector3(-0.32, 1.14, 0.04),
-    new THREE.Vector3(-0.49, 0.92, 0.16),
+    new THREE.Vector3(-0.25, 0.7, 0.38),
     0.065,
     skinMat
   );
   const rightHand = mesh(
     new THREE.DodecahedronGeometry(0.095, 0),
     skinMat,
-    new THREE.Vector3(-0.49, 0.92, 0.16),
+    new THREE.Vector3(-0.25, 0.7, 0.38),
     new THREE.Vector3(1, 1, 1)
   );
   const leftArm = limb(
@@ -366,14 +432,18 @@ export function createRaiderModel() {
     new THREE.Vector3(0.43, 0.82, 0.12),
     new THREE.Vector3(1, 1, 1)
   );
-  const club = mesh(
-    new THREE.CylinderGeometry(0.07, 0.13, 0.9, 6),
-    mat('#6d4a2c'),
-    new THREE.Vector3(-0.58, 1.17, 0.16),
-    new THREE.Vector3(1, 1, 1)
+  const club = cylinderBetween(
+    new THREE.Vector3(-0.25, 0.68, 0.43),
+    new THREE.Vector3(-0.13, 1.28, 0.86),
+    0.07,
+    0.13,
+    mat('#6d4a2c')
   );
-  club.rotation.z = 0.62;
-  club.rotation.x = 0.18;
+  const weaponSwingPivot = createPivot(
+    'raiderWeaponSwingPivot',
+    new THREE.Vector3(-0.25, 0.7, 0.38),
+    [club]
+  );
   const leg = mesh(
     new THREE.BoxGeometry(0.18, 0.5, 0.18),
     mat('#312923'),
@@ -382,19 +452,31 @@ export function createRaiderModel() {
   );
   const leg2 = leg.clone();
   leg2.position.x = 0.15;
+  const weaponPivot = createPivot(
+    'raiderWeaponPivot',
+    new THREE.Vector3(-0.32, 1.14, 0.04),
+    [rightArm, rightHand, weaponSwingPivot]
+  );
+  const offhandPivot = createPivot(
+    'raiderOffhandPivot',
+    new THREE.Vector3(0.32, 1.12, 0.04),
+    [leftArm, leftHand]
+  );
   group.add(
     body,
     head,
     eyeLeft,
     eyeRight,
-    rightArm,
-    rightHand,
-    leftArm,
-    leftHand,
-    club,
+    weaponPivot,
+    offhandPivot,
     leg,
     leg2
   );
+  group.userData.parts = {
+    weaponPivot,
+    weaponSwingPivot,
+    offhandPivot
+  };
   return enableShadows(group);
 }
 

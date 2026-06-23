@@ -166,6 +166,7 @@ export class Game {
         this.combat.applyDamage(enemy, card.damage * (0.65 + falloff * 0.35), null, 0);
         const dir = enemy.position.clone().sub(point).setY(0).normalize();
         enemy.knockbackVelocity.addScaledVector(dir, card.knockback * (0.45 + falloff));
+        enemy.hitStunTimer = Math.max(enemy.hitStunTimer, 0.22);
       });
     });
   }

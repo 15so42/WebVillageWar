@@ -21,6 +21,7 @@ export class UnitEntity {
       durability: this.definition.weapon.maxDurability
     };
     this.attackTimer = Math.random() * 0.25;
+    this.hitStunTimer = 0;
     this.knockbackVelocity = new THREE.Vector3();
     this.moveGoal = position.clone();
     this.target = null;

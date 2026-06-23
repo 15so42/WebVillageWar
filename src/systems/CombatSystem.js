@@ -24,6 +24,7 @@ export class CombatSystem {
     );
     activeUnits.forEach((unit) => this.updateStatuses(unit, dt));
     activeUnits.forEach((unit) => this.updateUnit(unit, dt));
+    this.applyCrowdSeparation(activeUnits, dt);
     this.updatePendingAttacks(dt);
     this.updateProjectiles(dt);
     this.cleanupDead();
@@ -52,6 +53,13 @@ export class CombatSystem {
     if (!unit.alive) return;
     unit.visualState = 'idle';
     unit.attackTimer -= dt;
+    unit.hitStunTimer = Math.max(0, unit.hitStunTimer - dt);
+
+    if (unit.hitStunTimer > 0) {
+      this.applyMotion(unit, dt);
+      return;
+    }
+
     const target = this.acquireTarget(unit);
     unit.target = target;
 
@@ -61,17 +69,66 @@ export class CombatSystem {
       if (distance <= unit.definition.attackRange) {
         this.face(unit, targetPosition);
         this.tryAttack(unit, target);
+      } else if (this.shouldHoldMeleeRecovery(unit, distance)) {
+        this.face(unit, targetPosition);
       } else {
-        this.moveToward(unit, targetPosition, dt);
+        this.moveToward(unit, targetPosition, dt, target.position ? stopDistance(unit) : 0.18);
       }
     } else {
       this.moveToward(unit, unit.moveGoal, dt);
     }
 
+    this.applyMotion(unit, dt);
+  }
+
+  applyMotion(unit, dt) {
     unit.position.addScaledVector(unit.knockbackVelocity, dt);
     unit.knockbackVelocity.multiplyScalar(Math.pow(0.08, dt));
+    this.clampToBattlefield(unit);
+  }
+
+  clampToBattlefield(unit) {
     unit.position.x = clamp(unit.position.x, -22, 22);
     unit.position.z = clamp(unit.position.z, -20, 20);
+  }
+
+  applyCrowdSeparation(units, dt) {
+    const maxPush = 1.35 * dt;
+    for (let i = 0; i < units.length; i += 1) {
+      const a = units[i];
+      if (!a.alive) continue;
+      for (let j = i + 1; j < units.length; j += 1) {
+        const b = units[j];
+        if (!b.alive || a.team !== b.team) continue;
+
+        const minDistance = crowdRadius(a) + crowdRadius(b);
+        const dx = a.position.x - b.position.x;
+        const dz = a.position.z - b.position.z;
+        let distance = Math.hypot(dx, dz);
+        if (distance >= minDistance) continue;
+
+        let nx = dx;
+        let nz = dz;
+        if (distance < 0.001) {
+          const angle = deterministicPairAngle(a, b);
+          nx = Math.cos(angle);
+          nz = Math.sin(angle);
+          distance = 0.001;
+        } else {
+          nx /= distance;
+          nz /= distance;
+        }
+
+        const overlap = minDistance - distance;
+        const push = Math.min(overlap * 0.5, maxPush);
+        a.position.x += nx * push;
+        a.position.z += nz * push;
+        b.position.x -= nx * push;
+        b.position.z -= nz * push;
+        this.clampToBattlefield(a);
+        this.clampToBattlefield(b);
+      }
+    }
   }
 
   acquireTarget(unit) {
@@ -83,13 +140,23 @@ export class CombatSystem {
     return this.game.playerBase;
   }
 
-  moveToward(unit, targetPosition, dt) {
+  moveToward(unit, targetPosition, dt, desiredDistance = 0.18) {
     const distance = distance2D(unit.position, targetPosition);
-    if (distance < 0.18) return;
+    if (distance <= desiredDistance) return;
     const dir = direction2D(unit.position, targetPosition);
-    unit.position.addScaledVector(dir, unit.definition.speed * dt);
+    const step = Math.min(unit.definition.speed * dt, distance - desiredDistance);
+    if (step <= 0) return;
+    unit.position.addScaledVector(dir, step);
     unit.visualState = 'walk';
     this.face(unit, targetPosition);
+  }
+
+  shouldHoldMeleeRecovery(unit, distance) {
+    return (
+      unit.definition.role === 'melee' &&
+      unit.attackTimer > 0 &&
+      distance <= unit.definition.attackRange + 0.75
+    );
   }
 
   face(unit, targetPosition) {
@@ -226,6 +293,7 @@ export class CombatSystem {
     if (source && knockback > 0) {
       const dir = direction2D(source.position, target.position);
       target.knockbackVelocity.addScaledVector(dir, knockback);
+      target.hitStunTimer = Math.max(target.hitStunTimer, hitStunDuration(knockback));
     }
     playUnitAnimation(target, 'hit');
     this.game.effects.spawnHit(
@@ -261,4 +329,24 @@ function nearestUnit(source, candidates, range) {
     }
   });
   return best;
+}
+
+function stopDistance(unit) {
+  if (unit.definition.role === 'ranged') {
+    return unit.definition.attackRange * 0.92;
+  }
+  return Math.max(0.75, unit.definition.attackRange * 0.88);
+}
+
+function crowdRadius(unit) {
+  return unit.definition.role === 'ranged' ? 0.36 : 0.42;
+}
+
+function deterministicPairAngle(a, b) {
+  const seed = (Math.min(a.id, b.id) * 37 + Math.max(a.id, b.id) * 61) % 360;
+  return (seed / 360) * Math.PI * 2;
+}
+
+function hitStunDuration(knockback) {
+  return clamp(0.08 + knockback * 0.024, 0.1, 0.24);
 }
