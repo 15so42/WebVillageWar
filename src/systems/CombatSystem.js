@@ -4,6 +4,7 @@ import {
   getAnimationDuration,
   getAnimationEventTime,
   playUnitAnimation,
+  stopUnitAnimation,
   updateUnitAnimation
 } from '../art/visualRegistry.js';
 import { BALANCE, TEAMS } from '../data/gameData.js';
@@ -53,23 +54,32 @@ export class CombatSystem {
       unit.commandMoveGoal = null;
     }
 
+    const activeAttack = this.getActiveAttackFor(unit);
+    if (activeAttack) {
+      const targetPosition = getTargetPosition(activeAttack.target);
+      if (targetPosition) {
+        this.face(unit, targetPosition, dt);
+      }
+      this.applyMotion(unit, dt);
+      return;
+    }
+
     const target = this.acquireTarget(unit);
     unit.target = target;
 
     if (target) {
-      const targetPosition = target.position ?? target;
+      const targetPosition = getTargetPosition(target);
       const targetDistance = distance2D(unit.position, targetPosition);
-      if (targetDistance <= unit.definition.attackRange) {
+      const targetRadius = targetCombatRadius(target);
+      if (targetDistance <= unit.definition.attackRange + targetRadius) {
         this.face(unit, targetPosition, dt);
         this.tryAttack(unit, target);
-      } else if (this.shouldHoldMeleeRecovery(unit, targetDistance)) {
-        this.face(unit, targetPosition, dt);
       } else {
         this.moveToward(
           unit,
           targetPosition,
           dt,
-          target.position ? stopDistance(unit) : 0.2
+          target.position ? targetRadius + stopDistance(unit) : 0.2
         );
       }
     } else if (unit.isWildlife) {
@@ -186,6 +196,7 @@ export class CombatSystem {
     const dir = direction2D(unit.position, targetPosition);
     const step = Math.min(this.game.modifiers.getMoveSpeed(unit) * dt, distance - desiredDistance);
     if (step <= 0) return;
+    stopUnitAnimation(unit, 'attack');
     const previousX = unit.position.x;
     const previousZ = unit.position.z;
     unit.position.addScaledVector(dir, step);
@@ -199,14 +210,6 @@ export class CombatSystem {
     this.game.placeUnitOnGround(unit, dt);
     unit.visualState = 'walk';
     this.face(unit, targetPosition, dt);
-  }
-
-  shouldHoldMeleeRecovery(unit, distance) {
-    return (
-      unit.definition.role === 'melee' &&
-      unit.attackTimer > 0 &&
-      distance <= unit.definition.attackRange + 0.75
-    );
   }
 
   updateWildlifeWander(unit, dt) {
@@ -270,6 +273,14 @@ export class CombatSystem {
     unit.spendDurability(this.game.modifiers.getDurabilityCost(unit));
   }
 
+  getActiveAttackFor(unit) {
+    return this.pendingAttacks.find((attack) => (
+      attack.source === unit &&
+      attack.elapsed < attack.duration &&
+      attack.target?.alive !== false
+    )) ?? null;
+  }
+
   updatePendingAttacks(dt) {
     for (let i = this.pendingAttacks.length - 1; i >= 0; i -= 1) {
       const attack = this.pendingAttacks[i];
@@ -289,6 +300,7 @@ export class CombatSystem {
   cancelPendingAttacksFor(units) {
     const ids = new Set(units.map((unit) => unit.id));
     this.pendingAttacks = this.pendingAttacks.filter((attack) => !ids.has(attack.source.id));
+    units.forEach((unit) => stopUnitAnimation(unit, 'attack'));
   }
 
   resolveAttackEvent(attack) {
@@ -296,7 +308,7 @@ export class CombatSystem {
     if (!source.alive) return;
     if (target?.alive === false) return;
     if (target?.position && source.definition.role === 'melee') {
-      const allowedRange = source.definition.attackRange + 0.85;
+      const allowedRange = source.definition.attackRange + targetCombatRadius(target) + 0.85;
       if (distance2D(source.position, target.position) > allowedRange) return;
     }
 
@@ -432,7 +444,7 @@ function nearestUnit(source, candidates, range) {
   let bestDistance = range;
   candidates.forEach((candidate) => {
     if (!candidate.alive) return;
-    const distance = distance2D(source.position, candidate.position);
+    const distance = Math.max(0, distance2D(source.position, candidate.position) - targetCombatRadius(candidate));
     if (distance < bestDistance) {
       best = candidate;
       bestDistance = distance;
@@ -443,7 +455,22 @@ function nearestUnit(source, candidates, range) {
 
 function nearestStructure(source, structure, range) {
   if (!structure?.alive) return null;
-  return distance2D(source.position, structure.position) <= range ? structure : null;
+  return distance2D(source.position, structure.position) <= range + targetCombatRadius(structure)
+    ? structure
+    : null;
+}
+
+function getTargetPosition(target) {
+  if (!target) return null;
+  return target.position ?? target;
+}
+
+function targetCombatRadius(target) {
+  if (!target?.position) return 0;
+  if (Number.isFinite(target.attackRadius)) return target.attackRadius;
+  if (Number.isFinite(target.collisionRadius)) return target.collisionRadius;
+  if (target.type) return crowdRadius(target);
+  return 0;
 }
 
 function stopDistance(unit) {

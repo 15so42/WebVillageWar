@@ -191,14 +191,14 @@ export function createSwordsmanModel(team) {
   );
   const leftArm = limb(
     new THREE.Vector3(0.31, 1.16, 0.06),
-    new THREE.Vector3(0.48, 0.95, 0.18),
+    new THREE.Vector3(0.24, 1.03, 0.48),
     0.06,
     mat(skin)
   );
   const leftHand = mesh(
     new THREE.DodecahedronGeometry(0.085, 0),
     mat(skin),
-    new THREE.Vector3(0.48, 0.95, 0.18),
+    new THREE.Vector3(0.24, 1.03, 0.48),
     new THREE.Vector3(1, 1, 1)
   );
   const blade = boxBetween(
@@ -221,9 +221,9 @@ export function createSwordsmanModel(team) {
     [blade, hilt]
   );
   const shield = mesh(
-    new THREE.CylinderGeometry(0.24, 0.28, 0.08, 6),
+    new THREE.CylinderGeometry(0.28, 0.33, 0.08, 6),
     mat(trim),
-    new THREE.Vector3(0.56, 0.96, 0.2),
+    new THREE.Vector3(0.18, 1.04, 0.54),
     new THREE.Vector3(1, 1.2, 1)
   );
   shield.rotation.x = Math.PI / 2;
@@ -571,17 +571,7 @@ export function createBaseModel() {
     group.add(wall);
   }
 
-  const aura = new THREE.Mesh(
-    new THREE.RingGeometry(5.45, 5.75, 48),
-    basicMat('#78e3b0', {
-      transparent: true,
-      opacity: 0.48,
-      side: THREE.DoubleSide,
-      depthWrite: false
-    })
-  );
-  aura.rotation.x = -Math.PI / 2;
-  aura.position.y = 0.035;
+  const aura = new THREE.Group();
   aura.userData.isAura = true;
   group.add(aura);
   group.userData.aura = aura;

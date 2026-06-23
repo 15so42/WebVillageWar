@@ -37,6 +37,7 @@ const FOREST_PASSAGES = [
 
 const SNOW_CENTER = { x: 2, z: -33 };
 const SURFACE_OFFSET = 0.42;
+const PATH_SURFACE_OFFSET = 0.006;
 
 export function createWorld(scene) {
   scene.background = new THREE.Color('#91cbef');
@@ -192,8 +193,8 @@ function buildPathRibbon(scene, points, material) {
     const nz = dx;
     const left = { x: point.x + nx * halfWidth, z: point.z + nz * halfWidth };
     const right = { x: point.x - nx * halfWidth, z: point.z - nz * halfWidth };
-    positions.push(left.x, terrainHeightAt(left.x, left.z) + 0.12, left.z);
-    positions.push(right.x, terrainHeightAt(right.x, right.z) + 0.12, right.z);
+    positions.push(left.x, terrainHeightAt(left.x, left.z) + PATH_SURFACE_OFFSET, left.z);
+    positions.push(right.x, terrainHeightAt(right.x, right.z) + PATH_SURFACE_OFFSET, right.z);
 
     if (index < points.length - 1) {
       const base = index * 2;
@@ -475,8 +476,8 @@ function hillHeight(x, z, cx, cz, rx, rz, height) {
 function overlayMat(color, options = {}) {
   return mat(color, {
     polygonOffset: true,
-    polygonOffsetFactor: -3,
-    polygonOffsetUnits: -3,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
     ...options
   });
 }

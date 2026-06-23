@@ -51,6 +51,13 @@ export function playUnitAnimation(unit, name, duration = getAnimationDuration(un
   };
 }
 
+export function stopUnitAnimation(unit, name = null) {
+  const animation = unit.visualRoot?.userData.animation;
+  if (!animation) return;
+  if (name && animation.name !== name) return;
+  unit.visualRoot.userData.animation = null;
+}
+
 export function getAnimationDuration(unit, name) {
   return unit.definition.art?.timelines?.[name]?.duration ?? defaultDuration(name);
 }

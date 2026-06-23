@@ -272,6 +272,7 @@ export const CARD_DEFINITIONS = [
     target: 'ground',
     radius: 2.25,
     cooldown: 5.5,
+    energyCost: 2,
     unitType: 'swordsman',
     count: 3,
     effect: {
@@ -290,6 +291,7 @@ export const CARD_DEFINITIONS = [
     target: 'ground',
     radius: 2.4,
     cooldown: 6.5,
+    energyCost: 3,
     unitType: 'archer',
     count: 2,
     effect: {
@@ -308,6 +310,7 @@ export const CARD_DEFINITIONS = [
     target: 'ground',
     radius: 3.25,
     cooldown: 8.5,
+    energyCost: 6,
     damage: 38,
     knockback: 7,
     effect: {
@@ -325,6 +328,7 @@ export const CARD_DEFINITIONS = [
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 4,
+    energyCost: 3,
     enchantmentId: 'fire',
     effect: {
       type: 'apply-buff',
@@ -341,6 +345,7 @@ export const CARD_DEFINITIONS = [
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 4,
+    energyCost: 4,
     enchantmentId: 'thorns',
     effect: {
       type: 'apply-buff',
@@ -392,12 +397,12 @@ export const BALANCE = {
       { x: 14, z: 23, rx: 2.2, rz: 0.95, rot: -0.2 }
     ],
     wildlife: [
-      { type: 'wolf', x: -14, z: 22, radius: 6.8 },
-      { type: 'wolf', x: 18, z: 12, radius: 6.4 },
-      { type: 'bear', x: -24, z: -19, radius: 7.2 },
-      { type: 'wolf', x: 20, z: -21, radius: 6.6 },
-      { type: 'bear', x: 4, z: -33, radius: 7.6 },
-      { type: 'wolf', x: -7, z: -32, radius: 6.4 }
+      { type: 'wolf', x: 27, z: 15, radius: 5.4 },
+      { type: 'wolf', x: 33, z: 10, radius: 5.2 },
+      { type: 'bear', x: 29, z: -17, radius: 5.8 },
+      { type: 'wolf', x: 34, z: -23, radius: 5.4 },
+      { type: 'bear', x: 24, z: -25, radius: 5.6 },
+      { type: 'wolf', x: 31, z: -29, radius: 5.2 }
     ]
   }
 };

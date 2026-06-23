@@ -109,20 +109,110 @@ body {
 .card-hand {
   position: fixed;
   z-index: 5;
-  right: 16px;
+  left: 50%;
   bottom: 16px;
-  left: 16px;
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(132px, 168px);
+  width: max-content;
+  max-width: calc(100vw - 28px);
+  display: flex;
+  justify-content: center;
   gap: 10px;
-  overflow-x: auto;
-  padding: 4px 2px 8px;
-  scrollbar-width: thin;
+  overflow: visible;
+  padding: 0;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.energy-panel {
+  --energy-progress: 0%;
+  position: fixed;
+  z-index: 6;
+  left: 50%;
+  bottom: 168px;
+  width: min(520px, calc(100vw - 34px));
+  padding: 8px 10px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  color: rgba(247, 244, 232, 0.92);
+  background: rgba(28, 43, 38, 0.72);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.24);
+  pointer-events: none;
+  transform: translateX(-50%);
+  backdrop-filter: blur(8px);
+}
+
+.energy-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.energy-title strong {
+  color: #fff2c7;
+  font-size: 13px;
+}
+
+.energy-cells {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.energy-cell {
+  height: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 3px;
+  background: rgba(16, 27, 25, 0.72);
+}
+
+.energy-cell.is-filled {
+  border-color: rgba(135, 232, 210, 0.82);
+  background: linear-gradient(180deg, #99f0dd, #42bda4);
+  box-shadow: inset 0 -2px 0 rgba(25, 89, 78, 0.32);
+}
+
+.energy-progress {
+  height: 3px;
+  margin-top: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.energy-progress-fill {
+  width: var(--energy-progress);
+  height: 100%;
+  border-radius: inherit;
+  background: #fff2c7;
+  transition: width 120ms linear;
+}
+
+.energy-panel.is-warning {
+  animation: energy-warning 260ms ease-out;
+}
+
+@keyframes energy-warning {
+  0% {
+    border-color: rgba(255, 224, 113, 0.22);
+    transform: translateX(-50%) scale(1);
+  }
+
+  45% {
+    border-color: rgba(255, 224, 113, 0.95);
+    transform: translateX(-50%) scale(1.025);
+  }
+
+  100% {
+    border-color: rgba(255, 255, 255, 0.16);
+    transform: translateX(-50%) scale(1);
+  }
 }
 
 .card {
   position: relative;
+  width: clamp(116px, 15.5vw, 142px);
   height: 142px;
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 8px;
@@ -134,6 +224,8 @@ body {
     linear-gradient(145deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.04)),
     var(--card-color);
   box-shadow: 0 16px 30px rgba(0, 0, 0, 0.26);
+  pointer-events: auto;
+  will-change: transform, opacity;
 }
 
 .card:active {
@@ -141,8 +233,72 @@ body {
 }
 
 .card[aria-disabled="true"] {
-  cursor: wait;
   filter: grayscale(0.35) brightness(0.78);
+}
+
+.card.is-discard-only {
+  cursor: grab;
+}
+
+.card.is-locked {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.card.is-dragging {
+  filter: brightness(1.08);
+  transform: translateY(-3px);
+}
+
+.card.is-drawn {
+  animation: card-draw-in 380ms cubic-bezier(0.16, 0.88, 0.28, 1.06);
+}
+
+.card-empty-slot {
+  width: clamp(116px, 15.5vw, 142px);
+  height: 142px;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  pointer-events: none;
+  background: rgba(17, 29, 26, 0.12);
+}
+
+@keyframes card-draw-in {
+  0% {
+    opacity: 0;
+    transform: translateY(58px) rotateX(42deg) scale(0.92);
+    filter: brightness(1.24);
+  }
+
+  68% {
+    opacity: 1;
+    transform: translateY(-7px) rotateX(0deg) scale(1.02);
+    filter: brightness(1.1);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0) rotateX(0deg) scale(1);
+    filter: brightness(1);
+  }
+}
+
+.card-cost {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  z-index: 1;
+  min-width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.36);
+  border-radius: 50%;
+  color: #12342d;
+  background: #9eeedb;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.22);
+  font-size: 14px;
+  font-weight: 900;
 }
 
 .card-art {
@@ -179,22 +335,6 @@ body {
   line-height: 1.3;
 }
 
-.cooldown {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  height: 5px;
-  background: rgba(0, 0, 0, 0.22);
-}
-
-.cooldown-fill {
-  width: 0%;
-  height: 100%;
-  background: #ffe071;
-  transition: width 120ms linear;
-}
-
 .drag-ghost {
   position: fixed;
   z-index: 9;
@@ -210,6 +350,27 @@ body {
   box-shadow: 0 18px 42px rgba(0, 0, 0, 0.35);
   backdrop-filter: blur(10px);
   font-weight: 800;
+}
+
+.drag-ghost.enchant-crosshair {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 2px solid rgba(255, 242, 199, 0.92);
+  border-radius: 50%;
+  background: rgba(16, 28, 24, 0.1);
+  box-shadow:
+    0 0 0 4px rgba(16, 28, 24, 0.12),
+    0 0 14px rgba(120, 227, 208, 0.26);
+  backdrop-filter: none;
+}
+
+.drag-ghost.enchant-crosshair.is-valid {
+  border-color: rgba(120, 227, 208, 1);
+  background: rgba(120, 227, 208, 0.08);
+  box-shadow:
+    0 0 0 4px rgba(120, 227, 208, 0.18),
+    0 0 18px rgba(120, 227, 208, 0.72);
 }
 
 .selection-box {
@@ -257,13 +418,25 @@ body {
   }
 
   .card-hand {
-    right: 10px;
     bottom: 10px;
-    left: 10px;
-    grid-auto-columns: minmax(116px, 134px);
+    left: 50%;
+    max-width: calc(100vw - 20px);
+    gap: 7px;
+  }
+
+  .energy-panel {
+    bottom: 144px;
+    width: min(420px, calc(100vw - 20px));
+    padding: 7px 8px 8px;
   }
 
   .card {
+    width: 116px;
+    height: 126px;
+  }
+
+  .card-empty-slot {
+    width: 116px;
     height: 126px;
   }
 
@@ -274,5 +447,13 @@ body {
   .card-body {
     height: 82px;
     padding: 8px;
+  }
+
+  .card-cost {
+    top: 5px;
+    right: 5px;
+    min-width: 23px;
+    height: 23px;
+    font-size: 12px;
   }
 }

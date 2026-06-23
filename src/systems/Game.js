@@ -13,6 +13,8 @@ import { RecoverySystem } from './RecoverySystem.js';
 import { SpellSystem } from './SpellSystem.js';
 import { clamp, polarOffset } from '../utils/math.js';
 
+const STRUCTURE_PUSH_PADDING = 0.18;
+
 export class Game {
   constructor({ canvas }) {
     this.canvas = canvas;
@@ -63,6 +65,10 @@ export class Game {
 
     this.world = createWorld(this.scene);
     this.playerBase.position.y = this.groundHeightAt(this.playerBase.position);
+    setupStructureBody(this.playerBase, this.world.playerBaseModel, {
+      collisionRadius: 3.55,
+      attackRadius: 3.35
+    });
     this.enemyCamp = {
       position: new THREE.Vector3(
         BALANCE.enemyCamp.position.x,
@@ -75,6 +81,10 @@ export class Game {
       projectileHitHeight: 2.2
     };
     this.enemyCamp.position.y = this.groundHeightAt(this.enemyCamp.position);
+    setupStructureBody(this.enemyCamp, this.world.enemyCampModel, {
+      collisionRadius: 2.75,
+      attackRadius: 2.45
+    });
     this.baseHealthBar = attachStructureHealthBar(this.world.playerBaseModel, '#62d56f', 3.9, 2.1);
     this.enemyCampHealthBar = attachStructureHealthBar(this.world.enemyCampModel, '#e05d56', 3.15, 2.0);
 
@@ -114,8 +124,12 @@ export class Game {
     window.addEventListener('resize', () => this.resize());
     this.resize();
 
-    this.summonUnits('swordsman', 1, new THREE.Vector3(-1.4, 0, 27.8), 0.7);
-    this.summonUnits('archer', 1, new THREE.Vector3(1.4, 0, 27.8), 0.7);
+    this.summonUnits('swordsman', 1, new THREE.Vector3(-1.4, 0, 27.8), 0.7, {
+      select: false
+    });
+    this.summonUnits('archer', 1, new THREE.Vector3(1.4, 0, 27.8), 0.7, {
+      select: false
+    });
     this.spawnWildlife();
     this.spawnEnemyWave(1, { orders: 'guard' });
 
@@ -141,6 +155,7 @@ export class Game {
     this.combat.update(dt);
     this.recovery.update(dt);
     this.effects.update(dt);
+    this.updateStructureFeedback(dt);
     this.updateCamera(dt);
     this.updateSelection();
     this.updateUnitVisuals(dt);
@@ -221,13 +236,11 @@ export class Game {
     event.stopPropagation();
   }
 
-  summonUnits(type, count, point, radius = 1) {
+  summonUnits(type, count, point, radius = 1, options = {}) {
+    const selectSpawned = options.select ?? true;
     for (let i = 0; i < count; i += 1) {
       const offset = polarOffset(i, count, radius * 0.55);
-      const position = point.clone().add(offset);
-      if (!this.isPointWalkable(position)) {
-        position.copy(point);
-      }
+      const position = this.resolveWalkablePoint(point.clone().add(offset));
       position.y = this.groundHeightAt(position);
       const unit = new UnitEntity({
         type,
@@ -237,7 +250,9 @@ export class Game {
       this.friendlyUnits.push(unit);
       this.scene.add(unit.mesh);
       this.effects.spawnRing(unit.position, '#9dd8ff', 0.82, 0.52);
-      this.selectUnit(unit);
+      if (selectSpawned) {
+        this.selectUnit(unit);
+      }
     }
   }
 
@@ -246,7 +261,7 @@ export class Game {
     for (let i = 0; i < count; i += 1) {
       const offset = polarOffset(i, count, 1.2 + (i % 3) * 0.45);
       const camp = BALANCE.enemyCamp.position;
-      const position = new THREE.Vector3(camp.x, 0, camp.z).add(offset);
+      const position = this.resolveWalkablePoint(new THREE.Vector3(camp.x, 0, camp.z).add(offset));
       position.y = this.groundHeightAt(position);
       const unit = new UnitEntity({
         type: 'raider',
@@ -264,7 +279,11 @@ export class Game {
   orderEnemyAttack(unit, index, total) {
     const formationRadius = Math.min(3, 0.8 + Math.sqrt(total) * 0.38);
     const goal = this.playerBase.position.clone().add(
-      commandFormationOffset(index, total, formationRadius)
+      commandFormationOffset(
+        index,
+        total,
+        this.playerBase.collisionRadius + formationRadius
+      )
     );
     goal.y = this.groundHeightAt(goal);
     unit.moveGoal = goal;
@@ -316,7 +335,86 @@ export class Game {
       return false;
     }
 
-    return true;
+    return !this.getStructureCollision(point);
+  }
+
+  getBlockingStructures() {
+    return [this.playerBase, this.enemyCamp].filter((structure) => (
+      structure?.alive !== false && structure.collisionRadius > 0
+    ));
+  }
+
+  getStructureCollision(point, padding = 0) {
+    return this.getBlockingStructures().find((structure) => {
+      const dx = point.x - structure.position.x;
+      const dz = point.z - structure.position.z;
+      return Math.hypot(dx, dz) < structure.collisionRadius + padding;
+    }) ?? null;
+  }
+
+  resolveWalkablePoint(point, padding = STRUCTURE_PUSH_PADDING) {
+    const resolved = point.clone();
+    for (let iteration = 0; iteration < 3; iteration += 1) {
+      let adjusted = false;
+      this.getBlockingStructures().forEach((structure) => {
+        const radius = structure.collisionRadius + padding;
+        const dx = resolved.x - structure.position.x;
+        const dz = resolved.z - structure.position.z;
+        let distance = Math.hypot(dx, dz);
+        if (distance >= radius) return;
+
+        let nx = dx;
+        let nz = dz;
+        if (distance < 0.001) {
+          nx = 0;
+          nz = structure === this.playerBase ? -1 : 1;
+          distance = 1;
+        } else {
+          nx /= distance;
+          nz /= distance;
+        }
+        resolved.x = structure.position.x + nx * radius;
+        resolved.z = structure.position.z + nz * radius;
+        adjusted = true;
+      });
+      if (!adjusted) break;
+    }
+    resolved.x = clamp(resolved.x, -BALANCE.battlefield.halfWidth, BALANCE.battlefield.halfWidth);
+    resolved.z = clamp(resolved.z, BALANCE.battlefield.minZ, BALANCE.battlefield.maxZ);
+    resolved.y = this.groundHeightAt(resolved);
+    return resolved;
+  }
+
+  updateStructureFeedback(dt) {
+    [this.playerBase, this.enemyCamp].forEach((structure) => {
+      const model = structure.model;
+      const basePosition = structure.modelBasePosition;
+      if (!model || !basePosition) return;
+
+      if (structure.shakeTime > 0) {
+        structure.shakeTime = Math.max(0, structure.shakeTime - dt);
+        const t = 1 - structure.shakeTime / structure.shakeDuration;
+        const falloff = 1 - t;
+        const pulse = Math.sin(t * Math.PI * 18);
+        const cross = Math.cos(t * Math.PI * 14);
+        const strength = structure.shakeStrength * falloff;
+        model.position.set(
+          basePosition.x + pulse * strength,
+          basePosition.y + Math.abs(cross) * strength * 0.22,
+          basePosition.z + cross * strength * 0.75
+        );
+        return;
+      }
+
+      model.position.copy(basePosition);
+    });
+  }
+
+  shakeStructure(structure, strength = 0.18, duration = 0.34) {
+    if (!structure?.model) return;
+    structure.shakeDuration = duration;
+    structure.shakeTime = Math.max(structure.shakeTime ?? 0, duration);
+    structure.shakeStrength = Math.max(structure.shakeStrength ?? 0, strength);
   }
 
   castMeteor(point, card) {
@@ -326,14 +424,18 @@ export class Game {
   damagePlayerBase(amount) {
     this.playerBase.health = Math.max(0, this.playerBase.health - amount);
     this.playerBase.alive = this.playerBase.health > 0;
+    this.shakeStructure(this.playerBase, 0.2, 0.36);
     this.effects.spawnRing(this.playerBase.position, '#ff8c66', 1.2, 0.44);
+    this.effects.spawnStructureDust(this.playerBase.position, this.playerBase.collisionRadius);
   }
 
   damageEnemyCamp(amount) {
     if (!this.enemyCamp.alive) return;
     this.enemyCamp.health = Math.max(0, this.enemyCamp.health - amount);
     this.enemyCamp.alive = this.enemyCamp.health > 0;
+    this.shakeStructure(this.enemyCamp, 0.16, 0.32);
     this.effects.spawnRing(this.enemyCamp.position, '#ff8c66', 1.1, 0.44);
+    this.effects.spawnStructureDust(this.enemyCamp.position, this.enemyCamp.collisionRadius, '#8d7464');
   }
 
   selectUnit(unit) {
@@ -488,12 +590,12 @@ export class Game {
   commandSelectedUnits(point) {
     const units = this.selectedUnits.filter((unit) => unit.alive);
     if (!units.length) return;
+    const commandCenter = this.resolveWalkablePoint(point);
     const formationRadius = Math.min(2.4, 0.55 + Math.sqrt(units.length) * 0.42);
     units.forEach((unit, index) => {
-      const destination = point.clone().add(commandFormationOffset(index, units.length, formationRadius));
-      if (!this.isPointWalkable(destination)) {
-        destination.copy(point);
-      }
+      const destination = this.resolveWalkablePoint(
+        commandCenter.clone().add(commandFormationOffset(index, units.length, formationRadius))
+      );
       destination.y = this.groundHeightAt(destination);
       unit.commandMoveGoal = destination;
       unit.moveGoal = destination.clone();
@@ -502,7 +604,7 @@ export class Game {
       unit.target = null;
     });
     this.combat.cancelPendingAttacksFor(units);
-    this.effects.spawnMoveDestination(point, formationRadius);
+    this.effects.spawnMoveDestination(commandCenter, formationRadius);
   }
 
   setPointerFromClient(clientX, clientY) {
@@ -710,7 +812,7 @@ function createSelectionBoxElement() {
 }
 
 function isGameUiTarget(target) {
-  return Boolean(target?.closest?.('.hud, .card-hand, .card, .drag-ghost'));
+  return Boolean(target?.closest?.('.hud, .card, .energy-panel, .drag-ghost'));
 }
 
 function commandFormationOffset(index, total, radius) {
@@ -750,4 +852,14 @@ function updateStructureHealthBar(healthBar, structure, camera) {
   hp.position.x = (hpRatio - 1) * 0.5;
   healthBar.visible = structure.health > 0;
   healthBar.lookAt(camera.position);
+}
+
+function setupStructureBody(structure, model, { collisionRadius, attackRadius }) {
+  structure.model = model;
+  structure.modelBasePosition = model.position.clone();
+  structure.collisionRadius = collisionRadius;
+  structure.attackRadius = attackRadius;
+  structure.shakeTime = 0;
+  structure.shakeDuration = 0;
+  structure.shakeStrength = 0;
 }

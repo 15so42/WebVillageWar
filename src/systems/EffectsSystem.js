@@ -147,6 +147,52 @@ export class EffectsSystem {
     });
   }
 
+  spawnStructureDust(position, radius = 2.5, color = '#b9aa8d') {
+    const group = new THREE.Group();
+    const dustMaterial = mat(color, {
+      transparent: true,
+      opacity: 0.72,
+      roughness: 0.95
+    }).clone();
+
+    for (let i = 0; i < 18; i += 1) {
+      const angle = Math.random() * Math.PI * 2;
+      const distance = radius * (0.35 + Math.random() * 0.65);
+      const dust = new THREE.Mesh(
+        new THREE.DodecahedronGeometry(0.055 + Math.random() * 0.055, 0),
+        dustMaterial
+      );
+      dust.position.set(
+        position.x + Math.cos(angle) * distance,
+        (position.y ?? 0) + 0.45 + Math.random() * 1.65,
+        position.z + Math.sin(angle) * distance
+      );
+      dust.userData.velocity = new THREE.Vector3(
+        Math.cos(angle) * (0.55 + Math.random() * 1.25),
+        -0.55 - Math.random() * 1.4,
+        Math.sin(angle) * (0.55 + Math.random() * 1.25)
+      );
+      dust.userData.spin = new THREE.Vector3(
+        Math.random() * 2.2,
+        Math.random() * 2.2,
+        Math.random() * 2.2
+      );
+      group.add(dust);
+    }
+
+    this.addEffect(group, 0.72, (dt, t) => {
+      group.children.forEach((dust) => {
+        dust.userData.velocity.y -= 2.3 * dt;
+        dust.position.addScaledVector(dust.userData.velocity, dt);
+        dust.rotation.x += dust.userData.spin.x * dt;
+        dust.rotation.y += dust.userData.spin.y * dt;
+        dust.rotation.z += dust.userData.spin.z * dt;
+        dust.scale.setScalar(1 - t * 0.55);
+      });
+      dustMaterial.opacity = 0.72 * (1 - t);
+    }, () => dustMaterial.dispose());
+  }
+
   spawnFire(position) {
     const flame = new THREE.Mesh(
       new THREE.ConeGeometry(0.22, 0.58, 6),
@@ -188,21 +234,46 @@ export class EffectsSystem {
 
   spawnRecoveryPulse(center, radius) {
     if (this.recoveryTimer > 0) return;
-    this.recoveryTimer = 0.22;
-    const angle = Math.random() * Math.PI * 2;
-    const distance = Math.random() * radius;
-    const mote = new THREE.Mesh(
-      new THREE.DodecahedronGeometry(0.08, 0),
-      mat('#78e3b0', { emissive: '#4ae09a', emissiveIntensity: 0.75 })
-    );
-    mote.position.set(
-      center.x + Math.cos(angle) * distance,
-      0.18,
-      center.z + Math.sin(angle) * distance
-    );
-    this.addEffect(mote, 0.9, (_, t) => {
-      mote.position.y = lerp(0.18, 1.2, t);
-      mote.scale.setScalar(1 - t * 0.3);
+    this.recoveryTimer = 0.11;
+    const group = new THREE.Group();
+    const material = mat('#78e3d0', {
+      transparent: true,
+      opacity: 0.76,
+      emissive: '#4ae09a',
+      emissiveIntensity: 0.65,
+      depthWrite: false
+    }).clone();
+
+    for (let i = 0; i < 4; i += 1) {
+      const angle = Math.random() * Math.PI * 2;
+      const distance = Math.sqrt(Math.random()) * radius;
+      const mote = new THREE.Mesh(
+        new THREE.DodecahedronGeometry(0.055 + Math.random() * 0.045, 0),
+        material
+      );
+      mote.position.set(
+        center.x + Math.cos(angle) * distance,
+        (center.y ?? 0) + 0.16 + Math.random() * 0.08,
+        center.z + Math.sin(angle) * distance
+      );
+      mote.userData.rise = 0.9 + Math.random() * 0.9;
+      mote.userData.drift = new THREE.Vector3(
+        (Math.random() - 0.5) * 0.35,
+        0,
+        (Math.random() - 0.5) * 0.35
+      );
+      group.add(mote);
+    }
+
+    this.addEffect(group, 1.15, (dt, t) => {
+      group.children.forEach((mote) => {
+        mote.position.addScaledVector(mote.userData.drift, dt);
+        mote.position.y += mote.userData.rise * dt;
+        mote.scale.setScalar(1 - t * 0.45);
+      });
+      material.opacity = 0.76 * (1 - t);
+    }, () => {
+      material.dispose();
     });
   }
 
