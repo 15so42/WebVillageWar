@@ -42,15 +42,84 @@ export class EffectsSystem {
         transparent: true,
         opacity: 0.76,
         side: THREE.DoubleSide,
-        depthWrite: false
-      })
+        depthWrite: false,
+        depthTest: false
+      }).clone()
     );
     ring.rotation.x = -Math.PI / 2;
-    ring.position.set(position.x, 0.08, position.z);
+    ring.position.set(position.x, (position.y ?? 0) + 0.08, position.z);
+    ring.renderOrder = 1500;
     ring.scale.setScalar(radius);
     this.addEffect(ring, duration, (_, t) => {
       ring.scale.setScalar(radius * (1 + t * 0.45));
       ring.material.opacity = 0.76 * (1 - t);
+    });
+  }
+
+  spawnMoveDestination(position, radius = 1) {
+    const group = new THREE.Group();
+    group.position.set(position.x, (position.y ?? 0) + 0.09, position.z);
+
+    const disc = new THREE.Mesh(
+      new THREE.CircleGeometry(0.74, 42),
+      basicMat('#78e3ff', {
+        transparent: true,
+        opacity: 0.18,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        depthTest: false
+      }).clone()
+    );
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(0.78, 1, 48),
+      basicMat('#fff2a8', {
+        transparent: true,
+        opacity: 0.95,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        depthTest: false
+      }).clone()
+    );
+    const inner = new THREE.Mesh(
+      new THREE.RingGeometry(0.28, 0.34, 32),
+      basicMat('#6ef0c4', {
+        transparent: true,
+        opacity: 0.8,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        depthTest: false
+      }).clone()
+    );
+    const beam = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.035, 0.11, 1.35, 8),
+      basicMat('#9dd8ff', {
+        transparent: true,
+        opacity: 0.38,
+        depthWrite: false,
+        depthTest: false
+      }).clone()
+    );
+
+    [disc, ring, inner].forEach((mesh) => {
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.renderOrder = 1600;
+      group.add(mesh);
+    });
+    beam.position.y = 0.68;
+    beam.renderOrder = 1601;
+    group.add(beam);
+
+    const baseScale = Math.max(0.8, radius * 0.78);
+    group.scale.setScalar(baseScale);
+    this.addEffect(group, 0.82, (_, t) => {
+      const pulse = Math.sin(t * Math.PI);
+      ring.scale.setScalar(1 + t * 0.42);
+      inner.scale.setScalar(1 + pulse * 0.35);
+      beam.scale.set(1 + pulse * 0.8, 1 - t * 0.42, 1 + pulse * 0.8);
+      disc.material.opacity = 0.18 * (1 - t);
+      ring.material.opacity = 0.95 * (1 - t);
+      inner.material.opacity = 0.8 * (1 - t);
+      beam.material.opacity = 0.38 * (1 - t);
     });
   }
 

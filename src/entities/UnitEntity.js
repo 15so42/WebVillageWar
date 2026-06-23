@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BUFF_DEFINITIONS, ENCHANTMENTS, UNIT_DEFINITIONS } from '../data/gameData.js';
+import { BUFF_DEFINITIONS, ENCHANTMENTS, TEAMS, UNIT_DEFINITIONS } from '../data/gameData.js';
 import { createHealthBar, mat } from '../art/lowpoly.js';
 import { createUnitModel, updateUnitAnimation } from '../art/visualRegistry.js';
 import { clamp } from '../utils/math.js';
@@ -23,7 +23,8 @@ export class UnitEntity {
     this.attackTimer = Math.random() * 0.25;
     this.hitStunTimer = 0;
     this.knockbackVelocity = new THREE.Vector3();
-    this.moveGoal = position.clone();
+    this.moveGoal = null;
+    this.commandMoveGoal = null;
     this.target = null;
     this.alive = true;
     this.visualState = 'idle';
@@ -42,7 +43,9 @@ export class UnitEntity {
     this.mesh.traverse((node) => {
       node.userData.entity = this;
     });
-    this.healthBar = createHealthBar();
+    this.healthBar = createHealthBar({
+      hpColor: team === TEAMS.PLAYER ? '#62d56f' : '#e05d56'
+    });
     this.mesh.add(this.healthBar);
     this.enchantHalo = createEnchantHalo();
     this.mesh.add(this.enchantHalo);

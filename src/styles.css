@@ -212,6 +212,19 @@ body {
   font-weight: 800;
 }
 
+.selection-box {
+  position: fixed;
+  z-index: 7;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  border: 1px solid rgba(255, 242, 199, 0.95);
+  background: rgba(114, 178, 143, 0.14);
+  box-shadow:
+    inset 0 0 0 1px rgba(35, 71, 53, 0.45),
+    0 0 18px rgba(255, 242, 199, 0.16);
+}
+
 @media (max-width: 760px) {
   .hud-primary {
     top: 10px;

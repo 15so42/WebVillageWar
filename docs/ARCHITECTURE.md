@@ -14,7 +14,7 @@
 - `src/systems/CombatSystem.js`：索敌、移动、普通攻击、远程弹体、击退和死亡清理。具体附魔效果不写死在这里。
 - `src/systems/RecoverySystem.js`：玩家基地回复范围。单位进入范围后回复生命和武器耐久。
 - `src/systems/EffectsSystem.js`：视觉效果。陨石、命中特效、火焰、荆棘、回复粒子和范围环都在这里。
-- `src/systems/Game.js`：组合各系统、主循环、波次、HUD、选中单位和调试状态。
+- `src/systems/Game.js`：组合各系统、主循环、RTS 相机与选中/指挥输入、波次、HUD 和调试状态。
 - `src/art/visualRegistry.js`：视觉资源入口。单位模型、弹体、法术模型和动画语义都通过这里转发，后续替换正式 GLB 时优先改这个文件。
 - `src/art/lowpoly.js`：低多边形程序化美术。剑士、弓兵、入侵者、基地、营地、树、石头、箭矢、选择环等模型都在这里。
 - `src/world/createWorld.js`：场景搭建。地形、道路、玩家基地、敌方营地、装饰物和灯光。

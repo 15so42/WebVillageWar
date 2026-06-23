@@ -11,7 +11,6 @@ export class CardSystem {
     this.drag = null;
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
-    this.groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     this.reticle = createReticle();
     this.game.scene.add(this.reticle);
     this.enchantTargetRing = createReticle();
@@ -99,9 +98,7 @@ export class CardSystem {
     };
     this.pointerFromEvent(event);
     this.raycaster.setFromCamera(this.pointer, this.game.camera);
-    const point = new THREE.Vector3();
-    this.raycaster.ray.intersectPlane(this.groundPlane, point);
-    point.y = this.game.groundHeightAt(point);
+    const point = this.game.groundPointFromClient(event.clientX, event.clientY);
     this.drag.point = point;
     this.drag.valid = false;
     this.drag.targetUnit = null;
@@ -112,6 +109,12 @@ export class CardSystem {
       this.drag.valid = Boolean(target);
       this.showEnchantPreview(target);
       this.reticle.visible = false;
+      return;
+    }
+
+    if (!point) {
+      this.reticle.visible = false;
+      this.enchantTargetRing.visible = false;
       return;
     }
 

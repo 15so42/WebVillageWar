@@ -57,9 +57,9 @@ export const UNIT_DEFINITIONS = {
       },
       timelines: {
         attack: {
-          duration: 0.58,
+          duration: 0.86,
           events: {
-            release: 0.48
+            release: 0.57
           }
         },
         hit: {

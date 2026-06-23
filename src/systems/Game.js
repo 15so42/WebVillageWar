@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createHealthBar, createSelectionRing } from '../art/lowpoly.js';
 import { BALANCE, TEAMS } from '../data/gameData.js';
 import { UnitEntity } from '../entities/UnitEntity.js';
@@ -12,7 +11,7 @@ import { EffectsSystem } from './EffectsSystem.js';
 import { ModifierSystem } from './ModifierSystem.js';
 import { RecoverySystem } from './RecoverySystem.js';
 import { SpellSystem } from './SpellSystem.js';
-import { clamp, distance2D, polarOffset } from '../utils/math.js';
+import { clamp, polarOffset } from '../utils/math.js';
 
 export class Game {
   constructor({ canvas }) {
@@ -30,15 +29,14 @@ export class Game {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.controls = new OrbitControls(this.camera, canvas);
-    this.controls.enableDamping = true;
-    this.controls.dampingFactor = 0.08;
-    this.controls.target.set(0, 4, 10);
-    this.controls.minDistance = 9;
-    this.controls.maxDistance = 78;
-    this.controls.maxPolarAngle = Math.PI * 0.48;
-    this.controls.minPolarAngle = Math.PI * 0.16;
-    this.controls.enablePan = true;
+    this.cameraTarget = new THREE.Vector3(0, 4, 18);
+    this.cameraOffsetDirection = new THREE.Vector3(0, 30, 37.2).normalize();
+    this.cameraDistance = 28.7;
+    this.cameraMinDistance = 12;
+    this.cameraMaxDistance = 78;
+    this.pointerScreen = new THREE.Vector2(window.innerWidth * 0.5, window.innerHeight * 0.5);
+    this.edgePanActive = false;
+    this.updateCamera(0);
 
     this.clock = new THREE.Clock();
     this.friendlyUnits = [];
@@ -48,6 +46,9 @@ export class Game {
     this.waveTimer = 12;
     this.lastCardPlayed = null;
     this.selectedUnit = null;
+    this.selectedUnits = [];
+    this.selectionRings = [];
+    this.selectionDrag = null;
     this.playerBase = {
       position: new THREE.Vector3(
         BALANCE.playerBase.position.x,
@@ -74,14 +75,9 @@ export class Game {
       projectileHitHeight: 2.2
     };
     this.enemyCamp.position.y = this.groundHeightAt(this.enemyCamp.position);
-    this.baseHealthBar = attachStructureHealthBar(this.world.playerBaseModel, '#62d56f', 3.25, 2.1);
+    this.baseHealthBar = attachStructureHealthBar(this.world.playerBaseModel, '#62d56f', 3.9, 2.1);
     this.enemyCampHealthBar = attachStructureHealthBar(this.world.enemyCampModel, '#e05d56', 3.15, 2.0);
 
-    const route = this.createRoute(BALANCE.world.pathPoints);
-    this.routes = {
-      playerToEnemy: route,
-      enemyToPlayer: route.map((point) => point.clone()).reverse()
-    };
     this.effects = new EffectsSystem(this.scene);
     this.modifiers = new ModifierSystem(this);
     this.buffs = new BuffSystem(this);
@@ -90,8 +86,7 @@ export class Game {
     this.cardEffects = new CardEffectSystem(this);
     this.recovery = new RecoverySystem(this);
     this.cardSystem = new CardSystem(this);
-    this.selectionRing = createSelectionRing();
-    this.scene.add(this.selectionRing);
+    this.selectionBox = createSelectionBoxElement();
 
     this.dom = {
       baseHealth: document.querySelector('#base-health'),
@@ -105,14 +100,24 @@ export class Game {
 
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
+    canvas.addEventListener('contextmenu', (event) => this.onGameContextMenu(event));
     canvas.addEventListener('pointerdown', (event) => this.onCanvasPointerDown(event));
+    canvas.addEventListener('pointermove', (event) => this.onCanvasPointerMove(event));
+    canvas.addEventListener('pointerup', (event) => this.onCanvasPointerUp(event));
+    canvas.addEventListener('pointercancel', (event) => this.onCanvasPointerCancel(event));
+    canvas.addEventListener('mousedown', (event) => this.onCanvasMouseDown(event));
+    window.addEventListener('mousemove', (event) => this.onCanvasPointerMove(event));
+    window.addEventListener('mouseup', (event) => this.onCanvasPointerUp(event));
+    canvas.addEventListener('wheel', (event) => this.onCanvasWheel(event), { passive: false });
+    window.addEventListener('pointermove', (event) => this.onWindowPointerMove(event));
+    window.addEventListener('contextmenu', (event) => this.onGameContextMenu(event), true);
     window.addEventListener('resize', () => this.resize());
     this.resize();
 
     this.summonUnits('swordsman', 1, new THREE.Vector3(-1.4, 0, 27.8), 0.7);
     this.summonUnits('archer', 1, new THREE.Vector3(1.4, 0, 27.8), 0.7);
     this.spawnWildlife();
-    this.spawnEnemyWave(1);
+    this.spawnEnemyWave(1, { orders: 'guard' });
 
     window.__VILLAGE_WAR_DEBUG__ = {
       snapshot: () => this.snapshot(),
@@ -124,30 +129,22 @@ export class Game {
     this.renderer.setAnimationLoop(() => this.tick());
   }
 
-  createRoute(points) {
-    const routePoints = points.map((point) => new THREE.Vector3(point.x, 0, point.z));
-    const curve = new THREE.CatmullRomCurve3(routePoints);
-    return curve.getPoints(86).map(
-      (point) => new THREE.Vector3(point.x, this.groundHeightAt(point), point.z)
-    );
-  }
-
   tick() {
     const dt = Math.min(this.clock.getDelta(), 0.05);
     this.waveTimer -= dt;
     if (this.waveTimer <= 0 && this.playerBase.health > 0 && this.enemyCamp.alive) {
       this.wave += 1;
-      this.spawnEnemyWave(this.wave);
+      this.spawnEnemyWave(this.wave, { orders: 'attack' });
       this.waveTimer = Math.max(12, 18 - this.wave * 0.35);
     }
     this.cardSystem.update(dt);
     this.combat.update(dt);
     this.recovery.update(dt);
     this.effects.update(dt);
+    this.updateCamera(dt);
     this.updateSelection();
     this.updateUnitVisuals(dt);
     this.updateHud();
-    this.controls.update();
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -157,6 +154,71 @@ export class Game {
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height, false);
+  }
+
+  updateCamera(dt) {
+    if (dt > 0 && this.edgePanActive && !this.cardSystem.drag && !this.selectionDrag) {
+      const margin = 26;
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      let panX = 0;
+      let panZ = 0;
+
+      if (this.pointerScreen.x <= margin) panX -= 1;
+      if (this.pointerScreen.x >= width - margin) panX += 1;
+      if (this.pointerScreen.y <= margin) panZ -= 1;
+      if (this.pointerScreen.y >= height - margin) panZ += 1;
+
+      if (panX !== 0 || panZ !== 0) {
+        const length = Math.hypot(panX, panZ);
+        const speed = 12 + this.cameraDistance * 0.24;
+        this.cameraTarget.x += (panX / length) * speed * dt;
+        this.cameraTarget.z += (panZ / length) * speed * dt;
+        this.clampCameraTarget();
+      }
+    }
+
+    this.cameraTarget.y = 4;
+    this.camera.position.copy(this.cameraTarget).addScaledVector(
+      this.cameraOffsetDirection,
+      this.cameraDistance
+    );
+    this.camera.lookAt(this.cameraTarget);
+  }
+
+  clampCameraTarget() {
+    const margin = 4;
+    this.cameraTarget.x = clamp(
+      this.cameraTarget.x,
+      -BALANCE.battlefield.halfWidth + margin,
+      BALANCE.battlefield.halfWidth - margin
+    );
+    this.cameraTarget.z = clamp(
+      this.cameraTarget.z,
+      BALANCE.battlefield.minZ + margin,
+      BALANCE.battlefield.maxZ - margin
+    );
+  }
+
+  onCanvasWheel(event) {
+    event.preventDefault();
+    this.cameraDistance = clamp(
+      this.cameraDistance + event.deltaY * 0.035,
+      this.cameraMinDistance,
+      this.cameraMaxDistance
+    );
+    this.updateCamera(0);
+  }
+
+  onWindowPointerMove(event) {
+    this.pointerScreen.set(event.clientX, event.clientY);
+    this.edgePanActive = !isGameUiTarget(event.target);
+  }
+
+  onGameContextMenu(event) {
+    if (!event.target?.closest?.('#app')) return;
+    event.preventDefault();
+    event.stopPropagation();
   }
 
   summonUnits(type, count, point, radius = 1) {
@@ -172,12 +234,6 @@ export class Game {
         team: TEAMS.PLAYER,
         position
       });
-      unit.moveGoal = new THREE.Vector3(
-        BALANCE.enemyCamp.position.x,
-        this.groundHeightAt(BALANCE.enemyCamp.position),
-        BALANCE.enemyCamp.position.z
-      );
-      this.assignRoute(unit, 'playerToEnemy');
       this.friendlyUnits.push(unit);
       this.scene.add(unit.mesh);
       this.effects.spawnRing(unit.position, '#9dd8ff', 0.82, 0.52);
@@ -185,7 +241,7 @@ export class Game {
     }
   }
 
-  spawnEnemyWave(wave) {
+  spawnEnemyWave(wave, { orders = 'attack' } = {}) {
     const count = Math.min(8, 2 + Math.floor(wave * 0.8));
     for (let i = 0; i < count; i += 1) {
       const offset = polarOffset(i, count, 1.2 + (i % 3) * 0.45);
@@ -197,11 +253,22 @@ export class Game {
         team: TEAMS.ENEMY,
         position
       });
-      unit.moveGoal = this.playerBase.position.clone();
-      this.assignRoute(unit, 'enemyToPlayer');
       this.enemyUnits.push(unit);
       this.scene.add(unit.mesh);
+      if (orders === 'attack') {
+        this.orderEnemyAttack(unit, i, count);
+      }
     }
+  }
+
+  orderEnemyAttack(unit, index, total) {
+    const formationRadius = Math.min(3, 0.8 + Math.sqrt(total) * 0.38);
+    const goal = this.playerBase.position.clone().add(
+      commandFormationOffset(index, total, formationRadius)
+    );
+    goal.y = this.groundHeightAt(goal);
+    unit.moveGoal = goal;
+    unit.commandMoveGoal = null;
   }
 
   spawnWildlife() {
@@ -230,40 +297,14 @@ export class Game {
     return this.world?.heightAt?.(x, z) ?? 0;
   }
 
-  placeUnitOnGround(unit) {
-    unit.position.y = this.groundHeightAt(unit.position);
-  }
-
-  assignRoute(unit, routeName) {
-    const route = this.routes?.[routeName];
-    if (!route?.length) return;
-    unit.route = route.map((point) => point.clone());
-    unit.routeIndex = closestRouteIndex(unit.position, unit.route);
-    if (distance2D(unit.position, unit.route[unit.routeIndex]) < 5) {
-      unit.routeIndex = Math.min(unit.route.length - 1, unit.routeIndex + 1);
+  placeUnitOnGround(unit, dt = 0) {
+    const groundY = this.groundHeightAt(unit.position);
+    if (dt <= 0) {
+      unit.position.y = groundY;
+      return;
     }
-  }
-
-  getRouteTarget(unit, finalPosition) {
-    if (!unit.route?.length || unit.routeIndex == null) return finalPosition;
-    if (unit.routeIndex >= unit.route.length) return finalPosition;
-
-    let waypoint = unit.route[unit.routeIndex];
-    while (
-      unit.routeIndex < unit.route.length - 1 &&
-      distance2D(unit.position, waypoint) < 0.9
-    ) {
-      unit.routeIndex += 1;
-      waypoint = unit.route[unit.routeIndex];
-    }
-
-    if (
-      unit.routeIndex >= unit.route.length - 1 &&
-      distance2D(unit.position, waypoint) < 1.15
-    ) {
-      return finalPosition;
-    }
-    return waypoint;
+    const maxStep = 8 * dt;
+    unit.position.y += clamp(groundY - unit.position.y, -maxStep, maxStep);
   }
 
   isPointWalkable(point) {
@@ -296,40 +337,232 @@ export class Game {
   }
 
   selectUnit(unit) {
-    this.selectedUnit = unit?.alive ? unit : null;
+    this.selectUnits(unit ? [unit] : []);
+  }
+
+  selectUnits(units) {
+    const unique = new Set();
+    this.selectedUnits = units.filter((unit) => {
+      if (!unit?.alive || unit.team !== TEAMS.PLAYER || unique.has(unit.id)) return false;
+      unique.add(unit.id);
+      return true;
+    });
+    this.selectedUnit = this.selectedUnits[0] ?? null;
   }
 
   onCanvasPointerDown(event) {
     if (event.target !== this.canvas) return;
-    const rect = this.canvas.getBoundingClientRect();
-    this.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    this.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    this.pointerScreen.set(event.clientX, event.clientY);
+
+    if (event.button === 2) {
+      event.preventDefault();
+      this.issueMoveCommand(event);
+      return;
+    }
+
+    if (event.button !== 0 || this.cardSystem.drag) return;
+    event.preventDefault();
+    this.selectionDrag = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      currentX: event.clientX,
+      currentY: event.clientY,
+      active: false
+    };
+    if (event.pointerId != null) {
+      this.canvas.setPointerCapture?.(event.pointerId);
+    }
+  }
+
+  onCanvasMouseDown(event) {
+    if (event.button !== 0 || this.selectionDrag) return;
+    this.onCanvasPointerDown(event);
+  }
+
+  onCanvasPointerMove(event) {
+    this.pointerScreen.set(event.clientX, event.clientY);
+    if (!this.isCurrentSelectionEvent(event)) return;
+    this.selectionDrag.currentX = event.clientX;
+    this.selectionDrag.currentY = event.clientY;
+
+    const dx = event.clientX - this.selectionDrag.startX;
+    const dy = event.clientY - this.selectionDrag.startY;
+    if (Math.hypot(dx, dy) > 6) {
+      this.selectionDrag.active = true;
+    }
+    this.updateSelectionBox();
+  }
+
+  onCanvasPointerUp(event) {
+    if (!this.isCurrentSelectionEvent(event)) return;
+    const drag = this.selectionDrag;
+    this.selectionDrag = null;
+    if (event.pointerId != null) {
+      this.canvas.releasePointerCapture?.(event.pointerId);
+    }
+    this.hideSelectionBox();
+
+    if (drag.active) {
+      this.selectUnits(this.unitsInScreenRect(drag));
+      return;
+    }
+
+    this.selectUnit(this.pickFriendlyUnit(event.clientX, event.clientY));
+  }
+
+  onCanvasPointerCancel(event) {
+    if (!this.isCurrentSelectionEvent(event)) return;
+    this.selectionDrag = null;
+    if (event.pointerId != null) {
+      this.canvas.releasePointerCapture?.(event.pointerId);
+    }
+    this.hideSelectionBox();
+  }
+
+  isCurrentSelectionEvent(event) {
+    if (!this.selectionDrag) return false;
+    return event.pointerId == null || this.selectionDrag.pointerId == null || this.selectionDrag.pointerId === event.pointerId;
+  }
+
+  updateSelectionBox() {
+    if (!this.selectionDrag?.active) {
+      this.hideSelectionBox();
+      return;
+    }
+    const x = Math.min(this.selectionDrag.startX, this.selectionDrag.currentX);
+    const y = Math.min(this.selectionDrag.startY, this.selectionDrag.currentY);
+    const width = Math.abs(this.selectionDrag.currentX - this.selectionDrag.startX);
+    const height = Math.abs(this.selectionDrag.currentY - this.selectionDrag.startY);
+    this.selectionBox.hidden = false;
+    this.selectionBox.style.transform = `translate(${x}px, ${y}px)`;
+    this.selectionBox.style.width = `${width}px`;
+    this.selectionBox.style.height = `${height}px`;
+  }
+
+  hideSelectionBox() {
+    this.selectionBox.hidden = true;
+  }
+
+  pickFriendlyUnit(clientX, clientY) {
+    this.setPointerFromClient(clientX, clientY);
     this.raycaster.setFromCamera(this.pointer, this.camera);
-    const objects = [...this.friendlyUnits, ...this.enemyUnits].flatMap(
-      (unit) => unit.mesh.children
-    );
+    const objects = this.friendlyUnits.flatMap((unit) => unit.mesh.children);
     const hit = this.raycaster
       .intersectObjects(objects, true)
       .find((entry) => entry.object.userData.entity?.alive);
-    this.selectUnit(hit?.object.userData.entity ?? null);
+    if (hit?.object.userData.entity) return hit.object.userData.entity;
+
+    let best = null;
+    let bestDistance = 42;
+    this.friendlyUnits.forEach((unit) => {
+      if (!unit.alive) return;
+      const screen = this.worldToScreen(unit.position);
+      const distance = Math.hypot(screen.x - clientX, screen.y - clientY);
+      if (distance < bestDistance) {
+        best = unit;
+        bestDistance = distance;
+      }
+    });
+    return best;
+  }
+
+  unitsInScreenRect(drag) {
+    const minX = Math.min(drag.startX, drag.currentX);
+    const maxX = Math.max(drag.startX, drag.currentX);
+    const minY = Math.min(drag.startY, drag.currentY);
+    const maxY = Math.max(drag.startY, drag.currentY);
+    return this.friendlyUnits.filter((unit) => {
+      if (!unit.alive) return false;
+      const screen = this.worldToScreen(unit.position);
+      return screen.x >= minX && screen.x <= maxX && screen.y >= minY && screen.y <= maxY;
+    });
+  }
+
+  issueMoveCommand(event) {
+    const point = this.groundPointFromClient(event.clientX, event.clientY);
+    if (!point || !this.selectedUnits.length) return;
+    this.commandSelectedUnits(point);
+  }
+
+  commandSelectedUnits(point) {
+    const units = this.selectedUnits.filter((unit) => unit.alive);
+    if (!units.length) return;
+    const formationRadius = Math.min(2.4, 0.55 + Math.sqrt(units.length) * 0.42);
+    units.forEach((unit, index) => {
+      const destination = point.clone().add(commandFormationOffset(index, units.length, formationRadius));
+      if (!this.isPointWalkable(destination)) {
+        destination.copy(point);
+      }
+      destination.y = this.groundHeightAt(destination);
+      unit.commandMoveGoal = destination;
+      unit.moveGoal = destination.clone();
+      unit.route = null;
+      unit.routeIndex = null;
+      unit.target = null;
+    });
+    this.combat.cancelPendingAttacksFor(units);
+    this.effects.spawnMoveDestination(point, formationRadius);
+  }
+
+  setPointerFromClient(clientX, clientY) {
+    const rect = this.canvas.getBoundingClientRect();
+    this.pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    this.pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+  }
+
+  groundPointFromClient(clientX, clientY) {
+    this.setPointerFromClient(clientX, clientY);
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    if (this.world?.ground) {
+      this.world.ground.updateMatrixWorld(true);
+      const terrainHit = this.raycaster.intersectObject(this.world.ground, false)[0];
+      if (terrainHit?.point) {
+        const point = terrainHit.point.clone();
+        point.y = this.groundHeightAt(point);
+        if (!this.isPointWalkable(point)) return null;
+        return point;
+      }
+    }
+
+    const point = new THREE.Vector3();
+    if (!this.raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), point)) {
+      return null;
+    }
+    point.y = this.groundHeightAt(point);
+    if (!this.isPointWalkable(point)) return null;
+    return point;
   }
 
   updateSelection() {
-    if (!this.selectedUnit?.alive) {
-      this.selectedUnit = null;
-      this.selectionRing.visible = false;
-      return;
+    this.selectedUnits = this.selectedUnits.filter((unit) => unit.alive);
+    this.selectedUnit = this.selectedUnits[0] ?? null;
+    this.ensureSelectionRingCount(this.selectedUnits.length);
+
+    this.selectionRings.forEach((ring, index) => {
+      const unit = this.selectedUnits[index];
+      ring.visible = Boolean(unit);
+      if (!unit) return;
+      ring.position.x = unit.position.x;
+      ring.position.y = unit.position.y + 0.05;
+      ring.position.z = unit.position.z;
+      ring.rotation.set(0, 0, 0);
+      ring.userData.ring.rotation.z += 0.035;
+      ring.userData.glow.rotation.z -= 0.018;
+    });
+  }
+
+  ensureSelectionRingCount(count) {
+    while (this.selectionRings.length < count) {
+      const ring = createSelectionRing();
+      this.selectionRings.push(ring);
+      this.scene.add(ring);
     }
-    this.selectionRing.visible = true;
-    this.selectionRing.position.x = this.selectedUnit.position.x;
-    this.selectionRing.position.y = this.selectedUnit.position.y + 0.05;
-    this.selectionRing.position.z = this.selectedUnit.position.z;
-    this.selectionRing.rotation.z += 0.03;
   }
 
   updateUnitVisuals(dt) {
     [...this.friendlyUnits, ...this.enemyUnits].forEach((unit) => {
-      this.placeUnitOnGround(unit);
+      this.placeUnitOnGround(unit, dt);
       unit.updateVisual(this.camera, dt);
     });
     updateStructureHealthBar(this.baseHealthBar, this.playerBase, this.camera);
@@ -343,7 +576,15 @@ export class Game {
     this.dom.baseHealth.textContent = `${baseRatio}%`;
     this.dom.waveLabel.textContent = String(this.wave);
     this.dom.unitCount.textContent = String(this.friendlyUnits.length);
-    if (this.selectedUnit) {
+    if (this.selectedUnits.length > 1) {
+      const totalHealth = Math.round(
+        this.selectedUnits.reduce((sum, unit) => sum + unit.health, 0)
+      );
+      const types = countBy(this.selectedUnits, (unit) => unit.name);
+      this.dom.selectedName.textContent = `已选中 ${this.selectedUnits.length} 个单位`;
+      this.dom.selectedStats.textContent = `总 HP ${totalHealth} / ${formatCounts(types)}`;
+      this.dom.selectedEnchants.textContent = '右键地面移动，遇敌自动战斗';
+    } else if (this.selectedUnit) {
       const unit = this.selectedUnit;
       const hp = Math.round(unit.health);
       const durability = Math.round(unit.weapon.durability);
@@ -367,6 +608,13 @@ export class Game {
       wave: this.wave,
       baseHealth: Math.round(this.playerBase.health),
       enemyCampHealth: Math.round(this.enemyCamp.health),
+      selectedCount: this.selectedUnits.length,
+      selectedIds: this.selectedUnits.map((unit) => unit.id),
+      camera: {
+        targetX: Number(this.cameraTarget.x.toFixed(2)),
+        targetZ: Number(this.cameraTarget.z.toFixed(2)),
+        distance: Number(this.cameraDistance.toFixed(2))
+      },
       selected: this.selectedUnit
         ? {
             id: this.selectedUnit.id,
@@ -377,6 +625,13 @@ export class Game {
             hp: Math.round(this.selectedUnit.health),
             weapon: Math.round(this.selectedUnit.weapon.durability),
             enchantments: [...this.selectedUnit.enchantments.keys()],
+            commandMoveGoal: this.selectedUnit.commandMoveGoal
+              ? {
+                  x: Number(this.selectedUnit.commandMoveGoal.x.toFixed(2)),
+                  y: Number(this.selectedUnit.commandMoveGoal.y.toFixed(2)),
+                  z: Number(this.selectedUnit.commandMoveGoal.z.toFixed(2))
+                }
+              : null,
             screen: this.worldToScreen(this.selectedUnit.position)
           }
         : null,
@@ -398,6 +653,22 @@ export class Game {
         hp: Math.round(enemy.health),
         screen: this.worldToScreen(enemy.position)
       })),
+      raiderSample: this.enemyUnits
+        .filter((enemy) => enemy.type === 'raider')
+        .slice(0, 8)
+        .map((enemy) => ({
+          id: enemy.id,
+          x: Number(enemy.position.x.toFixed(2)),
+          y: Number(enemy.position.y.toFixed(2)),
+          z: Number(enemy.position.z.toFixed(2)),
+          moveGoal: enemy.moveGoal
+            ? {
+                x: Number(enemy.moveGoal.x.toFixed(2)),
+                y: Number(enemy.moveGoal.y.toFixed(2)),
+                z: Number(enemy.moveGoal.z.toFixed(2))
+              }
+            : null
+        })),
       lastCardPlayed: this.lastCardPlayed,
       pixels: this.samplePixels()
     };
@@ -430,12 +701,44 @@ export class Game {
   }
 }
 
+function createSelectionBoxElement() {
+  const element = document.createElement('div');
+  element.className = 'selection-box';
+  element.hidden = true;
+  document.body.appendChild(element);
+  return element;
+}
+
+function isGameUiTarget(target) {
+  return Boolean(target?.closest?.('.hud, .card-hand, .card, .drag-ghost'));
+}
+
+function commandFormationOffset(index, total, radius) {
+  if (total <= 1) return new THREE.Vector3();
+  if (index === 0) return new THREE.Vector3();
+  const ringIndex = index - 1;
+  const angle = (ringIndex / Math.max(1, total - 1)) * Math.PI * 2;
+  return new THREE.Vector3(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
+}
+
+function countBy(items, selector) {
+  const counts = new Map();
+  items.forEach((item) => {
+    const key = selector(item);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  });
+  return counts;
+}
+
+function formatCounts(counts) {
+  return [...counts.entries()].map(([name, count]) => `${name} x${count}`).join('、');
+}
+
 function attachStructureHealthBar(model, color, y, scale) {
-  const healthBar = createHealthBar();
+  const healthBar = createHealthBar({ hpColor: color });
   healthBar.position.y = y;
   healthBar.scale.set(scale, scale, scale);
   healthBar.userData.weapon.visible = false;
-  healthBar.userData.hp.material.color.set(color);
   model.add(healthBar);
   return healthBar;
 }
@@ -447,17 +750,4 @@ function updateStructureHealthBar(healthBar, structure, camera) {
   hp.position.x = (hpRatio - 1) * 0.5;
   healthBar.visible = structure.health > 0;
   healthBar.lookAt(camera.position);
-}
-
-function closestRouteIndex(position, route) {
-  let bestIndex = 0;
-  let bestDistance = Number.POSITIVE_INFINITY;
-  route.forEach((point, index) => {
-    const distance = distance2D(position, point);
-    if (distance < bestDistance) {
-      bestIndex = index;
-      bestDistance = distance;
-    }
-  });
-  return bestIndex;
 }

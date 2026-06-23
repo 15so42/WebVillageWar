@@ -3,12 +3,14 @@ import {
   createProjectileModel,
   getAnimationDuration,
   getAnimationEventTime,
-  playUnitAnimation
+  playUnitAnimation,
+  updateUnitAnimation
 } from '../art/visualRegistry.js';
 import { BALANCE, TEAMS } from '../data/gameData.js';
 import { clamp, direction2D, distance2D } from '../utils/math.js';
 
 const scratch = new THREE.Vector3();
+const projectileLaunchPosition = new THREE.Vector3();
 const projectileForward = new THREE.Vector3(0, 0, 1);
 
 export class CombatSystem {
@@ -41,12 +43,21 @@ export class CombatSystem {
       return;
     }
 
+    if (unit.commandMoveGoal) {
+      if (distance2D(unit.position, unit.commandMoveGoal) > 0.65) {
+        unit.target = null;
+        this.moveToward(unit, unit.commandMoveGoal, dt, 0.48);
+        this.applyMotion(unit, dt);
+        return;
+      }
+      unit.commandMoveGoal = null;
+    }
+
     const target = this.acquireTarget(unit);
     unit.target = target;
 
     if (target) {
       const targetPosition = target.position ?? target;
-      const routeTarget = this.routeTargetFor(unit, target, targetPosition);
       const targetDistance = distance2D(unit.position, targetPosition);
       if (targetDistance <= unit.definition.attackRange) {
         this.face(unit, targetPosition, dt);
@@ -56,16 +67,16 @@ export class CombatSystem {
       } else {
         this.moveToward(
           unit,
-          routeTarget,
+          targetPosition,
           dt,
-          routeTarget === targetPosition && target.position ? stopDistance(unit) : 0.2
+          target.position ? stopDistance(unit) : 0.2
         );
       }
     } else if (unit.isWildlife) {
       this.updateWildlifeWander(unit, dt);
       this.moveToward(unit, unit.wanderGoal, dt, 0.55);
     } else if (unit.moveGoal) {
-      this.moveToward(unit, this.game.getRouteTarget(unit, unit.moveGoal), dt);
+      this.moveToward(unit, unit.moveGoal, dt);
     }
 
     this.applyMotion(unit, dt);
@@ -74,6 +85,7 @@ export class CombatSystem {
   applyMotion(unit, dt) {
     const previousX = unit.position.x;
     const previousZ = unit.position.z;
+    unit.knockbackVelocity.clampLength(0, maxKnockbackVelocity(unit));
     unit.position.addScaledVector(unit.knockbackVelocity, dt);
     unit.knockbackVelocity.multiplyScalar(Math.pow(0.08, dt));
     this.clampToBattlefield(unit);
@@ -82,7 +94,7 @@ export class CombatSystem {
       unit.position.z = previousZ;
       unit.knockbackVelocity.set(0, 0, 0);
     }
-    this.game.placeUnitOnGround(unit);
+    this.game.placeUnitOnGround(unit, dt);
   }
 
   clampToBattlefield(unit) {
@@ -141,8 +153,8 @@ export class CombatSystem {
           b.position.x = bx;
           b.position.z = bz;
         }
-        this.game.placeUnitOnGround(a);
-        this.game.placeUnitOnGround(b);
+        this.game.placeUnitOnGround(a, dt);
+        this.game.placeUnitOnGround(b, dt);
       }
     }
   }
@@ -150,7 +162,7 @@ export class CombatSystem {
   acquireTarget(unit) {
     if (unit.team === TEAMS.PLAYER) {
       return nearestUnit(unit, this.game.enemyUnits, unit.definition.aggroRange)
-        ?? (this.game.enemyCamp?.alive ? this.game.enemyCamp : null);
+        ?? nearestStructure(unit, this.game.enemyCamp, unit.definition.aggroRange);
     }
     if (unit.isWildlife) {
       const friendly = nearestUnit(unit, this.game.friendlyUnits, unit.definition.aggroRange);
@@ -164,7 +176,7 @@ export class CombatSystem {
     }
     const friendly = nearestUnit(unit, this.game.friendlyUnits, unit.definition.aggroRange);
     if (friendly) return friendly;
-    return this.game.playerBase;
+    return nearestStructure(unit, this.game.playerBase, unit.definition.aggroRange);
   }
 
   moveToward(unit, targetPosition, dt, desiredDistance = 0.18) {
@@ -181,19 +193,12 @@ export class CombatSystem {
     if (!this.game.isPointWalkable(unit.position)) {
       unit.position.x = previousX;
       unit.position.z = previousZ;
-      this.game.placeUnitOnGround(unit);
+      this.game.placeUnitOnGround(unit, dt);
       return;
     }
-    this.game.placeUnitOnGround(unit);
+    this.game.placeUnitOnGround(unit, dt);
     unit.visualState = 'walk';
     this.face(unit, targetPosition, dt);
-  }
-
-  routeTargetFor(unit, target, targetPosition) {
-    if (target === this.game.playerBase || target === this.game.enemyCamp) {
-      return this.game.getRouteTarget(unit, targetPosition);
-    }
-    return targetPosition;
   }
 
   shouldHoldMeleeRecovery(unit, distance) {
@@ -281,6 +286,11 @@ export class CombatSystem {
     }
   }
 
+  cancelPendingAttacksFor(units) {
+    const ids = new Set(units.map((unit) => unit.id));
+    this.pendingAttacks = this.pendingAttacks.filter((attack) => !ids.has(attack.source.id));
+  }
+
   resolveAttackEvent(attack) {
     const { source, target } = attack;
     if (!source.alive) return;
@@ -291,18 +301,39 @@ export class CombatSystem {
     }
 
     if (source.definition.role === 'ranged' && target?.alive !== false) {
+      this.syncSourcePoseForAttackEvent(attack);
       this.spawnProjectile(source, target);
       return;
     }
     this.applyAttack(source, target);
   }
 
+  syncSourcePoseForAttackEvent(attack) {
+    const animation = attack.source.visualRoot?.userData.animation;
+    if (!animation || animation.name !== 'attack') return;
+    animation.time = clamp(attack.fireAt, 0, attack.duration);
+    updateUnitAnimation(attack.source, 0);
+    attack.source.mesh.updateMatrixWorld(true);
+  }
+
+  getProjectileLaunchPosition(source) {
+    const parts = source.visualRoot?.userData.parts;
+    const launchPart = parts?.heldArrow ?? parts?.rightHand;
+    if (launchPart) {
+      source.mesh.updateMatrixWorld(true);
+      launchPart.getWorldPosition(projectileLaunchPosition);
+      return projectileLaunchPosition;
+    }
+    projectileLaunchPosition.copy(source.position);
+    projectileLaunchPosition.y = source.position.y + 1.18;
+    return projectileLaunchPosition;
+  }
+
   spawnProjectile(source, target) {
     const arrow = createProjectileModel('arrow', {
       color: source.hasEnchantment('fire') ? '#ffb66c' : '#e7ddc0'
     });
-    arrow.position.copy(source.position);
-    arrow.position.y = source.position.y + 1.18;
+    arrow.position.copy(this.getProjectileLaunchPosition(source));
     this.game.scene.add(arrow);
     this.projectiles.push({
       object: arrow,
@@ -370,6 +401,7 @@ export class CombatSystem {
     if (source && knockback > 0) {
       const dir = direction2D(source.position, target.position);
       target.knockbackVelocity.addScaledVector(dir, knockback);
+      target.knockbackVelocity.clampLength(0, maxKnockbackVelocity(target));
       target.hitStunTimer = Math.max(target.hitStunTimer, hitStunDuration(knockback));
     }
     playUnitAnimation(target, 'hit');
@@ -409,6 +441,11 @@ function nearestUnit(source, candidates, range) {
   return best;
 }
 
+function nearestStructure(source, structure, range) {
+  if (!structure?.alive) return null;
+  return distance2D(source.position, structure.position) <= range ? structure : null;
+}
+
 function stopDistance(unit) {
   if (unit.definition.role === 'ranged') {
     return unit.definition.attackRange * 0.92;
@@ -429,6 +466,12 @@ function deterministicPairAngle(a, b) {
 
 function hitStunDuration(knockback) {
   return clamp(0.08 + knockback * 0.024, 0.1, 0.24);
+}
+
+function maxKnockbackVelocity(unit) {
+  if (unit.type === 'bear') return 8;
+  if (unit.type === 'wolf') return 9;
+  return 10;
 }
 
 function shortestAngle(from, to) {

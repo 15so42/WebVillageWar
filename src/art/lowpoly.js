@@ -104,25 +104,35 @@ function createPivot(name, position, children) {
   return pivot;
 }
 
-export function createHealthBar() {
+export function createHealthBar({ hpColor = '#62d56f', tickColor = '#120f0d' } = {}) {
   const group = new THREE.Group();
   const back = new THREE.Mesh(
-    new THREE.BoxGeometry(1.12, 0.08, 0.04),
+    new THREE.BoxGeometry(1.045, 0.2, 0.048),
     basicMat('#211b19')
   );
   const hp = new THREE.Mesh(
-    new THREE.BoxGeometry(1, 0.055, 0.045),
-    basicMat('#62d56f')
+    new THREE.BoxGeometry(1, 0.105, 0.058),
+    basicMat(hpColor)
   );
   const weapon = new THREE.Mesh(
-    new THREE.BoxGeometry(1, 0.035, 0.046),
+    new THREE.BoxGeometry(1, 0.052, 0.056),
     basicMat('#f2d06b')
   );
-  hp.position.set(0, 0.025, 0.006);
-  weapon.position.set(0, -0.04, 0.006);
-  group.add(back, hp, weapon);
+  const ticks = new THREE.Group();
+  for (let i = 1; i < 5; i += 1) {
+    const tick = new THREE.Mesh(
+      new THREE.BoxGeometry(0.028, 0.122, 0.068),
+      basicMat(tickColor)
+    );
+    tick.position.set(-0.5 + i * 0.2, 0.043, 0.014);
+    ticks.add(tick);
+  }
+  hp.position.set(0, 0.043, 0.008);
+  weapon.position.set(0, -0.065, 0.009);
+  group.add(back, hp, weapon, ticks);
   group.userData.hp = hp;
   group.userData.weapon = weapon;
+  group.userData.ticks = ticks;
   group.position.y = 2.28;
   return group;
 }
@@ -290,38 +300,49 @@ export function createArcherModel(team) {
     new THREE.TubeGeometry(bowCurve, 6, 0.025, 5, false),
     leather
   );
-  bow.position.set(0.28, 1.03, 0.52);
+  bow.position.set(0.04, 1.03, 0.59);
   bow.rotation.x = -Math.PI / 2;
+  bow.rotation.y = -Math.PI / 2;
   bow.rotation.z = -Math.PI / 2;
-  const string = new THREE.Mesh(
+  const string = mesh(
     new THREE.BoxGeometry(1.08, 0.014, 0.014),
     mat('#e7ddc0'),
-    new THREE.Vector3(0.18, 1.05, 0.52),
+    new THREE.Vector3(0.02, 1.05, 0.59),
     new THREE.Vector3(1, 1, 1)
   );
   string.rotation.x = -Math.PI / 2;
+  string.rotation.y = -Math.PI / 2;
   const leftArm = limb(
     new THREE.Vector3(0.3, 1.2, 0.08),
-    new THREE.Vector3(0.25, 1.04, 0.48),
+    new THREE.Vector3(0.04, 1.04, 0.57),
     0.055,
     skinMat
   );
-  const rightArm = limb(
-    new THREE.Vector3(-0.3, 1.18, 0.08),
-    new THREE.Vector3(-0.06, 1.05, 0.28),
+  const rightShoulder = new THREE.Vector3(-0.3, 1.18, 0.08);
+  const rightElbow = new THREE.Vector3(-0.24, 1.15, 0.42);
+  const rightHandPosition = new THREE.Vector3(-0.22, 1.09, 0.62);
+  const rightUpperArm = limb(
+    rightShoulder,
+    rightElbow,
+    0.055,
+    skinMat
+  );
+  const rightForearm = limb(
+    rightElbow,
+    rightHandPosition,
     0.055,
     skinMat
   );
   const leftHand = mesh(
     new THREE.DodecahedronGeometry(0.09, 0),
     skinMat,
-    new THREE.Vector3(0.25, 1.04, 0.48),
+    new THREE.Vector3(0.04, 1.04, 0.57),
     new THREE.Vector3(1, 1, 1)
   );
   const rightHand = mesh(
     new THREE.DodecahedronGeometry(0.09, 0),
     skinMat,
-    new THREE.Vector3(-0.06, 1.05, 0.28),
+    rightHandPosition,
     new THREE.Vector3(1, 1, 1)
   );
   const heldArrow = new THREE.Group();
@@ -336,7 +357,7 @@ export function createArcherModel(team) {
   );
   heldHead.position.z = 0.38;
   heldHead.rotation.x = Math.PI / 2;
-  heldArrow.position.set(0.05, 1.06, 0.42);
+  heldArrow.position.set(-0.21, 1.09, 0.64);
   heldArrow.add(heldShaft, heldHead);
   const quiver = mesh(
     new THREE.CylinderGeometry(0.11, 0.13, 0.72, 6),
@@ -358,29 +379,38 @@ export function createArcherModel(team) {
     new THREE.Vector3(0.3, 1.2, 0.08),
     [leftArm, leftHand, bow, string]
   );
+  const drawForearmPivot = createPivot(
+    'archerDrawForearmPivot',
+    rightElbow,
+    [rightForearm, rightHand, heldArrow]
+  );
   const drawPivot = createPivot(
     'archerDrawPivot',
-    new THREE.Vector3(-0.3, 1.18, 0.08),
-    [rightArm, rightHand, heldArrow]
+    rightShoulder,
+    [rightUpperArm, drawForearmPivot]
+  );
+  drawPivot.rotation.y = THREE.MathUtils.degToRad(10);
+  const upperBodyPivot = createPivot(
+    'archerUpperBodyPivot',
+    new THREE.Vector3(0, 0.84, 0),
+    [body, head, eyeLeft, eyeRight, hood, quiver]
   );
 
   group.add(
-    body,
-    head,
-    eyeLeft,
-    eyeRight,
-    hood,
+    upperBodyPivot,
     bowPivot,
     drawPivot,
-    quiver,
     leg,
     leg2
   );
   group.userData.parts = {
+    upperBodyPivot,
     bowPivot,
     drawPivot,
+    drawForearmPivot,
     string,
-    heldArrow
+    heldArrow,
+    rightHand
   };
   return enableShadows(group);
 }
@@ -1064,19 +1094,37 @@ export function createReticle() {
 }
 
 export function createSelectionRing() {
-  const ring = new THREE.Mesh(
-    new THREE.RingGeometry(0.65, 0.78, 36),
-    basicMat('#fff2a8', {
+  const group = new THREE.Group();
+  const glow = new THREE.Mesh(
+    new THREE.RingGeometry(0.5, 0.92, 48),
+    basicMat('#6ef0c4', {
       transparent: true,
-      opacity: 0.8,
+      opacity: 0.24,
       side: THREE.DoubleSide,
-      depthWrite: false
+      depthWrite: false,
+      depthTest: false
     })
   );
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.66, 0.78, 48),
+    basicMat('#fff2a8', {
+      transparent: true,
+      opacity: 0.96,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      depthTest: false
+    })
+  );
+  glow.rotation.x = -Math.PI / 2;
   ring.rotation.x = -Math.PI / 2;
-  ring.position.y = 0.05;
-  ring.visible = false;
-  return ring;
+  glow.renderOrder = 2000;
+  ring.renderOrder = 2001;
+  group.add(glow, ring);
+  group.position.y = 0.05;
+  group.visible = false;
+  group.userData.glow = glow;
+  group.userData.ring = ring;
+  return group;
 }
 
 export function createMeteorModel() {
