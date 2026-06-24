@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { BUFF_DEFINITIONS, ENCHANTMENTS, TEAMS, UNIT_DEFINITIONS } from '../data/gameData.js';
 import { createHealthBar, mat } from '../art/lowpoly.js';
 import { createUnitModel, updateUnitAnimation } from '../art/visualRegistry.js';
+import { AttributeSet, bindAttributeGetter } from '../systems/AttributeSet.js';
 import { clamp } from '../utils/math.js';
 
 let nextUnitId = 1;
@@ -14,12 +15,16 @@ export class UnitEntity {
     this.team = team;
     this.definition = structuredClone(UNIT_DEFINITIONS[type]);
     this.name = this.definition.name;
-    this.maxHealth = this.definition.maxHealth;
+    this.attributes = createUnitAttributes(this.definition);
+    bindUnitAttributeGetters(this);
     this.health = this.maxHealth;
     this.weapon = {
       ...this.definition.weapon,
-      durability: this.definition.weapon.maxDurability
+      attributes: this.attributes,
+      durability: this.attributes.get('maxDurability')
     };
+    bindAttributeGetter(this.weapon, 'maxDurability', 'maxDurability');
+    bindAttributeGetter(this.weapon, 'durabilityCost', 'durabilityCost');
     this.attackTimer = Math.random() * 0.25;
     this.hitStunTimer = 0;
     this.knockbackVelocity = new THREE.Vector3();
@@ -62,16 +67,24 @@ export class UnitEntity {
   addBuff(id, definition = BUFF_DEFINITIONS[id], overrides = {}) {
     if (!definition) return null;
     const existing = this.buffs.get(id);
+    this.attributes.removeModifiersBySource(buffModifierSource(id));
     const duration = overrides.duration ?? definition.duration ?? 0;
     const instance = {
       ...definition,
       ...overrides,
       id,
+      level: overrides.level ?? definition.level ?? existing?.level ?? 1,
       source: overrides.source ?? existing?.source ?? null,
       remaining: duration,
       tickTimer: overrides.tickInterval ?? definition.tickInterval ?? existing?.tickTimer ?? 0
     };
     this.buffs.set(id, instance);
+    this.attributes.addModifiers(instance.modifiers, buffModifierSource(id), {
+      level: instance.level,
+      buff: instance,
+      owner: this
+    });
+    this.clampToAttributeCaps();
 
     if (definition.category === 'enchantment') {
       this.enchantments.set(id, instance);
@@ -84,6 +97,8 @@ export class UnitEntity {
     const buff = this.buffs.get(id);
     if (!buff) return;
     this.buffs.delete(id);
+    this.attributes.removeModifiersBySource(buffModifierSource(id));
+    this.clampToAttributeCaps();
     if (this.enchantments.has(id)) {
       this.enchantments.delete(id);
       refreshEnchantHalo(this);
@@ -96,6 +111,12 @@ export class UnitEntity {
 
   hasEnchantment(id) {
     return this.enchantments.has(id);
+  }
+
+  getAttribute(name, fallback = 0) {
+    return this.attributes.get(name, fallback, {
+      owner: this
+    });
   }
 
   restoreHealth(amount) {
@@ -112,6 +133,11 @@ export class UnitEntity {
 
   spendDurability(amount) {
     this.weapon.durability = clamp(this.weapon.durability - amount, 0, this.weapon.maxDurability);
+  }
+
+  clampToAttributeCaps() {
+    this.health = clamp(this.health, 0, this.maxHealth);
+    this.weapon.durability = clamp(this.weapon.durability, 0, this.weapon.maxDurability);
   }
 
   applyBurn(seconds, damagePerSecond) {
@@ -147,6 +173,38 @@ export class UnitEntity {
       this.alive = false;
     }
   }
+}
+
+function createUnitAttributes(definition) {
+  return new AttributeSet({
+    maxHealth: definition.maxHealth,
+    moveSpeed: definition.speed,
+    attackRange: definition.attackRange,
+    attackRate: definition.attackRate,
+    attackDamage: definition.damage,
+    knockback: definition.knockback,
+    aggroRange: definition.aggroRange,
+    projectileSpeed: definition.projectileSpeed ?? 0,
+    maxDurability: definition.weapon.maxDurability,
+    durabilityCost: definition.weapon.durabilityCost
+  });
+}
+
+function bindUnitAttributeGetters(unit) {
+  bindAttributeGetter(unit, 'maxHealth', 'maxHealth');
+  bindAttributeGetter(unit, 'moveSpeed', 'moveSpeed');
+  bindAttributeGetter(unit, 'attackRange', 'attackRange');
+  bindAttributeGetter(unit, 'attackRate', 'attackRate');
+  bindAttributeGetter(unit, 'attackDamage', 'attackDamage');
+  bindAttributeGetter(unit, 'knockback', 'knockback');
+  bindAttributeGetter(unit, 'aggroRange', 'aggroRange');
+  bindAttributeGetter(unit, 'projectileSpeed', 'projectileSpeed');
+  bindAttributeGetter(unit, 'maxDurability', 'maxDurability');
+  bindAttributeGetter(unit, 'durabilityCost', 'durabilityCost');
+}
+
+function buffModifierSource(id) {
+  return `buff:${id}`;
 }
 
 function createEnchantHalo() {

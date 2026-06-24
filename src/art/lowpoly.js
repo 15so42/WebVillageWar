@@ -319,7 +319,7 @@ export function createArcherModel(team) {
     skinMat
   );
   const rightShoulder = new THREE.Vector3(-0.3, 1.18, 0.08);
-  const rightElbow = new THREE.Vector3(-0.24, 1.15, 0.42);
+  const rightElbow = new THREE.Vector3(-0.331, 1.143, 0.406);
   const rightHandPosition = new THREE.Vector3(-0.22, 1.09, 0.62);
   const rightUpperArm = limb(
     rightShoulder,

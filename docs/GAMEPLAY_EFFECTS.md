@@ -8,7 +8,8 @@
 - `CardEffectSystem`：把卡牌的 `effect.type` 分发给对应系统。
 - `SpellSystem`：承接主动法术，例如陨石、冰环、治疗雨。
 - `BuffSystem`：承接附魔、持续状态、光环、护盾、燃烧、中毒等。
-- `ModifierSystem`：统一提供可被 Buff 修改的数值，例如移速、攻速、伤害、击退、耐久消耗。
+- `AttributeSet`：实体属性容器。每个属性由基础值、加法修改器列表、乘法修改器列表计算最终值。
+- `ModifierSystem`：统一读取单位和基地的最终数值，例如移速、攻速、伤害、击退、耐久消耗、基地回复范围。
 - `CombatSystem`：保留攻击流程、投射物、移动、索敌和死亡清理，不写具体附魔名字。
 
 ## 卡牌数据
@@ -51,8 +52,7 @@ poison: {
   effects: [
     {
       event: 'tick',
-      op: 'damageOverTime',
-      damageType: 'poison'
+      op: 'damageOverTime'
     }
   ]
 }
@@ -60,7 +60,7 @@ poison: {
 
 常用事件：
 
-- `modifyAttack`：攻击造成伤害前，适合加伤害、改伤害类型、加击退。
+- `modifyAttack`：攻击造成伤害前，适合加伤害、加击退、标记真实伤害。
 - `afterDamage`：攻击成功后，适合点燃、吸血、连锁闪电。
 - `receiveDamage`：目标受到攻击后，适合荆棘反伤、格挡、护盾。
 - `tick`：持续状态按间隔触发，适合燃烧、中毒、持续治疗。
@@ -68,13 +68,61 @@ poison: {
 常用操作：
 
 - `addDamage`：给本次攻击增加伤害。
+- `addDamageType`：给本次攻击追加伤害类型。目前只使用 `true` 表示真实伤害；未标记就是普通伤害。
 - `applyBuff`：给目标添加另一个 Buff。
 - `reflectDamage`：向攻击者反弹伤害。
 - `damageOverTime`：按 tick 造成持续伤害。
 
-## 数值修正
+当前伤害类型只分两种：
 
-需要影响移速、攻速、伤害、击退、耐久消耗时，优先走 `ModifierSystem`。Buff 可以声明 `modifiers`：
+- 普通伤害：默认类型，橙色飘字黑色描边。
+- 真实伤害：`damageTypes` 包含 `true` 时使用，白色飘字黑色描边。
+
+## 属性修改器
+
+需要影响移速、攻速、伤害、击退、耐久、基地血量或回复范围时，优先声明 `modifiers`。每个属性按以下公式计算：
+
+```txt
+final = (base + sum(add modifiers)) * product(multiply modifiers)
+```
+
+Buff 可以声明加法修改器：
+
+```js
+sharpness: {
+  name: '锋锐',
+  category: 'enchantment',
+  level: 2,
+  modifiers: [
+    {
+      stat: 'attackDamage',
+      type: 'add',
+      amountPerLevel: 1.5
+    }
+  ]
+}
+```
+
+火焰附魔不使用攻击力修改器。它只在命中后施加燃烧，燃烧伤害用效果参数随附魔等级计算：
+
+```js
+fire: {
+  name: '火焰附加',
+  category: 'enchantment',
+  level: 1,
+  effects: [
+    {
+      event: 'afterDamage',
+      op: 'applyBuff',
+      buffId: 'burning',
+      duration: 3.4,
+      damagePerSecondPerLevel: 2.4
+    }
+  ]
+}
+```
+
+也可以声明百分比修改器：
 
 ```js
 frostSlow: {
@@ -84,8 +132,25 @@ frostSlow: {
   modifiers: [
     {
       stat: 'moveSpeed',
-      op: 'multiply',
-      amount: 0.55
+      type: 'multiply',
+      factor: 0.55
+    }
+  ]
+}
+```
+
+根据等级增加百分比攻击力：
+
+```js
+warSong: {
+  name: '战歌',
+  category: 'enchantment',
+  level: 3,
+  modifiers: [
+    {
+      stat: 'attackDamage',
+      type: 'multiply',
+      percentPerLevel: 0.08
     }
   ]
 }
@@ -94,11 +159,22 @@ frostSlow: {
 当前可修正的 stat：
 
 - `moveSpeed`
+- `maxHealth`
 - `attackRate`
+- `attackRange`
 - `attackDamage`
 - `knockback`
+- `aggroRange`
 - `projectileSpeed`
+- `maxDurability`
 - `durabilityCost`
+- `collisionRadius`
+- `attackRadius`
+- `recoveryRadius`
+- `healthPerSecond`
+- `durabilityPerSecond`
+
+其中 `collisionRadius`、`attackRadius`、`recoveryRadius`、`healthPerSecond`、`durabilityPerSecond` 主要用于基地和建筑。
 
 ## 新增内容流程
 

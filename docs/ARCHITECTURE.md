@@ -9,7 +9,8 @@
 - `src/systems/CardSystem.js`：卡牌手牌 UI、拖拽、目标预览、落点合法性和卡牌释放入口。
 - `src/systems/CardEffectSystem.js`：卡牌效果分发。把 `spawn-units`、`cast-spell`、`apply-buff` 等数据效果转成系统调用。
 - `src/systems/BuffSystem.js`：Buff、附魔和持续状态生命周期。负责 `modifyAttack`、`afterDamage`、`receiveDamage`、`tick` 等事件钩子。
-- `src/systems/ModifierSystem.js`：数值修正入口。移动速度、攻击速度、伤害、击退、耐久消耗等都从这里读取，方便以后接减速、狂暴、光环。
+- `src/systems/AttributeSet.js`：属性容器。每个属性由基础值、加法修改器列表、乘法修改器列表计算最终值。
+- `src/systems/ModifierSystem.js`：最终数值读取入口。单位和基地属性都从这里读，方便以后接减速、狂暴、光环、建筑升级。
 - `src/systems/SpellSystem.js`：法术效果入口。当前承接陨石，后续冰环、治疗雨、地刺等法术放这里。
 - `src/systems/CombatSystem.js`：索敌、移动、普通攻击、远程弹体、击退和死亡清理。具体附魔效果不写死在这里。
 - `src/systems/RecoverySystem.js`：玩家基地回复范围。单位进入范围后回复生命和武器耐久。
@@ -30,8 +31,9 @@
 3. 召唤卡创建 `UnitEntity`，并把单位加入 `friendlyUnits`。
 4. 法术卡进入 `SpellSystem`，表现交给 `EffectsSystem`，伤害结算回调到 `CombatSystem`。
 5. 附魔卡通过 `BuffSystem.applyBuff()` 写入单位的 `buffs`，附魔只是 `category: 'enchantment'` 的 Buff。
-6. 普通攻击创建攻击上下文，`ModifierSystem` 给出基础数值，`BuffSystem` 的事件钩子再修改伤害、点燃目标或触发反伤。
-7. 每帧 `Game.tick()` 依次更新卡牌冷却、战斗、回复、特效、HUD 和渲染。
+6. 普通攻击创建攻击上下文，`ModifierSystem` 从单位 `AttributeSet` 读取最终攻击力、攻速、射程、击退等数值。
+7. 附魔或 Buff 如果声明 `modifiers`，会写入目标属性的加法/乘法列表；如果声明 `effects`，则在攻击后、受击后或 tick 时触发点燃、反伤等非纯数值效果。
+8. 每帧 `Game.tick()` 依次更新卡牌、战斗、回复、特效、HUD 和渲染。
 
 ## 新增卡牌
 
@@ -92,7 +94,7 @@
 
 附魔数据在 `BUFF_DEFINITIONS`，`ENCHANTMENTS` 只是兼容旧 UI 和语义的子集。当前已有：
 
-- `fire`：普通攻击附加额外伤害，并让目标燃烧。
+- `fire`：普通攻击命中后让目标燃烧，燃烧伤害取决于火焰附魔等级。
 - `thorns`：受到普通攻击后对攻击者反弹伤害。
 
 附魔实现使用事件钩子：
@@ -103,6 +105,58 @@
 - `tick`：持续状态每隔一段时间触发，例如燃烧、中毒、治疗。
 
 当前火焰和荆棘已经迁移到 `BuffSystem`，`CombatSystem.applyAttack()` 只负责创建攻击上下文和执行伤害入口。
+
+## 属性与修改器
+
+单位和基地都拥有 `attributes`。每个属性按同一条公式得到最终值：
+
+```txt
+final = (base + sum(add modifiers)) * product(multiply modifiers)
+```
+
+常见单位属性：
+
+- `maxHealth`
+- `moveSpeed`
+- `attackRange`
+- `attackRate`
+- `attackDamage`
+- `knockback`
+- `aggroRange`
+- `projectileSpeed`
+- `maxDurability`
+- `durabilityCost`
+
+常见基地属性：
+
+- `maxHealth`
+- `collisionRadius`
+- `attackRadius`
+- `recoveryRadius`
+- `healthPerSecond`
+- `durabilityPerSecond`
+
+Buff 或附魔增加属性时优先写 `modifiers`：
+
+```js
+{
+  stat: 'attackDamage',
+  type: 'add',
+  amountPerLevel: 2
+}
+```
+
+百分比类属性使用乘法修改器。它适合“力量祝福”“战歌”之类真的提高属性的效果，不用于火焰附魔本身：
+
+```js
+{
+  stat: 'attackDamage',
+  type: 'multiply',
+  percentPerLevel: 0.12
+}
+```
+
+`effects` 只处理非纯数值事件，例如点燃目标、反弹伤害、触发吸血或生成特殊效果。
 
 ## 目标选择模式
 

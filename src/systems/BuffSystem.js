@@ -37,6 +37,14 @@ export class BuffSystem {
         buff.remaining -= dt;
       }
 
+      if (buff.id === 'burning') {
+        buff.vfxTimer = (buff.vfxTimer ?? 0) - dt;
+        while (buff.vfxTimer <= 0 && unit.alive) {
+          this.game.effects.spawnBurningParticles(unit, 2);
+          buff.vfxTimer += 0.07;
+        }
+      }
+
       if (buff.tickInterval > 0) {
         buff.tickTimer -= dt;
         while (buff.tickTimer <= 0 && unit.alive) {
@@ -76,26 +84,38 @@ export class BuffSystem {
   applyEffect(effect, context) {
     if (effect.op === 'addDamage') {
       context.damage += effect.amount ?? 0;
-      if (effect.damageType) {
-        context.damageTypes.add(effect.damageType);
+      if (effect.damageType === 'true') {
+        context.damageTypes.add('true');
+      }
+      return;
+    }
+
+    if (effect.op === 'addDamageType') {
+      if (effect.damageType === 'true') {
+        context.damageTypes.add('true');
       }
       return;
     }
 
     if (effect.op === 'applyBuff') {
       const applied = this.applyBuff(context.target, effect.buffId, context.source, {
-        duration: effect.duration,
-        damagePerSecond: effect.damagePerSecond
+        duration: resolveEffectNumber(effect, 'duration', context, effect.duration),
+        damagePerSecond: resolveEffectNumber(effect, 'damagePerSecond', context, 0),
+        level: sourceBuffLevel(context)
       });
       if (applied && effect.vfx === 'fire') {
-        this.game.effects.spawnFire(context.target.position);
+        this.game.effects.spawnBurningParticles(context.target, 6);
       }
       return;
     }
 
     if (effect.op === 'reflectDamage') {
       if (!context.source?.alive) return;
-      context.source.takeRawDamage(effect.amount ?? 0);
+      const damage = effect.amount ?? 0;
+      context.source.takeRawDamage(damage);
+      this.game.effects.spawnDamageNumber(context.source.position, damage, {
+        height: 1.24
+      });
       if (effect.vfx === 'thorns') {
         this.game.effects.spawnThorns(context.target.position);
       }
@@ -106,9 +126,14 @@ export class BuffSystem {
       if (!context.target?.alive) return;
       const damagePerSecond = context.buff.damagePerSecond ?? effect.damagePerSecond ?? 0;
       const tickInterval = context.buff.tickInterval ?? effect.tickInterval ?? 0.45;
-      context.target.takeRawDamage(damagePerSecond * tickInterval);
+      const damage = damagePerSecond * tickInterval;
+      context.target.takeRawDamage(damage);
+      this.game.effects.spawnDamageNumber(context.target.position, damage, {
+        height: 1.48,
+        duration: 0.68
+      });
       if (effect.vfx === 'fire') {
-        this.game.effects.spawnFire(context.target.position);
+        this.game.effects.spawnBurningParticles(context.target, 4);
       }
     }
   }
@@ -116,4 +141,21 @@ export class BuffSystem {
   getActiveUnits() {
     return [...this.game.friendlyUnits, ...this.game.enemyUnits].filter((unit) => unit.alive);
   }
+}
+
+function resolveEffectNumber(effect, field, context, fallback = 0) {
+  if (Number.isFinite(effect[field])) return effect[field];
+  const base = Number.isFinite(effect[`${field}Base`]) ? effect[`${field}Base`] : 0;
+  const perLevel = Number.isFinite(effect[`${field}PerLevel`])
+    ? effect[`${field}PerLevel`]
+    : null;
+  if (perLevel !== null) {
+    return base + perLevel * sourceBuffLevel(context);
+  }
+  return fallback;
+}
+
+function sourceBuffLevel(context) {
+  const level = Number(context.buff?.level ?? 1);
+  return Number.isFinite(level) ? Math.max(1, level) : 1;
 }

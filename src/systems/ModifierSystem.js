@@ -3,36 +3,78 @@ export class ModifierSystem {
     this.game = game;
   }
 
+  getAttribute(entity, stat, fallback = 0) {
+    if (entity?.attributes) {
+      return entity.attributes.get(stat, fallback, {
+        owner: entity,
+        game: this.game
+      });
+    }
+    return this.applyLegacyBuffModifiers(entity, stat, fallback);
+  }
+
+  getMaxHealth(entity) {
+    return this.getAttribute(entity, 'maxHealth', entity?.maxHealth ?? 0);
+  }
+
   getMoveSpeed(unit) {
-    return this.applyNumericModifiers(unit, 'moveSpeed', unit.definition.speed);
+    return this.getAttribute(unit, 'moveSpeed', unit.definition.speed);
+  }
+
+  getAttackRange(unit) {
+    return this.getAttribute(unit, 'attackRange', unit.definition.attackRange);
   }
 
   getAttackRate(unit) {
-    return this.applyNumericModifiers(unit, 'attackRate', unit.definition.attackRate);
+    return this.getAttribute(unit, 'attackRate', unit.definition.attackRate);
   }
 
   getAttackDamage(unit) {
-    return this.applyNumericModifiers(unit, 'attackDamage', unit.definition.damage);
+    return this.getAttribute(unit, 'attackDamage', unit.definition.damage);
   }
 
   getKnockback(unit) {
-    return this.applyNumericModifiers(unit, 'knockback', unit.definition.knockback);
+    return this.getAttribute(unit, 'knockback', unit.definition.knockback);
+  }
+
+  getAggroRange(unit) {
+    return this.getAttribute(unit, 'aggroRange', unit.definition.aggroRange);
   }
 
   getProjectileSpeed(unit) {
-    return this.applyNumericModifiers(
-      unit,
-      'projectileSpeed',
-      unit.definition.projectileSpeed ?? 0
-    );
+    return this.getAttribute(unit, 'projectileSpeed', unit.definition.projectileSpeed ?? 0);
+  }
+
+  getMaxDurability(unit) {
+    return this.getAttribute(unit, 'maxDurability', unit.definition.weapon.maxDurability);
   }
 
   getDurabilityCost(unit) {
-    return this.applyNumericModifiers(
-      unit,
-      'durabilityCost',
-      unit.definition.weapon.durabilityCost
+    return this.getAttribute(unit, 'durabilityCost', unit.definition.weapon.durabilityCost);
+  }
+
+  getStructureRecoveryRadius(structure) {
+    return this.getAttribute(structure, 'recoveryRadius', structure?.recoveryRadius ?? 0);
+  }
+
+  getStructureHealthPerSecond(structure) {
+    return this.getAttribute(structure, 'healthPerSecond', structure?.healthPerSecond ?? 0);
+  }
+
+  getStructureDurabilityPerSecond(structure) {
+    return this.getAttribute(
+      structure,
+      'durabilityPerSecond',
+      structure?.durabilityPerSecond ?? 0
     );
+  }
+
+  getStructureCollisionRadius(structure) {
+    return this.getAttribute(structure, 'collisionRadius', structure?.collisionRadius ?? 0);
+  }
+
+  getStructureAttackRadius(structure) {
+    return this.getAttribute(structure, 'attackRadius', structure?.attackRadius ?? 0);
   }
 
   createAttackContext(source, target, override = {}) {
@@ -48,9 +90,9 @@ export class ModifierSystem {
     };
   }
 
-  applyNumericModifiers(unit, stat, baseValue) {
+  applyLegacyBuffModifiers(unit, stat, baseValue) {
     let value = baseValue;
-    unit.buffs?.forEach((buff) => {
+    unit?.buffs?.forEach((buff) => {
       (buff.modifiers ?? []).forEach((modifier) => {
         if (modifier.stat !== stat) return;
         value = applyModifier(value, modifier);
@@ -61,13 +103,14 @@ export class ModifierSystem {
 }
 
 function applyModifier(value, modifier) {
-  if (modifier.op === 'add') {
+  const type = modifier.type ?? modifier.op;
+  if (type === 'add') {
     return value + modifier.amount;
   }
-  if (modifier.op === 'multiply') {
+  if (type === 'multiply') {
     return value * modifier.amount;
   }
-  if (modifier.op === 'set') {
+  if (type === 'set') {
     return modifier.amount;
   }
   return value;

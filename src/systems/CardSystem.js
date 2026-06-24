@@ -72,10 +72,12 @@ export class CardSystem {
       element.style.setProperty('--card-color', card.color);
       element.innerHTML = `
         <div class="card-cost">${cardEnergyCost(card)}</div>
-        <div class="card-art">${card.label}</div>
-        <div class="card-body">
+        <div class="card-face">
+          <div class="card-header">
+            <div class="card-rune">${card.label}</div>
+            <div class="card-kind">${kindLabel(card.kind)}</div>
+          </div>
           <div class="card-name">${card.name}</div>
-          <div class="card-kind">${kindLabel(card.kind)}</div>
           <div class="card-text">${card.summary}</div>
         </div>
       `;

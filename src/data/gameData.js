@@ -203,22 +203,16 @@ export const BUFF_DEFINITIONS = {
     category: 'enchantment',
     color: '#ff823d',
     duration: 999,
+    level: 1,
     burnSeconds: 3.4,
-    burnDamagePerSecond: 2.4,
-    bonusDamage: 1.4,
+    burnDamagePerSecondPerLevel: 2.4,
     effects: [
-      {
-        event: 'modifyAttack',
-        op: 'addDamage',
-        amount: 1.4,
-        damageType: 'fire'
-      },
       {
         event: 'afterDamage',
         op: 'applyBuff',
         buffId: 'burning',
         duration: 3.4,
-        damagePerSecond: 2.4,
+        damagePerSecondPerLevel: 2.4,
         vfx: 'fire'
       }
     ]
@@ -250,7 +244,6 @@ export const BUFF_DEFINITIONS = {
       {
         event: 'tick',
         op: 'damageOverTime',
-        damageType: 'fire',
         vfx: 'fire'
       }
     ]
@@ -268,17 +261,17 @@ export const CARD_DEFINITIONS = [
     name: '派遣剑士',
     kind: 'summon',
     label: '剑',
-    summary: '3 名近战单位',
+    summary: '召唤 1 名近战单位',
     target: 'ground',
-    radius: 2.25,
+    radius: 1.15,
     cooldown: 5.5,
     energyCost: 2,
     unitType: 'swordsman',
-    count: 3,
+    count: 1,
     effect: {
       type: 'spawn-units',
       unitType: 'swordsman',
-      count: 3
+      count: 1
     },
     color: '#8f5b3d'
   },
@@ -287,17 +280,17 @@ export const CARD_DEFINITIONS = [
     name: '派遣弓兵',
     kind: 'summon',
     label: '弓',
-    summary: '2 名远程单位',
+    summary: '召唤 1 名远程单位',
     target: 'ground',
-    radius: 2.4,
+    radius: 1.15,
     cooldown: 6.5,
     energyCost: 3,
     unitType: 'archer',
-    count: 2,
+    count: 1,
     effect: {
       type: 'spawn-units',
       unitType: 'archer',
-      count: 2
+      count: 1
     },
     color: '#3f7d5b'
   },

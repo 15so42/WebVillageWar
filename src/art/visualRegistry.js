@@ -195,40 +195,44 @@ function applyArcherAttack(root, t, pulse) {
   const { upperBodyPivot, bowPivot, drawPivot, drawForearmPivot, heldArrow, string } = root.userData.parts ?? {};
   if (!bowPivot || !drawPivot) return;
   const releaseAt = 0.57;
-  const aim = smoothstep(0, 0.22, t) * (1 - smoothstep(0.84, 1, t));
-  const upperAim = smoothstep(0, 0.22, t) * (1 - smoothstep(0.9, 1, t));
-  const pull = smoothstep(0.14, 0.5, t) * (1 - smoothstep(0.64, 0.82, t));
-  const releaseSnap = bell(releaseAt, 0.66, 0.86, t);
+  const aimIn = smoothstep(0, 0.22, t);
+  const upperAim = aimIn * (1 - smoothstep(0.9, 1, t));
+  const bowAim = aimIn * (1 - smoothstep(0.84, 1, t));
+  const handRecover = smoothstep(0.6, 0.95, t);
+  const handAim = aimIn * (1 - handRecover);
+  const drawIn = smoothstep(0.14, 0.5, t);
+  const handPull = drawIn * (1 - handRecover);
+  const stringPull = drawIn * (1 - smoothstep(releaseAt, releaseAt + 0.09, t));
+  const bowKick = bell(releaseAt, 0.62, 0.74, t);
 
   if (upperBodyPivot) {
-    upperBodyPivot.position.x += 0.018 * upperAim - 0.006 * releaseSnap;
-    upperBodyPivot.position.z -= 0.04 * upperAim - 0.012 * releaseSnap;
-    upperBodyPivot.rotation.y += -0.9 * upperAim + 0.025 * releaseSnap;
-    upperBodyPivot.rotation.x += 0.018 * pull - 0.024 * releaseSnap;
-    upperBodyPivot.rotation.z += -0.012 * upperAim + 0.012 * releaseSnap;
+    upperBodyPivot.position.x += 0.018 * upperAim;
+    upperBodyPivot.position.z -= 0.04 * upperAim;
+    upperBodyPivot.rotation.y += -0.9 * upperAim;
+    upperBodyPivot.rotation.x += 0.018 * handPull - 0.006 * bowKick;
+    upperBodyPivot.rotation.z += -0.012 * upperAim;
   }
-  bowPivot.rotation.x += -0.055 * pull + 0.035 * releaseSnap;
-  bowPivot.rotation.z += 0.024 * aim + 0.04 * pull - 0.025 * releaseSnap;
-  drawPivot.position.x += 0.02 * aim + 0.06 * pull - 0.055 * releaseSnap;
-  drawPivot.position.y += 0.13 * pull - 0.085 * releaseSnap;
-  drawPivot.position.z -= 0.22 * aim + 0.05 * pull - 0.16 * releaseSnap;
-  drawPivot.rotation.x += 0.2 * pull - 0.12 * releaseSnap;
-  drawPivot.rotation.y += -0.14 * pull + 0.085 * releaseSnap;
+  bowPivot.rotation.x += -0.055 * stringPull + 0.012 * bowKick;
+  bowPivot.rotation.z += 0.024 * bowAim + 0.04 * stringPull - 0.01 * bowKick;
+  drawPivot.position.x += 0.01 * handAim - 0.01 * handPull;
+  drawPivot.position.y += 0.004 * handPull;
+  drawPivot.position.z -= 0.22 * handAim + 0.14 * handPull;
+  drawPivot.rotation.x += 0.028 * handPull;
+  drawPivot.rotation.y += -0.22 * handPull;
   if (drawForearmPivot) {
-    drawForearmPivot.rotation.y += -0.045 * pull + 0.035 * releaseSnap;
-    drawForearmPivot.rotation.x += 0.3 * pull - 0.2 * releaseSnap;
+    drawForearmPivot.rotation.y += 0.215 * handPull;
+    drawForearmPivot.rotation.x += 0.008 * handPull;
   }
 
   if (string) {
-    string.position.x -= 0.045 * pull - 0.03 * releaseSnap;
-    string.position.z -= 0.15 * pull - 0.1 * releaseSnap;
-    string.scale.x = 1 - 0.24 * pull + 0.14 * releaseSnap;
+    string.position.x -= 0.045 * stringPull;
+    string.position.z -= 0.15 * stringPull;
+    string.scale.x = 1 - 0.24 * stringPull;
   }
   if (heldArrow) {
     heldArrow.visible = t < releaseAt;
-    heldArrow.position.x -= 0.045 * pull - 0.03 * releaseSnap;
-    heldArrow.position.z -= 0.12 * pull - 0.08 * releaseSnap;
-    heldArrow.position.y -= 0.045 * pull - 0.03 * releaseSnap;
+    heldArrow.position.x -= 0.004 * handPull;
+    heldArrow.position.z -= 0.18 * handPull;
   }
 }
 

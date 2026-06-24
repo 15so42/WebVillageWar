@@ -71,7 +71,8 @@ export class CombatSystem {
       const targetPosition = getTargetPosition(target);
       const targetDistance = distance2D(unit.position, targetPosition);
       const targetRadius = targetCombatRadius(target);
-      if (targetDistance <= unit.definition.attackRange + targetRadius) {
+      const attackRange = this.game.modifiers.getAttackRange(unit);
+      if (targetDistance <= attackRange + targetRadius) {
         this.face(unit, targetPosition, dt);
         this.tryAttack(unit, target);
       } else {
@@ -79,7 +80,7 @@ export class CombatSystem {
           unit,
           targetPosition,
           dt,
-          target.position ? targetRadius + stopDistance(unit) : 0.2
+          target.position ? targetRadius + stopDistance(unit, this.game.modifiers) : 0.2
         );
       }
     } else if (unit.isWildlife) {
@@ -170,23 +171,24 @@ export class CombatSystem {
   }
 
   acquireTarget(unit) {
+    const aggroRange = this.game.modifiers.getAggroRange(unit);
     if (unit.team === TEAMS.PLAYER) {
-      return nearestUnit(unit, this.game.enemyUnits, unit.definition.aggroRange)
-        ?? nearestStructure(unit, this.game.enemyCamp, unit.definition.aggroRange);
+      return nearestUnit(unit, this.game.enemyUnits, aggroRange)
+        ?? nearestStructure(unit, this.game.enemyCamp, aggroRange);
     }
     if (unit.isWildlife) {
-      const friendly = nearestUnit(unit, this.game.friendlyUnits, unit.definition.aggroRange);
+      const friendly = nearestUnit(unit, this.game.friendlyUnits, aggroRange);
       if (
         friendly &&
-        distance2D(unit.spawnPoint, friendly.position) <= unit.leashRadius + unit.definition.aggroRange
+        distance2D(unit.spawnPoint, friendly.position) <= unit.leashRadius + aggroRange
       ) {
         return friendly;
       }
       return null;
     }
-    const friendly = nearestUnit(unit, this.game.friendlyUnits, unit.definition.aggroRange);
+    const friendly = nearestUnit(unit, this.game.friendlyUnits, aggroRange);
     if (friendly) return friendly;
-    return nearestStructure(unit, this.game.playerBase, unit.definition.aggroRange);
+    return nearestStructure(unit, this.game.playerBase, aggroRange);
   }
 
   moveToward(unit, targetPosition, dt, desiredDistance = 0.18) {
@@ -308,7 +310,8 @@ export class CombatSystem {
     if (!source.alive) return;
     if (target?.alive === false) return;
     if (target?.position && source.definition.role === 'melee') {
-      const allowedRange = source.definition.attackRange + targetCombatRadius(target) + 0.85;
+      const allowedRange =
+        this.game.modifiers.getAttackRange(source) + targetCombatRadius(target) + 0.85;
       if (distance2D(source.position, target.position) > allowedRange) return;
     }
 
@@ -407,9 +410,12 @@ export class CombatSystem {
     }
   }
 
-  applyDamage(target, amount, source = null, knockback = 0) {
+  applyDamage(target, amount, source = null, knockback = 0, context = {}) {
     if (!target?.alive) return false;
     target.takeRawDamage(amount);
+    this.game.effects.spawnDamageNumber(target.position, amount, {
+      damageType: context.damageTypes?.has?.('true') ? 'true' : 'normal'
+    });
     if (source && knockback > 0) {
       const dir = direction2D(source.position, target.position);
       target.knockbackVelocity.addScaledVector(dir, knockback);
@@ -473,11 +479,12 @@ function targetCombatRadius(target) {
   return 0;
 }
 
-function stopDistance(unit) {
+function stopDistance(unit, modifiers) {
+  const attackRange = modifiers.getAttackRange(unit);
   if (unit.definition.role === 'ranged') {
-    return unit.definition.attackRange * 0.92;
+    return attackRange * 0.92;
   }
-  return Math.max(0.75, unit.definition.attackRange * 0.88);
+  return Math.max(0.75, attackRange * 0.88);
 }
 
 function crowdRadius(unit) {

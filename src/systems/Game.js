@@ -8,6 +8,7 @@ import { CardEffectSystem } from './CardEffectSystem.js';
 import { CardSystem } from './CardSystem.js';
 import { CombatSystem } from './CombatSystem.js';
 import { EffectsSystem } from './EffectsSystem.js';
+import { AttributeSet, bindAttributeGetter } from './AttributeSet.js';
 import { ModifierSystem } from './ModifierSystem.js';
 import { RecoverySystem } from './RecoverySystem.js';
 import { SpellSystem } from './SpellSystem.js';
@@ -51,17 +52,21 @@ export class Game {
     this.selectedUnits = [];
     this.selectionRings = [];
     this.selectionDrag = null;
-    this.playerBase = {
+    this.playerBase = createStructureState({
+      id: 'player-base',
       position: new THREE.Vector3(
         BALANCE.playerBase.position.x,
         0,
         BALANCE.playerBase.position.z
       ),
-      health: BALANCE.playerBase.maxHealth,
-      maxHealth: BALANCE.playerBase.maxHealth,
-      alive: true,
-      projectileHitHeight: 2.1
-    };
+      projectileHitHeight: 2.1,
+      attributes: {
+        maxHealth: BALANCE.playerBase.maxHealth,
+        recoveryRadius: BALANCE.playerBase.recoveryRadius,
+        healthPerSecond: BALANCE.playerBase.healthPerSecond,
+        durabilityPerSecond: BALANCE.playerBase.durabilityPerSecond
+      }
+    });
 
     this.world = createWorld(this.scene);
     this.playerBase.position.y = this.groundHeightAt(this.playerBase.position);
@@ -69,17 +74,18 @@ export class Game {
       collisionRadius: 3.55,
       attackRadius: 3.35
     });
-    this.enemyCamp = {
+    this.enemyCamp = createStructureState({
+      id: 'enemy-camp',
       position: new THREE.Vector3(
         BALANCE.enemyCamp.position.x,
         0,
         BALANCE.enemyCamp.position.z
       ),
-      health: BALANCE.enemyCamp.maxHealth,
-      maxHealth: BALANCE.enemyCamp.maxHealth,
-      alive: true,
-      projectileHitHeight: 2.2
-    };
+      projectileHitHeight: 2.2,
+      attributes: {
+        maxHealth: BALANCE.enemyCamp.maxHealth
+      }
+    });
     this.enemyCamp.position.y = this.groundHeightAt(this.enemyCamp.position);
     setupStructureBody(this.enemyCamp, this.world.enemyCampModel, {
       collisionRadius: 2.75,
@@ -427,6 +433,9 @@ export class Game {
     this.shakeStructure(this.playerBase, 0.2, 0.36);
     this.effects.spawnRing(this.playerBase.position, '#ff8c66', 1.2, 0.44);
     this.effects.spawnStructureDust(this.playerBase.position, this.playerBase.collisionRadius);
+    this.effects.spawnDamageNumber(this.playerBase.position, amount, {
+      height: 2.55
+    });
   }
 
   damageEnemyCamp(amount) {
@@ -436,6 +445,9 @@ export class Game {
     this.shakeStructure(this.enemyCamp, 0.16, 0.32);
     this.effects.spawnRing(this.enemyCamp.position, '#ff8c66', 1.1, 0.44);
     this.effects.spawnStructureDust(this.enemyCamp.position, this.enemyCamp.collisionRadius, '#8d7464');
+    this.effects.spawnDamageNumber(this.enemyCamp.position, amount, {
+      height: 2.7
+    });
   }
 
   selectUnit(unit) {
@@ -845,6 +857,27 @@ function attachStructureHealthBar(model, color, y, scale) {
   return healthBar;
 }
 
+function createStructureState({ id, position, projectileHitHeight, attributes }) {
+  const structure = {
+    id,
+    kind: 'structure',
+    position,
+    projectileHitHeight,
+    attributes: new AttributeSet(attributes),
+    alive: true
+  };
+  [
+    'maxHealth',
+    'recoveryRadius',
+    'healthPerSecond',
+    'durabilityPerSecond',
+    'collisionRadius',
+    'attackRadius'
+  ].forEach((attribute) => bindAttributeGetter(structure, attribute, attribute));
+  structure.health = structure.maxHealth;
+  return structure;
+}
+
 function updateStructureHealthBar(healthBar, structure, camera) {
   const hpRatio = clamp(structure.health / structure.maxHealth, 0, 1);
   const hp = healthBar.userData.hp;
@@ -857,8 +890,8 @@ function updateStructureHealthBar(healthBar, structure, camera) {
 function setupStructureBody(structure, model, { collisionRadius, attackRadius }) {
   structure.model = model;
   structure.modelBasePosition = model.position.clone();
-  structure.collisionRadius = collisionRadius;
-  structure.attackRadius = attackRadius;
+  structure.attributes.setBase('collisionRadius', collisionRadius);
+  structure.attributes.setBase('attackRadius', attackRadius);
   structure.shakeTime = 0;
   structure.shakeDuration = 0;
   structure.shakeStrength = 0;

@@ -147,6 +147,64 @@ export class EffectsSystem {
     });
   }
 
+  spawnDamageNumber(position, amount, options = {}) {
+    const value = Math.max(0, amount);
+    if (value <= 0.01) return;
+    const text = formatDamage(value);
+    const damageType = options.damageType ?? 'normal';
+    const color = options.color ?? (damageType === 'true' ? '#ffffff' : '#ff9b35');
+    const stroke = options.stroke ?? '#000000';
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 256;
+    const context = canvas.getContext('2d');
+    context.imageSmoothingEnabled = false;
+    context.font = '900 116px Arial, sans-serif';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.lineWidth = 26;
+    context.lineJoin = 'round';
+    context.miterLimit = 2;
+    context.strokeStyle = stroke;
+    context.fillStyle = color;
+    context.strokeText(text, 256, 126);
+    context.fillText(text, 256, 126);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.generateMipmaps = false;
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    const material = new THREE.SpriteMaterial({
+      map: texture,
+      transparent: true,
+      opacity: 1,
+      depthTest: false,
+      depthWrite: false
+    });
+    const sprite = new THREE.Sprite(material);
+    const drift = (Math.random() - 0.5) * 0.42;
+    sprite.position.set(
+      position.x + (Math.random() - 0.5) * 0.28,
+      (position.y ?? 0) + (options.height ?? 1.35),
+      position.z + (Math.random() - 0.5) * 0.28
+    );
+    sprite.scale.set(1.32, 0.66, 1);
+    sprite.renderOrder = 1900;
+    this.addEffect(sprite, options.duration ?? 0.82, (dt, t) => {
+      sprite.position.x += drift * dt;
+      sprite.position.y += (1.35 + t * 0.9) * dt;
+      const scale = 1 + Math.sin(t * Math.PI) * 0.28;
+      sprite.scale.set(1.32 * scale, 0.66 * scale, 1);
+      const fadeStart = options.fadeStart ?? 0.6;
+      const fadeT = clamp((t - fadeStart) / Math.max(0.01, 1 - fadeStart), 0, 1);
+      material.opacity = clamp(1 - fadeT ** 3, 0, 1);
+    }, () => {
+      texture.dispose();
+      material.dispose();
+    });
+  }
+
   spawnStructureDust(position, radius = 2.5, color = '#b9aa8d') {
     const group = new THREE.Group();
     const dustMaterial = mat(color, {
@@ -194,15 +252,63 @@ export class EffectsSystem {
   }
 
   spawnFire(position) {
-    const flame = new THREE.Mesh(
-      new THREE.ConeGeometry(0.22, 0.58, 6),
-      mat('#ff823d', { emissive: '#ff4a1a', emissiveIntensity: 0.9 })
-    );
-    flame.position.set(position.x, position.y + 0.45, position.z);
-    this.addEffect(flame, 0.44, (_, t) => {
-      flame.position.y += 0.018;
-      flame.scale.setScalar(1 + t * 0.5);
-      flame.material.opacity = clamp(1 - t, 0, 1);
+    this.spawnFireParticlesAt(position, 5, 0.44, 0.36);
+  }
+
+  spawnBurningParticles(target, count = 2) {
+    if (!target?.position) return;
+    this.spawnFireParticlesAt(target.position, count, 0.5, 0.42, target.projectileHitHeight ?? 1.2);
+  }
+
+  spawnFireParticlesAt(position, count = 3, duration = 0.48, radius = 0.35, height = 1.1) {
+    const group = new THREE.Group();
+    const materials = [];
+    for (let i = 0; i < count; i += 1) {
+      const warm = Math.random();
+      const color = warm > 0.48 ? '#ffd35a' : '#ff5d2d';
+      const material = mat(color, {
+        transparent: true,
+        opacity: 0.92,
+        emissive: color,
+        emissiveIntensity: 0.9,
+        depthWrite: false
+      }).clone();
+      materials.push(material);
+      const particle = new THREE.Mesh(
+        new THREE.DodecahedronGeometry(0.045 + Math.random() * 0.045, 0),
+        material
+      );
+      const angle = Math.random() * Math.PI * 2;
+      const distance = Math.sqrt(Math.random()) * radius;
+      particle.position.set(
+        position.x + Math.cos(angle) * distance,
+        (position.y ?? 0) + 0.28 + Math.random() * Math.max(0.3, height * 0.45),
+        position.z + Math.sin(angle) * distance
+      );
+      particle.userData.velocity = new THREE.Vector3(
+        Math.cos(angle) * (0.16 + Math.random() * 0.42),
+        2.2 + Math.random() * 1.45,
+        Math.sin(angle) * (0.16 + Math.random() * 0.42)
+      );
+      particle.userData.spin = new THREE.Vector3(
+        Math.random() * 8,
+        Math.random() * 8,
+        Math.random() * 8
+      );
+      group.add(particle);
+    }
+
+    this.addEffect(group, duration, (dt, t) => {
+      group.children.forEach((particle) => {
+        particle.position.addScaledVector(particle.userData.velocity, dt);
+        particle.rotation.x += particle.userData.spin.x * dt;
+        particle.rotation.y += particle.userData.spin.y * dt;
+        particle.rotation.z += particle.userData.spin.z * dt;
+        particle.scale.setScalar(1 - t * 0.72);
+        particle.material.opacity = 0.92 * (1 - t);
+      });
+    }, () => {
+      materials.forEach((material) => material.dispose());
     });
   }
 
@@ -314,4 +420,9 @@ export class EffectsSystem {
       crater.material.opacity = 0.34 * (1 - t);
     });
   }
+}
+
+function formatDamage(value) {
+  if (value >= 10) return String(Math.round(value));
+  return value.toFixed(1).replace(/\.0$/, '');
 }

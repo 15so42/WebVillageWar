@@ -221,11 +221,55 @@ body {
   user-select: none;
   touch-action: none;
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.04)),
+    radial-gradient(circle at 24% 10%, rgba(255, 255, 255, 0.34), transparent 34%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.04)),
     var(--card-color);
-  box-shadow: 0 16px 30px rgba(0, 0, 0, 0.26);
+  box-shadow:
+    0 16px 30px rgba(0, 0, 0, 0.26),
+    0 0 18px color-mix(in srgb, var(--card-color) 46%, transparent);
   pointer-events: auto;
   will-change: transform, opacity;
+  isolation: isolate;
+  transition:
+    transform 140ms ease,
+    box-shadow 140ms ease,
+    filter 140ms ease;
+}
+
+.card::before,
+.card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.card::before {
+  background:
+    linear-gradient(115deg, transparent 0 18%, rgba(255, 255, 255, 0.42) 34%, transparent 49%),
+    radial-gradient(circle at 74% 6%, rgba(255, 242, 199, 0.42), transparent 26%);
+  opacity: 0.36;
+  transform: translateX(-36%);
+}
+
+.card::after {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: inherit;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.09),
+    inset 0 -28px 36px rgba(0, 0, 0, 0.18);
+}
+
+.card:hover {
+  transform: translateY(-4px);
+  box-shadow:
+    0 20px 38px rgba(0, 0, 0, 0.32),
+    0 0 26px color-mix(in srgb, var(--card-color) 62%, transparent);
+}
+
+.card:hover::before {
+  animation: card-shimmer 760ms ease-out;
 }
 
 .card:active {
@@ -283,6 +327,18 @@ body {
   }
 }
 
+@keyframes card-shimmer {
+  from {
+    opacity: 0.12;
+    transform: translateX(-62%);
+  }
+
+  to {
+    opacity: 0.48;
+    transform: translateX(58%);
+  }
+}
+
 .card-cost {
   position: absolute;
   top: 7px;
@@ -301,38 +357,65 @@ body {
   font-weight: 900;
 }
 
-.card-art {
-  height: 54px;
+.card-face {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  padding: 13px 10px 10px;
   display: grid;
-  place-items: center;
-  font-size: 28px;
-  font-weight: 900;
-  color: rgba(255, 255, 255, 0.92);
-  background: rgba(0, 0, 0, 0.14);
+  grid-template-rows: auto auto 1fr;
+  gap: 7px;
 }
 
-.card-body {
-  height: 88px;
-  padding: 9px 10px;
+.card-header {
+  min-height: 34px;
   display: grid;
-  align-content: start;
-  gap: 5px;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding-right: 30px;
+}
+
+.card-rune {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 50%;
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(0, 0, 0, 0.18);
+  box-shadow:
+    inset 0 0 12px rgba(255, 255, 255, 0.08),
+    0 0 16px color-mix(in srgb, var(--card-color) 72%, transparent);
+  font-size: 18px;
+  font-weight: 900;
 }
 
 .card-name {
-  font-size: 15px;
-  font-weight: 800;
+  color: #fff7db;
+  font-size: 16px;
+  font-weight: 900;
+  line-height: 1.1;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.26);
+  white-space: nowrap;
 }
 
 .card-kind {
   color: rgba(255, 255, 255, 0.72);
   font-size: 12px;
+  font-weight: 800;
 }
 
 .card-text {
   color: rgba(255, 255, 255, 0.86);
   font-size: 12px;
-  line-height: 1.3;
+  line-height: 1.35;
+  align-self: end;
+  min-height: 34px;
+  padding: 7px 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.13);
 }
 
 .drag-ghost {
@@ -440,13 +523,36 @@ body {
     height: 126px;
   }
 
-  .card-art {
-    height: 44px;
+  .card-face {
+    padding: 10px 8px 8px;
+    gap: 7px;
   }
 
-  .card-body {
-    height: 82px;
-    padding: 8px;
+  .card-header {
+    min-height: 28px;
+    grid-template-columns: 28px minmax(0, 1fr);
+    gap: 6px;
+    padding-right: 20px;
+  }
+
+  .card-rune {
+    width: 28px;
+    height: 28px;
+    font-size: 15px;
+  }
+
+  .card-name {
+    font-size: 14px;
+  }
+
+  .card-kind,
+  .card-text {
+    font-size: 11px;
+  }
+
+  .card-text {
+    min-height: 30px;
+    padding: 6px;
   }
 
   .card-cost {
