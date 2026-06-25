@@ -591,7 +591,6 @@ export function createEnemyCampModel() {
   const group = new THREE.Group();
   const hide = mat('#6c4631');
   const cloth = mat('#9e413a');
-  const pole = mat('#3c2b21');
   const tent = mesh(
     new THREE.ConeGeometry(1.6, 1.6, 4),
     cloth,
@@ -599,26 +598,29 @@ export function createEnemyCampModel() {
     new THREE.Vector3(1, 1, 1)
   );
   tent.rotation.y = Math.PI / 4;
-  const log = mesh(
-    new THREE.CylinderGeometry(0.18, 0.18, 2.2, 6),
+  const supplyCrate = mesh(
+    new THREE.BoxGeometry(0.58, 0.38, 0.52),
     hide,
-    new THREE.Vector3(-1.7, 0.32, 0.4),
+    new THREE.Vector3(-1.45, 0.2, -0.92),
     new THREE.Vector3(1, 1, 1)
   );
-  log.rotation.z = Math.PI / 2;
-  const bannerPole = mesh(
-    new THREE.CylinderGeometry(0.05, 0.05, 2.2, 5),
-    pole,
-    new THREE.Vector3(1.7, 1.1, 0),
+  const shortLogA = mesh(
+    new THREE.CylinderGeometry(0.1, 0.1, 0.92, 6),
+    hide,
+    new THREE.Vector3(-1.34, 0.26, -1.22),
     new THREE.Vector3(1, 1, 1)
   );
-  const banner = mesh(
-    new THREE.BoxGeometry(0.72, 0.45, 0.04),
-    cloth,
-    new THREE.Vector3(2.05, 1.72, 0),
+  const shortLogB = mesh(
+    new THREE.CylinderGeometry(0.085, 0.085, 0.74, 6),
+    hide,
+    new THREE.Vector3(-1.48, 0.44, -1.1),
     new THREE.Vector3(1, 1, 1)
   );
-  group.add(tent, log, bannerPole, banner);
+  shortLogA.rotation.z = Math.PI / 2;
+  shortLogA.rotation.y = 0.22;
+  shortLogB.rotation.z = Math.PI / 2;
+  shortLogB.rotation.y = -0.16;
+  group.add(tent, supplyCrate, shortLogA, shortLogB);
   return enableShadows(group);
 }
 
@@ -667,9 +669,9 @@ export function createCottageModel(options = {}) {
   return enableShadows(group);
 }
 
-export function createBush(size = 1) {
+export function createBush(size = 1, options = {}) {
   const group = new THREE.Group();
-  const leaf = mat('#397c45');
+  const leaf = mat(options.leafColor ?? '#397c45');
   const left = mesh(
     new THREE.DodecahedronGeometry(0.42, 0),
     leaf,
@@ -682,11 +684,27 @@ export function createBush(size = 1) {
   right.scale.set(size * 0.82, size * 0.58, size * 0.82);
   const berry = mesh(
     new THREE.DodecahedronGeometry(0.07, 0),
-    mat('#c75c51'),
+    mat(options.berryColor ?? '#c75c51'),
     new THREE.Vector3(0.03 * size, 0.6 * size, 0.18 * size),
     new THREE.Vector3(size, size, size)
   );
   group.add(left, right, berry);
+  if (options.snowCap) {
+    const snow = mat(options.snowColor ?? '#eef4ec', { roughness: 0.9 });
+    const leftSnow = mesh(
+      new THREE.DodecahedronGeometry(0.26, 0),
+      snow,
+      new THREE.Vector3(-0.18 * size, 0.58 * size, 0.02 * size),
+      new THREE.Vector3(size * 0.96, size * 0.34, size * 0.78)
+    );
+    const rightSnow = mesh(
+      new THREE.DodecahedronGeometry(0.22, 0),
+      snow,
+      new THREE.Vector3(0.22 * size, 0.5 * size, 0.17 * size),
+      new THREE.Vector3(size * 0.78, size * 0.28, size * 0.68)
+    );
+    group.add(leftSnow, rightSnow);
+  }
   return enableShadows(group);
 }
 
@@ -853,15 +871,24 @@ export function createCloudModel(scale = 1) {
   return group;
 }
 
-export function createRock(size = 1) {
-  return enableShadows(
-    mesh(
-      new THREE.DodecahedronGeometry(0.55, 0),
-      mat('#7e857c'),
-      new THREE.Vector3(0, 0.24 * size, 0),
-      new THREE.Vector3(size, size * 0.62, size * 0.86)
-    )
+export function createRock(size = 1, options = {}) {
+  const rock = mesh(
+    new THREE.DodecahedronGeometry(0.55, 0),
+    mat(options.color ?? '#7e857c'),
+    new THREE.Vector3(0, 0.24 * size, 0),
+    new THREE.Vector3(size, size * 0.62, size * 0.86)
   );
+  if (!options.snowCap) return enableShadows(rock);
+
+  const group = new THREE.Group();
+  const snow = mesh(
+    new THREE.DodecahedronGeometry(0.42, 0),
+    mat(options.snowColor ?? '#eef4ec', { roughness: 0.9 }),
+    new THREE.Vector3(0.02 * size, 0.56 * size, -0.02 * size),
+    new THREE.Vector3(size * 0.86, size * 0.24, size * 0.64)
+  );
+  group.add(rock, snow);
+  return enableShadows(group);
 }
 
 export function createWolfModel() {

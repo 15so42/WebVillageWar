@@ -170,6 +170,7 @@ export class Game {
     this.effects.update(dt);
     this.updateStructureFeedback(dt);
     this.updateCamera(dt);
+    this.world.update?.(dt, this.cameraTarget);
     this.updateSelection();
     this.updateUnitVisuals(dt);
     this.updateHud();

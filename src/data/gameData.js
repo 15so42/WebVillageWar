@@ -666,32 +666,33 @@ export const BALANCE = {
       width: 92,
       depth: 88
     },
-    pathWidth: 4.8,
+    pathWidth: 3.25,
     pathPoints: [
       { x: 0, z: 30 },
-      { x: -8, z: 24 },
-      { x: -5, z: 17 },
-      { x: 10, z: 10 },
-      { x: 6, z: 3 },
-      { x: -2, z: -5 },
-      { x: -8, z: -12 },
-      { x: -12, z: -17 },
-      { x: -7, z: -25 },
+      { x: -4, z: 25 },
+      { x: -8, z: 19 },
+      { x: -4, z: 12 },
+      { x: 5, z: 7 },
+      { x: 10, z: 1 },
+      { x: 6, z: -7 },
+      { x: -1, z: -13 },
+      { x: -6, z: -20 },
+      { x: -4, z: -26 },
       { x: 0, z: -30 }
     ],
     puddles: [
-      { x: -24, z: 5, rx: 3.8, rz: 1.55, rot: 0.25 },
-      { x: 21, z: -5, rx: 3.2, rz: 1.35, rot: -0.55 },
-      { x: -30, z: -28, rx: 2.6, rz: 1.1, rot: 0.42 },
-      { x: 14, z: 23, rx: 2.2, rz: 0.95, rot: -0.2 }
+      { x: -18, z: 10, rx: 2.4, rz: 0.9, rot: 0.42 },
+      { x: 17, z: 2, rx: 2.7, rz: 1.05, rot: -0.35 },
+      { x: -23, z: -20, rx: 2.1, rz: 0.82, rot: 0.58 },
+      { x: 22, z: 22, rx: 1.8, rz: 0.72, rot: -0.18 }
     ],
     wildlife: [
-      { type: 'wolf', x: 27, z: 15, radius: 5.4 },
-      { type: 'wolf', x: 33, z: 10, radius: 5.2 },
-      { type: 'bear', x: 29, z: -17, radius: 5.8 },
-      { type: 'wolf', x: 34, z: -23, radius: 5.4 },
-      { type: 'bear', x: 24, z: -25, radius: 5.6 },
-      { type: 'wolf', x: 31, z: -29, radius: 5.2 }
+      { type: 'wolf', x: 30, z: 12, radius: 5.6 },
+      { type: 'wolf', x: 34, z: 6, radius: 5.2 },
+      { type: 'bear', x: -31, z: -10, radius: 6 },
+      { type: 'wolf', x: -35, z: -16, radius: 5.4 },
+      { type: 'bear', x: 27, z: -18, radius: 5.9 },
+      { type: 'wolf', x: 32, z: -24, radius: 5.5 }
     ]
   }
 };
