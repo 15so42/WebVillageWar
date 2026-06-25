@@ -3,6 +3,8 @@ export const TEAMS = {
   ENEMY: 'enemy'
 };
 
+export const DECK_SIZE = 15;
+
 export const UNIT_DEFINITIONS = {
   knight: {
     name: '骑士',
@@ -123,7 +125,7 @@ export const UNIT_DEFINITIONS = {
     }
   },
   raider: {
-    name: '入侵者',
+    name: '蛮兵',
     role: 'melee',
     art: {
       modelKey: 'unit.raider',
@@ -157,6 +159,85 @@ export const UNIT_DEFINITIONS = {
     aggroRange: 7,
     weapon: {
       name: '木棒',
+      maxDurability: 999,
+      durabilityCost: 0
+    }
+  },
+  goblinSoldier: {
+    name: '哥布林士兵',
+    role: 'melee',
+    art: {
+      modelKey: 'unit.goblinSoldier',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Walk',
+        attack: 'Club_Attack',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.48,
+          events: {
+            impact: 0.58
+          }
+        },
+        hit: {
+          duration: 0.2
+        }
+      }
+    },
+    maxHealth: 18,
+    maxShield: 0,
+    speed: 2.75,
+    attackRange: 1.15,
+    attackRate: 0.92,
+    damage: 3.5,
+    knockback: 2.1,
+    aggroRange: 7,
+    weapon: {
+      name: '木棒',
+      maxDurability: 999,
+      durabilityCost: 0
+    }
+  },
+  goblinArcher: {
+    name: '哥布林射手',
+    role: 'ranged',
+    art: {
+      modelKey: 'unit.goblinArcher',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Walk',
+        attack: 'Bow_Shot',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.78,
+          events: {
+            release: 0.57
+          }
+        },
+        hit: {
+          duration: 0.2
+        }
+      }
+    },
+    maxHealth: 15,
+    maxShield: 0,
+    speed: 2.65,
+    attackRange: 7.2,
+    attackRate: 0.62,
+    damage: 3.1,
+    knockback: 1.05,
+    aggroRange: 9.2,
+    projectileSpeed: 12,
+    weapon: {
+      name: '短弓',
       maxDurability: 999,
       durabilityCost: 0
     }
@@ -360,7 +441,7 @@ export const BUFF_DEFINITIONS = {
       {
         stat: 'maxShield',
         type: 'add',
-        amountPerLevel: 2
+        amountPerLevel: 1
       }
     ],
     effects: [
@@ -419,6 +500,26 @@ export const ENCHANTMENTS = {
 };
 
 export const CARD_DEFINITIONS = [
+  {
+    id: 'barbarians',
+    name: '派遣蛮兵',
+    kind: 'summon',
+    label: '蛮',
+    artKey: 'raider',
+    summary: '召唤 1 名木棒近战单位',
+    target: 'ground',
+    radius: 1.15,
+    cooldown: 5.5,
+    energyCost: 2,
+    unitType: 'raider',
+    count: 1,
+    effect: {
+      type: 'spawn-units',
+      unitType: 'raider',
+      count: 1
+    },
+    color: '#9a4d3b'
+  },
   {
     id: 'swordsmen',
     name: '派遣剑士',
@@ -644,6 +745,154 @@ export const CARD_DEFINITIONS = [
   }
 ];
 
+export const STARTER_CARD_IDS = [
+  'barbarians',
+  'archers',
+  'fire-enchant',
+  'recovery-enchant',
+  'spirit-shield-enchant'
+];
+
+export const CARD_META = {
+  barbarians: {
+    initial: true,
+    buyCost: 0,
+    upgradeBaseCost: 20
+  },
+  archers: {
+    initial: true,
+    buyCost: 0,
+    upgradeBaseCost: 24
+  },
+  'fire-enchant': {
+    initial: true,
+    buyCost: 0,
+    upgradeBaseCost: 26
+  },
+  'recovery-enchant': {
+    initial: true,
+    buyCost: 0,
+    upgradeBaseCost: 22
+  },
+  'spirit-shield-enchant': {
+    initial: true,
+    buyCost: 0,
+    upgradeBaseCost: 28
+  },
+  swordsmen: {
+    buyCost: 70,
+    upgradeBaseCost: 26
+  },
+  knights: {
+    buyCost: 110,
+    upgradeBaseCost: 34
+  },
+  meteor: {
+    buyCost: 140,
+    upgradeBaseCost: 45
+  },
+  'thorns-enchant': {
+    buyCost: 90,
+    upgradeBaseCost: 30
+  },
+  'toughness-enchant': {
+    buyCost: 80,
+    upgradeBaseCost: 26
+  },
+  'protection-enchant': {
+    buyCost: 110,
+    upgradeBaseCost: 34
+  },
+  'power-enchant': {
+    buyCost: 95,
+    upgradeBaseCost: 30
+  },
+  'poison-enchant': {
+    buyCost: 120,
+    upgradeBaseCost: 34
+  }
+};
+
+export const LEVEL_DEFINITIONS = [
+  {
+    id: 'snow-valley',
+    name: '雪谷营地',
+    subtitle: '怪物营地正在雪谷集结',
+    baseReward: 45,
+    targetTime: 180,
+    world: {
+      sceneKey: 'snow-valley'
+    }
+  },
+  {
+    id: 'pine-pass',
+    name: '松林通道',
+    subtitle: '林带更密，敌方射手开始增多',
+    baseReward: 60,
+    targetTime: 210,
+    world: {
+      sceneKey: 'pine-pass'
+    }
+  },
+  {
+    id: 'frozen-ridge',
+    name: '霜脊前线',
+    subtitle: '高难度怪物会获得更高成长',
+    baseReward: 80,
+    targetTime: 240,
+    world: {
+      sceneKey: 'frozen-ridge'
+    }
+  }
+];
+
+export const ALTAR_DEFINITIONS = {
+  energy: {
+    name: '能量祭坛',
+    color: '#69d9ff',
+    captureSeconds: 6,
+    captureRadius: 4.4,
+    effectRadius: 0,
+    effects: [
+      {
+        op: 'restoreEnergy',
+        amount: 1,
+        intervalSeconds: 10
+      }
+    ]
+  },
+  shield: {
+    name: '护盾祭坛',
+    color: '#e7f6ff',
+    captureSeconds: 6,
+    captureRadius: 4.4,
+    effectRadius: 6.6,
+    effects: [
+      {
+        op: 'restoreShield',
+        amountPerSecond: 0.2
+      }
+    ]
+  },
+  respite: {
+    name: '修养祭坛',
+    color: '#8fe6a8',
+    captureSeconds: 6,
+    captureRadius: 4.4,
+    effectRadius: 6.6,
+    effects: [
+      {
+        op: 'restoreHealthPercent',
+        percentPerSecond: 0.005
+      },
+      {
+        op: 'restoreDurabilityPercent',
+        percentPerSecond: 0.005
+      }
+    ]
+  }
+};
+
 export const BALANCE = {
   battlefield: {
     halfWidth: 42,
@@ -654,8 +903,8 @@ export const BALANCE = {
     position: { x: 0, y: 0, z: 30 },
     maxHealth: 320,
     recoveryRadius: 8.8,
-    healthPerSecond: 6,
-    durabilityPerSecond: 7.5
+    healthPerSecond: 3,
+    durabilityPerSecond: 3.75
   },
   enemyCamp: {
     position: { x: 0, y: 0, z: -30 },
@@ -685,6 +934,29 @@ export const BALANCE = {
       { x: 17, z: 2, rx: 2.7, rz: 1.05, rot: -0.35 },
       { x: -23, z: -20, rx: 2.1, rz: 0.82, rot: 0.58 },
       { x: 22, z: 22, rx: 1.8, rz: 0.72, rot: -0.18 }
+    ],
+    altars: [
+      {
+        id: 'energy-altar-west',
+        type: 'energy',
+        position: { x: -13.2, z: 15.6 },
+        rotation: -0.25,
+        clearingRadius: 6.2
+      },
+      {
+        id: 'shield-altar-east',
+        type: 'shield',
+        position: { x: 18.2, z: -7.8 },
+        rotation: 0.45,
+        clearingRadius: 6.2
+      },
+      {
+        id: 'respite-altar-south',
+        type: 'respite',
+        position: { x: -10.8, z: -20.2 },
+        rotation: 0.2,
+        clearingRadius: 6.2
+      }
     ],
     wildlife: [
       { type: 'wolf', x: 30, z: 12, radius: 5.6 },

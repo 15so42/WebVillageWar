@@ -13,9 +13,9 @@ const DISCARD_FALL_DELAY_MS = 2000;
 const CARD_USAGE_HINT = '上滑使用 / 下滑丢弃';
 
 export class CardSystem {
-  constructor(game) {
+  constructor(game, options = {}) {
     this.game = game;
-    this.cards = CARD_DEFINITIONS;
+    this.cards = normalizeDeck(options.deck ?? CARD_DEFINITIONS);
     this.energy = INITIAL_ENERGY;
     this.energyTimer = 0;
     this.lastRenderedEnergy = -1;
@@ -50,7 +50,7 @@ export class CardSystem {
     const previousEnergy = this.energy;
     this.energyTimer += dt;
     while (this.energy < MAX_ENERGY && this.energyTimer >= ENERGY_REGEN_SECONDS) {
-      this.energy += 1;
+      this.energy = Math.min(MAX_ENERGY, this.energy + 1);
       this.energyTimer -= ENERGY_REGEN_SECONDS;
     }
     if (this.energy >= MAX_ENERGY) {
@@ -90,6 +90,7 @@ export class CardSystem {
     element.style.setProperty('--card-color', card.color);
     element.innerHTML = `
       <div class="card-cost">${cardEnergyCost(card)}</div>
+      <div class="card-level">Lv.${card.level ?? 1}</div>
       <div class="card-face">
         <div class="card-header">
           <div class="card-rune">${card.label}</div>
@@ -663,6 +664,20 @@ export class CardSystem {
     return true;
   }
 
+  addEnergy(amount) {
+    if (!Number.isFinite(amount) || amount <= 0 || this.energy >= MAX_ENERGY) return 0;
+    const previousEnergy = this.energy;
+    this.energy = Math.min(MAX_ENERGY, this.energy + amount);
+    if (this.energy >= MAX_ENERGY) {
+      this.energyTimer = 0;
+    }
+    this.updateEnergyUi();
+    if (previousEnergy !== this.energy) {
+      this.updateCardAffordability();
+    }
+    return this.energy - previousEnergy;
+  }
+
   canSpend(cost) {
     return this.energy >= cost;
   }
@@ -682,20 +697,22 @@ export class CardSystem {
   updateEnergyUi(force = false) {
     const progress = this.energy >= MAX_ENERGY ? 1 : this.energyTimer / ENERGY_REGEN_SECONDS;
     const progressStep = Math.round(progress * 100);
-    if (!force && this.lastRenderedEnergy === this.energy && this.lastRenderedProgress === progressStep) {
+    const energyStep = Math.floor(this.energy * 10 + 0.0001);
+    if (!force && this.lastRenderedEnergy === energyStep && this.lastRenderedProgress === progressStep) {
       return;
     }
-    this.lastRenderedEnergy = this.energy;
+    this.lastRenderedEnergy = energyStep;
     this.lastRenderedProgress = progressStep;
+    const filledEnergy = Math.floor(this.energy + 0.0001);
     const cells = Array.from({ length: MAX_ENERGY }, (_, index) => {
-      const filledClass = index < this.energy ? ' is-filled' : '';
+      const filledClass = index < filledEnergy ? ' is-filled' : '';
       return `<span class="energy-cell${filledClass}"></span>`;
     }).join('');
     this.energyPanel.style.setProperty('--energy-progress', `${progress * 100}%`);
     this.energyPanel.innerHTML = `
       <div class="energy-title">
         <span>能量</span>
-        <strong>${this.energy}/${MAX_ENERGY}</strong>
+        <strong>${formatEnergy(this.energy)}/${MAX_ENERGY}</strong>
       </div>
       <div class="energy-cells">${cells}</div>
       <div class="energy-progress"><div class="energy-progress-fill"></div></div>
@@ -723,6 +740,29 @@ export class CardSystem {
     this.hintPanel.classList.remove('is-visible');
     this.hintPanel.hidden = true;
   }
+
+  destroy() {
+    document.removeEventListener('pointermove', this.onPointerMove);
+    document.removeEventListener('pointerup', this.onPointerUp);
+    document.removeEventListener('keydown', this.onPileViewerKeyDown);
+    this.drag = null;
+    this.reticle?.parent?.remove(this.reticle);
+    this.enchantTargetRing?.parent?.remove(this.enchantTargetRing);
+    this.ghost.hidden = true;
+    this.ghost.classList.remove('enchant-crosshair', 'is-valid');
+    this.hand.innerHTML = '';
+    this.energyPanel?.remove();
+    this.hintPanel?.remove();
+    this.pileUi?.root?.remove();
+    this.pileUi?.viewer?.remove();
+  }
+}
+
+function normalizeDeck(cards) {
+  return (cards?.length ? cards : CARD_DEFINITIONS).map((card, index) => ({
+    ...card,
+    instanceId: card.instanceId ?? `${card.id}-${index}-${Math.random().toString(36).slice(2)}`
+  }));
 }
 
 function kindLabel(kind) {
@@ -731,7 +771,7 @@ function kindLabel(kind) {
   return '附魔卡';
 }
 
-function createCardArtMarkup(card) {
+export function createCardArtMarkup(card) {
   const key = safeArtKey(card.artKey ?? card.id ?? card.kind);
   const renderer = CARD_ART_RENDERERS[key] ?? CARD_ART_RENDERERS.default;
   return `<div class="card-art card-art-${key}" aria-hidden="true">${renderer()}</div>`;
@@ -742,6 +782,18 @@ function safeArtKey(value) {
 }
 
 const CARD_ART_RENDERERS = {
+  raider: () => artSvg(`
+    <polygon fill="#372f28" points="0,51 18,42 43,44 68,38 96,49 96,64 0,64" />
+    <polygon fill="#c18b62" points="47,12 56,24 41,24" />
+    <polygon fill="#8f3b34" points="40,24 59,24 62,44 37,44" />
+    <polygon fill="#221f1d" points="39,44 49,44 47,58 38,58" />
+    <polygon fill="#211d1c" points="51,44 61,44 62,58 53,58" />
+    <polygon fill="#c18b62" points="33,29 40,30 44,43 38,46" />
+    <polygon fill="#bd845d" points="62,28 69,30 59,43 53,41" />
+    <polygon fill="#6d4a2c" points="27,16 34,13 76,54 69,58" />
+    <polygon fill="#8b6037" points="24,14 34,9 40,17 29,22" />
+    <polygon fill="#fff2c7" opacity="0.38" points="58,37 77,53 73,55" />
+  `),
   swordsman: () => artSvg(`
     <polygon fill="#234034" points="0,49 18,39 44,43 67,36 96,46 96,64 0,64" />
     <polygon fill="#c7a06f" points="48,13 55,25 43,25" />
@@ -892,8 +944,13 @@ function artSvg(content) {
   `;
 }
 
-function cardEnergyCost(card) {
+export function cardEnergyCost(card) {
   return card.energyCost ?? 1;
+}
+
+function formatEnergy(value) {
+  const stepped = Math.floor(value * 10 + 0.0001) / 10;
+  return Number.isInteger(stepped) ? String(stepped) : stepped.toFixed(1);
 }
 
 function discardEnergyCost(card) {
@@ -1032,6 +1089,7 @@ function createPileCardElement(card, index) {
   element.style.setProperty('--card-color', card.color);
   element.innerHTML = `
     <div class="pile-card-cost">${cardEnergyCost(card)}</div>
+    <div class="pile-card-level">Lv.${card.level ?? 1}</div>
     <div class="pile-card-header">
       <span class="pile-card-rune">${card.label}</span>
       <span class="pile-card-kind">${kindLabel(card.kind)}</span>

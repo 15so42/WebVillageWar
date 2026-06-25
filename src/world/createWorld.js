@@ -15,10 +15,6 @@ import {
 } from '../art/lowpoly.js';
 import { clamp, seededRandom } from '../utils/math.js';
 
-const RAW_PATH_POINTS = BALANCE.world.pathPoints.map(
-  (point) => new THREE.Vector3(point.x, 0, point.z)
-);
-
 const FOREST_ZONES = [
   { x: -31, z: 19, rx: 11, rz: 17, count: 82, tone: 'deep' },
   { x: 31, z: 13, rx: 10, rz: 15, count: 78, tone: 'warm' },
@@ -65,11 +61,306 @@ const SURFACE_OFFSET = 0.42;
 const PATH_SURFACE_OFFSET = 0.035;
 const SNOWFALL_CENTER = new THREE.Vector3();
 
-export function createWorld(scene) {
-  scene.background = new THREE.Color('#91cbef');
-  scene.fog = new THREE.Fog('#b6d8e9', 82, 230);
+const DEFAULT_TERRAIN_PROFILE = {
+  baseHeight: 0.25,
+  northRise: 2.15,
+  sideRise: 1.25,
+  sideNorthRise: 2.2,
+  roughnessScale: 1,
+  valleyFloorBase: 0.32,
+  valleyNorthRise: 1.25,
+  valleySideRise: 0.45,
+  campTerrace: 2.55,
+  campTerraceOutward: 0.55,
+  campShelfInner: 4.5,
+  campShelfOuter: 14,
+  snowCenter: SNOW_CENTER,
+  hills: [
+    { x: -30, z: 20, rx: 18, rz: 24, height: 2.4 },
+    { x: 30, z: 12, rx: 16, rz: 22, height: 2.2 },
+    { x: -31, z: -10, rx: 18, rz: 24, height: 3.1 },
+    { x: 29, z: -19, rx: 18, rz: 23, height: 3.3 }
+  ],
+  ridges: [
+    { x: 0, z: -39, rx: 35, rz: 9, height: 4.6 },
+    { x: -40, z: -10, rx: 8, rz: 46, height: 2.4 },
+    { x: 40, z: -5, rx: 8, rz: 45, height: 2.2 }
+  ]
+};
 
-  const sun = new THREE.DirectionalLight('#fff1c3', 3.55);
+const WORLD_PRESETS = {
+  'snow-valley': {
+    sceneKey: 'snow-valley',
+    seed: 42,
+    sky: {
+      background: '#91cbef',
+      fog: '#b6d8e9',
+      fogNear: 82,
+      fogFar: 230,
+      sun: '#fff1c3',
+      hemiSky: '#cdefff',
+      hemiGround: '#45653d'
+    },
+    palette: {
+      base: '#e9eddc',
+      side: '#d4d8c8',
+      north: '#dce4e4',
+      valley: '#e4e3cf',
+      forest: '#b7c8b8',
+      high: '#c6c7bf',
+      snow: '#f1f4e8',
+      path: '#d9d8c8',
+      puddle: '#9bc7d1'
+    },
+    terrain: DEFAULT_TERRAIN_PROFILE
+    ,
+    snowfall: {
+      seed: 309,
+      countScale: 1,
+      gustScale: 1,
+      windScale: 1
+    }
+  },
+  'pine-pass': {
+    sceneKey: 'pine-pass',
+    seed: 119,
+    sky: {
+      background: '#89c7e8',
+      fog: '#b8d9e5',
+      fogNear: 68,
+      fogFar: 205,
+      sun: '#ffe7b7',
+      hemiSky: '#ccefff',
+      hemiGround: '#334f3e'
+    },
+    palette: {
+      base: '#edf1e6',
+      side: '#d9dfd1',
+      north: '#e4ecec',
+      valley: '#e6e9d9',
+      forest: '#a7bdac',
+      high: '#ccd1c8',
+      snow: '#f4f7ed',
+      path: '#d0d3c5',
+      puddle: '#8fbcc7'
+    },
+    pathWidth: 2.85,
+    pathPoints: [
+      { x: -4, z: 30 },
+      { x: -9, z: 24 },
+      { x: -12, z: 17 },
+      { x: -7, z: 10 },
+      { x: 0, z: 4 },
+      { x: 8, z: -2 },
+      { x: 7, z: -10 },
+      { x: 0, z: -16 },
+      { x: -7, z: -23 },
+      { x: -2, z: -30 }
+    ],
+    puddles: [
+      { x: -20, z: 13, rx: 1.9, rz: 0.72, rot: 0.32 },
+      { x: 17, z: -2, rx: 2.2, rz: 0.86, rot: -0.45 },
+      { x: 21, z: 20, rx: 1.55, rz: 0.62, rot: 0.15 }
+    ],
+    altars: [
+      { id: 'energy-altar-pine-west', type: 'energy', position: { x: -18, z: 14 }, rotation: -0.4, clearingRadius: 6 },
+      { id: 'shield-altar-pine-east', type: 'shield', position: { x: 17, z: -11 }, rotation: 0.4, clearingRadius: 6.2 },
+      { id: 'respite-altar-pine-north', type: 'respite', position: { x: -12, z: -24 }, rotation: 0.1, clearingRadius: 5.8 }
+    ],
+    wildlife: [
+      { type: 'wolf', x: 26, z: 12, radius: 5 },
+      { type: 'wolf', x: 31, z: 7, radius: 5.3 },
+      { type: 'bear', x: -30, z: -9, radius: 6 },
+      { type: 'wolf', x: -34, z: -15, radius: 5 },
+      { type: 'bear', x: 28, z: -21, radius: 5.8 }
+    ],
+    forestZones: [
+      { x: -31, z: 20, rx: 12, rz: 18, count: 105, tone: 'deep' },
+      { x: 29, z: 15, rx: 11, rz: 16, count: 96, tone: 'warm' },
+      { x: -30, z: -9, rx: 13, rz: 19, count: 116, tone: 'deep' },
+      { x: 31, z: -17, rx: 12, rz: 18, count: 108, tone: 'cool' },
+      { x: -7, z: -33, rx: 17, rz: 8, count: 74, tone: 'snow' },
+      { x: 18, z: -31, rx: 15, rz: 8, count: 68, tone: 'snow' }
+    ],
+    forestPassages: [
+      [new THREE.Vector3(-39, 0, 25), new THREE.Vector3(-19, 0, 22), new THREE.Vector3(-10, 0, 17)],
+      [new THREE.Vector3(37, 0, 14), new THREE.Vector3(19, 0, 11), new THREE.Vector3(7, 0, 1)],
+      [new THREE.Vector3(-39, 0, -8), new THREE.Vector3(-22, 0, -14), new THREE.Vector3(-7, 0, -23)],
+      [new THREE.Vector3(38, 0, -22), new THREE.Vector3(19, 0, -20), new THREE.Vector3(4, 0, -14)]
+    ],
+    boulderClusters: [
+      { x: -38, z: 3, rx: 3, rz: 8, count: 4, sizeMin: 1.25, sizeMax: 2.1 },
+      { x: 37, z: -8, rx: 3.2, rz: 9, count: 5, sizeMin: 1.25, sizeMax: 2.2 },
+      { x: -23, z: -31, rx: 7, rz: 3, count: 5, sizeMin: 1.2, sizeMax: 2.05 },
+      { x: 24, z: -29, rx: 6.4, rz: 3, count: 5, sizeMin: 1.25, sizeMax: 2.2 }
+    ],
+    landmarkBoulders: [
+      { x: -20, z: 6, size: 2.45, sx: 1.18, sy: 0.76, sz: 0.92, rot: 0.35 },
+      { x: 18, z: -13, size: 2.7, sx: 1.08, sy: 0.86, sz: 1.12, rot: -0.48 },
+      { x: 25, z: 8, size: 2.15, sx: 1.02, sy: 0.72, sz: 1.15, rot: -0.18 }
+    ],
+    cottages: [
+      { x: -7.8, z: 34, rot: 0.68, scale: 0.94, roof: '#b64a3d' },
+      { x: 6.6, z: 32.8, rot: -0.58, scale: 0.88, roof: '#a84f39' },
+      { x: -27.5, z: 5.5, rot: 1.12, scale: 0.72, wall: '#a77750', roof: '#744230' },
+      { x: 25.6, z: -5.7, rot: -0.5, scale: 0.72, wall: '#a77750', roof: '#744230' }
+    ],
+    terrain: {
+      ...DEFAULT_TERRAIN_PROFILE,
+      roughnessScale: 0.85,
+      hills: [
+        { x: -31, z: 22, rx: 18, rz: 25, height: 2.1 },
+        { x: 29, z: 13, rx: 17, rz: 22, height: 2 },
+        { x: -31, z: -10, rx: 18, rz: 25, height: 2.75 },
+        { x: 30, z: -19, rx: 18, rz: 24, height: 2.9 }
+      ]
+    },
+    monsterCamp: { x: -3, z: -34, rot: 0.22, scale: 1.12 },
+    snowfall: {
+      seed: 417,
+      countScale: 0.82,
+      gustScale: 0.72,
+      windScale: 0.86
+    }
+  },
+  'frozen-ridge': {
+    sceneKey: 'frozen-ridge',
+    seed: 207,
+    sky: {
+      background: '#83bfe4',
+      fog: '#c6dce7',
+      fogNear: 58,
+      fogFar: 190,
+      sun: '#fff1d6',
+      hemiSky: '#d8f2ff',
+      hemiGround: '#3d5361'
+    },
+    palette: {
+      base: '#eef3ee',
+      side: '#d8e0de',
+      north: '#e8f1f3',
+      valley: '#e5ebdf',
+      forest: '#b4c4bc',
+      high: '#c7d0d0',
+      snow: '#f7faf5',
+      path: '#cfd7d4',
+      puddle: '#8db9ca'
+    },
+    pathWidth: 3.1,
+    pathPoints: [
+      { x: 3, z: 30 },
+      { x: 7, z: 24 },
+      { x: 4, z: 17 },
+      { x: -5, z: 11 },
+      { x: -11, z: 4 },
+      { x: -7, z: -4 },
+      { x: 3, z: -10 },
+      { x: 10, z: -17 },
+      { x: 6, z: -24 },
+      { x: 0, z: -30 }
+    ],
+    puddles: [
+      { x: -17, z: 12, rx: 1.55, rz: 0.58, rot: 0.38 },
+      { x: 15, z: -2, rx: 1.8, rz: 0.68, rot: -0.25 },
+      { x: -25, z: -21, rx: 1.6, rz: 0.62, rot: 0.58 }
+    ],
+    altars: [
+      { id: 'energy-altar-ridge-south', type: 'energy', position: { x: -16, z: 17 }, rotation: -0.18, clearingRadius: 6 },
+      { id: 'shield-altar-ridge-east', type: 'shield', position: { x: 20, z: -9 }, rotation: 0.55, clearingRadius: 6.2 },
+      { id: 'respite-altar-ridge-west', type: 'respite', position: { x: -18, z: -18 }, rotation: -0.15, clearingRadius: 6 }
+    ],
+    wildlife: [
+      { type: 'bear', x: -30, z: -12, radius: 6.2 },
+      { type: 'wolf', x: -34, z: -18, radius: 5.5 },
+      { type: 'bear', x: 30, z: -17, radius: 6.4 },
+      { type: 'wolf', x: 34, z: -24, radius: 5.6 },
+      { type: 'wolf', x: 28, z: 10, radius: 5.1 }
+    ],
+    forestZones: [
+      { x: -32, z: 18, rx: 10, rz: 15, count: 62, tone: 'cool' },
+      { x: 31, z: 14, rx: 10, rz: 14, count: 58, tone: 'cool' },
+      { x: -30, z: -11, rx: 12, rz: 18, count: 76, tone: 'snow' },
+      { x: 31, z: -18, rx: 12, rz: 17, count: 74, tone: 'snow' },
+      { x: -8, z: -33, rx: 18, rz: 8, count: 48, tone: 'snow' },
+      { x: 18, z: -32, rx: 16, rz: 8, count: 42, tone: 'snow' }
+    ],
+    forestPassages: [
+      [new THREE.Vector3(-39, 0, 19), new THREE.Vector3(-21, 0, 18), new THREE.Vector3(-6, 0, 11)],
+      [new THREE.Vector3(38, 0, 12), new THREE.Vector3(20, 0, 9), new THREE.Vector3(2, 0, -2)],
+      [new THREE.Vector3(-38, 0, -13), new THREE.Vector3(-22, 0, -18), new THREE.Vector3(-6, 0, -22)],
+      [new THREE.Vector3(39, 0, -22), new THREE.Vector3(20, 0, -20), new THREE.Vector3(8, 0, -15)]
+    ],
+    boulderClusters: [
+      { x: -39, z: 4, rx: 3.4, rz: 10, count: 8, sizeMin: 1.45, sizeMax: 2.8 },
+      { x: 38, z: -6, rx: 3.6, rz: 10.4, count: 8, sizeMin: 1.5, sizeMax: 2.95 },
+      { x: -24, z: -31, rx: 8, rz: 3.4, count: 8, sizeMin: 1.35, sizeMax: 2.65 },
+      { x: 25, z: -31, rx: 8, rz: 3.2, count: 8, sizeMin: 1.4, sizeMax: 2.85 },
+      { x: -23, z: 14, rx: 5, rz: 5.2, count: 6, sizeMin: 1.25, sizeMax: 2.3 }
+    ],
+    landmarkBoulders: [
+      { x: -18, z: 7, size: 3.2, sx: 1.28, sy: 0.92, sz: 0.98, rot: 0.34 },
+      { x: 18, z: -11, size: 3.1, sx: 1.14, sy: 0.94, sz: 1.12, rot: -0.5 },
+      { x: -15, z: -24, size: 2.8, sx: 1.22, sy: 0.9, sz: 0.98, rot: 0.9 },
+      { x: 26, z: 6, size: 2.65, sx: 1.1, sy: 0.82, sz: 1.22, rot: -0.18 }
+    ],
+    cottages: [
+      { x: -8.2, z: 34, rot: 0.68, scale: 0.86, roof: '#a84f39' },
+      { x: 7.6, z: 33.1, rot: -0.58, scale: 0.82, roof: '#92533b' }
+    ],
+    mountainRidge: [
+      { x: -38, z: -42, width: 6, height: 12, rot: -0.18, color: '#7c6258' },
+      { x: -26, z: -44, width: 8, height: 18, rot: 0.14, color: '#76584f' },
+      { x: -11, z: -44, width: 7, height: 16, rot: -0.06, color: '#8c7060' },
+      { x: 3, z: -45, width: 9, height: 21, rot: 0.08, color: '#756057' },
+      { x: 18, z: -44, width: 7.5, height: 17, rot: -0.1, color: '#856856' },
+      { x: 32, z: -42, width: 6.8, height: 14, rot: 0.16, color: '#735a50' }
+    ],
+    snowPeaks: [
+      { x: -18, z: -40, width: 6.6, height: 13 },
+      { x: 17, z: -40, width: 7.2, height: 15 },
+      { x: 4, z: -42, width: 8.4, height: 18 },
+      { x: -3, z: -39, width: 6.4, height: 14 }
+    ],
+    terrain: {
+      ...DEFAULT_TERRAIN_PROFILE,
+      northRise: 2.85,
+      sideRise: 1.45,
+      sideNorthRise: 2.8,
+      roughnessScale: 1.08,
+      campTerrace: 3.15,
+      campTerraceOutward: 0.68,
+      snowCenter: { x: 0, z: -31 },
+      hills: [
+        { x: -31, z: 19, rx: 17, rz: 23, height: 2.8 },
+        { x: 30, z: 12, rx: 16, rz: 21, height: 2.6 },
+        { x: -31, z: -10, rx: 18, rz: 23, height: 3.6 },
+        { x: 29, z: -19, rx: 17, rz: 22, height: 3.8 }
+      ],
+      ridges: [
+        { x: 0, z: -39, rx: 35, rz: 9, height: 6.2 },
+        { x: -40, z: -10, rx: 8, rz: 46, height: 3.2 },
+        { x: 40, z: -5, rx: 8, rz: 45, height: 3.1 }
+      ]
+    },
+    monsterCamp: { x: 5, z: -35, rot: -0.52, scale: 1.28 },
+    snowfall: {
+      seed: 811,
+      countScale: 1.28,
+      gustScale: 1.34,
+      windScale: 1.18
+    }
+  }
+};
+
+let activeWorldConfig = resolveWorldConfig();
+
+export function createWorld(scene, worldOptions = {}) {
+  activeWorldConfig = resolveWorldConfig(worldOptions);
+  const config = activeWorldConfig;
+  scene.background = new THREE.Color(config.sky.background);
+  scene.fog = new THREE.Fog(config.sky.fog, config.sky.fogNear, config.sky.fogFar);
+
+  const sun = new THREE.DirectionalLight(config.sky.sun, 3.55);
   sun.position.set(-44, 82, 46);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
@@ -78,7 +369,7 @@ export function createWorld(scene) {
   sun.shadow.camera.top = 86;
   sun.shadow.camera.bottom = -86;
   scene.add(sun);
-  scene.add(new THREE.HemisphereLight('#cdefff', '#45653d', 1.85));
+  scene.add(new THREE.HemisphereLight(config.sky.hemiSky, config.sky.hemiGround, 1.85));
 
   const ground = createGroundMesh();
   scene.add(ground);
@@ -91,13 +382,15 @@ export function createWorld(scene) {
   createPuddles(scene);
   const snowfall = createSnowfall(scene);
 
+  const basePosition = config.playerBasePosition;
+  const enemyCampPosition = config.enemyCampPosition;
   const base = createBaseModel();
-  placeOnTerrain(base, BALANCE.playerBase.position.x, BALANCE.playerBase.position.z);
+  placeOnTerrain(base, basePosition.x, basePosition.z);
   base.userData.aura.scale.setScalar(BALANCE.playerBase.recoveryRadius / 5.75);
   scene.add(base);
 
   const enemyCamp = createEnemyCampModel();
-  placeOnTerrain(enemyCamp, BALANCE.enemyCamp.position.x, BALANCE.enemyCamp.position.z);
+  placeOnTerrain(enemyCamp, enemyCampPosition.x, enemyCampPosition.z);
   enemyCamp.scale.setScalar(1.35);
   scene.add(enemyCamp);
 
@@ -105,6 +398,7 @@ export function createWorld(scene) {
   createSnowMonsterCamp(scene);
 
   return {
+    config,
     ground,
     heightAt: terrainHeightAt,
     pathPoints,
@@ -117,46 +411,123 @@ export function createWorld(scene) {
   };
 }
 
+function resolveWorldConfig(worldOptions = {}) {
+  const preset = WORLD_PRESETS[worldOptions.sceneKey] ?? WORLD_PRESETS['snow-valley'];
+  const merged = mergeWorldPreset(preset, worldOptions);
+  const rawPathPoints = (merged.pathPoints ?? BALANCE.world.pathPoints).map(
+    (point) => new THREE.Vector3(point.x, 0, point.z)
+  );
+  return {
+    ...merged,
+    rawPathPoints,
+    playerBasePosition: merged.playerBasePosition ?? BALANCE.playerBase.position,
+    enemyCampPosition: merged.enemyCampPosition ?? BALANCE.enemyCamp.position
+  };
+}
+
+function mergeWorldPreset(preset, worldOptions) {
+  return {
+    ...BALANCE.world,
+    ...preset,
+    ...worldOptions,
+    ground: {
+      ...BALANCE.world.ground,
+      ...(preset.ground ?? {}),
+      ...(worldOptions.ground ?? {})
+    },
+    sky: {
+      ...WORLD_PRESETS['snow-valley'].sky,
+      ...(preset.sky ?? {}),
+      ...(worldOptions.sky ?? {})
+    },
+    palette: {
+      ...WORLD_PRESETS['snow-valley'].palette,
+      ...(preset.palette ?? {}),
+      ...(worldOptions.palette ?? {})
+    },
+    terrain: {
+      ...DEFAULT_TERRAIN_PROFILE,
+      ...(preset.terrain ?? {}),
+      ...(worldOptions.terrain ?? {})
+    },
+    snowfall: {
+      seed: 309,
+      countScale: 1,
+      gustScale: 1,
+      windScale: 1,
+      ...(preset.snowfall ?? {}),
+      ...(worldOptions.snowfall ?? {})
+    },
+    forestZones: worldOptions.forestZones ?? preset.forestZones ?? FOREST_ZONES,
+    forestPassages: worldOptions.forestPassages ?? preset.forestPassages ?? FOREST_PASSAGES,
+    clearings: worldOptions.clearings ?? preset.clearings ?? CLEARINGS,
+    boulderClusters: worldOptions.boulderClusters ?? preset.boulderClusters ?? BOULDER_CLUSTERS,
+    landmarkBoulders: worldOptions.landmarkBoulders ?? preset.landmarkBoulders ?? LANDMARK_BOULDERS,
+    puddles: worldOptions.puddles ?? preset.puddles ?? BALANCE.world.puddles,
+    altars: worldOptions.altars ?? preset.altars ?? BALANCE.world.altars,
+    wildlife: worldOptions.wildlife ?? preset.wildlife ?? BALANCE.world.wildlife,
+    pathPoints: worldOptions.pathPoints ?? preset.pathPoints ?? BALANCE.world.pathPoints,
+    pathWidth: worldOptions.pathWidth ?? preset.pathWidth ?? BALANCE.world.pathWidth
+  };
+}
+
+function worldConfig() {
+  return activeWorldConfig;
+}
+
+function rawPathPoints() {
+  return worldConfig().rawPathPoints;
+}
+
 export function terrainHeightAt(x, z) {
-  const pathDistance = distanceToPath(x, z, RAW_PATH_POINTS);
+  const config = worldConfig();
+  const terrain = config.terrain;
+  const pathDistance = distanceToPath(x, z, rawPathPoints());
   const northMask = northMaskAt(z);
   const sideRise = smoothstep(12, 39, Math.abs(x));
   const valleyMask = 1 - smoothstep(6, 22, pathDistance);
-  let height = 0.25 + northMask * 2.15 + sideRise * (1.25 + northMask * 2.2);
+  let height = terrain.baseHeight +
+    northMask * terrain.northRise +
+    sideRise * (terrain.sideRise + northMask * terrain.sideNorthRise);
 
-  height += hillHeight(x, z, -30, 20, 18, 24, 2.4);
-  height += hillHeight(x, z, 30, 12, 16, 22, 2.2);
-  height += hillHeight(x, z, -31, -10, 18, 24, 3.1);
-  height += hillHeight(x, z, 29, -19, 18, 23, 3.3);
-  height += ridgeHeight(x, z, 0, -39, 35, 9, 4.6);
-  height += ridgeHeight(x, z, -40, -10, 8, 46, 2.4);
-  height += ridgeHeight(x, z, 40, -5, 8, 45, 2.2);
+  terrain.hills.forEach((hill) => {
+    height += hillHeight(x, z, hill.x, hill.z, hill.rx, hill.rz, hill.height);
+  });
+  terrain.ridges.forEach((ridge) => {
+    height += ridgeHeight(x, z, ridge.x, ridge.z, ridge.rx, ridge.rz, ridge.height);
+  });
 
   const roughness = (
     Math.sin(x * 0.18 + z * 0.09) * 0.24 +
     Math.cos(x * 0.11 - z * 0.15) * 0.2 +
     Math.sin((x + z) * 0.07) * 0.18
-  );
+  ) * terrain.roughnessScale;
   height += roughness * mix(0.42, 1, smoothstep(5, 18, pathDistance));
 
-  const valleyFloor = 0.32 + northMask * 1.25 + smoothstep(0, 32, Math.abs(x)) * 0.45;
+  const valleyFloor = terrain.valleyFloorBase +
+    northMask * terrain.valleyNorthRise +
+    smoothstep(0, 32, Math.abs(x)) * terrain.valleySideRise;
   height = mix(height, Math.min(height, valleyFloor), valleyMask * 0.68);
 
-  const playerDistance = Math.hypot(x - BALANCE.playerBase.position.x, z - BALANCE.playerBase.position.z);
+  const playerBase = config.playerBasePosition;
+  const enemyCamp = config.enemyCampPosition;
+  const playerDistance = Math.hypot(x - playerBase.x, z - playerBase.z);
   height = mix(height, 0.22, 1 - smoothstep(5, 12, playerDistance));
 
-  const campDistance = Math.hypot(x - BALANCE.enemyCamp.position.x, z - BALANCE.enemyCamp.position.z);
-  const campShelf = 1 - smoothstep(4.5, 14, campDistance);
-  const campTerrace = 2.55 + smoothstep(0, 14, campDistance) * 0.55;
+  const campDistance = Math.hypot(x - enemyCamp.x, z - enemyCamp.z);
+  const campShelf = 1 - smoothstep(terrain.campShelfInner, terrain.campShelfOuter, campDistance);
+  const campTerrace = terrain.campTerrace +
+    smoothstep(0, terrain.campShelfOuter, campDistance) * terrain.campTerraceOutward;
   height = mix(height, campTerrace, campShelf * 0.78);
 
   return Math.max(0, height);
 }
 
 function createGroundMesh() {
+  const config = worldConfig();
   const geometry = new THREE.PlaneGeometry(
-    BALANCE.world.ground.width,
-    BALANCE.world.ground.depth,
+    config.ground.width,
+    config.ground.depth,
     106,
     102
   );
@@ -204,34 +575,36 @@ function colorGroundGeometry(geometry) {
 }
 
 function terrainColorAt(x, z, height) {
-  const color = new THREE.Color('#e9eddc');
+  const config = worldConfig();
+  const palette = config.palette;
+  const color = new THREE.Color(palette.base);
   const northMask = northMaskAt(z);
   const sideRise = smoothstep(10, 39, Math.abs(x));
   const snowMask = snowMaskAt(x, z, height);
-  const pathDistance = distanceToPath(x, z, RAW_PATH_POINTS);
+  const pathDistance = distanceToPath(x, z, rawPathPoints());
   const valleyMask = 1 - smoothstep(7, 22, pathDistance);
   const forestFloor = forestFloorMask(x, z);
   const facet = hash2(x * 0.14, z * 0.14) - 0.5;
 
-  color.lerp(new THREE.Color('#d4d8c8'), sideRise * 0.28);
-  color.lerp(new THREE.Color('#dce4e4'), northMask * 0.22);
-  color.lerp(new THREE.Color('#e4e3cf'), valleyMask * 0.12);
-  color.lerp(new THREE.Color('#b7c8b8'), forestFloor * 0.18);
-  color.lerp(new THREE.Color('#c6c7bf'), smoothstep(4.8, 8.8, height) * 0.24);
-  color.lerp(new THREE.Color('#f1f4e8'), 0.48 + snowMask * 0.38);
+  color.lerp(new THREE.Color(palette.side), sideRise * 0.28);
+  color.lerp(new THREE.Color(palette.north), northMask * 0.22);
+  color.lerp(new THREE.Color(palette.valley), valleyMask * 0.12);
+  color.lerp(new THREE.Color(palette.forest), forestFloor * 0.18);
+  color.lerp(new THREE.Color(palette.high), smoothstep(4.8, 8.8, height) * 0.24);
+  color.lerp(new THREE.Color(palette.snow), 0.48 + snowMask * 0.38);
   color.offsetHSL(0, 0.006 * facet, 0.018 * facet);
   return color;
 }
 
 function pathVectors() {
-  return BALANCE.world.pathPoints.map((point) => {
+  return worldConfig().pathPoints.map((point) => {
     const y = terrainHeightAt(point.x, point.z) + SURFACE_OFFSET;
     return new THREE.Vector3(point.x, y, point.z);
   });
 }
 
 function createPath(scene, points) {
-  const material = overlayMat('#d9d8c8', { roughness: 0.94 });
+  const material = overlayMat(worldConfig().palette.path, { roughness: 0.94 });
   const curve = new THREE.CatmullRomCurve3(points);
   const samples = curve.getPoints(112);
   let ribbonPoints = [];
@@ -266,7 +639,7 @@ function buildPathRibbon(scene, points, material) {
 
   const positions = [];
   const indices = [];
-  const halfWidth = BALANCE.world.pathWidth / 2;
+  const halfWidth = worldConfig().pathWidth / 2;
 
   points.forEach((point, index) => {
     const previous = points[Math.max(0, index - 1)];
@@ -300,7 +673,7 @@ function buildPathRibbon(scene, points, material) {
 }
 
 function createPuddles(scene) {
-  const material = overlayMat('#9bc7d1', {
+  const material = overlayMat(worldConfig().palette.puddle, {
     roughness: 0.28,
     metalness: 0.05,
     transparent: true,
@@ -309,7 +682,7 @@ function createPuddles(scene) {
     side: THREE.DoubleSide
   });
 
-  BALANCE.world.puddles.forEach((puddle, index) => {
+  worldConfig().puddles.forEach((puddle, index) => {
     const mesh = createPuddleMesh(puddle, material);
     mesh.renderOrder = 3 + index;
     scene.add(mesh);
@@ -351,7 +724,7 @@ function createPuddleMesh(puddle, material) {
 }
 
 function createSky(scene) {
-  const clouds = [
+  const clouds = worldConfig().clouds ?? [
     { x: -32, y: 62, z: -38, scale: 3.5, rot: 0.08 },
     { x: -12, y: 69, z: -44, scale: 2.6, rot: -0.18 },
     { x: 24, y: 66, z: -43, scale: 3.2, rot: 0.22 },
@@ -368,11 +741,15 @@ function createSky(scene) {
 }
 
 function createSnowfall(scene) {
-  const random = seededRandom(309);
+  const snowfallConfig = worldConfig().snowfall;
+  const countScale = snowfallConfig.countScale ?? 1;
+  const gustScale = snowfallConfig.gustScale ?? 1;
+  const windScale = snowfallConfig.windScale ?? 1;
+  const random = seededRandom(snowfallConfig.seed ?? 309);
   const snowTexture = createSnowflakeTexture();
   const layers = [
     createSnowLayer({
-      count: 330,
+      count: Math.round(330 * countScale),
       radiusX: 58,
       radiusZ: 46,
       minY: 3.8,
@@ -380,12 +757,12 @@ function createSnowfall(scene) {
       size: 0.23,
       opacity: 0.86,
       fallSpeed: 6.6,
-      windX: -4.9,
-      windZ: 2.15,
+      windX: -4.9 * windScale,
+      windZ: 2.15 * windScale,
       random
     }),
     createSnowLayer({
-      count: 230,
+      count: Math.round(230 * countScale),
       radiusX: 76,
       radiusZ: 58,
       minY: 5.5,
@@ -393,12 +770,12 @@ function createSnowfall(scene) {
       size: 0.13,
       opacity: 0.58,
       fallSpeed: 3.8,
-      windX: -6.4,
-      windZ: 2.7,
+      windX: -6.4 * windScale,
+      windZ: 2.7 * windScale,
       random
     })
   ];
-  const gusts = createSnowGustLayer(random);
+  const gusts = createSnowGustLayer(random, gustScale, windScale);
 
   layers.forEach((layer) => {
     layer.points.material.map = snowTexture;
@@ -498,8 +875,8 @@ function updateSnowLayer(layer, dt, center, random) {
   position.needsUpdate = true;
 }
 
-function createSnowGustLayer(random) {
-  const count = 68;
+function createSnowGustLayer(random, gustScale = 1, windScale = 1) {
+  const count = Math.round(68 * gustScale);
   const radiusX = 62;
   const radiusZ = 46;
   const minY = 5.5;
@@ -538,8 +915,8 @@ function createSnowGustLayer(random) {
     radiusZ,
     minY,
     maxY,
-    windX: -9.8,
-    windZ: 4.2,
+    windX: -9.8 * windScale,
+    windZ: 4.2 * windScale,
     fallSpeed: 2.15
   };
 }
@@ -615,7 +992,7 @@ function createSnowflakeTexture() {
 }
 
 function createMountainRidge(scene) {
-  const peaks = [
+  const peaks = worldConfig().mountainRidge ?? [
     { x: -36, z: -43, width: 5.4, height: 10, rot: -0.18, color: '#8a6956' },
     { x: -24, z: -44, width: 7, height: 15, rot: 0.14, color: '#7b5646' },
     { x: -12, z: -44, width: 5.8, height: 13, rot: -0.06, color: '#92715c' },
@@ -634,11 +1011,11 @@ function createMountainRidge(scene) {
 }
 
 function createSnowMountain(scene) {
-  [
+  (worldConfig().snowPeaks ?? [
     { x: -15, z: -40, width: 5.8, height: 10 },
     { x: 16, z: -40, width: 6.4, height: 12 },
     { x: 4, z: -42, width: 7.4, height: 14 }
-  ].forEach((peakData) => {
+  ]).forEach((peakData) => {
     const peak = createMountainPeak(peakData.width, peakData.height);
     placeOnTerrain(peak, peakData.x, peakData.z, -0.1);
     scene.add(peak);
@@ -646,7 +1023,7 @@ function createSnowMountain(scene) {
 }
 
 function decorate(scene, pathPoints) {
-  const random = seededRandom(42);
+  const random = seededRandom(worldConfig().seed ?? 42);
   placeCottages(scene);
   placeForests(scene, pathPoints, random);
   placeRocks(scene, pathPoints, random);
@@ -657,7 +1034,7 @@ function decorate(scene, pathPoints) {
 }
 
 function placeForests(scene, pathPoints, random) {
-  FOREST_ZONES.forEach((zone, zoneIndex) => {
+  worldConfig().forestZones.forEach((zone) => {
     for (let i = 0; i < zone.count; i += 1) {
       const point = randomPointInEllipse(zone, random);
       if (!point) continue;
@@ -677,8 +1054,9 @@ function placeForests(scene, pathPoints, random) {
 }
 
 function placeRocks(scene, pathPoints, random) {
-  const halfWidth = BALANCE.world.ground.width / 2 - 5;
-  const halfDepth = BALANCE.world.ground.depth / 2 - 5;
+  const config = worldConfig();
+  const halfWidth = config.ground.width / 2 - 5;
+  const halfDepth = config.ground.depth / 2 - 5;
   for (let i = 0; i < 96; i += 1) {
     const ridgeBias = random() > 0.48;
     const x = ridgeBias
@@ -704,7 +1082,7 @@ function placeRocks(scene, pathPoints, random) {
 }
 
 function placeBoulderClusters(scene, pathPoints, random) {
-  BOULDER_CLUSTERS.forEach((cluster) => {
+  worldConfig().boulderClusters.forEach((cluster) => {
     for (let i = 0; i < cluster.count; i += 1) {
       const { x, z } = randomPointInEllipse(cluster, random);
       if (!isDecorationClear(x, z, pathPoints, 5.2)) continue;
@@ -730,7 +1108,7 @@ function placeBoulderClusters(scene, pathPoints, random) {
 }
 
 function placeLandmarkBoulders(scene, pathPoints) {
-  LANDMARK_BOULDERS.forEach((item) => {
+  worldConfig().landmarkBoulders.forEach((item) => {
     if (!isDecorationClear(item.x, item.z, pathPoints, 5.8)) return;
     if (distanceToPath(item.x, item.z, pathPoints) < 7.2) return;
     const rock = createRock(item.size, {
@@ -752,7 +1130,7 @@ function placeBushes(scene, pathPoints, random) {
     { x: 35, z: -19, rx: 3.8, rz: 6.6, count: 11 },
     { x: -15, z: -31, rx: 5.4, rz: 2.4, count: 8 },
     { x: 14, z: -31, rx: 5.2, rz: 2.2, count: 8 },
-    ...BALANCE.world.puddles.map((puddle) => ({
+    ...worldConfig().puddles.map((puddle) => ({
       x: puddle.x,
       z: puddle.z,
       rx: puddle.rx + 1.1,
@@ -788,7 +1166,7 @@ function placeGrass(scene, pathPoints, random) {
     { x: 31, z: -17, rx: 4.2, rz: 5.6, count: 10 },
     { x: -12, z: 27, rx: 2.8, rz: 2.2, count: 6 },
     { x: 12, z: 27, rx: 2.8, rz: 2.2, count: 6 },
-    ...BALANCE.world.puddles.map((puddle) => ({
+    ...worldConfig().puddles.map((puddle) => ({
       x: puddle.x,
       z: puddle.z,
       rx: puddle.rx + 1.6,
@@ -814,7 +1192,7 @@ function placeGrass(scene, pathPoints, random) {
 }
 
 function placeCottages(scene) {
-  const cottages = [
+  const cottages = worldConfig().cottages ?? [
     { x: -7.8, z: 34, rot: 0.68, scale: 0.94, roof: '#b64a3d' },
     { x: 7.2, z: 33.2, rot: -0.58, scale: 0.88, roof: '#a84f39' },
     { x: -11.5, z: 27.6, rot: 1.92, scale: 0.76, roof: '#91513a' },
@@ -836,9 +1214,10 @@ function placeCottages(scene) {
 
 function createSnowMonsterCamp(scene) {
   const camp = createMonsterCampModel();
-  placeOnTerrain(camp, 4, -34, 0.28);
-  camp.rotation.y = -0.34;
-  camp.scale.setScalar(1.18);
+  const config = worldConfig().monsterCamp ?? { x: 4, z: -34, rot: -0.34, scale: 1.18 };
+  placeOnTerrain(camp, config.x, config.z, config.offset ?? 0.28);
+  camp.rotation.y = config.rot ?? -0.34;
+  camp.scale.setScalar(config.scale ?? 1.18);
   scene.add(camp);
 }
 
@@ -856,22 +1235,33 @@ function randomPointInEllipse(zone, random) {
 }
 
 function isDecorationClear(x, z, pathPoints, clearance) {
+  const config = worldConfig();
   if (distanceToPath(x, z, pathPoints) < clearance) return false;
-  if (CLEARINGS.some((clearing) => Math.hypot(x - clearing.x, z - clearing.z) < clearing.r)) {
+  if (config.clearings.some((clearing) => Math.hypot(x - clearing.x, z - clearing.z) < clearing.r)) {
     return false;
   }
-  if (Math.hypot(x - BALANCE.playerBase.position.x, z - BALANCE.playerBase.position.z) < 9) {
+  if (isAltarClearing(x, z)) {
     return false;
   }
-  if (Math.hypot(x - BALANCE.enemyCamp.position.x, z - BALANCE.enemyCamp.position.z) < 6) {
+  if (Math.hypot(x - config.playerBasePosition.x, z - config.playerBasePosition.z) < 9) {
+    return false;
+  }
+  if (Math.hypot(x - config.enemyCampPosition.x, z - config.enemyCampPosition.z) < 6) {
     return false;
   }
   return true;
 }
 
+function isAltarClearing(x, z) {
+  return (worldConfig().altars ?? []).some((altar) => {
+    const position = altar.position ?? altar;
+    return Math.hypot(x - position.x, z - position.z) < (altar.clearingRadius ?? 5.4);
+  });
+}
+
 function isForestPassage(x, z, pathPoints) {
   if (distanceToPath(x, z, pathPoints) < 5.8) return true;
-  return FOREST_PASSAGES.some((passage) => distanceToPath(x, z, passage) < 3.3);
+  return worldConfig().forestPassages.some((passage) => distanceToPath(x, z, passage) < 3.3);
 }
 
 function isSnowRegion(x, z) {
@@ -899,14 +1289,15 @@ function northMaskAt(z) {
 }
 
 function snowMaskAt(x, z, height = 0) {
+  const snowCenter = worldConfig().terrain.snowCenter ?? SNOW_CENTER;
   const latitude = 1 - smoothstep(-36, -17, z);
   const altitude = smoothstep(2.5, 7.5, height);
-  const snowBasin = 1 - smoothstep(12, 28, Math.hypot(x - SNOW_CENTER.x, (z - SNOW_CENTER.z) * 1.15));
+  const snowBasin = 1 - smoothstep(12, 28, Math.hypot(x - snowCenter.x, (z - snowCenter.z) * 1.15));
   return clamp(latitude * (0.28 + altitude * 0.42) + snowBasin * 0.16 + altitude * northMaskAt(z) * 0.12, 0, 1);
 }
 
 function forestFloorMask(x, z) {
-  return FOREST_ZONES.reduce((best, zone) => {
+  return worldConfig().forestZones.reduce((best, zone) => {
     const dx = (x - zone.x) / zone.rx;
     const dz = (z - zone.z) / zone.rz;
     const distance = Math.sqrt(dx * dx + dz * dz);

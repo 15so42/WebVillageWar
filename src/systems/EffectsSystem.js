@@ -224,19 +224,24 @@ export class EffectsSystem {
   spawnDamageNumber(position, amount, options = {}) {
     const value = Math.max(0, amount);
     if (value <= 0.01) return;
-    const text = formatDamage(value);
+    const text = options.text ?? formatDamage(value);
     const damageType = options.damageType ?? 'normal';
     const color = options.color ?? (damageType === 'true' ? '#ffffff' : '#ff9b35');
     const stroke = options.stroke ?? '#000000';
     const canvas = document.createElement('canvas');
-    canvas.width = 512;
+    canvas.width = options.text ? 768 : 512;
     canvas.height = 256;
     const context = canvas.getContext('2d');
     context.imageSmoothingEnabled = false;
-    context.font = '900 116px Arial, sans-serif';
+    let fontSize = options.fontSize ?? 116;
+    context.font = `900 ${fontSize}px Arial, sans-serif`;
+    while (context.measureText(text).width > canvas.width - 72 && fontSize > 54) {
+      fontSize -= 6;
+      context.font = `900 ${fontSize}px Arial, sans-serif`;
+    }
     context.textAlign = 'center';
     context.textBaseline = 'middle';
-    context.lineWidth = 26;
+    context.lineWidth = options.strokeWidth ?? Math.max(14, Math.round(fontSize * 0.22));
     context.lineJoin = 'round';
     context.miterLimit = 2;
     context.strokeStyle = stroke;
@@ -263,19 +268,69 @@ export class EffectsSystem {
       (position.y ?? 0) + (options.height ?? 1.35),
       position.z + (Math.random() - 0.5) * 0.28
     );
-    sprite.scale.set(1.32, 0.66, 1);
+    const baseHeight = options.baseHeight ?? 0.66;
+    const baseWidth = baseHeight * (canvas.width / canvas.height);
+    sprite.scale.set(baseWidth, baseHeight, 1);
     sprite.renderOrder = 1900;
     this.addEffect(sprite, options.duration ?? 0.82, (dt, t) => {
       sprite.position.x += drift * dt;
       sprite.position.y += (1.35 + t * 0.9) * dt;
       const scale = 1 + Math.sin(t * Math.PI) * 0.28;
-      sprite.scale.set(1.32 * scale, 0.66 * scale, 1);
+      sprite.scale.set(baseWidth * scale, baseHeight * scale, 1);
       const fadeStart = options.fadeStart ?? 0.6;
       const fadeT = clamp((t - fadeStart) / Math.max(0.01, 1 - fadeStart), 0, 1);
       material.opacity = clamp(1 - fadeT ** 3, 0, 1);
     }, () => {
       texture.dispose();
       material.dispose();
+    });
+  }
+
+  spawnHealNumber(position, amount, options = {}) {
+    if (amount <= 0.01) return;
+    this.spawnDamageNumber(position, amount, {
+      text: `+${formatDamage(amount)}`,
+      color: options.color ?? '#59ee73',
+      stroke: options.stroke ?? '#102616',
+      height: options.height ?? 1.52,
+      duration: options.duration ?? 0.76,
+      fontSize: options.fontSize ?? 104,
+      baseHeight: options.baseHeight ?? 0.56,
+      fadeStart: options.fadeStart ?? 0.58
+    });
+  }
+
+  queueHealNumber(target, amount, dt, options = {}) {
+    if (!target?.position || amount <= 0.01) return;
+    const key = options.key ?? '__healFloat';
+    const state = target[key] ?? {
+      amount: 0,
+      timer: options.interval ?? 0.7
+    };
+    state.amount += amount;
+    state.timer = Math.max(0, state.timer - Math.max(0, dt));
+    target[key] = state;
+
+    const minAmount = options.minAmount ?? 0.8;
+    const minDisplay = options.minDisplay ?? 0.28;
+    if (state.amount < minAmount && (state.timer > 0 || state.amount < minDisplay)) return;
+
+    this.spawnHealNumber(target.position, state.amount, options);
+    state.amount = 0;
+    state.timer = options.interval ?? 0.7;
+  }
+
+  spawnEnergyNumber(position, amount, options = {}) {
+    if (amount <= 0.001) return;
+    this.spawnDamageNumber(position, amount, {
+      text: `能量+${formatResourceAmount(amount)}`,
+      color: options.color ?? '#7ee8ff',
+      stroke: options.stroke ?? '#12303a',
+      height: options.height ?? 2.28,
+      duration: options.duration ?? 0.95,
+      fontSize: options.fontSize ?? 92,
+      baseHeight: options.baseHeight ?? 0.54,
+      fadeStart: options.fadeStart ?? 0.64
     });
   }
 
@@ -544,4 +599,9 @@ export class EffectsSystem {
 function formatDamage(value) {
   if (value >= 10) return String(Math.round(value));
   return value.toFixed(1).replace(/\.0$/, '');
+}
+
+function formatResourceAmount(value) {
+  if (value >= 1) return value.toFixed(1).replace(/\.0$/, '');
+  return value.toFixed(2).replace(/0$/, '').replace(/\.0$/, '');
 }

@@ -44,6 +44,18 @@ export class CombatSystem {
       return;
     }
 
+    if (unit.controlMode === 'hold') {
+      unit.target = null;
+      unit.moveGoal = null;
+      unit.commandMoveGoal = null;
+      this.applyMotion(unit, dt);
+      return;
+    }
+
+    if (unit.controlMode === 'guard') {
+      this.ensureGuardState(unit);
+    }
+
     if (unit.commandMoveGoal) {
       if (distance2D(unit.position, unit.commandMoveGoal) > 0.65) {
         unit.target = null;
@@ -68,6 +80,12 @@ export class CombatSystem {
     unit.target = target;
 
     if (target) {
+      if (this.shouldBreakGuardChase(unit, target)) {
+        unit.target = null;
+        this.returnToGuardPoint(unit, dt);
+        this.applyMotion(unit, dt);
+        return;
+      }
       const targetPosition = getTargetPosition(target);
       const targetDistance = distance2D(unit.position, targetPosition);
       const targetRadius = targetCombatRadius(target);
@@ -86,6 +104,8 @@ export class CombatSystem {
     } else if (unit.isWildlife) {
       this.updateWildlifeWander(unit, dt);
       this.moveToward(unit, unit.wanderGoal, dt, 0.55);
+    } else if (unit.controlMode === 'guard') {
+      this.returnToGuardPoint(unit, dt);
     } else if (unit.moveGoal) {
       this.moveToward(unit, unit.moveGoal, dt);
     }
@@ -173,8 +193,11 @@ export class CombatSystem {
   acquireTarget(unit) {
     const aggroRange = this.game.modifiers.getAggroRange(unit);
     if (unit.team === TEAMS.PLAYER) {
-      return nearestUnit(unit, this.game.enemyUnits, aggroRange)
-        ?? nearestStructure(unit, this.game.enemyCamp, aggroRange);
+      const guardFilter = unit.controlMode === 'guard'
+        ? (target) => this.isInsideGuardRadius(unit, target)
+        : null;
+      return nearestUnit(unit, this.game.enemyUnits, aggroRange, guardFilter)
+        ?? nearestStructure(unit, this.game.enemyCamp, aggroRange, guardFilter);
     }
     if (unit.isWildlife) {
       const friendly = nearestUnit(unit, this.game.friendlyUnits, aggroRange);
@@ -189,6 +212,42 @@ export class CombatSystem {
     const friendly = nearestUnit(unit, this.game.friendlyUnits, aggroRange);
     if (friendly) return friendly;
     return nearestStructure(unit, this.game.playerBase, aggroRange);
+  }
+
+  ensureGuardState(unit) {
+    if (!unit.guardPoint) {
+      unit.guardPoint = unit.position.clone();
+      unit.guardPoint.y = this.game.groundHeightAt(unit.guardPoint);
+    }
+    if (!Number.isFinite(unit.guardRadius)) {
+      unit.guardRadius = Math.max(
+        this.game.modifiers.getAttackRange(unit) + 0.9,
+        this.game.modifiers.getAggroRange(unit)
+      );
+    }
+  }
+
+  shouldBreakGuardChase(unit, target) {
+    if (unit.controlMode !== 'guard') return false;
+    if (!unit.guardPoint || !Number.isFinite(unit.guardRadius)) return false;
+    const targetPosition = getTargetPosition(target);
+    if (!targetPosition) return false;
+    const targetRadius = targetCombatRadius(target);
+    return distance2D(unit.guardPoint, targetPosition) > unit.guardRadius + targetRadius ||
+      distance2D(unit.guardPoint, unit.position) > unit.guardRadius + 0.35;
+  }
+
+  isInsideGuardRadius(unit, target) {
+    if (!unit.guardPoint || !Number.isFinite(unit.guardRadius)) return true;
+    const targetPosition = getTargetPosition(target);
+    if (!targetPosition) return false;
+    return distance2D(unit.guardPoint, targetPosition) <= unit.guardRadius + targetCombatRadius(target);
+  }
+
+  returnToGuardPoint(unit, dt) {
+    if (!unit.guardPoint) return;
+    if (distance2D(unit.position, unit.guardPoint) <= 0.42) return;
+    this.moveToward(unit, unit.guardPoint, dt, 0.26);
   }
 
   moveToward(unit, targetPosition, dt, desiredDistance = 0.18) {
@@ -426,9 +485,12 @@ export class CombatSystem {
 
     this.game.buffs.beforeDamage(damageContext);
     const finalDamage = Math.max(0, damageContext.damage);
-    target.takeRawDamage(finalDamage);
+    const isTrueDamage = damageContext.damageTypes.has('true');
+    target.takeRawDamage(finalDamage, {
+      bypassShield: isTrueDamage
+    });
     this.game.effects.spawnDamageNumber(target.position, finalDamage, {
-      damageType: damageContext.damageTypes?.has?.('true') ? 'true' : 'normal',
+      damageType: isTrueDamage ? 'true' : 'normal',
       height: damageContext.damageNumberHeight,
       duration: damageContext.damageNumberDuration
     });
@@ -476,11 +538,12 @@ export class CombatSystem {
   }
 }
 
-function nearestUnit(source, candidates, range) {
+function nearestUnit(source, candidates, range, predicate = null) {
   let best = null;
   let bestDistance = range;
   candidates.forEach((candidate) => {
     if (!candidate.alive) return;
+    if (predicate && !predicate(candidate)) return;
     const distance = Math.max(0, distance2D(source.position, candidate.position) - targetCombatRadius(candidate));
     if (distance < bestDistance) {
       best = candidate;
@@ -490,8 +553,9 @@ function nearestUnit(source, candidates, range) {
   return best;
 }
 
-function nearestStructure(source, structure, range) {
+function nearestStructure(source, structure, range, predicate = null) {
   if (!structure?.alive) return null;
+  if (predicate && !predicate(structure)) return null;
   return distance2D(source.position, structure.position) <= range + targetCombatRadius(structure)
     ? structure
     : null;

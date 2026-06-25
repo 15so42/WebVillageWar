@@ -33,6 +33,9 @@ export class UnitEntity {
     this.knockbackVelocity = new THREE.Vector3();
     this.moveGoal = null;
     this.commandMoveGoal = null;
+    this.controlMode = 'normal';
+    this.guardPoint = null;
+    this.guardRadius = null;
     this.target = null;
     this.alive = true;
     this.visualState = 'idle';
@@ -126,19 +129,25 @@ export class UnitEntity {
   }
 
   restoreHealth(amount) {
+    const previousHealth = this.health;
     this.health = clamp(this.health + amount, 0, this.maxHealth);
+    return this.health - previousHealth;
   }
 
   restoreShield(amount) {
+    const previousShield = this.shield;
     this.shield = clamp(this.shield + amount, 0, this.maxShield);
+    return this.shield - previousShield;
   }
 
   restoreDurability(amount) {
+    const previousDurability = this.weapon.durability;
     this.weapon.durability = clamp(
       this.weapon.durability + amount,
       0,
       this.weapon.maxDurability
     );
+    return this.weapon.durability - previousDurability;
   }
 
   spendDurability(amount) {
@@ -165,10 +174,10 @@ export class UnitEntity {
     this.enchantHalo.visible = this.enchantments.size > 0;
   }
 
-  takeRawDamage(amount) {
+  takeRawDamage(amount, options = {}) {
     const incoming = Math.max(0, amount);
     const previousHealth = this.health;
-    const absorbed = Math.min(this.shield, incoming);
+    const absorbed = options.bypassShield ? 0 : Math.min(this.shield, incoming);
     this.shield -= absorbed;
     this.health -= incoming - absorbed;
     if (this.health < previousHealth) {
@@ -222,6 +231,9 @@ function buffModifierSource(id) {
 }
 
 function resolveBuffLevel(definition, existing, overrides, isEnchantment) {
+  if (isEnchantment && existing && Number.isFinite(overrides.levelIncrement)) {
+    return Math.max(1, existing.level ?? 1) + Math.max(1, overrides.levelIncrement);
+  }
   if (Number.isFinite(overrides.level)) {
     return existing && !isEnchantment
       ? Math.max(existing.level ?? 1, overrides.level)

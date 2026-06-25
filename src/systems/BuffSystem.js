@@ -128,6 +128,7 @@ export class BuffSystem {
     }
 
     if (effect.op === 'reduceDamagePercent') {
+      if (isTrueDamage(context)) return;
       const reduction = resolveReductionPercent(effect, context);
       context.damage = Math.max(0, context.damage * (1 - reduction));
       return;
@@ -200,7 +201,10 @@ export class BuffSystem {
     if (effect.op === 'restoreHealth') {
       if (!context.target?.alive) return;
       const amount = resolveEffectNumber(effect, 'amount', context, 0);
-      context.target.restoreHealth?.(amount);
+      const healed = context.target.restoreHealth?.(amount) ?? 0;
+      this.game.effects.spawnHealNumber(context.target.position, healed, {
+        height: context.target.projectileHitHeight ?? 1.45
+      });
       return;
     }
 
@@ -239,6 +243,10 @@ function resolveEffectNumber(effect, field, context, fallback = 0) {
 function sourceBuffLevel(context) {
   const level = Number(context.buff?.level ?? 1);
   return Number.isFinite(level) ? Math.max(1, level) : 1;
+}
+
+function isTrueDamage(context) {
+  return context.damageTypes?.has?.('true') === true;
 }
 
 function clamp01(value) {

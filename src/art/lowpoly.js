@@ -266,12 +266,12 @@ export function createSwordsmanModel(team, { hasShield = false } = {}) {
   return enableShadows(group);
 }
 
-export function createArcherModel(team) {
+export function createArcherModel(team, options = {}) {
   const group = new THREE.Group();
-  const tunic = team === 'player' ? '#3f8f68' : '#9e413a';
-  const skin = '#d9a16f';
+  const tunic = options.tunicColor ?? (team === 'player' ? '#3f8f68' : '#9e413a');
+  const skin = options.skinColor ?? '#d9a16f';
   const skinMat = mat(skin);
-  const leather = mat('#7b4e2d');
+  const leather = mat(options.leatherColor ?? '#7b4e2d');
 
   const body = mesh(
     new THREE.DodecahedronGeometry(0.48, 0),
@@ -295,7 +295,7 @@ export function createArcherModel(team) {
   eyeRight.position.x = 0.075;
   const hood = mesh(
     new THREE.ConeGeometry(0.31, 0.42, 6),
-    mat('#324c37'),
+    mat(options.hoodColor ?? '#324c37'),
     new THREE.Vector3(0, 1.78, 0),
     new THREE.Vector3(1, 1, 1)
   );
@@ -377,7 +377,7 @@ export function createArcherModel(team) {
   quiver.rotation.z = 0.4;
   const leg = mesh(
     new THREE.BoxGeometry(0.16, 0.52, 0.16),
-    mat('#2d2e34'),
+    mat(options.legColor ?? '#2d2e34'),
     new THREE.Vector3(-0.14, 0.27, 0),
     new THREE.Vector3(1, 1, 1)
   );
@@ -421,15 +421,29 @@ export function createArcherModel(team) {
     heldArrow,
     rightHand
   };
+  if (Number.isFinite(options.scale)) {
+    group.scale.setScalar(options.scale);
+  }
   return enableShadows(group);
 }
 
-export function createRaiderModel() {
+export function createGoblinArcherModel() {
+  return createArcherModel('enemy', {
+    skinColor: '#7fb65c',
+    tunicColor: '#5d6e3d',
+    hoodColor: '#395431',
+    leatherColor: '#5b3c28',
+    legColor: '#243024',
+    scale: 0.86
+  });
+}
+
+export function createRaiderModel(options = {}) {
   const group = new THREE.Group();
-  const skinMat = mat('#b97a56');
+  const skinMat = mat(options.skinColor ?? '#b97a56');
   const body = mesh(
     new THREE.DodecahedronGeometry(0.5, 0),
-    mat('#8f3b34'),
+    mat(options.bodyColor ?? '#8f3b34'),
     new THREE.Vector3(0, 0.86, 0),
     new THREE.Vector3(0.84, 1.16, 0.66)
   );
@@ -441,7 +455,7 @@ export function createRaiderModel() {
   );
   const eyeLeft = mesh(
     new THREE.BoxGeometry(0.045, 0.035, 0.02),
-    mat('#241817'),
+    mat(options.eyeColor ?? '#241817'),
     new THREE.Vector3(-0.08, 1.54, 0.245),
     new THREE.Vector3(1, 1, 1)
   );
@@ -476,7 +490,7 @@ export function createRaiderModel() {
     new THREE.Vector3(-0.13, 1.28, 0.86),
     0.07,
     0.13,
-    mat('#6d4a2c')
+    mat(options.weaponColor ?? '#6d4a2c')
   );
   const weaponSwingPivot = createPivot(
     'raiderWeaponSwingPivot',
@@ -485,7 +499,7 @@ export function createRaiderModel() {
   );
   const leg = mesh(
     new THREE.BoxGeometry(0.18, 0.5, 0.18),
-    mat('#312923'),
+    mat(options.legColor ?? '#312923'),
     new THREE.Vector3(-0.15, 0.25, 0),
     new THREE.Vector3(1, 1, 1)
   );
@@ -516,7 +530,21 @@ export function createRaiderModel() {
     weaponSwingPivot,
     offhandPivot
   };
+  if (Number.isFinite(options.scale)) {
+    group.scale.setScalar(options.scale);
+  }
   return enableShadows(group);
+}
+
+export function createGoblinSoldierModel() {
+  return createRaiderModel({
+    skinColor: '#7fb65c',
+    bodyColor: '#6a5236',
+    eyeColor: '#182015',
+    weaponColor: '#5a3d2a',
+    legColor: '#253024',
+    scale: 0.88
+  });
 }
 
 export function createArrowModel(color = '#e7ddc0') {
@@ -1119,6 +1147,121 @@ export function createReticle() {
   return group;
 }
 
+export function createAltarModel(definition = {}) {
+  const color = definition.color ?? '#6ef0c4';
+  const group = new THREE.Group();
+  const stone = mat('#87918e');
+  const darkStone = mat('#5e6968');
+  const snow = mat('#f5f5e7');
+  const accent = mat(color, {
+    emissive: color,
+    emissiveIntensity: 0.58
+  });
+
+  const base = mesh(
+    new THREE.CylinderGeometry(1.04, 1.24, 0.3, 8),
+    darkStone,
+    new THREE.Vector3(0, 0.15, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const snowCap = mesh(
+    new THREE.CylinderGeometry(0.88, 1.02, 0.08, 8),
+    snow,
+    new THREE.Vector3(0, 0.34, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const plinth = mesh(
+    new THREE.CylinderGeometry(0.5, 0.66, 0.42, 6),
+    stone,
+    new THREE.Vector3(0, 0.58, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const crystal = mesh(
+    new THREE.OctahedronGeometry(0.46, 0),
+    accent,
+    new THREE.Vector3(0, 1.06, 0),
+    new THREE.Vector3(0.72, 1.28, 0.72)
+  );
+  crystal.rotation.y = Math.PI / 4;
+
+  const shardMaterial = mat(color, {
+    emissive: color,
+    emissiveIntensity: 0.36
+  });
+  for (let i = 0; i < 4; i += 1) {
+    const angle = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    const shard = mesh(
+      new THREE.ConeGeometry(0.12, 0.36, 5),
+      shardMaterial,
+      new THREE.Vector3(Math.cos(angle) * 0.58, 0.64, Math.sin(angle) * 0.58),
+      new THREE.Vector3(0.75, 1, 0.75)
+    );
+    shard.rotation.y = angle;
+    shard.rotation.z = (i % 2 === 0 ? 1 : -1) * 0.12;
+    group.add(shard);
+  }
+
+  const areaDisc = new THREE.Mesh(
+    new THREE.CircleGeometry(1, 56),
+    basicMat(color, {
+      transparent: true,
+      opacity: 0,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      depthTest: false
+    }).clone()
+  );
+  const areaRing = new THREE.Mesh(
+    new THREE.RingGeometry(0.98, 1, 64),
+    basicMat(color, {
+      transparent: true,
+      opacity: 0.22,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      depthTest: false
+    }).clone()
+  );
+  const progressRing = new THREE.Mesh(
+    new THREE.RingGeometry(1.04, 1.1, 64, 1, -Math.PI / 2, 0.001),
+    basicMat(color, {
+      transparent: true,
+      opacity: 0.86,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      depthTest: false
+    }).clone()
+  );
+  const ownerCrown = new THREE.Mesh(
+    new THREE.RingGeometry(0.72, 0.86, 48),
+    basicMat('#d9e5e2', {
+      transparent: true,
+      opacity: 0.72,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    }).clone()
+  );
+
+  [areaDisc, areaRing, progressRing, ownerCrown].forEach((ring) => {
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.055;
+  });
+  areaDisc.renderOrder = 1180;
+  areaDisc.visible = false;
+  areaRing.renderOrder = 1181;
+  progressRing.renderOrder = 1182;
+  ownerCrown.position.y = 0.39;
+
+  group.add(areaDisc, areaRing, progressRing, ownerCrown, base, snowCap, plinth, crystal);
+  group.userData.parts = {
+    areaDisc,
+    areaRing,
+    progressRing,
+    ownerCrown,
+    crystal
+  };
+  return enableShadows(group);
+}
+
 export function createSelectionRing() {
   const group = new THREE.Group();
   const glow = new THREE.Mesh(
@@ -1147,6 +1290,77 @@ export function createSelectionRing() {
   ring.renderOrder = 2001;
   group.add(glow, ring);
   group.position.y = 0.05;
+  group.visible = false;
+  group.userData.glow = glow;
+  group.userData.ring = ring;
+  return group;
+}
+
+export function createGuardFlag() {
+  const group = new THREE.Group();
+  const pole = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.018, 0.018, 0.58, 6),
+    basicMat('#23333a', {
+      depthTest: false,
+      depthWrite: false
+    }).clone()
+  );
+  pole.position.y = 0.29;
+  pole.renderOrder = 2100;
+
+  const flagGeometry = new THREE.BufferGeometry();
+  flagGeometry.setAttribute(
+    'position',
+    new THREE.Float32BufferAttribute([
+      0.02, 0.52, 0,
+      0.48, 0.43, 0,
+      0.02, 0.32, 0
+    ], 3)
+  );
+  flagGeometry.computeVertexNormals();
+  const flag = new THREE.Mesh(
+    flagGeometry,
+    basicMat('#78e3ff', {
+      transparent: true,
+      opacity: 0.92,
+      side: THREE.DoubleSide,
+      depthTest: false,
+      depthWrite: false
+    }).clone()
+  );
+  flag.renderOrder = 2101;
+  group.add(pole, flag);
+  group.visible = false;
+  return group;
+}
+
+export function createAttackRangeRing() {
+  const group = new THREE.Group();
+  const glow = new THREE.Mesh(
+    new THREE.RingGeometry(0.96, 1, 80),
+    basicMat('#78e3ff', {
+      transparent: true,
+      opacity: 0.2,
+      side: THREE.DoubleSide,
+      depthTest: false,
+      depthWrite: false
+    }).clone()
+  );
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.985, 1, 80),
+    basicMat('#fff2a8', {
+      transparent: true,
+      opacity: 0.74,
+      side: THREE.DoubleSide,
+      depthTest: false,
+      depthWrite: false
+    }).clone()
+  );
+  glow.rotation.x = -Math.PI / 2;
+  ring.rotation.x = -Math.PI / 2;
+  glow.renderOrder = 1500;
+  ring.renderOrder = 1501;
+  group.add(glow, ring);
   group.visible = false;
   group.userData.glow = glow;
   group.userData.ring = ring;

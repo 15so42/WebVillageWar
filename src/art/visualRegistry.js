@@ -2,6 +2,8 @@ import {
   createArcherModel,
   createArrowModel,
   createBearModel,
+  createGoblinArcherModel,
+  createGoblinSoldierModel,
   createKnightModel,
   createMeteorModel,
   createRaiderModel,
@@ -14,6 +16,8 @@ const UNIT_FACTORIES = {
   swordsman: ({ team }) => createSwordsmanModel(team),
   archer: ({ team }) => createArcherModel(team),
   raider: () => createRaiderModel(),
+  goblinSoldier: () => createGoblinSoldierModel(),
+  goblinArcher: () => createGoblinArcherModel(),
   wolf: () => createWolfModel(),
   bear: () => createBearModel()
 };
@@ -109,7 +113,7 @@ function applyOneShot(unit, root, name, t) {
   root.rotation.z = 0;
   root.scale.setScalar(1);
   if (name === 'attack') {
-    if (unit.type === 'archer') {
+    if (unit.type === 'archer' || unit.type === 'goblinArcher') {
       root.position.y = pulse * 0.025;
       applyAttackPose(unit, root, t, pulse);
       return;
@@ -132,11 +136,11 @@ function applyOneShot(unit, root, name, t) {
 }
 
 function applyAttackPose(unit, root, t, pulse) {
-  if (unit.type === 'archer') {
+  if (unit.type === 'archer' || unit.type === 'goblinArcher') {
     applyArcherAttack(root, t, pulse);
     return;
   }
-  if (unit.type === 'raider') {
+  if (unit.type === 'raider' || unit.type === 'goblinSoldier') {
     applyRaiderAttack(root, t, pulse);
     return;
   }

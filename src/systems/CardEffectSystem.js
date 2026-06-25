@@ -34,7 +34,8 @@ export class CardEffectSystem {
       effect.unitType ?? card.unitType,
       effect.count ?? card.count,
       point,
-      card.radius
+      card.radius,
+      { sourceCard: card }
     );
   }
 
@@ -50,7 +51,9 @@ export class CardEffectSystem {
     if (!targetUnit) return;
     const buffId = effect.buffId ?? card.enchantmentId;
     const buff = this.game.buffs.applyBuff(targetUnit, buffId, null, {
-      sourceCard: card.id
+      sourceCard: card.id,
+      level: card.level ?? 1,
+      levelIncrement: card.level ?? 1
     });
     const definition = buff ?? BUFF_DEFINITIONS[buffId];
     this.game.effects.spawnRing(targetUnit.position, definition?.color ?? card.color, 0.85, 0.6);

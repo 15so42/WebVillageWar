@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { createSelectionRing } from '../art/lowpoly.js';
-import { BALANCE, TEAMS } from '../data/gameData.js';
+import { createAttackRangeRing, createGuardFlag, createSelectionRing } from '../art/lowpoly.js';
+import { BALANCE, CARD_DEFINITIONS, LEVEL_DEFINITIONS, TEAMS } from '../data/gameData.js';
 import { UnitEntity } from '../entities/UnitEntity.js';
 import { createWorld } from '../world/createWorld.js';
 import { BuffSystem } from './BuffSystem.js';
@@ -8,6 +8,7 @@ import { CardEffectSystem } from './CardEffectSystem.js';
 import { CardSystem } from './CardSystem.js';
 import { CombatSystem } from './CombatSystem.js';
 import { EffectsSystem } from './EffectsSystem.js';
+import { AltarSystem } from './AltarSystem.js';
 import { AttributeSet, bindAttributeGetter } from './AttributeSet.js';
 import { ModifierSystem } from './ModifierSystem.js';
 import { RecoverySystem } from './RecoverySystem.js';
@@ -17,8 +18,15 @@ import { clamp, polarOffset } from '../utils/math.js';
 const STRUCTURE_PUSH_PADDING = 0.18;
 
 export class Game {
-  constructor({ canvas }) {
+  constructor({ canvas, session = null, onLevelComplete = null } = {}) {
     this.canvas = canvas;
+    this.levelSession = normalizeLevelSession(session);
+    this.onLevelComplete = onLevelComplete;
+    this.elapsedTime = 0;
+    this.levelFinished = false;
+    this.destroyed = false;
+    this.eventController = new AbortController();
+    this.worldConfig = this.levelSession.level.world ?? BALANCE.world;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(48, 1, 0.1, 240);
     this.camera.position.set(0, 34, 47.2);
@@ -53,13 +61,16 @@ export class Game {
     this.selectedUnit = null;
     this.selectedUnits = [];
     this.selectionRings = [];
+    this.guardVisuals = new Map();
     this.selectionDrag = null;
+    const playerBasePosition = this.worldConfig.playerBasePosition ?? BALANCE.playerBase.position;
+    const enemyCampPosition = this.worldConfig.enemyCampPosition ?? BALANCE.enemyCamp.position;
     this.playerBase = createStructureState({
       id: 'player-base',
       position: new THREE.Vector3(
-        BALANCE.playerBase.position.x,
+        playerBasePosition.x,
         0,
-        BALANCE.playerBase.position.z
+        playerBasePosition.z
       ),
       projectileHitHeight: 2.1,
       attributes: {
@@ -70,7 +81,7 @@ export class Game {
       }
     });
 
-    this.world = createWorld(this.scene);
+    this.world = createWorld(this.scene, this.worldConfig);
     this.playerBase.position.y = this.groundHeightAt(this.playerBase.position);
     setupStructureBody(this.playerBase, this.world.playerBaseModel, {
       collisionRadius: 3.55,
@@ -79,9 +90,9 @@ export class Game {
     this.enemyCamp = createStructureState({
       id: 'enemy-camp',
       position: new THREE.Vector3(
-        BALANCE.enemyCamp.position.x,
+        enemyCampPosition.x,
         0,
-        BALANCE.enemyCamp.position.z
+        enemyCampPosition.z
       ),
       projectileHitHeight: 2.2,
       attributes: {
@@ -106,7 +117,10 @@ export class Game {
     this.spells = new SpellSystem(this);
     this.cardEffects = new CardEffectSystem(this);
     this.recovery = new RecoverySystem(this);
-    this.cardSystem = new CardSystem(this);
+    this.cardSystem = new CardSystem(this, {
+      deck: this.levelSession.deck
+    });
+    this.altars = new AltarSystem(this, this.world.config?.altars ?? this.worldConfig.altars);
     this.selectionBox = createSelectionBoxElement();
 
     this.dom = {
@@ -121,43 +135,71 @@ export class Game {
 
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
-    canvas.addEventListener('contextmenu', (event) => this.onGameContextMenu(event));
-    canvas.addEventListener('pointerdown', (event) => this.onCanvasPointerDown(event));
-    canvas.addEventListener('pointermove', (event) => this.onCanvasPointerMove(event));
-    canvas.addEventListener('pointerup', (event) => this.onCanvasPointerUp(event));
-    canvas.addEventListener('pointercancel', (event) => this.onCanvasPointerCancel(event));
-    canvas.addEventListener('mousedown', (event) => this.onCanvasMouseDown(event));
-    canvas.addEventListener('auxclick', (event) => this.onCanvasAuxClick(event));
-    window.addEventListener('mousemove', (event) => this.onCanvasPointerMove(event));
-    window.addEventListener('mouseup', (event) => this.onCanvasPointerUp(event));
-    window.addEventListener('blur', () => this.cancelCameraDrag());
-    canvas.addEventListener('wheel', (event) => this.onCanvasWheel(event), { passive: false });
-    window.addEventListener('pointermove', (event) => this.onWindowPointerMove(event));
-    window.addEventListener('contextmenu', (event) => this.onGameContextMenu(event), true);
-    window.addEventListener('resize', () => this.resize());
+    const signal = this.eventController.signal;
+    canvas.addEventListener('contextmenu', (event) => this.onGameContextMenu(event), { signal });
+    canvas.addEventListener('pointerdown', (event) => this.onCanvasPointerDown(event), { signal });
+    canvas.addEventListener('pointermove', (event) => this.onCanvasPointerMove(event), { signal });
+    canvas.addEventListener('pointerup', (event) => this.onCanvasPointerUp(event), { signal });
+    canvas.addEventListener('pointercancel', (event) => this.onCanvasPointerCancel(event), { signal });
+    canvas.addEventListener('mousedown', (event) => this.onCanvasMouseDown(event), { signal });
+    canvas.addEventListener('auxclick', (event) => this.onCanvasAuxClick(event), { signal });
+    window.addEventListener('mousemove', (event) => this.onCanvasPointerMove(event), { signal });
+    window.addEventListener('mouseup', (event) => this.onCanvasPointerUp(event), { signal });
+    window.addEventListener('blur', () => this.cancelCameraDrag(), { signal });
+    canvas.addEventListener('wheel', (event) => this.onCanvasWheel(event), { passive: false, signal });
+    window.addEventListener('pointermove', (event) => this.onWindowPointerMove(event), { signal });
+    window.addEventListener('contextmenu', (event) => this.onGameContextMenu(event), { capture: true, signal });
+    window.addEventListener('keydown', (event) => this.onKeyDown(event), { signal });
+    window.addEventListener('resize', () => this.resize(), { signal });
     this.resize();
 
-    this.summonUnits('knight', 1, new THREE.Vector3(-1.4, 0, 27.8), 0.7, {
+    this.summonUnits('raider', 1, this.playerBase.position.clone().add(new THREE.Vector3(-1.4, 0, -2.2)), 0.7, {
       select: false
     });
-    this.summonUnits('archer', 1, new THREE.Vector3(1.4, 0, 27.8), 0.7, {
+    this.summonUnits('archer', 1, this.playerBase.position.clone().add(new THREE.Vector3(1.4, 0, -2.2)), 0.7, {
       select: false
     });
     this.spawnWildlife();
     this.spawnEnemyWave(1, { orders: 'guard' });
 
     window.__VILLAGE_WAR_DEBUG__ = {
+      game: this,
       snapshot: () => this.snapshot(),
       samplePixels: () => this.samplePixels()
     };
   }
 
   start() {
+    if (this.destroyed) return;
     this.renderer.setAnimationLoop(() => this.tick());
   }
 
+  stop() {
+    this.renderer.setAnimationLoop(null);
+  }
+
+  destroy() {
+    if (this.destroyed) return;
+    this.destroyed = true;
+    this.stop();
+    this.eventController.abort();
+    this.cardSystem?.destroy?.();
+    this.renderer.dispose();
+    this.selectionBox?.remove();
+    this.guardVisuals.forEach((visuals) => {
+      this.scene.remove(visuals.flag, visuals.rangeRing);
+    });
+    this.guardVisuals.clear();
+    this.worldUi.innerHTML = '';
+    if (window.__VILLAGE_WAR_DEBUG__?.game === this) {
+      delete window.__VILLAGE_WAR_DEBUG__;
+    }
+  }
+
   tick() {
+    if (this.destroyed) return;
     const dt = Math.min(this.clock.getDelta(), 0.05);
+    this.elapsedTime += dt;
     this.waveTimer -= dt;
     if (this.waveTimer <= 0 && this.playerBase.health > 0 && this.enemyCamp.alive) {
       this.wave += 1;
@@ -167,14 +209,17 @@ export class Game {
     this.cardSystem.update(dt);
     this.combat.update(dt);
     this.recovery.update(dt);
+    this.altars.update(dt);
     this.effects.update(dt);
     this.updateStructureFeedback(dt);
     this.updateCamera(dt);
     this.world.update?.(dt, this.cameraTarget);
     this.updateSelection();
+    this.updateGuardVisuals(dt);
     this.updateUnitVisuals(dt);
     this.updateHud();
     this.renderer.render(this.scene, this.camera);
+    this.checkLevelEnd();
   }
 
   resize() {
@@ -276,6 +321,7 @@ export class Game {
         team: TEAMS.PLAYER,
         position
       });
+      this.applySummonCardLevel(unit, options.sourceCard);
       this.attachUnitStatus(unit);
       this.friendlyUnits.push(unit);
       this.scene.add(unit.mesh);
@@ -286,18 +332,39 @@ export class Game {
     }
   }
 
+  applySummonCardLevel(unit, card) {
+    const level = Math.max(1, Math.floor(card?.level ?? 1));
+    if (level <= 1) return;
+    const bonusLevel = level - 1;
+    unit.attributes.addModifiers([
+      {
+        stat: 'maxHealth',
+        type: 'add',
+        amount: bonusLevel * 2
+      },
+      {
+        stat: 'attackDamage',
+        type: 'add',
+        amount: bonusLevel
+      }
+    ], `card:${card.id}:level`);
+    unit.health = unit.maxHealth;
+    unit.clampToAttributeCaps();
+  }
+
   spawnEnemyWave(wave, { orders = 'attack' } = {}) {
-    const count = Math.min(8, 2 + Math.floor(wave * 0.8));
+    const difficulty = Math.max(1, this.levelSession.difficulty ?? 1);
+    const count = Math.min(12, 2 + Math.floor(wave * 0.72) + Math.floor((difficulty - 1) * 0.45));
     for (let i = 0; i < count; i += 1) {
       const offset = polarOffset(i, count, 1.2 + (i % 3) * 0.45);
-      const camp = BALANCE.enemyCamp.position;
-      const position = this.resolveWalkablePoint(new THREE.Vector3(camp.x, 0, camp.z).add(offset));
+      const position = this.resolveWalkablePoint(this.enemyCamp.position.clone().setY(0).add(offset));
       position.y = this.groundHeightAt(position);
       const unit = new UnitEntity({
-        type: 'raider',
+        type: this.enemyTypeForWave(wave, i, difficulty),
         team: TEAMS.ENEMY,
         position
       });
+      this.applyEnemyDifficulty(unit, wave, difficulty);
       this.attachUnitStatus(unit);
       this.enemyUnits.push(unit);
       this.scene.add(unit.mesh);
@@ -305,6 +372,32 @@ export class Game {
         this.orderEnemyAttack(unit, i, count);
       }
     }
+  }
+
+  enemyTypeForWave(wave, index, difficulty) {
+    const archerUnlocked = difficulty >= 2 || wave >= 3;
+    if (!archerUnlocked) return 'goblinSoldier';
+    const archerEvery = difficulty >= 5 ? 2 : difficulty >= 3 ? 3 : 4;
+    return (index + wave) % archerEvery === 0 ? 'goblinArcher' : 'goblinSoldier';
+  }
+
+  applyEnemyDifficulty(unit, wave, difficulty) {
+    const healthFactor = 1 + (difficulty - 1) * 0.14 + (wave - 1) * 0.035;
+    const damageFactor = 1 + (difficulty - 1) * 0.12 + (wave - 1) * 0.025;
+    unit.attributes.addModifiers([
+      {
+        stat: 'maxHealth',
+        type: 'multiply',
+        amount: healthFactor
+      },
+      {
+        stat: 'attackDamage',
+        type: 'multiply',
+        amount: damageFactor
+      }
+    ], 'level:difficulty');
+    unit.health = unit.maxHealth;
+    unit.clampToAttributeCaps();
   }
 
   orderEnemyAttack(unit, index, total) {
@@ -322,7 +415,7 @@ export class Game {
   }
 
   spawnWildlife() {
-    BALANCE.world.wildlife.forEach((spawn, index) => {
+    (this.world.config?.wildlife ?? this.worldConfig.wildlife ?? BALANCE.world.wildlife).forEach((spawn, index) => {
       const unit = new UnitEntity({
         type: spawn.type,
         team: TEAMS.ENEMY,
@@ -480,6 +573,31 @@ export class Game {
     });
   }
 
+  checkLevelEnd() {
+    if (this.levelFinished) return;
+    if (!this.enemyCamp.alive) {
+      this.finishLevel(true);
+      return;
+    }
+    if (!this.playerBase.alive) {
+      this.finishLevel(false);
+    }
+  }
+
+  finishLevel(victory) {
+    if (this.levelFinished) return;
+    this.levelFinished = true;
+    this.stop();
+    this.onLevelComplete?.({
+      victory,
+      elapsedTime: this.elapsedTime,
+      wave: this.wave,
+      session: this.levelSession,
+      playerBaseHealth: this.playerBase.health,
+      enemyCampHealth: this.enemyCamp.health
+    });
+  }
+
   selectUnit(unit) {
     this.selectUnits(unit ? [unit] : []);
   }
@@ -538,6 +656,19 @@ export class Game {
     if (event.button !== 1) return;
     event.preventDefault();
     event.stopPropagation();
+  }
+
+  onKeyDown(event) {
+    if (event.repeat || isTextInputTarget(event.target)) return;
+    if (!this.selectedUnits.some((unit) => unit.alive)) return;
+    const key = event.key.toLowerCase();
+    if (key === 's') {
+      event.preventDefault();
+      this.stopSelectedUnits();
+    } else if (key === 'z') {
+      event.preventDefault();
+      this.guardSelectedUnits();
+    }
   }
 
   onCanvasPointerMove(event) {
@@ -717,19 +848,67 @@ export class Game {
     if (!units.length) return;
     const commandCenter = this.resolveWalkablePoint(point);
     const formationRadius = Math.min(2.4, 0.55 + Math.sqrt(units.length) * 0.42);
+    const forceMoveUnits = [];
     units.forEach((unit, index) => {
       const destination = this.resolveWalkablePoint(
         commandCenter.clone().add(commandFormationOffset(index, units.length, formationRadius))
       );
       destination.y = this.groundHeightAt(destination);
-      unit.commandMoveGoal = destination;
+      const forceMove = this.isUnitEngaged(unit);
+      unit.commandMoveGoal = forceMove ? destination.clone() : null;
       unit.moveGoal = destination.clone();
       unit.route = null;
       unit.routeIndex = null;
       unit.target = null;
+      unit.controlMode = 'normal';
+      unit.guardPoint = null;
+      unit.guardRadius = null;
+      if (forceMove) forceMoveUnits.push(unit);
+    });
+    this.combat.cancelPendingAttacksFor(forceMoveUnits);
+    this.effects.spawnMoveDestination(commandCenter, formationRadius);
+  }
+
+  isUnitEngaged(unit) {
+    return Boolean(unit.target?.alive !== false && unit.target) ||
+      Boolean(this.combat.getActiveAttackFor(unit));
+  }
+
+  stopSelectedUnits() {
+    const units = this.selectedUnits.filter((unit) => unit.alive);
+    if (!units.length) return;
+    units.forEach((unit) => {
+      unit.controlMode = 'hold';
+      unit.moveGoal = null;
+      unit.commandMoveGoal = null;
+      unit.target = null;
+      unit.guardPoint = null;
+      unit.guardRadius = null;
+      unit.knockbackVelocity.set(0, 0, 0);
     });
     this.combat.cancelPendingAttacksFor(units);
-    this.effects.spawnMoveDestination(commandCenter, formationRadius);
+  }
+
+  guardSelectedUnits() {
+    const units = this.selectedUnits.filter((unit) => unit.alive);
+    if (!units.length) return;
+    units.forEach((unit) => {
+      unit.controlMode = 'guard';
+      unit.guardPoint = unit.position.clone();
+      unit.guardPoint.y = this.groundHeightAt(unit.guardPoint);
+      unit.guardRadius = this.gameGuardRadiusFor(unit);
+      unit.moveGoal = null;
+      unit.commandMoveGoal = null;
+      unit.target = null;
+    });
+    this.combat.cancelPendingAttacksFor(units);
+    this.effects.spawnRing(units[0].position, '#78e3ff', 0.8, 0.52);
+  }
+
+  gameGuardRadiusFor(unit) {
+    const attackRange = this.modifiers.getAttackRange(unit);
+    const aggroRange = this.modifiers.getAggroRange(unit);
+    return Math.max(attackRange + 0.9, aggroRange);
   }
 
   setPointerFromClient(clientX, clientY) {
@@ -785,6 +964,43 @@ export class Game {
       this.selectionRings.push(ring);
       this.scene.add(ring);
     }
+  }
+
+  updateGuardVisuals(dt) {
+    const guardUnits = new Set(
+      this.friendlyUnits.filter((unit) => unit.alive && unit.controlMode === 'guard')
+    );
+    [...this.guardVisuals.entries()].forEach(([unit, visuals]) => {
+      if (guardUnits.has(unit)) return;
+      this.scene.remove(visuals.flag, visuals.rangeRing);
+      this.guardVisuals.delete(unit);
+    });
+
+    guardUnits.forEach((unit) => {
+      const visuals = this.guardVisuals.get(unit) ?? this.createGuardVisuals(unit);
+      const height = unitStatusHeight(unit) + 0.24;
+      visuals.flag.visible = true;
+      visuals.flag.position.set(unit.position.x, unit.position.y + height, unit.position.z);
+      visuals.flag.rotation.y += dt * 2.7;
+
+      const attackRange = this.modifiers.getAttackRange(unit);
+      const center = unit.guardPoint ?? unit.position;
+      visuals.rangeRing.visible = true;
+      visuals.rangeRing.position.set(center.x, this.groundHeightAt(center) + 0.085, center.z);
+      visuals.rangeRing.scale.setScalar(attackRange);
+      visuals.rangeRing.userData.ring.rotation.z += dt * 0.42;
+      visuals.rangeRing.userData.glow.rotation.z -= dt * 0.18;
+    });
+  }
+
+  createGuardVisuals(unit) {
+    const visuals = {
+      flag: createGuardFlag(),
+      rangeRing: createAttackRangeRing()
+    };
+    this.guardVisuals.set(unit, visuals);
+    this.scene.add(visuals.flag, visuals.rangeRing);
+    return visuals;
   }
 
   updateUnitVisuals(dt) {
@@ -861,6 +1077,10 @@ export class Game {
 
   snapshot() {
     return {
+      level: this.levelSession.level.id,
+      difficulty: this.levelSession.difficulty,
+      sceneKey: this.world.config?.sceneKey ?? this.worldConfig.sceneKey,
+      elapsedTime: Number(this.elapsedTime.toFixed(1)),
       friendly: this.friendlyUnits.length,
       enemies: this.enemyUnits.length,
       wave: this.wave,
@@ -868,6 +1088,7 @@ export class Game {
       enemyCampHealth: Math.round(this.enemyCamp.health),
       selectedCount: this.selectedUnits.length,
       selectedIds: this.selectedUnits.map((unit) => unit.id),
+      altars: this.altars.snapshot(),
       camera: {
         targetX: Number(this.cameraTarget.x.toFixed(2)),
         targetZ: Number(this.cameraTarget.z.toFixed(2)),
@@ -911,8 +1132,8 @@ export class Game {
         hp: Math.round(enemy.health),
         screen: this.worldToScreen(enemy.position)
       })),
-      raiderSample: this.enemyUnits
-        .filter((enemy) => enemy.type === 'raider')
+      goblinSample: this.enemyUnits
+        .filter((enemy) => enemy.type === 'goblinSoldier' || enemy.type === 'goblinArcher')
         .slice(0, 8)
         .map((enemy) => ({
           id: enemy.id,
@@ -980,6 +1201,27 @@ export class Game {
   }
 }
 
+function normalizeLevelSession(session) {
+  const fallbackLevel = LEVEL_DEFINITIONS[0] ?? {
+    id: 'debug',
+    name: '调试关卡',
+    baseReward: 0,
+    targetTime: 180
+  };
+  const fallbackDeck = CARD_DEFINITIONS.slice(0, 5).map((card, index) => ({
+    ...card,
+    level: 1,
+    instanceId: `debug-${card.id}-${index}`
+  }));
+  const level = session?.level ?? fallbackLevel;
+  return {
+    level,
+    difficulty: Math.max(1, Math.floor(session?.difficulty ?? 1)),
+    deck: session?.deck?.length ? session.deck : fallbackDeck,
+    startedAt: session?.startedAt ?? Date.now()
+  };
+}
+
 function createSelectionBoxElement() {
   const element = document.createElement('div');
   element.className = 'selection-box';
@@ -990,6 +1232,15 @@ function createSelectionBoxElement() {
 
 function isGameUiTarget(target) {
   return Boolean(target?.closest?.('.hud, .card, .energy-panel, .card-pile-dock, .pile-viewer, .drag-ghost'));
+}
+
+function isTextInputTarget(target) {
+  if (!target) return false;
+  const tagName = target.tagName?.toLowerCase();
+  return tagName === 'input' ||
+    tagName === 'textarea' ||
+    tagName === 'select' ||
+    target.isContentEditable;
 }
 
 function commandFormationOffset(index, total, radius) {
