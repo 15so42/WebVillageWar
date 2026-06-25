@@ -2,6 +2,7 @@ import {
   createArcherModel,
   createArrowModel,
   createBearModel,
+  createKnightModel,
   createMeteorModel,
   createRaiderModel,
   createSwordsmanModel,
@@ -9,6 +10,7 @@ import {
 } from './lowpoly.js';
 
 const UNIT_FACTORIES = {
+  knight: ({ team }) => createKnightModel(team),
   swordsman: ({ team }) => createSwordsmanModel(team),
   archer: ({ team }) => createArcherModel(team),
   raider: () => createRaiderModel(),
@@ -216,7 +218,7 @@ function applyArcherAttack(root, t, pulse) {
   bowPivot.rotation.z += 0.024 * bowAim + 0.04 * stringPull - 0.01 * bowKick;
   drawPivot.position.x += 0.01 * handAim - 0.01 * handPull;
   drawPivot.position.y += 0.004 * handPull;
-  drawPivot.position.z -= 0.22 * handAim + 0.14 * handPull;
+  drawPivot.position.z -= 0.22 * handAim + 0.22 * handPull;
   drawPivot.rotation.x += 0.028 * handPull;
   drawPivot.rotation.y += -0.22 * handPull;
   if (drawForearmPivot) {
@@ -226,13 +228,13 @@ function applyArcherAttack(root, t, pulse) {
 
   if (string) {
     string.position.x -= 0.045 * stringPull;
-    string.position.z -= 0.15 * stringPull;
+    string.position.z -= 0.21 * stringPull;
     string.scale.x = 1 - 0.24 * stringPull;
   }
   if (heldArrow) {
     heldArrow.visible = t < releaseAt;
     heldArrow.position.x -= 0.004 * handPull;
-    heldArrow.position.z -= 0.18 * handPull;
+    heldArrow.position.z -= 0.26 * handPull;
   }
 }
 

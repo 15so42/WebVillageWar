@@ -32,8 +32,9 @@
 4. 法术卡进入 `SpellSystem`，表现交给 `EffectsSystem`，伤害结算回调到 `CombatSystem`。
 5. 附魔卡通过 `BuffSystem.applyBuff()` 写入单位的 `buffs`，附魔只是 `category: 'enchantment'` 的 Buff。
 6. 普通攻击创建攻击上下文，`ModifierSystem` 从单位 `AttributeSet` 读取最终攻击力、攻速、射程、击退等数值。
-7. 附魔或 Buff 如果声明 `modifiers`，会写入目标属性的加法/乘法列表；如果声明 `effects`，则在攻击后、受击后或 tick 时触发点燃、反伤等非纯数值效果。
-8. 每帧 `Game.tick()` 依次更新卡牌、战斗、回复、特效、HUD 和渲染。
+7. 附魔或 Buff 如果声明 `modifiers`，会写入目标属性的加法/乘法列表；如果声明 `effects`，则在攻击前、扣血前、攻击后、受击后或 tick 时触发加伤、减伤、点燃、反伤等非纯数值效果。
+8. 同名附魔再次施加会提升等级，单位血条下方会显示 `【附魔名等级】` 状态标签，方便后续大量附魔内容调试和识别。
+9. 每帧 `Game.tick()` 依次更新卡牌、战斗、回复、特效、HUD 和渲染。
 
 ## 新增卡牌
 
@@ -96,10 +97,16 @@
 
 - `fire`：普通攻击命中后让目标燃烧，燃烧伤害取决于火焰附魔等级。
 - `thorns`：受到普通攻击后对攻击者反弹伤害。
+- `toughness` / `protection`：扣血前修改最终伤害。
+- `power`：通过属性修改器提高基础攻击力。
+- `poison`：命中后施加中毒，中毒 tick 造成真实伤害。
+- `recovery`：按 tick 回复生命值，回复量随恢复等级提升。
+- `spiritShield`：通过属性修改器提高最大护盾，并按 tick 获得护盾。
 
 附魔实现使用事件钩子：
 
 - `modifyAttack`：攻击结算前修改伤害、击退或伤害类型。
+- `beforeDamage`：实际扣血前修改最终伤害，例如坚韧、保护。
 - `afterDamage`：成功造成伤害后触发，例如火焰附加点燃目标、吸血回血。
 - `receiveDamage`：目标受到攻击后触发，例如荆棘反伤、护盾吸收。
 - `tick`：持续状态每隔一段时间触发，例如燃烧、中毒、治疗。
@@ -117,6 +124,7 @@ final = (base + sum(add modifiers)) * product(multiply modifiers)
 常见单位属性：
 
 - `maxHealth`
+- `maxShield`
 - `moveSpeed`
 - `attackRange`
 - `attackRate`

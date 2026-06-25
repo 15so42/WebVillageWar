@@ -412,36 +412,67 @@ export class CombatSystem {
 
   applyDamage(target, amount, source = null, knockback = 0, context = {}) {
     if (!target?.alive) return false;
-    target.takeRawDamage(amount);
-    this.game.effects.spawnDamageNumber(target.position, amount, {
-      damageType: context.damageTypes?.has?.('true') ? 'true' : 'normal'
+    const damageContext = context;
+    damageContext.game = damageContext.game ?? this.game;
+    damageContext.source = damageContext.source ?? source;
+    damageContext.target = damageContext.target ?? target;
+    damageContext.damage = Number.isFinite(damageContext.damage) ? damageContext.damage : amount;
+    damageContext.knockback = Number.isFinite(damageContext.knockback)
+      ? damageContext.knockback
+      : knockback;
+    damageContext.damageTypes = damageContext.damageTypes instanceof Set
+      ? damageContext.damageTypes
+      : new Set(damageContext.damageTypes ?? []);
+
+    this.game.buffs.beforeDamage(damageContext);
+    const finalDamage = Math.max(0, damageContext.damage);
+    target.takeRawDamage(finalDamage);
+    this.game.effects.spawnDamageNumber(target.position, finalDamage, {
+      damageType: damageContext.damageTypes?.has?.('true') ? 'true' : 'normal',
+      height: damageContext.damageNumberHeight,
+      duration: damageContext.damageNumberDuration
     });
-    if (source && knockback > 0) {
+
+    const finalKnockback = damageContext.knockback;
+    if (source && finalKnockback > 0) {
       const dir = direction2D(source.position, target.position);
-      target.knockbackVelocity.addScaledVector(dir, knockback);
+      target.knockbackVelocity.addScaledVector(dir, finalKnockback);
       target.knockbackVelocity.clampLength(0, maxKnockbackVelocity(target));
-      target.hitStunTimer = Math.max(target.hitStunTimer, hitStunDuration(knockback));
+      target.hitStunTimer = Math.max(target.hitStunTimer, hitStunDuration(finalKnockback));
     }
-    playUnitAnimation(target, 'hit');
-    this.game.effects.spawnHit(
-      target.position.clone().add(new THREE.Vector3(0, 0.9, 0)),
-      source?.hasEnchantment?.('fire') ? '#ff9a47' : '#f6e7a0'
-    );
+    if (!damageContext.skipHitAnimation) {
+      playUnitAnimation(target, 'hit');
+    }
+    if (!damageContext.skipHitEffect) {
+      this.game.effects.spawnHit(
+        target.position.clone().add(new THREE.Vector3(0, 0.9, 0)),
+        source?.hasEnchantment?.('fire') ? '#ff9a47' : '#f6e7a0'
+      );
+    }
     return true;
   }
 
   cleanupDead() {
     this.game.friendlyUnits = this.game.friendlyUnits.filter((unit) => {
       if (unit.alive) return true;
-      this.game.scene.remove(unit.mesh);
+      this.removeDeadUnit(unit);
       return false;
     });
     this.game.enemyUnits = this.game.enemyUnits.filter((unit) => {
       if (unit.alive) return true;
-      this.game.scene.remove(unit.mesh);
+      this.removeDeadUnit(unit);
       this.game.score += 1;
       return false;
     });
+  }
+
+  removeDeadUnit(unit) {
+    this.game.effects.spawnDeathBurst(
+      unit.position.clone(),
+      Math.max(0.68, crowdRadius(unit) * 1.35)
+    );
+    this.game.scene.remove(unit.mesh);
+    unit.statusElement?.remove();
   }
 }
 

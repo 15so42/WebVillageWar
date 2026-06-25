@@ -147,6 +147,80 @@ export class EffectsSystem {
     });
   }
 
+  spawnDeathBurst(position, radius = 0.8) {
+    const group = new THREE.Group();
+    group.position.set(position.x, position.y ?? 0, position.z);
+
+    const particleMaterial = mat('#f7fbff', {
+      transparent: true,
+      opacity: 0.92,
+      emissive: '#ffffff',
+      emissiveIntensity: 0.72,
+      depthWrite: false
+    }).clone();
+    const flashMaterial = basicMat('#ffffff', {
+      transparent: true,
+      opacity: 0.48,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    }).clone();
+
+    const flash = new THREE.Mesh(
+      new THREE.CircleGeometry(0.56, 28),
+      flashMaterial
+    );
+    flash.rotation.x = -Math.PI / 2;
+    flash.position.y = 0.08;
+    flash.renderOrder = 1700;
+    group.add(flash);
+
+    for (let i = 0; i < 22; i += 1) {
+      const angle = Math.random() * Math.PI * 2;
+      const lift = 0.25 + Math.random() * 1.15;
+      const speed = 1.6 + Math.random() * 3.2;
+      const baseScale = 0.045 + Math.random() * 0.075;
+      const particle = new THREE.Mesh(
+        new THREE.DodecahedronGeometry(baseScale, 0),
+        particleMaterial
+      );
+      particle.position.set(
+        (Math.random() - 0.5) * radius * 0.28,
+        0.28 + Math.random() * 0.72,
+        (Math.random() - 0.5) * radius * 0.28
+      );
+      particle.userData.velocity = new THREE.Vector3(
+        Math.cos(angle) * speed * (0.55 + Math.random() * 0.45),
+        lift + Math.random() * 1.6,
+        Math.sin(angle) * speed * (0.55 + Math.random() * 0.45)
+      );
+      particle.userData.spin = new THREE.Vector3(
+        Math.random() * 10,
+        Math.random() * 10,
+        Math.random() * 10
+      );
+      particle.userData.baseScale = baseScale;
+      group.add(particle);
+    }
+
+    this.addEffect(group, 0.68, (dt, t) => {
+      flash.scale.setScalar(1 + t * 3.2);
+      flash.material.opacity = 0.48 * (1 - t) ** 1.6;
+      group.children.forEach((particle) => {
+        if (!particle.userData.velocity) return;
+        particle.userData.velocity.y -= 3.4 * dt;
+        particle.position.addScaledVector(particle.userData.velocity, dt);
+        particle.rotation.x += particle.userData.spin.x * dt;
+        particle.rotation.y += particle.userData.spin.y * dt;
+        particle.rotation.z += particle.userData.spin.z * dt;
+        particle.scale.setScalar(1 - t * 0.72);
+      });
+      particleMaterial.opacity = 0.92 * (1 - t);
+    }, () => {
+      particleMaterial.dispose();
+      flashMaterial.dispose();
+    });
+  }
+
   spawnDamageNumber(position, amount, options = {}) {
     const value = Math.max(0, amount);
     if (value <= 0.01) return;
@@ -258,6 +332,51 @@ export class EffectsSystem {
   spawnBurningParticles(target, count = 2) {
     if (!target?.position) return;
     this.spawnFireParticlesAt(target.position, count, 0.5, 0.42, target.projectileHitHeight ?? 1.2);
+  }
+
+  spawnPoisonParticles(target, count = 2) {
+    if (!target?.position) return;
+    const group = new THREE.Group();
+    const materials = [];
+    const height = target.projectileHitHeight ?? 1.2;
+    for (let i = 0; i < count; i += 1) {
+      const color = Math.random() > 0.5 ? '#a7e86d' : '#5cc66a';
+      const material = mat(color, {
+        transparent: true,
+        opacity: 0.82,
+        emissive: color,
+        emissiveIntensity: 0.55,
+        depthWrite: false
+      }).clone();
+      materials.push(material);
+      const bubble = new THREE.Mesh(
+        new THREE.DodecahedronGeometry(0.035 + Math.random() * 0.045, 0),
+        material
+      );
+      const angle = Math.random() * Math.PI * 2;
+      const distance = Math.sqrt(Math.random()) * 0.38;
+      bubble.position.set(
+        target.position.x + Math.cos(angle) * distance,
+        (target.position.y ?? 0) + 0.22 + Math.random() * height * 0.5,
+        target.position.z + Math.sin(angle) * distance
+      );
+      bubble.userData.velocity = new THREE.Vector3(
+        Math.cos(angle) * (0.08 + Math.random() * 0.28),
+        1.05 + Math.random() * 0.85,
+        Math.sin(angle) * (0.08 + Math.random() * 0.28)
+      );
+      group.add(bubble);
+    }
+
+    this.addEffect(group, 0.76, (dt, t) => {
+      group.children.forEach((bubble) => {
+        bubble.position.addScaledVector(bubble.userData.velocity, dt);
+        bubble.scale.setScalar(1 - t * 0.46);
+        bubble.material.opacity = 0.82 * (1 - t);
+      });
+    }, () => {
+      materials.forEach((material) => material.dispose());
+    });
   }
 
   spawnFireParticlesAt(position, count = 3, duration = 0.48, radius = 0.35, height = 1.1) {

@@ -17,6 +17,10 @@ export class ModifierSystem {
     return this.getAttribute(entity, 'maxHealth', entity?.maxHealth ?? 0);
   }
 
+  getMaxShield(entity) {
+    return this.getAttribute(entity, 'maxShield', entity?.maxShield ?? 0);
+  }
+
   getMoveSpeed(unit) {
     return this.getAttribute(unit, 'moveSpeed', unit.definition.speed);
   }

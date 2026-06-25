@@ -61,6 +61,7 @@ poison: {
 常用事件：
 
 - `modifyAttack`：攻击造成伤害前，适合加伤害、加击退、标记真实伤害。
+- `beforeDamage`：目标实际扣血前，适合固定减伤、百分比减伤、护盾。
 - `afterDamage`：攻击成功后，适合点燃、吸血、连锁闪电。
 - `receiveDamage`：目标受到攻击后，适合荆棘反伤、格挡、护盾。
 - `tick`：持续状态按间隔触发，适合燃烧、中毒、持续治疗。
@@ -69,14 +70,20 @@ poison: {
 
 - `addDamage`：给本次攻击增加伤害。
 - `addDamageType`：给本次攻击追加伤害类型。目前只使用 `true` 表示真实伤害；未标记就是普通伤害。
+- `reduceDamageFlat`：按附魔等级进行固定减伤，例如 `amountPerLevel: 0.5`。
+- `reduceDamagePercent`：按比例减伤。`formula: 'levelOverLevelPlus'` 表示 `level / (level + denominator)`。
 - `applyBuff`：给目标添加另一个 Buff。
 - `reflectDamage`：向攻击者反弹伤害。
 - `damageOverTime`：按 tick 造成持续伤害。
+- `restoreHealth`：按 tick 回复生命值。
+- `restoreShield`：按 tick 获得护盾。
 
 当前伤害类型只分两种：
 
 - 普通伤害：默认类型，橙色飘字黑色描边。
 - 真实伤害：`damageTypes` 包含 `true` 时使用，白色飘字黑色描边。
+
+护盾不是防御属性，也不是新的伤害类型。单位拥有 `shield` 和 `maxShield`，受到伤害时先扣护盾，再扣生命值。护盾在单位 UI 血条下 30% 以白色显示，不显示刻度线。
 
 ## 属性修改器
 
@@ -122,6 +129,19 @@ fire: {
 }
 ```
 
+同名附魔再次施加时会升级。单位血条下方显示当前附魔和等级，例如 `【火焰附加1】【保护2】`。附魔等级默认可以无限增长，新增附魔时尽量让核心数值按等级成长。
+
+当前附魔示例：
+
+- `fire`：命中后施加燃烧，燃烧伤害随火焰附加等级提升。
+- `thorns`：受击后反伤，反伤值随荆棘等级提升。
+- `toughness`：受伤前固定减免 `等级 * 0.5`，作用于所有伤害类型。
+- `protection`：受伤前减免 `等级 / (等级 + 5)` 的伤害，作用于所有伤害类型。
+- `power`：通过加法修改器为 `attackDamage` 增加 `等级 * 1`。
+- `poison`：命中后施加中毒，中毒 3 秒内每秒造成 `毒等级 * 3` 的真实伤害。
+- `recovery`：每秒恢复 `恢复等级 * 0.5` 的生命值。
+- `spiritShield`：每秒获得 `灵盾等级 * 0.3` 的护盾，并通过 `maxShield` 加法修改器增加 `灵盾等级 * 2` 的最大护盾。
+
 也可以声明百分比修改器：
 
 ```js
@@ -160,6 +180,7 @@ warSong: {
 
 - `moveSpeed`
 - `maxHealth`
+- `maxShield`
 - `attackRate`
 - `attackRange`
 - `attackDamage`

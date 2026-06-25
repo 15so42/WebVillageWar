@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { BUFF_DEFINITIONS, ENCHANTMENTS, TEAMS, UNIT_DEFINITIONS } from '../data/gameData.js';
-import { createHealthBar, mat } from '../art/lowpoly.js';
+import { mat } from '../art/lowpoly.js';
 import { createUnitModel, updateUnitAnimation } from '../art/visualRegistry.js';
 import { AttributeSet, bindAttributeGetter } from '../systems/AttributeSet.js';
 import { clamp } from '../utils/math.js';
@@ -18,6 +18,9 @@ export class UnitEntity {
     this.attributes = createUnitAttributes(this.definition);
     bindUnitAttributeGetters(this);
     this.health = this.maxHealth;
+    this.shield = 0;
+    this.healthLagRatio = 1;
+    this.healthLagDelay = 0;
     this.weapon = {
       ...this.definition.weapon,
       attributes: this.attributes,
@@ -48,10 +51,7 @@ export class UnitEntity {
     this.mesh.traverse((node) => {
       node.userData.entity = this;
     });
-    this.healthBar = createHealthBar({
-      hpColor: team === TEAMS.PLAYER ? '#62d56f' : '#e05d56'
-    });
-    this.mesh.add(this.healthBar);
+    this.statusElement = createUnitStatusElement(team);
     this.enchantHalo = createEnchantHalo();
     this.mesh.add(this.enchantHalo);
   }
@@ -67,13 +67,17 @@ export class UnitEntity {
   addBuff(id, definition = BUFF_DEFINITIONS[id], overrides = {}) {
     if (!definition) return null;
     const existing = this.buffs.get(id);
+    const isEnchantment = definition.category === 'enchantment';
+    const level = resolveBuffLevel(definition, existing, overrides, isEnchantment);
+    const damagePerSecond = resolveStackingNumber('damagePerSecond', definition, existing, overrides);
     this.attributes.removeModifiersBySource(buffModifierSource(id));
     const duration = overrides.duration ?? definition.duration ?? 0;
     const instance = {
       ...definition,
       ...overrides,
       id,
-      level: overrides.level ?? definition.level ?? existing?.level ?? 1,
+      level,
+      ...(damagePerSecond !== null ? { damagePerSecond } : {}),
       source: overrides.source ?? existing?.source ?? null,
       remaining: duration,
       tickTimer: overrides.tickInterval ?? definition.tickInterval ?? existing?.tickTimer ?? 0
@@ -86,9 +90,10 @@ export class UnitEntity {
     });
     this.clampToAttributeCaps();
 
-    if (definition.category === 'enchantment') {
+    if (isEnchantment) {
       this.enchantments.set(id, instance);
       refreshEnchantHalo(this);
+      refreshStatusElement(this);
     }
     return instance;
   }
@@ -102,6 +107,7 @@ export class UnitEntity {
     if (this.enchantments.has(id)) {
       this.enchantments.delete(id);
       refreshEnchantHalo(this);
+      refreshStatusElement(this);
     }
   }
 
@@ -123,6 +129,10 @@ export class UnitEntity {
     this.health = clamp(this.health + amount, 0, this.maxHealth);
   }
 
+  restoreShield(amount) {
+    this.shield = clamp(this.shield + amount, 0, this.maxShield);
+  }
+
   restoreDurability(amount) {
     this.weapon.durability = clamp(
       this.weapon.durability + amount,
@@ -137,6 +147,7 @@ export class UnitEntity {
 
   clampToAttributeCaps() {
     this.health = clamp(this.health, 0, this.maxHealth);
+    this.shield = clamp(this.shield, 0, this.maxShield);
     this.weapon.durability = clamp(this.weapon.durability, 0, this.weapon.maxDurability);
   }
 
@@ -149,35 +160,37 @@ export class UnitEntity {
 
   updateVisual(camera, dt) {
     updateUnitAnimation(this, dt);
-    const hpRatio = clamp(this.health / this.maxHealth, 0, 1);
-    const weaponRatio = clamp(
-      this.weapon.durability / this.weapon.maxDurability,
-      0,
-      1
-    );
-    const hp = this.healthBar.userData.hp;
-    const weapon = this.healthBar.userData.weapon;
-    hp.scale.x = hpRatio;
-    hp.position.x = (hpRatio - 1) * 0.5;
-    weapon.scale.x = weaponRatio;
-    weapon.position.x = (weaponRatio - 1) * 0.5;
-    this.healthBar.lookAt(camera.position);
+    refreshStatusElement(this, dt);
     this.enchantHalo.rotation.y += 0.035;
     this.enchantHalo.visible = this.enchantments.size > 0;
   }
 
   takeRawDamage(amount) {
-    this.health -= amount;
+    const incoming = Math.max(0, amount);
+    const previousHealth = this.health;
+    const absorbed = Math.min(this.shield, incoming);
+    this.shield -= absorbed;
+    this.health -= incoming - absorbed;
+    if (this.health < previousHealth) {
+      this.registerHealthLoss(previousHealth);
+    }
     if (this.health <= 0) {
       this.health = 0;
       this.alive = false;
     }
+  }
+
+  registerHealthLoss(previousHealth) {
+    const previousRatio = clamp(previousHealth / this.maxHealth, 0, 1);
+    this.healthLagRatio = Math.max(this.healthLagRatio, previousRatio);
+    this.healthLagDelay = 0.4;
   }
 }
 
 function createUnitAttributes(definition) {
   return new AttributeSet({
     maxHealth: definition.maxHealth,
+    maxShield: definition.maxShield ?? 0,
     moveSpeed: definition.speed,
     attackRange: definition.attackRange,
     attackRate: definition.attackRate,
@@ -192,6 +205,7 @@ function createUnitAttributes(definition) {
 
 function bindUnitAttributeGetters(unit) {
   bindAttributeGetter(unit, 'maxHealth', 'maxHealth');
+  bindAttributeGetter(unit, 'maxShield', 'maxShield');
   bindAttributeGetter(unit, 'moveSpeed', 'moveSpeed');
   bindAttributeGetter(unit, 'attackRange', 'attackRange');
   bindAttributeGetter(unit, 'attackRate', 'attackRate');
@@ -205,6 +219,29 @@ function bindUnitAttributeGetters(unit) {
 
 function buffModifierSource(id) {
   return `buff:${id}`;
+}
+
+function resolveBuffLevel(definition, existing, overrides, isEnchantment) {
+  if (Number.isFinite(overrides.level)) {
+    return existing && !isEnchantment
+      ? Math.max(existing.level ?? 1, overrides.level)
+      : Math.max(1, overrides.level);
+  }
+  if (isEnchantment && existing) {
+    return Math.max(1, existing.level ?? 1) + (overrides.levelIncrement ?? 1);
+  }
+  return Math.max(1, definition.level ?? existing?.level ?? 1);
+}
+
+function resolveStackingNumber(field, definition, existing, overrides) {
+  const next = overrides[field] ?? definition[field];
+  const previous = existing?.[field];
+  if (Number.isFinite(next) && Number.isFinite(previous)) {
+    return Math.max(next, previous);
+  }
+  if (Number.isFinite(next)) return next;
+  if (Number.isFinite(previous)) return previous;
+  return null;
 }
 
 function createEnchantHalo() {
@@ -232,4 +269,76 @@ function refreshEnchantHalo(unit) {
   unit.enchantHalo.children.forEach((child) => {
     child.visible = unit.enchantments.has(child.userData.enchantment);
   });
+}
+
+function createUnitStatusElement(team) {
+  const element = document.createElement('div');
+  element.className = `world-status unit-status ${team === TEAMS.PLAYER ? 'is-friendly' : 'is-enemy'}`;
+  element.innerHTML = `
+    <div class="world-health-bar">
+      <span class="world-health-loss-fill"></span>
+      <span class="world-health-fill"></span>
+      <span class="world-health-ticks"></span>
+      <span class="world-shield-fill" hidden></span>
+    </div>
+    <div class="world-durability-bar">
+      <span class="world-durability-fill"></span>
+    </div>
+    <div class="world-enchantments" hidden></div>
+  `;
+  element.hidden = true;
+  element.parts = {
+    hp: element.querySelector('.world-health-fill'),
+    healthLoss: element.querySelector('.world-health-loss-fill'),
+    shield: element.querySelector('.world-shield-fill'),
+    durability: element.querySelector('.world-durability-fill'),
+    enchantments: element.querySelector('.world-enchantments')
+  };
+  return element;
+}
+
+function refreshStatusElement(unit, dt = 0) {
+  const element = unit.statusElement;
+  if (!element?.parts) return;
+  const hpRatio = clamp(unit.health / unit.maxHealth, 0, 1);
+  const shieldRatio = unit.maxShield > 0 ? clamp(unit.shield / unit.maxShield, 0, 1) : 0;
+  const durabilityRatio = clamp(unit.weapon.durability / unit.weapon.maxDurability, 0, 1);
+  updateHealthLag(unit, hpRatio, dt);
+  element.classList.toggle('has-shield', unit.maxShield > 0);
+  element.parts.hp.style.transform = `scaleX(${hpRatio})`;
+  element.parts.healthLoss.style.transform = `scaleX(${unit.healthLagRatio})`;
+  element.parts.healthLoss.hidden = unit.healthLagRatio <= hpRatio + 0.006;
+  element.parts.shield.style.transform = `scaleX(${shieldRatio})`;
+  element.parts.shield.hidden = shieldRatio <= 0;
+  element.parts.durability.style.transform = `scaleX(${durabilityRatio})`;
+
+  const enchantmentStatuses = [...unit.enchantments.values()]
+    .filter((enchantment) => !enchantment.hidden)
+    .map(formatEnchantmentStatus);
+  const enchantmentText = wrapEnchantmentStatuses(enchantmentStatuses);
+  element.parts.enchantments.textContent = enchantmentText;
+  element.parts.enchantments.hidden = enchantmentText.length === 0;
+}
+
+function updateHealthLag(unit, hpRatio, dt) {
+  unit.healthLagRatio = Math.max(unit.healthLagRatio ?? hpRatio, hpRatio);
+  unit.healthLagDelay = Math.max(0, (unit.healthLagDelay ?? 0) - dt);
+  if (unit.healthLagDelay > 0) return;
+  if (unit.healthLagRatio <= hpRatio) {
+    unit.healthLagRatio = hpRatio;
+    return;
+  }
+  const catchupSpeed = 3.8;
+  unit.healthLagRatio = Math.max(
+    hpRatio,
+    unit.healthLagRatio - catchupSpeed * Math.max(0, dt)
+  );
+}
+
+function formatEnchantmentStatus(enchantment) {
+  return `【${enchantment.name}${Math.max(1, Math.floor(enchantment.level ?? 1))}】`;
+}
+
+function wrapEnchantmentStatuses(statuses) {
+  return statuses.join('');
 }

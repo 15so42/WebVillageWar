@@ -137,7 +137,11 @@ export function createHealthBar({ hpColor = '#62d56f', tickColor = '#120f0d' } =
   return group;
 }
 
-export function createSwordsmanModel(team) {
+export function createKnightModel(team) {
+  return createSwordsmanModel(team, { hasShield: true });
+}
+
+export function createSwordsmanModel(team, { hasShield = false } = {}) {
   const group = new THREE.Group();
   const tunic = team === 'player' ? '#3e7cb1' : '#9e413a';
   const trim = team === 'player' ? '#f2d06b' : '#2f2520';
@@ -189,16 +193,19 @@ export function createSwordsmanModel(team) {
     new THREE.Vector3(-0.24, 0.68, 0.4),
     new THREE.Vector3(1, 1, 1)
   );
+  const leftHandPosition = hasShield
+    ? new THREE.Vector3(0.24, 1.03, 0.48)
+    : new THREE.Vector3(0.36, 0.72, 0.25);
   const leftArm = limb(
     new THREE.Vector3(0.31, 1.16, 0.06),
-    new THREE.Vector3(0.24, 1.03, 0.48),
+    leftHandPosition,
     0.06,
     mat(skin)
   );
   const leftHand = mesh(
     new THREE.DodecahedronGeometry(0.085, 0),
     mat(skin),
-    new THREE.Vector3(0.24, 1.03, 0.48),
+    leftHandPosition,
     new THREE.Vector3(1, 1, 1)
   );
   const blade = boxBetween(
@@ -220,13 +227,15 @@ export function createSwordsmanModel(team) {
     new THREE.Vector3(-0.24, 0.68, 0.4),
     [blade, hilt]
   );
-  const shield = mesh(
-    new THREE.CylinderGeometry(0.28, 0.33, 0.08, 6),
-    mat(trim),
-    new THREE.Vector3(0.18, 1.04, 0.54),
-    new THREE.Vector3(1, 1.2, 1)
-  );
-  shield.rotation.x = Math.PI / 2;
+  const shield = hasShield
+    ? mesh(
+      new THREE.CylinderGeometry(0.28, 0.33, 0.08, 6),
+      mat(trim),
+      new THREE.Vector3(0.18, 1.04, 0.54),
+      new THREE.Vector3(1, 1.2, 1)
+    )
+    : null;
+  if (shield) shield.rotation.x = Math.PI / 2;
   const weaponPivot = createPivot(
     'swordsmanWeaponPivot',
     new THREE.Vector3(-0.31, 1.18, 0.06),
@@ -235,7 +244,7 @@ export function createSwordsmanModel(team) {
   const offhandPivot = createPivot(
     'swordsmanOffhandPivot',
     new THREE.Vector3(0.31, 1.16, 0.06),
-    [leftArm, leftHand, shield]
+    shield ? [leftArm, leftHand, shield] : [leftArm, leftHand]
   );
 
   group.add(
