@@ -2,20 +2,38 @@ import {
   createArcherModel,
   createArrowModel,
   createBearModel,
+  createBerserkerModel,
+  createEnergyOrbModel,
   createGoblinArcherModel,
   createGoblinSoldierModel,
+  createHolyBoltModel,
   createKnightModel,
   createMeteorModel,
+  createOgreModel,
+  createPhysicianModel,
+  createPurifierModel,
   createRaiderModel,
+  createSkeletonArcherModel,
+  createSkeletonSoldierModel,
   createSwordsmanModel,
+  createWarderModel,
+  createWizardModel,
   createWolfModel
 } from './lowpoly.js';
 
 const UNIT_FACTORIES = {
   knight: ({ team }) => createKnightModel(team),
   swordsman: ({ team }) => createSwordsmanModel(team),
+  berserker: ({ team }) => createBerserkerModel(team),
   archer: ({ team }) => createArcherModel(team),
+  physician: ({ team }) => createPhysicianModel(team),
+  purifier: ({ team }) => createPurifierModel(team),
+  warder: ({ team }) => createWarderModel(team),
   raider: () => createRaiderModel(),
+  ogre: () => createOgreModel(),
+  skeletonSoldier: () => createSkeletonSoldierModel(),
+  skeletonArcher: () => createSkeletonArcherModel(),
+  wizard: () => createWizardModel(),
   goblinSoldier: () => createGoblinSoldierModel(),
   goblinArcher: () => createGoblinArcherModel(),
   wolf: () => createWolfModel(),
@@ -23,7 +41,9 @@ const UNIT_FACTORIES = {
 };
 
 const PROJECTILE_FACTORIES = {
-  arrow: ({ color }) => createArrowModel(color)
+  arrow: ({ color }) => createArrowModel(color),
+  holyBolt: ({ color }) => createHolyBoltModel(color),
+  energyOrb: ({ color }) => createEnergyOrbModel(color)
 };
 
 const SPELL_FACTORIES = {
@@ -113,7 +133,7 @@ function applyOneShot(unit, root, name, t) {
   root.rotation.z = 0;
   root.scale.setScalar(1);
   if (name === 'attack') {
-    if (unit.type === 'archer' || unit.type === 'goblinArcher') {
+    if (unit.type === 'archer' || unit.type === 'goblinArcher' || unit.type === 'skeletonArcher') {
       root.position.y = pulse * 0.025;
       applyAttackPose(unit, root, t, pulse);
       return;
@@ -136,12 +156,20 @@ function applyOneShot(unit, root, name, t) {
 }
 
 function applyAttackPose(unit, root, t, pulse) {
-  if (unit.type === 'archer' || unit.type === 'goblinArcher') {
+  if (unit.type === 'archer' || unit.type === 'goblinArcher' || unit.type === 'skeletonArcher') {
     applyArcherAttack(root, t, pulse);
     return;
   }
-  if (unit.type === 'raider' || unit.type === 'goblinSoldier') {
+  if (unit.type === 'raider' || unit.type === 'goblinSoldier' || unit.type === 'skeletonSoldier') {
     applyRaiderAttack(root, t, pulse);
+    return;
+  }
+  if (unit.type === 'berserker' || unit.type === 'ogre') {
+    applyRaiderAttack(root, t, pulse);
+    return;
+  }
+  if (unit.type === 'physician' || unit.type === 'purifier' || unit.type === 'warder' || unit.type === 'wizard') {
+    applyCasterAttack(root, t, pulse);
     return;
   }
   if (unit.type === 'wolf' || unit.type === 'bear') {
@@ -194,6 +222,32 @@ function applyRaiderAttack(root, t, pulse) {
 
   if (offhandPivot) {
     offhandPivot.rotation.z += -0.015 * highGuard + 0.025 * strike;
+  }
+}
+
+function applyCasterAttack(root, t, pulse) {
+  const { weaponPivot, weaponSwingPivot, offhandPivot, projectileSocket } = root.userData.parts ?? {};
+  if (!weaponPivot) return;
+  const gather = smoothstep(0, 0.36, t) * (1 - smoothstep(0.74, 1, t));
+  const release = bell(0.48, 0.57, 0.74, t);
+  const recover = smoothstep(0.72, 1, t);
+
+  root.position.y += pulse * 0.025;
+  root.rotation.z = -0.01 * pulse;
+  weaponPivot.rotation.x += -0.36 * gather + 0.18 * release - 0.06 * recover;
+  weaponPivot.rotation.y += -0.08 * gather;
+  weaponPivot.position.y += 0.06 * gather;
+  if (weaponSwingPivot) {
+    weaponSwingPivot.rotation.z += -0.1 * gather + 0.18 * release;
+    weaponSwingPivot.rotation.x += -0.08 * gather;
+  }
+  if (offhandPivot) {
+    offhandPivot.rotation.x += -0.28 * gather + 0.22 * release;
+    offhandPivot.rotation.z += 0.08 * gather;
+  }
+  if (projectileSocket) {
+    const glow = 1 + gather * 0.55 + release * 0.35;
+    projectileSocket.scale.setScalar(glow);
   }
 }
 

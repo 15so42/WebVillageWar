@@ -820,6 +820,20 @@ const CARD_ART_RENDERERS = {
     <polygon fill="#766b45" points="64,32 74,36 72,47 61,45" />
     <polyline fill="none" stroke="#fff2c7" stroke-width="2" points="65,34 69,40 70,48" />
   `),
+  berserker: () => artSvg(`
+    <polygon fill="#32272a" points="0,51 17,41 43,44 70,37 96,48 96,64 0,64" />
+    <polygon fill="#c18a64" points="47,11 57,24 39,24" />
+    <polygon fill="#8f3240" points="38,24 60,24 65,45 48,55 31,45" />
+    <polygon fill="#261e22" points="39,45 49,45 47,58 38,58" />
+    <polygon fill="#241d21" points="51,45 61,45 62,58 53,58" />
+    <polygon fill="#c99368" points="30,28 39,30 44,43 37,46" />
+    <polygon fill="#bd845d" points="65,28 72,31 60,43 53,40" />
+    <polygon fill="#5b3a28" points="22,15 29,12 74,54 68,58" />
+    <polygon fill="#cbd3d6" points="55,23 77,31 71,44 50,36" />
+    <polygon fill="#aeb9bd" points="72,28 86,37 72,45" />
+    <polygon fill="#fff2c7" opacity="0.46" points="55,25 73,32 69,35" />
+    <path fill="none" stroke="#ff9a62" stroke-width="2" opacity="0.7" d="M30 15 C42 6 57 6 69 15" />
+  `),
   archer: () => artSvg(`
     <polygon fill="#254232" points="0,51 16,40 41,43 67,37 96,48 96,64 0,64" />
     <polygon fill="#d9aa78" points="47,12 55,23 41,23" />
@@ -832,6 +846,58 @@ const CARD_ART_RENDERERS = {
     <path fill="none" stroke="#f8e5b2" stroke-width="1.6" d="M69 15 L68 58" />
     <polygon fill="#efe8ca" points="34,34 72,33 72,36 34,37" />
     <polygon fill="#efe8ca" points="72,33 80,35 72,37" />
+  `),
+  physician: () => artSvg(`
+    <polygon fill="#263a2d" points="0,51 18,42 42,44 69,38 96,49 96,64 0,64" />
+    <ellipse fill="#c7ffd1" opacity="0.24" cx="54" cy="36" rx="32" ry="19" />
+    <polygon fill="#d9aa78" points="47,11 55,23 41,23" />
+    <polygon fill="#3f7258" points="36,24 60,24 66,50 49,58 31,50" />
+    <polygon fill="#5f9f73" points="40,28 58,28 61,48 49,54 37,48" />
+    <polygon fill="#f5e5b2" points="35,36 62,36 61,40 36,40" />
+    <polygon fill="#17212a" points="40,50 49,50 47,59 39,59" />
+    <polygon fill="#17212a" points="51,50 60,50 61,59 53,59" />
+    <polygon fill="#d9aa78" points="28,30 36,31 44,42 39,46" />
+    <polygon fill="#d9aa78" points="64,30 71,32 60,43 55,40" />
+    <polygon fill="#6a4a30" points="72,10 78,10 70,59 65,59" />
+    <circle fill="#c7ffd1" cx="76" cy="10" r="7" />
+    <circle fill="#ffffff" opacity="0.75" cx="76" cy="10" r="3" />
+    <polygon fill="#f5e5b2" points="46,30 53,30 53,37 60,37 60,43 53,43 53,50 46,50 46,43 39,43 39,37 46,37" />
+    <path fill="none" stroke="#9dffb0" stroke-width="2" opacity="0.75" d="M23 42 C37 30 55 28 75 11" />
+  `),
+  purifier: () => artSvg(`
+    <polygon fill="#263646" points="0,51 18,42 42,44 69,38 96,49 96,64 0,64" />
+    <ellipse fill="#dff8ff" opacity="0.22" cx="54" cy="36" rx="32" ry="19" />
+    <polygon fill="#d9aa78" points="47,11 55,23 41,23" />
+    <polygon fill="#5666a4" points="36,24 60,24 66,50 49,58 31,50" />
+    <polygon fill="#7889c7" points="40,28 58,28 61,48 49,54 37,48" />
+    <polygon fill="#f0e8c6" points="35,36 62,36 61,40 36,40" />
+    <polygon fill="#17212a" points="40,50 49,50 47,59 39,59" />
+    <polygon fill="#17212a" points="51,50 60,50 61,59 53,59" />
+    <polygon fill="#d9aa78" points="28,30 36,31 44,42 39,46" />
+    <polygon fill="#d9aa78" points="64,30 71,32 60,43 55,40" />
+    <polygon fill="#6a4a30" points="72,10 78,10 70,59 65,59" />
+    <circle fill="#dff8ff" cx="76" cy="10" r="7" />
+    <circle fill="#ffffff" opacity="0.75" cx="76" cy="10" r="3" />
+    <path fill="none" stroke="#b7f3ff" stroke-width="2" opacity="0.75" d="M23 42 C37 30 55 28 75 11" />
+    <path fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round" d="M39 44 L58 27 M42 27 L59 44" />
+  `),
+  warder: () => artSvg(`
+    <polygon fill="#243542" points="0,51 18,42 42,44 69,38 96,49 96,64 0,64" />
+    <ellipse fill="#b7eaff" opacity="0.25" cx="51" cy="38" rx="34" ry="21" />
+    <path fill="none" stroke="#dff8ff" stroke-width="3" d="M20 42 C31 20 67 20 80 42 C66 58 33 58 20 42 Z" />
+    <polygon fill="#d9aa78" points="47,11 55,23 41,23" />
+    <polygon fill="#466f8d" points="36,24 60,24 66,50 49,58 31,50" />
+    <polygon fill="#6b9ab8" points="40,28 58,28 61,48 49,54 37,48" />
+    <polygon fill="#dcefff" points="35,36 62,36 61,40 36,40" />
+    <polygon fill="#17212a" points="40,50 49,50 47,59 39,59" />
+    <polygon fill="#17212a" points="51,50 60,50 61,59 53,59" />
+    <polygon fill="#d9aa78" points="28,30 36,31 44,42 39,46" />
+    <polygon fill="#d9aa78" points="64,30 71,32 60,43 55,40" />
+    <polygon fill="#6a4a30" points="72,10 78,10 70,59 65,59" />
+    <circle fill="#b7eaff" cx="76" cy="10" r="7" />
+    <circle fill="#ffffff" opacity="0.75" cx="76" cy="10" r="3" />
+    <polygon fill="#dff8ff" points="49,27 63,34 60,48 49,55 38,48 35,34" />
+    <polygon fill="#6b9ab8" points="49,32 57,36 55,45 49,49 43,45 41,36" />
   `),
   meteor: () => artSvg(`
     <polygon fill="#28333d" points="0,47 18,39 39,43 62,36 96,46 96,64 0,64" />
@@ -906,6 +972,17 @@ const CARD_ART_RENDERERS = {
     <polygon fill="#2b542d" points="48,48 54,48 51,52" />
     <circle fill="#98d66a" opacity="0.8" cx="70" cy="18" r="4" />
     <circle fill="#98d66a" opacity="0.55" cx="25" cy="25" r="3" />
+  `),
+  bleed: () => artSvg(`
+    <polygon fill="#3a2729" points="0,51 18,41 43,44 68,37 96,49 96,64 0,64" />
+    <polygon fill="#d8dde0" points="25,50 66,15 72,21 31,56" />
+    <polygon fill="#7a4c30" points="18,54 29,47 35,54 24,60" />
+    <polygon fill="#ffffff" opacity="0.45" points="42,36 66,18 69,21 45,39" />
+    <path fill="#d65b4f" d="M62 35 C72 43 77 50 76 56 C75 62 66 62 63 57 C60 52 63 45 62 35 Z" />
+    <path fill="#8f2f36" d="M45 42 C53 48 56 54 54 59 C51 64 43 61 42 56 C41 52 45 47 45 42 Z" />
+    <circle fill="#d65b4f" cx="75" cy="31" r="4" />
+    <circle fill="#8f2f36" opacity="0.82" cx="30" cy="28" r="3" />
+    <path fill="none" stroke="#f6c0b0" stroke-width="2" opacity="0.7" d="M28 50 C42 46 54 42 67 35" />
   `),
   recovery: () => artSvg(`
     <polygon fill="#243a2b" points="0,51 18,42 43,44 68,38 96,49 96,64 0,64" />

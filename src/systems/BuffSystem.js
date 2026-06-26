@@ -13,6 +13,7 @@ export class BuffSystem {
     if (!target?.addBuff || target.alive === false) return null;
     const definition = BUFF_DEFINITIONS[buffId];
     if (!definition) return null;
+    if (isStatusImmune(target, buffId)) return null;
     return target.addBuff(buffId, definition, {
       ...overrides,
       source
@@ -55,6 +56,22 @@ export class BuffSystem {
         while (buff.vfxTimer <= 0 && unit.alive) {
           this.game.effects.spawnPoisonParticles(unit, 1);
           buff.vfxTimer += 0.18;
+        }
+      }
+
+      if (buff.id === 'bleeding') {
+        buff.vfxTimer = (buff.vfxTimer ?? 0) - dt;
+        while (buff.vfxTimer <= 0 && unit.alive) {
+          this.game.effects.spawnBleedParticles(unit, 1);
+          buff.vfxTimer += 0.26;
+        }
+      }
+
+      if (buff.id === 'cursed') {
+        buff.vfxTimer = (buff.vfxTimer ?? 0) - dt;
+        while (buff.vfxTimer <= 0 && unit.alive) {
+          this.game.effects.spawnCurseParticles(unit, 1);
+          buff.vfxTimer += 0.22;
         }
       }
 
@@ -147,6 +164,12 @@ export class BuffSystem {
       if (applied && effect.vfx === 'poison') {
         this.game.effects.spawnPoisonParticles(context.target, 6);
       }
+      if (applied && effect.vfx === 'bleed') {
+        this.game.effects.spawnBleedParticles(context.target, 6);
+      }
+      if (applied && effect.vfx === 'curse') {
+        this.game.effects.spawnCurseParticles(context.target, 6);
+      }
       return;
     }
 
@@ -177,6 +200,9 @@ export class BuffSystem {
       if (context.buff.damageType === 'true' || effect.damageType === 'true') {
         damageTypes.add('true');
       }
+      if (context.buff.bypassShield || effect.bypassShield) {
+        damageTypes.add('directHealth');
+      }
       this.game.combat.applyDamage(context.target, damage, context.source, 0, {
         damage,
         source: context.source,
@@ -194,6 +220,12 @@ export class BuffSystem {
       }
       if (effect.vfx === 'poison') {
         this.game.effects.spawnPoisonParticles(context.target, 4);
+      }
+      if (effect.vfx === 'bleed') {
+        this.game.effects.spawnBleedParticles(context.target, 4);
+      }
+      if (effect.vfx === 'curse') {
+        this.game.effects.spawnCurseParticles(context.target, 4);
       }
       return;
     }
@@ -247,6 +279,12 @@ function sourceBuffLevel(context) {
 
 function isTrueDamage(context) {
   return context.damageTypes?.has?.('true') === true;
+}
+
+function isStatusImmune(unit, buffId) {
+  return (unit?.definition?.traits ?? []).some((trait) => (
+    trait.type === 'statusImmune' && (trait.statuses ?? []).includes(buffId)
+  ));
 }
 
 function clamp01(value) {

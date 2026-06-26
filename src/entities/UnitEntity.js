@@ -36,6 +36,7 @@ export class UnitEntity {
     this.controlMode = 'normal';
     this.guardPoint = null;
     this.guardRadius = null;
+    this.supportCooldowns = new Map();
     this.target = null;
     this.alive = true;
     this.visualState = 'idle';
@@ -197,9 +198,13 @@ export class UnitEntity {
 }
 
 function createUnitAttributes(definition) {
+  const maxHealth = definition.maxHealth;
+  const maxShield = Number.isFinite(definition.maxShield)
+    ? definition.maxShield
+    : maxHealth * 0.5;
   return new AttributeSet({
-    maxHealth: definition.maxHealth,
-    maxShield: definition.maxShield ?? 0,
+    maxHealth,
+    maxShield,
     moveSpeed: definition.speed,
     attackRange: definition.attackRange,
     attackRate: definition.attackRate,

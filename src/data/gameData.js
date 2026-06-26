@@ -32,7 +32,7 @@ export const UNIT_DEFINITIONS = {
       }
     },
     maxHealth: 25,
-    maxShield: 20,
+    maxShield: 12.5,
     speed: 3.15,
     attackRange: 1.35,
     attackRate: 1.05,
@@ -43,7 +43,14 @@ export const UNIT_DEFINITIONS = {
       name: '铁剑',
       maxDurability: 38,
       durabilityCost: 1.35
-    }
+    },
+    traits: [
+      {
+        type: 'frontGuard',
+        reduction: 2,
+        angleDegrees: 120
+      }
+    ]
   },
   swordsman: {
     name: '剑士',
@@ -71,7 +78,7 @@ export const UNIT_DEFINITIONS = {
       }
     },
     maxHealth: 20,
-    maxShield: 20,
+    maxShield: 10,
     speed: 3.35,
     attackRange: 1.28,
     attackRate: 1.12,
@@ -83,6 +90,51 @@ export const UNIT_DEFINITIONS = {
       maxDurability: 34,
       durabilityCost: 1.15
     }
+  },
+  berserker: {
+    name: '狂战士',
+    role: 'melee',
+    art: {
+      modelKey: 'unit.berserker',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Walk',
+        attack: 'Axe_Attack',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.52,
+          events: {
+            impact: 0.58
+          }
+        },
+        hit: {
+          duration: 0.22
+        }
+      }
+    },
+    maxHealth: 28,
+    maxShield: 14,
+    speed: 3.25,
+    attackRange: 1.32,
+    attackRate: 0.96,
+    damage: 5,
+    knockback: 4.4,
+    aggroRange: 8,
+    weapon: {
+      name: '战斧',
+      maxDurability: 36,
+      durabilityCost: 1.35
+    },
+    traits: [
+      {
+        type: 'missingHealthAttackBonus',
+        maxBonus: 0.5
+      }
+    ]
   },
   archer: {
     name: '弓兵',
@@ -110,7 +162,7 @@ export const UNIT_DEFINITIONS = {
       }
     },
     maxHealth: 20,
-    maxShield: 20,
+    maxShield: 10,
     speed: 2.85,
     attackRange: 8.4,
     attackRate: 0.72,
@@ -122,6 +174,156 @@ export const UNIT_DEFINITIONS = {
       name: '短弓',
       maxDurability: 34,
       durabilityCost: 1
+    }
+  },
+  physician: {
+    name: '医师',
+    role: 'ranged',
+    art: {
+      modelKey: 'unit.physician',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Walk',
+        attack: 'Staff_Cast',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.76,
+          events: {
+            release: 0.52
+          }
+        },
+        hit: {
+          duration: 0.22
+        }
+      }
+    },
+    maxHealth: 18,
+    maxShield: 9,
+    speed: 2.76,
+    attackRange: 5.9,
+    attackRate: 0.5,
+    damage: 1.6,
+    knockback: 0.55,
+    aggroRange: 8.8,
+    projectileSpeed: 10.2,
+    projectileType: 'holyBolt',
+    projectileColor: '#bff6c7',
+    support: {
+      heal: {
+        cooldown: 5.5,
+        initialCooldown: 1.6,
+        range: 7.2,
+        amount: 5
+      }
+    },
+    weapon: {
+      name: '治疗杖',
+      maxDurability: 42,
+      durabilityCost: 0.7
+    }
+  },
+  purifier: {
+    name: '净咒师',
+    role: 'ranged',
+    art: {
+      modelKey: 'unit.purifier',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Walk',
+        attack: 'Staff_Cast',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.76,
+          events: {
+            release: 0.52
+          }
+        },
+        hit: {
+          duration: 0.22
+        }
+      }
+    },
+    maxHealth: 18,
+    maxShield: 9,
+    speed: 2.72,
+    attackRange: 6.3,
+    attackRate: 0.55,
+    damage: 2.2,
+    knockback: 0.85,
+    aggroRange: 9,
+    projectileSpeed: 10.5,
+    projectileType: 'holyBolt',
+    projectileColor: '#e9fbff',
+    support: {
+      cleanse: {
+        cooldown: 14,
+        initialCooldown: 4,
+        range: 7.4,
+        count: 1
+      }
+    },
+    weapon: {
+      name: '净化杖',
+      maxDurability: 42,
+      durabilityCost: 0.7
+    }
+  },
+  warder: {
+    name: '结界师',
+    role: 'ranged',
+    art: {
+      modelKey: 'unit.warder',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Walk',
+        attack: 'Staff_Cast',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.76,
+          events: {
+            release: 0.52
+          }
+        },
+        hit: {
+          duration: 0.22
+        }
+      }
+    },
+    maxHealth: 20,
+    maxShield: 10,
+    speed: 2.65,
+    attackRange: 6.1,
+    attackRate: 0.5,
+    damage: 1.8,
+    knockback: 0.7,
+    aggroRange: 8.8,
+    projectileSpeed: 10,
+    projectileType: 'holyBolt',
+    projectileColor: '#b7eaff',
+    support: {
+      shield: {
+        cooldown: 5.5,
+        initialCooldown: 2.2,
+        range: 7.2,
+        amount: 4.5
+      }
+    },
+    weapon: {
+      name: '结界杖',
+      maxDurability: 42,
+      durabilityCost: 0.7
     }
   },
   raider: {
@@ -150,7 +352,7 @@ export const UNIT_DEFINITIONS = {
       }
     },
     maxHealth: 20,
-    maxShield: 20,
+    maxShield: 10,
     speed: 2.45,
     attackRange: 1.25,
     attackRate: 0.82,
@@ -159,6 +361,186 @@ export const UNIT_DEFINITIONS = {
     aggroRange: 7,
     weapon: {
       name: '木棒',
+      maxDurability: 999,
+      durabilityCost: 0
+    }
+  },
+  ogre: {
+    name: '食人魔',
+    role: 'melee',
+    art: {
+      modelKey: 'unit.ogre',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Heavy_Walk',
+        attack: 'Heavy_Club_Attack',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.82,
+          events: {
+            impact: 0.62
+          }
+        },
+        hit: {
+          duration: 0.28
+        }
+      }
+    },
+    maxHealth: 110,
+    maxShield: 55,
+    speed: 1.58,
+    attackRange: 1.72,
+    attackRate: 0.42,
+    damage: 12,
+    knockback: 6.6,
+    aggroRange: 8.2,
+    weapon: {
+      name: '巨棒',
+      maxDurability: 999,
+      durabilityCost: 0
+    }
+  },
+  skeletonSoldier: {
+    name: '骷髅兵',
+    role: 'melee',
+    art: {
+      modelKey: 'unit.skeletonSoldier',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Walk',
+        attack: 'Bone_Sword_Attack',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.46,
+          events: {
+            impact: 0.56
+          }
+        },
+        hit: {
+          duration: 0.2
+        }
+      }
+    },
+    maxHealth: 20,
+    maxShield: 10,
+    speed: 2.95,
+    attackRange: 1.18,
+    attackRate: 1.02,
+    damage: 4,
+    knockback: 1.9,
+    aggroRange: 7.5,
+    weapon: {
+      name: '锈剑',
+      maxDurability: 999,
+      durabilityCost: 0
+    },
+    traits: [
+      {
+        type: 'statusImmune',
+        statuses: ['poisoned', 'bleeding']
+      }
+    ]
+  },
+  skeletonArcher: {
+    name: '骷髅射手',
+    role: 'ranged',
+    art: {
+      modelKey: 'unit.skeletonArcher',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Walk',
+        attack: 'Bow_Shot',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.78,
+          events: {
+            release: 0.57
+          }
+        },
+        hit: {
+          duration: 0.2
+        }
+      }
+    },
+    maxHealth: 18,
+    maxShield: 9,
+    speed: 2.82,
+    attackRange: 7.6,
+    attackRate: 0.7,
+    damage: 3.5,
+    knockback: 0.95,
+    aggroRange: 9.5,
+    projectileSpeed: 12.4,
+    projectileColor: '#d9d0b8',
+    weapon: {
+      name: '骨弓',
+      maxDurability: 999,
+      durabilityCost: 0
+    },
+    traits: [
+      {
+        type: 'statusImmune',
+        statuses: ['poisoned', 'bleeding']
+      }
+    ]
+  },
+  wizard: {
+    name: '巫师',
+    role: 'ranged',
+    art: {
+      modelKey: 'unit.wizard',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Walk',
+        attack: 'Staff_Cast',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.78,
+          events: {
+            release: 0.54
+          }
+        },
+        hit: {
+          duration: 0.2
+        }
+      }
+    },
+    maxHealth: 22,
+    maxShield: 11,
+    speed: 2.38,
+    attackRange: 6.8,
+    attackRate: 0.58,
+    damage: 2.4,
+    knockback: 0.55,
+    aggroRange: 9.4,
+    projectileSpeed: 9.8,
+    projectileType: 'energyOrb',
+    projectileColor: '#b46aff',
+    startingBuffs: [
+      {
+        buffId: 'curse',
+        level: 1,
+        scalesWithDifficulty: true
+      }
+    ],
+    weapon: {
+      name: '诅咒杖',
       maxDurability: 999,
       durabilityCost: 0
     }
@@ -189,7 +571,7 @@ export const UNIT_DEFINITIONS = {
       }
     },
     maxHealth: 18,
-    maxShield: 0,
+    maxShield: 9,
     speed: 2.75,
     attackRange: 1.15,
     attackRate: 0.92,
@@ -228,7 +610,7 @@ export const UNIT_DEFINITIONS = {
       }
     },
     maxHealth: 15,
-    maxShield: 0,
+    maxShield: 7.5,
     speed: 2.65,
     attackRange: 7.2,
     attackRate: 0.62,
@@ -268,6 +650,7 @@ export const UNIT_DEFINITIONS = {
       }
     },
     maxHealth: 24,
+    maxShield: 12,
     speed: 3.55,
     attackRange: 1.05,
     attackRate: 1.15,
@@ -306,6 +689,7 @@ export const UNIT_DEFINITIONS = {
       }
     },
     maxHealth: 68,
+    maxShield: 34,
     speed: 2.05,
     attackRange: 1.35,
     attackRate: 0.55,
@@ -410,8 +794,41 @@ export const BUFF_DEFINITIONS = {
         buffId: 'poisoned',
         duration: 3,
         damagePerSecondPerLevel: 3,
-        damageType: 'true',
         vfx: 'poison'
+      }
+    ]
+  },
+  bleed: {
+    name: '流血附加',
+    category: 'enchantment',
+    color: '#b54848',
+    duration: 999,
+    level: 1,
+    effects: [
+      {
+        event: 'afterDamage',
+        op: 'applyBuff',
+        buffId: 'bleeding',
+        duration: 6,
+        damagePerSecondPerLevel: 0.8,
+        vfx: 'bleed'
+      }
+    ]
+  },
+  curse: {
+    name: '诅咒附加',
+    category: 'enchantment',
+    color: '#9f6bff',
+    duration: 999,
+    level: 1,
+    effects: [
+      {
+        event: 'afterDamage',
+        op: 'applyBuff',
+        buffId: 'cursed',
+        duration: 15,
+        damagePerSecondPerLevel: 2,
+        vfx: 'curse'
       }
     ]
   },
@@ -460,6 +877,7 @@ export const BUFF_DEFINITIONS = {
     tickInterval: 0.45,
     damagePerSecond: 2.4,
     hidden: true,
+    negative: true,
     effects: [
       {
         event: 'tick',
@@ -475,14 +893,47 @@ export const BUFF_DEFINITIONS = {
     duration: 3,
     tickInterval: 1,
     damagePerSecond: 3,
-    damageType: 'true',
     hidden: true,
+    negative: true,
     effects: [
       {
         event: 'tick',
         op: 'damageOverTime',
-        damageType: 'true',
         vfx: 'poison'
+      }
+    ]
+  },
+  bleeding: {
+    name: '流血',
+    category: 'status',
+    color: '#b54848',
+    duration: 6,
+    tickInterval: 1,
+    damagePerSecond: 0.8,
+    hidden: true,
+    negative: true,
+    effects: [
+      {
+        event: 'tick',
+        op: 'damageOverTime',
+        vfx: 'bleed'
+      }
+    ]
+  },
+  cursed: {
+    name: '诅咒',
+    category: 'status',
+    color: '#9f6bff',
+    duration: 15,
+    tickInterval: 1,
+    damagePerSecond: 2,
+    hidden: true,
+    negative: true,
+    effects: [
+      {
+        event: 'tick',
+        op: 'damageOverTime',
+        vfx: 'curse'
       }
     ]
   }
@@ -495,6 +946,7 @@ export const ENCHANTMENTS = {
   protection: BUFF_DEFINITIONS.protection,
   power: BUFF_DEFINITIONS.power,
   poison: BUFF_DEFINITIONS.poison,
+  bleed: BUFF_DEFINITIONS.bleed,
   recovery: BUFF_DEFINITIONS.recovery,
   spiritShield: BUFF_DEFINITIONS.spiritShield
 };
@@ -546,7 +998,7 @@ export const CARD_DEFINITIONS = [
     kind: 'summon',
     label: '骑',
     artKey: 'knight',
-    summary: '召唤 1 名持盾骑士',
+    summary: '持盾近战，正面普通攻击 -2',
     target: 'ground',
     radius: 1.15,
     cooldown: 6.5,
@@ -559,6 +1011,26 @@ export const CARD_DEFINITIONS = [
       count: 1
     },
     color: '#6f6a4a'
+  },
+  {
+    id: 'berserkers',
+    name: '派遣狂战士',
+    kind: 'summon',
+    label: '狂',
+    artKey: 'berserker',
+    summary: '血越低攻击越高，最多 +50%',
+    target: 'ground',
+    radius: 1.15,
+    cooldown: 6.2,
+    energyCost: 3,
+    unitType: 'berserker',
+    count: 1,
+    effect: {
+      type: 'spawn-units',
+      unitType: 'berserker',
+      count: 1
+    },
+    color: '#8f3240'
   },
   {
     id: 'archers',
@@ -579,6 +1051,66 @@ export const CARD_DEFINITIONS = [
       count: 1
     },
     color: '#3f7d5b'
+  },
+  {
+    id: 'physicians',
+    name: '派遣医师',
+    kind: 'summon',
+    label: '医',
+    artKey: 'physician',
+    summary: '低攻击，周期性治疗受伤友军',
+    target: 'ground',
+    radius: 1.15,
+    cooldown: 7,
+    energyCost: 4,
+    unitType: 'physician',
+    count: 1,
+    effect: {
+      type: 'spawn-units',
+      unitType: 'physician',
+      count: 1
+    },
+    color: '#5f9f73'
+  },
+  {
+    id: 'purifiers',
+    name: '派遣净咒师',
+    kind: 'summon',
+    label: '咒',
+    artKey: 'purifier',
+    summary: '低攻击，每 14 秒净化友军负面效果',
+    target: 'ground',
+    radius: 1.15,
+    cooldown: 7,
+    energyCost: 4,
+    unitType: 'purifier',
+    count: 1,
+    effect: {
+      type: 'spawn-units',
+      unitType: 'purifier',
+      count: 1
+    },
+    color: '#7f8fc7'
+  },
+  {
+    id: 'warders',
+    name: '派遣结界师',
+    kind: 'summon',
+    label: '界',
+    artKey: 'warder',
+    summary: '低攻击，周期性为友军补充护盾',
+    target: 'ground',
+    radius: 1.15,
+    cooldown: 7,
+    energyCost: 4,
+    unitType: 'warder',
+    count: 1,
+    effect: {
+      type: 'spawn-units',
+      unitType: 'warder',
+      count: 1
+    },
+    color: '#6b9ab8'
   },
   {
     id: 'meteor',
@@ -695,7 +1227,7 @@ export const CARD_DEFINITIONS = [
     kind: 'enchant',
     label: '毒',
     artKey: 'poison',
-    summary: '命中后造成真实毒伤',
+    summary: '命中后造成持续毒伤',
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 4,
@@ -706,6 +1238,24 @@ export const CARD_DEFINITIONS = [
       buffId: 'poison'
     },
     color: '#5f9f4f'
+  },
+  {
+    id: 'bleed-enchant',
+    name: '流血附加',
+    kind: 'enchant',
+    label: '血',
+    artKey: 'bleed',
+    summary: '命中后造成低额持续伤害',
+    target: 'friendly-unit',
+    radius: 1.1,
+    cooldown: 4,
+    energyCost: 3,
+    enchantmentId: 'bleed',
+    effect: {
+      type: 'apply-buff',
+      buffId: 'bleed'
+    },
+    color: '#9f3f3f'
   },
   {
     id: 'recovery-enchant',
@@ -787,6 +1337,22 @@ export const CARD_META = {
     buyCost: 110,
     upgradeBaseCost: 34
   },
+  berserkers: {
+    buyCost: 125,
+    upgradeBaseCost: 34
+  },
+  physicians: {
+    buyCost: 120,
+    upgradeBaseCost: 34
+  },
+  purifiers: {
+    buyCost: 150,
+    upgradeBaseCost: 38
+  },
+  warders: {
+    buyCost: 140,
+    upgradeBaseCost: 36
+  },
   meteor: {
     buyCost: 140,
     upgradeBaseCost: 45
@@ -810,6 +1376,10 @@ export const CARD_META = {
   'poison-enchant': {
     buyCost: 120,
     upgradeBaseCost: 34
+  },
+  'bleed-enchant': {
+    buyCost: 105,
+    upgradeBaseCost: 30
   }
 };
 

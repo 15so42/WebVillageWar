@@ -336,11 +336,22 @@ export class Game {
     const level = Math.max(1, Math.floor(card?.level ?? 1));
     if (level <= 1) return;
     const bonusLevel = level - 1;
+    const healthMultiplier = 1 + bonusLevel * 0.25;
     unit.attributes.addModifiers([
       {
         stat: 'maxHealth',
-        type: 'add',
-        amount: bonusLevel * 2
+        type: 'multiply',
+        amount: healthMultiplier
+      },
+      {
+        stat: 'maxShield',
+        type: 'multiply',
+        amount: healthMultiplier
+      },
+      {
+        stat: 'maxDurability',
+        type: 'multiply',
+        amount: healthMultiplier
       },
       {
         stat: 'attackDamage',
@@ -349,6 +360,7 @@ export class Game {
       }
     ], `card:${card.id}:level`);
     unit.health = unit.maxHealth;
+    unit.weapon.durability = unit.weapon.maxDurability;
     unit.clampToAttributeCaps();
   }
 
@@ -375,6 +387,24 @@ export class Game {
   }
 
   enemyTypeForWave(wave, index, difficulty) {
+    const wizardUnlocked = difficulty >= 4 || wave >= 7;
+    if (wizardUnlocked) {
+      const wizardEvery = difficulty >= 6 ? 5 : 7;
+      if ((index * 3 + wave) % wizardEvery === 0) return 'wizard';
+    }
+    const ogreUnlocked = difficulty >= 3 || wave >= 5;
+    if (ogreUnlocked) {
+      const ogreEvery = difficulty >= 5 ? 4 : 6;
+      if ((index + wave * 2) % ogreEvery === 0) return 'ogre';
+    }
+    const skeletonArcherUnlocked = difficulty >= 3 || wave >= 4;
+    if (skeletonArcherUnlocked && (index + wave * 3) % 5 === 1) {
+      return 'skeletonArcher';
+    }
+    const skeletonUnlocked = difficulty >= 2 || wave >= 2;
+    if (skeletonUnlocked && (index + wave) % 3 === 1) {
+      return 'skeletonSoldier';
+    }
     const archerUnlocked = difficulty >= 2 || wave >= 3;
     if (!archerUnlocked) return 'goblinSoldier';
     const archerEvery = difficulty >= 5 ? 2 : difficulty >= 3 ? 3 : 4;
@@ -391,13 +421,32 @@ export class Game {
         amount: healthFactor
       },
       {
+        stat: 'maxShield',
+        type: 'multiply',
+        amount: healthFactor
+      },
+      {
         stat: 'attackDamage',
         type: 'multiply',
         amount: damageFactor
       }
     ], 'level:difficulty');
+    this.applyEnemyStartingBuffs(unit, wave, difficulty);
     unit.health = unit.maxHealth;
     unit.clampToAttributeCaps();
+  }
+
+  applyEnemyStartingBuffs(unit, wave, difficulty) {
+    const startingBuffs = unit.definition.startingBuffs ?? [];
+    if (!startingBuffs.length) return;
+    const scalingLevel = enemyEnchantmentLevel(wave, difficulty);
+    startingBuffs.forEach((entry) => {
+      const level = (entry.level ?? 1) + (entry.scalesWithDifficulty ? scalingLevel - 1 : 0);
+      this.buffs.applyBuff(unit, entry.buffId, unit, {
+        level,
+        sourceUnitType: unit.type
+      });
+    });
   }
 
   orderEnemyAttack(unit, index, total) {
@@ -1251,6 +1300,10 @@ function commandFormationOffset(index, total, radius) {
   return new THREE.Vector3(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
 }
 
+function enemyEnchantmentLevel(wave, difficulty) {
+  return 1 + Math.floor((Math.max(1, difficulty) - 1) / 2) + Math.floor((Math.max(1, wave) - 1) / 4);
+}
+
 function countBy(items, selector) {
   const counts = new Map();
   items.forEach((item) => {
@@ -1303,6 +1356,10 @@ function createStructureStatusElement(team) {
 }
 
 function unitStatusHeight(unit) {
+  if (unit.type === 'ogre') return 2.65;
+  if (unit.type === 'wizard') return 1.85;
+  if (unit.type === 'skeletonArcher') return 2.02;
+  if (unit.type === 'skeletonSoldier') return 2.05;
   if (unit.type === 'bear') return 1.9;
   if (unit.type === 'wolf') return 1.25;
   return 2.25;

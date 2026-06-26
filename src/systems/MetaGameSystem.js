@@ -275,7 +275,7 @@ export class MetaGameSystem {
       <main class="meta-deck">
         <section class="meta-panel">
           <div class="meta-section-title">卡牌升级</div>
-          <p>升级消耗金币翻倍。召唤卡提升召唤单位生命和攻击，附魔卡提升附魔等级。</p>
+          <p>升级消耗金币翻倍。召唤卡提升召唤单位百分比生命、护盾、耐久和攻击，附魔卡提升附魔等级。</p>
         </section>
         <section class="meta-card-grid">
           ${this.progress.ownedCards.map((id) => {

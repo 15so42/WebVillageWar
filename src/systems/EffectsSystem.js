@@ -246,8 +246,8 @@ export class EffectsSystem {
     context.miterLimit = 2;
     context.strokeStyle = stroke;
     context.fillStyle = color;
-    context.strokeText(text, 256, 126);
-    context.fillText(text, 256, 126);
+    context.strokeText(text, canvas.width * 0.5, 126);
+    context.fillText(text, canvas.width * 0.5, 126);
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
@@ -428,6 +428,105 @@ export class EffectsSystem {
         bubble.position.addScaledVector(bubble.userData.velocity, dt);
         bubble.scale.setScalar(1 - t * 0.46);
         bubble.material.opacity = 0.82 * (1 - t);
+      });
+    }, () => {
+      materials.forEach((material) => material.dispose());
+    });
+  }
+
+  spawnBleedParticles(target, count = 2) {
+    if (!target?.position) return;
+    const group = new THREE.Group();
+    const materials = [];
+    const height = target.projectileHitHeight ?? 1.2;
+    for (let i = 0; i < count; i += 1) {
+      const color = Math.random() > 0.45 ? '#d65b4f' : '#8f2f36';
+      const material = mat(color, {
+        transparent: true,
+        opacity: 0.82,
+        emissive: '#8f2f36',
+        emissiveIntensity: 0.28,
+        depthWrite: false
+      }).clone();
+      materials.push(material);
+      const drop = new THREE.Mesh(
+        new THREE.DodecahedronGeometry(0.032 + Math.random() * 0.038, 0),
+        material
+      );
+      const angle = Math.random() * Math.PI * 2;
+      const distance = Math.sqrt(Math.random()) * 0.34;
+      drop.position.set(
+        target.position.x + Math.cos(angle) * distance,
+        (target.position.y ?? 0) + 0.36 + Math.random() * height * 0.52,
+        target.position.z + Math.sin(angle) * distance
+      );
+      drop.userData.velocity = new THREE.Vector3(
+        Math.cos(angle) * (0.18 + Math.random() * 0.44),
+        0.15 + Math.random() * 0.45,
+        Math.sin(angle) * (0.18 + Math.random() * 0.44)
+      );
+      group.add(drop);
+    }
+
+    this.addEffect(group, 0.72, (dt, t) => {
+      group.children.forEach((drop) => {
+        drop.userData.velocity.y -= 1.8 * dt;
+        drop.position.addScaledVector(drop.userData.velocity, dt);
+        drop.scale.setScalar(1 - t * 0.52);
+        drop.material.opacity = 0.82 * (1 - t);
+      });
+    }, () => {
+      materials.forEach((material) => material.dispose());
+    });
+  }
+
+  spawnCurseParticles(target, count = 2) {
+    if (!target?.position) return;
+    const group = new THREE.Group();
+    const materials = [];
+    const height = target.projectileHitHeight ?? 1.2;
+    for (let i = 0; i < count; i += 1) {
+      const color = Math.random() > 0.5 ? '#b46aff' : '#6f47c7';
+      const material = mat(color, {
+        transparent: true,
+        opacity: 0.76,
+        emissive: color,
+        emissiveIntensity: 0.72,
+        depthWrite: false
+      }).clone();
+      materials.push(material);
+      const mote = new THREE.Mesh(
+        new THREE.DodecahedronGeometry(0.038 + Math.random() * 0.048, 0),
+        material
+      );
+      const angle = Math.random() * Math.PI * 2;
+      const distance = Math.sqrt(Math.random()) * 0.42;
+      mote.position.set(
+        target.position.x + Math.cos(angle) * distance,
+        (target.position.y ?? 0) + 0.28 + Math.random() * height * 0.58,
+        target.position.z + Math.sin(angle) * distance
+      );
+      mote.userData.velocity = new THREE.Vector3(
+        Math.cos(angle) * (0.06 + Math.random() * 0.2),
+        0.75 + Math.random() * 0.62,
+        Math.sin(angle) * (0.06 + Math.random() * 0.2)
+      );
+      mote.userData.spin = new THREE.Vector3(
+        Math.random() * 3.5,
+        Math.random() * 3.5,
+        Math.random() * 3.5
+      );
+      group.add(mote);
+    }
+
+    this.addEffect(group, 0.9, (dt, t) => {
+      group.children.forEach((mote) => {
+        mote.position.addScaledVector(mote.userData.velocity, dt);
+        mote.rotation.x += mote.userData.spin.x * dt;
+        mote.rotation.y += mote.userData.spin.y * dt;
+        mote.rotation.z += mote.userData.spin.z * dt;
+        mote.scale.setScalar(1 - t * 0.5);
+        mote.material.opacity = 0.76 * (1 - t);
       });
     }, () => {
       materials.forEach((material) => material.dispose());

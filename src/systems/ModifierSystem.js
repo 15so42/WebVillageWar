@@ -34,7 +34,8 @@ export class ModifierSystem {
   }
 
   getAttackDamage(unit) {
-    return this.getAttribute(unit, 'attackDamage', unit.definition.damage);
+    const baseDamage = this.getAttribute(unit, 'attackDamage', unit.definition.damage);
+    return baseDamage * this.getAttackDamageMultiplier(unit);
   }
 
   getKnockback(unit) {
@@ -104,6 +105,18 @@ export class ModifierSystem {
     });
     return Math.max(0, value);
   }
+
+  getAttackDamageMultiplier(unit) {
+    let multiplier = 1;
+    (unit?.definition?.traits ?? []).forEach((trait) => {
+      if (trait.type !== 'missingHealthAttackBonus') return;
+      const maxHealth = this.getMaxHealth(unit);
+      if (maxHealth <= 0) return;
+      const missingRatio = clamp01(1 - unit.health / maxHealth);
+      multiplier *= 1 + missingRatio * Math.max(0, trait.maxBonus ?? 0);
+    });
+    return multiplier;
+  }
 }
 
 function applyModifier(value, modifier) {
@@ -118,4 +131,9 @@ function applyModifier(value, modifier) {
     return modifier.amount;
   }
   return value;
+}
+
+function clamp01(value) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(1, Math.max(0, value));
 }

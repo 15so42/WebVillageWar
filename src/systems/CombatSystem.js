@@ -56,6 +56,8 @@ export class CombatSystem {
       this.ensureGuardState(unit);
     }
 
+    this.updateSupportAbilities(unit, dt);
+
     if (unit.commandMoveGoal) {
       if (distance2D(unit.position, unit.commandMoveGoal) > 0.65) {
         unit.target = null;
@@ -188,6 +190,184 @@ export class CombatSystem {
         this.game.placeUnitOnGround(b, dt);
       }
     }
+  }
+
+  updateSupportAbilities(unit, dt) {
+    const support = unit.definition.support ?? {};
+    if (support.heal) {
+      this.updateHealAbility(unit, support.heal, dt);
+    }
+    if (support.cleanse) {
+      this.updateCleanseAbility(unit, support.cleanse, dt);
+    }
+    if (support.shield) {
+      this.updateShieldAbility(unit, support.shield, dt);
+    }
+  }
+
+  updateHealAbility(unit, ability, dt) {
+    const key = 'heal';
+    const cooldown = Math.max(0.1, ability.cooldown ?? 5.5);
+    const remaining = this.tickSupportCooldown(unit, key, ability, cooldown, dt);
+    if (remaining > 0) return;
+
+    const target = this.findHealTarget(unit, ability);
+    if (!target) {
+      unit.supportCooldowns.set(key, Math.min(0.85, cooldown));
+      return;
+    }
+
+    const amount = Math.max(0, ability.amount ?? 0);
+    const healed = target.restoreHealth?.(amount) ?? 0;
+    if (healed <= 0) {
+      unit.supportCooldowns.set(key, 0.25);
+      return;
+    }
+
+    unit.supportCooldowns.set(key, cooldown);
+    this.game.effects.spawnRing(target.position, '#9dffb0', 0.62, 0.5);
+    this.game.effects.spawnHealNumber(target.position, healed, {
+      height: target.projectileHitHeight ?? 1.55,
+      duration: 0.72
+    });
+  }
+
+  updateCleanseAbility(unit, ability, dt) {
+    const key = 'cleanse';
+    const cooldown = Math.max(0.1, ability.cooldown ?? 14);
+    const remaining = this.tickSupportCooldown(unit, key, ability, cooldown, dt);
+    if (remaining > 0) return;
+
+    const target = this.findCleanseTarget(unit, ability);
+    if (!target) {
+      unit.supportCooldowns.set(key, Math.min(1.2, cooldown));
+      return;
+    }
+
+    const count = Math.max(1, Math.floor(ability.count ?? 1));
+    let removed = 0;
+    for (const buff of [...target.buffs.values()]) {
+      if (!isNegativeBuff(buff)) continue;
+      target.removeBuff(buff.id);
+      removed += 1;
+      if (removed >= count) break;
+    }
+
+    if (removed > 0) {
+      unit.supportCooldowns.set(key, cooldown);
+      this.game.effects.spawnRing(target.position, '#dcefff', 0.7, 0.58);
+      this.game.effects.spawnDamageNumber(target.position, 1, {
+        text: '净化',
+        color: '#e9fbff',
+        stroke: '#16435a',
+        height: target.projectileHitHeight ?? 1.55,
+        duration: 0.78,
+        fontSize: 88,
+        baseHeight: 0.5,
+        fadeStart: 0.62
+      });
+    } else {
+      unit.supportCooldowns.set(key, 0.25);
+    }
+  }
+
+  updateShieldAbility(unit, ability, dt) {
+    const key = 'shield';
+    const cooldown = Math.max(0.1, ability.cooldown ?? 5.5);
+    const remaining = this.tickSupportCooldown(unit, key, ability, cooldown, dt);
+    if (remaining > 0) return;
+
+    const target = this.findShieldTarget(unit, ability);
+    if (!target) {
+      unit.supportCooldowns.set(key, Math.min(0.85, cooldown));
+      return;
+    }
+
+    const amount = Math.max(0, ability.amount ?? 0);
+    const restored = target.restoreShield?.(amount) ?? 0;
+    if (restored <= 0) {
+      unit.supportCooldowns.set(key, 0.25);
+      return;
+    }
+
+    unit.supportCooldowns.set(key, cooldown);
+    this.game.effects.spawnRing(target.position, '#b7eaff', 0.66, 0.5);
+    this.game.effects.spawnDamageNumber(target.position, restored, {
+      text: `护盾+${formatSupportAmount(restored)}`,
+      color: '#dff8ff',
+      stroke: '#12303a',
+      height: target.projectileHitHeight ?? 1.55,
+      duration: 0.74,
+      fontSize: 82,
+      baseHeight: 0.5,
+      fadeStart: 0.62
+    });
+  }
+
+  tickSupportCooldown(unit, key, ability, cooldown, dt) {
+    let remaining = unit.supportCooldowns.get(key);
+    if (!Number.isFinite(remaining)) {
+      remaining = ability.initialCooldown ?? cooldown;
+    }
+    remaining -= dt;
+    if (remaining > 0) {
+      unit.supportCooldowns.set(key, remaining);
+    }
+    return remaining;
+  }
+
+  findHealTarget(unit, ability) {
+    return this.findSupportTarget(
+      unit,
+      ability,
+      (candidate) => candidate.health < candidate.maxHealth - 0.01,
+      (candidate, distance) => {
+        const missingRatio = 1 - candidate.health / Math.max(1, candidate.maxHealth);
+        return missingRatio * 140 - distance;
+      }
+    );
+  }
+
+  findCleanseTarget(unit, ability) {
+    return this.findSupportTarget(
+      unit,
+      ability,
+      (candidate) => [...candidate.buffs.values()].some(isNegativeBuff),
+      (candidate, distance) => {
+        const negativeCount = [...candidate.buffs.values()].filter(isNegativeBuff).length;
+        return negativeCount * 100 - distance;
+      }
+    );
+  }
+
+  findShieldTarget(unit, ability) {
+    return this.findSupportTarget(
+      unit,
+      ability,
+      (candidate) => candidate.maxShield > 0 && candidate.shield < candidate.maxShield - 0.01,
+      (candidate, distance) => {
+        const shieldRatio = candidate.shield / Math.max(1, candidate.maxShield);
+        return (1 - shieldRatio) * 120 - distance;
+      }
+    );
+  }
+
+  findSupportTarget(unit, ability, predicate, scoreFn) {
+    const candidates = unit.team === TEAMS.PLAYER ? this.game.friendlyUnits : this.game.enemyUnits;
+    const range = Math.max(0, ability.range ?? 7);
+    let best = null;
+    let bestScore = -Infinity;
+    candidates.forEach((candidate) => {
+      if (!candidate.alive || !predicate(candidate)) return;
+      const distance = distance2D(unit.position, candidate.position);
+      if (distance > range) return;
+      const score = scoreFn(candidate, distance);
+      if (score > bestScore) {
+        best = candidate;
+        bestScore = score;
+      }
+    });
+    return best;
   }
 
   acquireTarget(unit) {
@@ -392,7 +572,7 @@ export class CombatSystem {
 
   getProjectileLaunchPosition(source) {
     const parts = source.visualRoot?.userData.parts;
-    const launchPart = parts?.heldArrow ?? parts?.rightHand;
+    const launchPart = parts?.projectileSocket ?? parts?.heldArrow ?? parts?.rightHand;
     if (launchPart) {
       source.mesh.updateMatrixWorld(true);
       launchPart.getWorldPosition(projectileLaunchPosition);
@@ -404,8 +584,9 @@ export class CombatSystem {
   }
 
   spawnProjectile(source, target) {
-    const arrow = createProjectileModel('arrow', {
-      color: source.hasEnchantment('fire') ? '#ffb66c' : '#e7ddc0'
+    const projectileType = source.definition.projectileType ?? 'arrow';
+    const arrow = createProjectileModel(projectileType, {
+      color: resolveProjectileColor(source, projectileType)
     });
     arrow.position.copy(this.getProjectileLaunchPosition(source));
     this.game.scene.add(arrow);
@@ -484,10 +665,12 @@ export class CombatSystem {
       : new Set(damageContext.damageTypes ?? []);
 
     this.game.buffs.beforeDamage(damageContext);
+    this.applyInnateDamageTraits(damageContext);
     const finalDamage = Math.max(0, damageContext.damage);
     const isTrueDamage = damageContext.damageTypes.has('true');
+    const isDirectHealthDamage = damageContext.damageTypes.has('directHealth');
     target.takeRawDamage(finalDamage, {
-      bypassShield: isTrueDamage
+      bypassShield: isTrueDamage || isDirectHealthDamage
     });
     this.game.effects.spawnDamageNumber(target.position, finalDamage, {
       damageType: isTrueDamage ? 'true' : 'normal',
@@ -512,6 +695,19 @@ export class CombatSystem {
       );
     }
     return true;
+  }
+
+  applyInnateDamageTraits(context) {
+    if (!context.target?.definition?.traits?.length) return;
+    if (!context.isAttack || context.damageTypes?.has?.('true')) return;
+    context.target.definition.traits.forEach((trait) => {
+      if (trait.type !== 'frontGuard') return;
+      if (!isAttackFromFront(context.target, context.source, trait.angleDegrees ?? 120)) return;
+      const reduction = Math.max(0, trait.reduction ?? 0);
+      if (reduction <= 0 || context.damage <= 0) return;
+      context.damage = Math.max(0, context.damage - reduction);
+      this.game.effects.spawnRing(context.target.position, '#d9d2a2', 0.48, 0.32);
+    });
   }
 
   cleanupDead() {
@@ -583,6 +779,7 @@ function stopDistance(unit, modifiers) {
 }
 
 function crowdRadius(unit) {
+  if (unit.type === 'ogre') return 0.78;
   if (unit.type === 'bear') return 0.72;
   if (unit.type === 'wolf') return 0.48;
   return unit.definition.role === 'ranged' ? 0.36 : 0.42;
@@ -598,9 +795,39 @@ function hitStunDuration(knockback) {
 }
 
 function maxKnockbackVelocity(unit) {
+  if (unit.type === 'ogre') return 7;
   if (unit.type === 'bear') return 8;
   if (unit.type === 'wolf') return 9;
   return 10;
+}
+
+function isNegativeBuff(buff) {
+  return buff?.negative === true;
+}
+
+function resolveProjectileColor(source, projectileType) {
+  if (source.hasEnchantment?.('fire')) return '#ffb66c';
+  if (source.definition?.projectileColor) return source.definition.projectileColor;
+  if (projectileType === 'holyBolt') return '#e9fbff';
+  return '#e7ddc0';
+}
+
+function formatSupportAmount(value) {
+  const rounded = Math.round(value * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+
+function isAttackFromFront(target, source, angleDegrees = 120) {
+  if (!target?.position || !source?.position || !target.mesh) return false;
+  const dx = source.position.x - target.position.x;
+  const dz = source.position.z - target.position.z;
+  const length = Math.hypot(dx, dz);
+  if (length < 0.001) return true;
+  const forwardX = Math.sin(target.mesh.rotation.y);
+  const forwardZ = Math.cos(target.mesh.rotation.y);
+  const dot = (dx / length) * forwardX + (dz / length) * forwardZ;
+  const threshold = Math.cos(THREE.MathUtils.degToRad(angleDegrees * 0.5));
+  return dot >= threshold;
 }
 
 function shortestAngle(from, to) {
