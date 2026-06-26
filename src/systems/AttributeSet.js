@@ -104,7 +104,10 @@ function resolveAddAmount(modifier, context) {
   const level = resolveLevel(modifier, context);
   const amount = toFiniteNumber(modifier.amount ?? modifier.value, 0);
   const amountPerLevel = toFiniteNumber(modifier.amountPerLevel, 0);
-  return amount + amountPerLevel * level;
+  const nearbyAllyAmountPerLevel = toFiniteNumber(modifier.nearbyAllyAmountPerLevel, 0);
+  return amount +
+    amountPerLevel * level +
+    resolveNearbyAllyCount(modifier, context) * nearbyAllyAmountPerLevel * level;
 }
 
 function resolveMultiplier(modifier, context) {
@@ -129,6 +132,22 @@ function resolveLevel(modifier, context) {
   return Math.max(1, toFiniteNumber(modifier.level ?? context.level, 1));
 }
 
+function resolveNearbyAllyCount(modifier, context) {
+  if (!modifier.nearbyAllyAmountPerLevel) return 0;
+  const owner = context.owner;
+  const game = context.game;
+  if (!owner?.position || !game) return 0;
+  const radius = Math.max(0, toFiniteNumber(modifier.radius, 6));
+  if (radius <= 0) return 0;
+  const units = owner.team === 'player' ? game.friendlyUnits : game.enemyUnits;
+  return (units ?? []).filter((unit) => {
+    if (!unit.alive || unit === owner || unit.team !== owner.team) return false;
+    const dx = unit.position.x - owner.position.x;
+    const dz = unit.position.z - owner.position.z;
+    return Math.hypot(dx, dz) <= radius;
+  }).length;
+}
+
 function clampNumber(value, min, max) {
   if (!Number.isFinite(value)) return min;
   return Math.min(Math.max(value, min), max);
@@ -144,6 +163,8 @@ function minifyModifier(modifier) {
     source: modifier.source,
     amount: modifier.amount,
     amountPerLevel: modifier.amountPerLevel,
+    nearbyAllyAmountPerLevel: modifier.nearbyAllyAmountPerLevel,
+    radius: modifier.radius,
     factor: modifier.factor,
     percent: modifier.percent,
     percentPerLevel: modifier.percentPerLevel,

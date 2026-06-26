@@ -249,7 +249,9 @@ export class MetaGameSystem {
   }
 
   renderShop() {
-    const unowned = CARD_DEFINITIONS.filter((card) => !this.progress.ownedCards.includes(card.id));
+    const unowned = CARD_DEFINITIONS.filter((card) => (
+      !card.lootOnly && !this.progress.ownedCards.includes(card.id)
+    ));
     return `
       <main class="meta-deck">
         <section class="meta-panel">
@@ -476,7 +478,9 @@ function saveProgress(progress) {
 }
 
 function normalizeOwnedCards(rawOwnedCards) {
-  const validIds = new Set(CARD_DEFINITIONS.map((card) => card.id));
+  const validIds = new Set(
+    CARD_DEFINITIONS.filter((card) => !card.lootOnly).map((card) => card.id)
+  );
   const result = [];
   [...STARTER_CARD_IDS, ...(rawOwnedCards ?? [])].forEach((id) => {
     if (!validIds.has(id) || result.includes(id)) return;

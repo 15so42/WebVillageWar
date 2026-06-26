@@ -51,6 +51,10 @@ body.is-meta-open .selection-box {
   cursor: grabbing;
 }
 
+#game-canvas.is-loot-hover {
+  cursor: pointer;
+}
+
 .world-ui {
   position: fixed;
   inset: 0;
@@ -697,6 +701,23 @@ body.is-meta-open .selection-box {
   font-weight: 900;
 }
 
+.pile-card-keyword {
+  position: absolute;
+  top: 58px;
+  right: 7px;
+  z-index: 2;
+  min-width: 34px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 224, 155, 0.42);
+  border-radius: 999px;
+  color: #2b1d14;
+  background: #fff2c7;
+  font-size: 10px;
+  font-weight: 900;
+}
+
 .pile-card-header {
   min-height: 32px;
   display: grid;
@@ -737,6 +758,241 @@ body.is-meta-open .selection-box {
   font-size: 11px;
   font-weight: 700;
   line-height: 1.28;
+}
+
+.loot-confirm {
+  position: fixed;
+  inset: 0;
+  z-index: 36;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(8, 14, 13, 0.42);
+  pointer-events: auto;
+  backdrop-filter: blur(3px);
+}
+
+.loot-confirm[hidden] {
+  display: none;
+}
+
+.loot-confirm-panel {
+  position: relative;
+  width: min(560px, calc(100vw - 32px));
+  display: grid;
+  grid-template-columns: 170px minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+  padding: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 24% 0%, rgba(255, 242, 199, 0.16), transparent 32%),
+    linear-gradient(180deg, rgba(31, 47, 43, 0.97), rgba(17, 26, 24, 0.97));
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.42);
+}
+
+.loot-confirm-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  color: #fff2c7;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.loot-confirm-card {
+  --card-color: #6ea370;
+  position: relative;
+  min-height: 224px;
+  display: grid;
+  grid-template-rows: auto auto auto 1fr;
+  gap: 8px;
+  padding: 14px 12px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 24% 10%, rgba(255, 255, 255, 0.34), transparent 34%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.04)),
+    var(--card-color);
+  box-shadow:
+    0 18px 36px rgba(0, 0, 0, 0.3),
+    0 0 24px color-mix(in srgb, var(--card-color) 48%, transparent);
+}
+
+.loot-confirm-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: inherit;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.09),
+    inset 0 -28px 36px rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+}
+
+.loot-confirm-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.loot-card-cost {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  min-width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.36);
+  border-radius: 50%;
+  color: #12342d;
+  background: #9eeedb;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.loot-card-level,
+.loot-card-keyword {
+  position: absolute;
+  right: 8px;
+  z-index: 2;
+  min-width: 36px;
+  height: 19px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.loot-card-level {
+  top: 39px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  color: #fff7db;
+  background: rgba(13, 22, 20, 0.58);
+}
+
+.loot-card-keyword {
+  top: 62px;
+  border: 1px solid rgba(255, 224, 155, 0.42);
+  color: #2b1d14;
+  background: #fff2c7;
+}
+
+.loot-card-header {
+  min-height: 32px;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding-right: 32px;
+  color: rgba(255, 242, 199, 0.8);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.loot-card-rune {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 50%;
+  color: #fff2c7;
+  background: rgba(15, 26, 23, 0.28);
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.loot-confirm-card .card-art {
+  min-height: 72px;
+}
+
+.loot-confirm-card strong {
+  color: #fff2c7;
+  font-size: 17px;
+  font-weight: 900;
+  line-height: 1.15;
+}
+
+.loot-confirm-card p {
+  margin: 0;
+  color: rgba(247, 244, 232, 0.8);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.34;
+}
+
+.loot-confirm-copy {
+  display: grid;
+  gap: 10px;
+  padding-right: 22px;
+}
+
+.loot-confirm-kicker {
+  color: rgba(255, 242, 199, 0.72);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.loot-confirm-copy h2 {
+  margin: 0;
+  color: #fff2c7;
+  font-size: 24px;
+  line-height: 1.15;
+}
+
+.loot-confirm-copy p {
+  margin: 0;
+  color: rgba(247, 244, 232, 0.78);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.loot-confirm-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.loot-confirm-take,
+.loot-confirm-decline {
+  min-width: 86px;
+  height: 36px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.loot-confirm-take {
+  color: #14342c;
+  background: linear-gradient(180deg, #fff2c7, #9eeedb);
+}
+
+.loot-confirm-decline {
+  color: #fff2c7;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.loot-confirm-take:hover,
+.loot-confirm-decline:hover,
+.loot-confirm-close:hover {
+  filter: brightness(1.08);
 }
 
 @keyframes energy-warning {
@@ -899,6 +1155,21 @@ body.is-meta-open .selection-box {
   animation: card-draw-in 680ms cubic-bezier(0.18, 0.9, 0.2, 1);
 }
 
+.card.is-temporary-card {
+  border-color: rgba(255, 242, 199, 0.5);
+  box-shadow:
+    0 18px 34px rgba(0, 0, 0, 0.3),
+    0 0 0 2px rgba(255, 242, 199, 0.18),
+    0 0 28px color-mix(in srgb, var(--card-color) 58%, transparent);
+}
+
+.card.is-temporary-card::after {
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.14),
+    inset 0 -28px 36px rgba(0, 0, 0, 0.18),
+    inset 0 0 32px rgba(255, 242, 199, 0.14);
+}
+
 .card-empty-slot {
   width: clamp(122px, 15.5vw, 148px);
   height: 170px;
@@ -906,6 +1177,47 @@ body.is-meta-open .selection-box {
   border-radius: 8px;
   pointer-events: none;
   background: rgba(17, 29, 26, 0.12);
+}
+
+.temporary-card-empty-slot {
+  position: relative;
+  width: clamp(122px, 15.5vw, 148px);
+  height: 170px;
+  display: grid;
+  place-items: center;
+  border: 1px dashed rgba(255, 242, 199, 0.42);
+  border-radius: 8px;
+  color: rgba(255, 242, 199, 0.72);
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 18%, rgba(255, 242, 199, 0.12), transparent 34%),
+    rgba(17, 29, 26, 0.18);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 0 18px rgba(255, 242, 199, 0.1);
+}
+
+.temporary-card-empty-slot::before {
+  content: "";
+  position: absolute;
+  inset: 10px;
+  border: 1px solid rgba(255, 242, 199, 0.16);
+  border-radius: 7px;
+}
+
+.temporary-card-empty-slot span {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  border: 1px solid rgba(255, 242, 199, 0.24);
+  border-radius: 50%;
+  color: #fff2c7;
+  background: rgba(13, 22, 20, 0.38);
+  font-size: 13px;
+  font-weight: 900;
 }
 
 @keyframes card-draw-in {
@@ -1027,6 +1339,24 @@ body.is-meta-open .selection-box {
   border-radius: 999px;
   color: #fff7db;
   background: rgba(13, 22, 20, 0.58);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.18);
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.card-keyword {
+  position: absolute;
+  top: 60px;
+  right: 7px;
+  z-index: 2;
+  min-width: 34px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 224, 155, 0.42);
+  border-radius: 999px;
+  color: #2b1d14;
+  background: #fff2c7;
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.18);
   font-size: 10px;
   font-weight: 900;
@@ -1690,7 +2020,14 @@ body.is-meta-open .selection-box {
     bottom: 10px;
     left: 50%;
     max-width: calc(100vw - 20px);
-    gap: 7px;
+    gap: 6px;
+  }
+
+  .card,
+  .card-empty-slot,
+  .temporary-card-empty-slot {
+    width: clamp(96px, 15.2vw, 122px);
+    height: 150px;
   }
 
   .energy-panel {

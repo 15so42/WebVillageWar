@@ -852,6 +852,40 @@ export function createGoblinSoldierModel() {
   });
 }
 
+export function createGoblinTrollModel() {
+  const group = createRaiderModel({
+    skinColor: '#6fa34f',
+    bodyColor: '#6f4a34',
+    eyeColor: '#1b2415',
+    weaponColor: '#54351f',
+    legColor: '#253024',
+    scale: 1.22
+  });
+  const brow = mesh(
+    new THREE.BoxGeometry(0.36, 0.07, 0.075),
+    mat('#3f3327'),
+    new THREE.Vector3(0, 1.58, 0.26),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const hump = mesh(
+    new THREE.DodecahedronGeometry(0.38, 0),
+    mat('#7f5d3b'),
+    new THREE.Vector3(0, 1.13, -0.18),
+    new THREE.Vector3(1.15, 0.52, 0.86)
+  );
+  const tuskLeft = mesh(
+    new THREE.ConeGeometry(0.032, 0.13, 5),
+    mat('#ead9a8'),
+    new THREE.Vector3(-0.1, 1.42, 0.3),
+    new THREE.Vector3(1, 1, 1)
+  );
+  tuskLeft.rotation.x = Math.PI / 2;
+  const tuskRight = tuskLeft.clone();
+  tuskRight.position.x = 0.1;
+  group.add(hump, brow, tuskLeft, tuskRight);
+  return enableShadows(group);
+}
+
 export function createSkeletonSoldierModel() {
   const group = createRaiderModel({
     skinColor: '#d8d1bc',
@@ -1660,6 +1694,140 @@ export function createBearModel() {
   group.userData.parts = {
     headPivot,
     frontPivot
+  };
+  return enableShadows(group);
+}
+
+export function createScorpionModel() {
+  const group = new THREE.Group();
+  const shellMat = mat('#8f3f2d');
+  const darkShell = mat('#5f2f27');
+  const clawMat = mat('#a44f32');
+  const legMat = mat('#4c2a24');
+  const eyeMat = mat('#15100d');
+
+  const body = mesh(
+    new THREE.DodecahedronGeometry(0.48, 0),
+    shellMat,
+    new THREE.Vector3(0, 0.42, -0.05),
+    new THREE.Vector3(1.1, 0.54, 1.45)
+  );
+  const abdomen = mesh(
+    new THREE.DodecahedronGeometry(0.38, 0),
+    darkShell,
+    new THREE.Vector3(0, 0.45, -0.56),
+    new THREE.Vector3(1.06, 0.5, 0.92)
+  );
+  const head = mesh(
+    new THREE.DodecahedronGeometry(0.3, 0),
+    shellMat,
+    new THREE.Vector3(0, 0.48, 0.66),
+    new THREE.Vector3(0.98, 0.62, 0.82)
+  );
+  const eyeLeft = mesh(
+    new THREE.BoxGeometry(0.04, 0.035, 0.02),
+    eyeMat,
+    new THREE.Vector3(-0.09, 0.58, 0.86),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const eyeRight = eyeLeft.clone();
+  eyeRight.position.x = 0.09;
+  const headPivot = createPivot(
+    'scorpionHeadPivot',
+    new THREE.Vector3(0, 0.44, 0.52),
+    [head, eyeLeft, eyeRight]
+  );
+
+  const legs = new THREE.Group();
+  for (let i = 0; i < 4; i += 1) {
+    const z = 0.46 - i * 0.32;
+    const outward = 0.46 + i * 0.04;
+    const bend = 0.12 + i * 0.02;
+    legs.add(
+      cylinderBetween(
+        new THREE.Vector3(-0.36, 0.35, z),
+        new THREE.Vector3(-outward, 0.17, z + bend),
+        0.035,
+        0.026,
+        legMat
+      ),
+      cylinderBetween(
+        new THREE.Vector3(0.36, 0.35, z),
+        new THREE.Vector3(outward, 0.17, z + bend),
+        0.035,
+        0.026,
+        legMat
+      )
+    );
+  }
+
+  const leftClawArm = cylinderBetween(
+    new THREE.Vector3(-0.32, 0.44, 0.62),
+    new THREE.Vector3(-0.74, 0.34, 0.98),
+    0.05,
+    0.04,
+    clawMat
+  );
+  const rightClawArm = cylinderBetween(
+    new THREE.Vector3(0.32, 0.44, 0.62),
+    new THREE.Vector3(0.74, 0.34, 0.98),
+    0.05,
+    0.04,
+    clawMat
+  );
+  const leftClaw = mesh(
+    new THREE.DodecahedronGeometry(0.18, 0),
+    clawMat,
+    new THREE.Vector3(-0.88, 0.34, 1.12),
+    new THREE.Vector3(1, 0.62, 0.72)
+  );
+  leftClaw.rotation.y = -0.42;
+  const rightClaw = leftClaw.clone();
+  rightClaw.position.x = 0.88;
+  rightClaw.rotation.y = 0.42;
+  const frontPivot = createPivot(
+    'scorpionFrontPivot',
+    new THREE.Vector3(0, 0.43, 0.58),
+    [leftClawArm, rightClawArm, leftClaw, rightClaw]
+  );
+
+  const tail = new THREE.Group();
+  const tailPoints = [
+    new THREE.Vector3(0, 0.55, -0.86),
+    new THREE.Vector3(0, 0.92, -1.02),
+    new THREE.Vector3(0, 1.18, -0.62),
+    new THREE.Vector3(0, 1.08, -0.08),
+    new THREE.Vector3(0, 0.86, 0.2)
+  ];
+  for (let i = 0; i < tailPoints.length - 1; i += 1) {
+    tail.add(cylinderBetween(tailPoints[i], tailPoints[i + 1], 0.055, 0.043, darkShell));
+    tail.add(mesh(
+      new THREE.DodecahedronGeometry(0.1, 0),
+      darkShell,
+      tailPoints[i + 1],
+      new THREE.Vector3(1, 0.8, 1)
+    ));
+  }
+  const sting = mesh(
+    new THREE.ConeGeometry(0.065, 0.22, 5),
+    mat('#232018'),
+    new THREE.Vector3(0, 0.78, 0.32),
+    new THREE.Vector3(1, 1, 1)
+  );
+  sting.rotation.x = Math.PI * 0.72;
+  tail.add(sting);
+  const tailPivot = createPivot(
+    'scorpionTailPivot',
+    new THREE.Vector3(0, 0.56, -0.8),
+    [tail]
+  );
+
+  group.add(body, abdomen, legs, headPivot, frontPivot, tailPivot);
+  group.scale.setScalar(0.92);
+  group.userData.parts = {
+    headPivot,
+    frontPivot,
+    tailPivot
   };
   return enableShadows(group);
 }

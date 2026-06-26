@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { BALANCE } from '../data/gameData.js';
 import {
+  basicMat,
   createBaseModel,
   createBush,
   createCloudModel,
@@ -14,6 +15,7 @@ import {
   mat
 } from '../art/lowpoly.js';
 import { clamp, seededRandom } from '../utils/math.js';
+import { RecastNavigation } from './RecastNavigation.js';
 
 const FOREST_ZONES = [
   { x: -31, z: 19, rx: 11, rz: 17, count: 82, tone: 'deep' },
@@ -59,6 +61,12 @@ const LANDMARK_BOULDERS = [
 const SNOW_CENTER = { x: 2, z: -33 };
 const SURFACE_OFFSET = 0.42;
 const PATH_SURFACE_OFFSET = 0.035;
+const DUNGEON_BRIDGE_OVERHANG = 2.8;
+const DUNGEON_NAV_PLATFORM_INSET = 0.92;
+const DUNGEON_SAFE_BRIDGE_HALF_WIDTH = 1.18;
+const DUNGEON_NAV_BRIDGE_HALF_WIDTH = 0.4;
+const DUNGEON_NAV_BRIDGE_LANDING_T = 0.2;
+const DUNGEON_NAV_BRIDGE_LANDING_RADIUS = 1.05;
 const SNOWFALL_CENTER = new THREE.Vector3();
 
 const DEFAULT_TERRAIN_PROFILE = {
@@ -349,6 +357,234 @@ const WORLD_PRESETS = {
       gustScale: 1.34,
       windScale: 1.18
     }
+  },
+  'dungeon-halls': {
+    sceneKey: 'dungeon-halls',
+    theme: 'dungeon',
+    seed: 611,
+    sky: {
+      background: '#0b0d13',
+      fog: '#15121d',
+      fogNear: 54,
+      fogFar: 138,
+      sun: '#f6ad62',
+      hemiSky: '#262233',
+      hemiGround: '#0a090b'
+    },
+    palette: {
+      base: '#443e46',
+      side: '#08070c',
+      north: '#3d3444',
+      valley: '#62585e',
+      forest: '#2b3133',
+      high: '#7a7074',
+      snow: '#6e686c',
+      path: '#8a6743',
+      puddle: '#16121a'
+    },
+    ground: {
+      width: 84,
+      depth: 84
+    },
+    pathWidth: 3.6,
+    pathPoints: [
+      { x: 0, z: 31 },
+      { x: -5, z: 13 },
+      { x: 4, z: -4 },
+      { x: 4, z: -20 },
+      { x: 0, z: -33 }
+    ],
+    dungeonBridges: [
+      { from: { x: -3.2, z: 22.5 }, to: { x: -4.0, z: 20.2 } },
+      { from: { x: -2.2, z: 9.1 }, to: { x: 0.1, z: 5.6 } },
+      { from: { x: 3.9, z: -10.7 }, to: { x: 3.6, z: -13.0 } },
+      { from: { x: 1.8, z: -24.1 }, to: { x: 1.5, z: -25.7 } },
+      { from: { x: 17.6, z: 0.6 }, to: { x: 27.0, z: 6.2 } },
+      { from: { x: -9.4, z: -3.6 }, to: { x: -23.4, z: -5.4 } },
+      { from: { x: -8.8, z: -30.1 }, to: { x: -22.8, z: -25.2 } }
+    ],
+    puddles: [],
+    altars: [
+      { id: 'energy-altar-dungeon-west', type: 'energy', position: { x: -31, z: -6 }, rotation: -0.35, clearingRadius: 6 },
+      { id: 'shield-altar-dungeon-east', type: 'shield', position: { x: 34, z: 8 }, rotation: 0.35, clearingRadius: 6 },
+      { id: 'respite-altar-dungeon-north', type: 'respite', position: { x: -30, z: -25 }, rotation: 0.15, clearingRadius: 5.8 }
+    ],
+    wildlife: [],
+    forestZones: [],
+    forestPassages: [],
+    clearings: [
+      { x: 0, z: 30, r: 11 },
+      { x: 0, z: -33, r: 9 },
+      { x: -31, z: -6, r: 6 },
+      { x: 34, z: 8, r: 6 },
+      { x: -30, z: -25, r: 5.8 }
+    ],
+    dungeonPlatforms: [
+      { x: 0, z: 31, rx: 13.4, rz: 8.3, rot: 0.04, tone: 'large', irregularity: 0.1 },
+      { x: -6, z: 15, rx: 8.6, rz: 5.7, rot: -0.34, tone: 'medium', irregularity: 0.13 },
+      { x: 5, z: -2, rx: 15.2, rz: 8.2, rot: 0.18, tone: 'grand', irregularity: 0.11 },
+      { x: 3, z: -18.4, rx: 8.4, rz: 5.4, rot: -0.18, tone: 'medium', irregularity: 0.12 },
+      { x: 0, z: -33, rx: 12.4, rz: 7.5, rot: -0.06, tone: 'large', irregularity: 0.1 },
+      { x: 34, z: 8, rx: 7.4, rz: 5.2, rot: 0.26, tone: 'small', irregularity: 0.14 },
+      { x: -31, z: -6, rx: 8.2, rz: 5.7, rot: -0.24, tone: 'small', irregularity: 0.14 },
+      { x: -30, z: -25, rx: 7.3, rz: 4.9, rot: 0.18, tone: 'small', irregularity: 0.15 }
+    ],
+    dungeonCrystals: [
+      { x: -35, z: -1, scale: 0.9, color: '#8cff5f' },
+      { x: 30, z: 13, scale: 0.82, color: '#9cff69' },
+      { x: -35, z: -28, scale: 0.74, color: '#89ff68' },
+      { x: 15, z: -8, scale: 0.72, color: '#7eff5c' }
+    ],
+    boulderClusters: [],
+    landmarkBoulders: [],
+    terrain: {
+      ...DEFAULT_TERRAIN_PROFILE,
+      baseHeight: 0.06,
+      northRise: 0.18,
+      sideRise: 0.08,
+      sideNorthRise: 0.1,
+      roughnessScale: 0.18,
+      valleyFloorBase: 0.08,
+      valleyNorthRise: 0.08,
+      valleySideRise: 0.05,
+      campTerrace: 0.08,
+      campTerraceOutward: 0.02,
+      campShelfInner: 6,
+      campShelfOuter: 12,
+      hills: [],
+      ridges: []
+    },
+    monsterCamp: { x: -2, z: -33, rot: -0.2, scale: 1.12, offset: 0.18 },
+    snowfall: {
+      enabled: false,
+      countScale: 0,
+      gustScale: 0,
+      windScale: 0
+    },
+    mechanics: {
+      lava: {
+        enabled: true,
+        damageMaxHealthPercentPerSecond: 0.18,
+        bypassShield: true,
+        tickSeconds: 0.35
+      },
+      traps: []
+    }
+  },
+  'red-desert': {
+    sceneKey: 'red-desert',
+    theme: 'red-desert',
+    seed: 904,
+    sky: {
+      background: '#eda466',
+      fog: '#e6a66d',
+      fogNear: 74,
+      fogFar: 210,
+      sun: '#fff0a8',
+      hemiSky: '#ffd9a0',
+      hemiGround: '#7d4636'
+    },
+    palette: {
+      base: '#b76245',
+      side: '#9f513d',
+      north: '#c96f48',
+      valley: '#b56a4d',
+      forest: '#8f6048',
+      high: '#d18652',
+      snow: '#d99458',
+      path: '#d18a5a',
+      puddle: '#6c514a'
+    },
+    ground: {
+      width: 84,
+      depth: 84
+    },
+    pathWidth: 3.6,
+    pathPoints: [
+      { x: -3, z: 30 },
+      { x: 6, z: 23 },
+      { x: 1, z: 15 },
+      { x: -10, z: 7 },
+      { x: -4, z: -2 },
+      { x: 9, z: -10 },
+      { x: 4, z: -20 },
+      { x: 0, z: -30 }
+    ],
+    puddles: [],
+    altars: [
+      { id: 'energy-altar-desert-west', type: 'energy', position: { x: -20, z: 12 }, rotation: -0.2, clearingRadius: 6 },
+      { id: 'shield-altar-desert-east', type: 'shield', position: { x: 18, z: -7 }, rotation: 0.35, clearingRadius: 6.2 },
+      { id: 'respite-altar-desert-south', type: 'respite', position: { x: 12, z: 20 }, rotation: 0.1, clearingRadius: 5.8 }
+    ],
+    wildlife: [
+      { type: 'scorpion', x: -27, z: 7, radius: 5.4 },
+      { type: 'scorpion', x: 25, z: -13, radius: 5.4 },
+      { type: 'scorpion', x: 22, z: 14, radius: 5 }
+    ],
+    forestZones: [],
+    forestPassages: [],
+    clearings: [
+      { x: 0, z: 30, r: 11 },
+      { x: 0, z: -30, r: 9 },
+      { x: -20, z: 12, r: 6 },
+      { x: 18, z: -7, r: 6 }
+    ],
+    boulderClusters: [
+      { x: -27, z: 8, rx: 5.4, rz: 7.2, count: 6, sizeMin: 1.35, sizeMax: 2.75 },
+      { x: 25, z: -12, rx: 5.8, rz: 7.6, count: 7, sizeMin: 1.45, sizeMax: 3 },
+      { x: 18, z: 17, rx: 4.6, rz: 5.2, count: 5, sizeMin: 1.25, sizeMax: 2.45 },
+      { x: -18, z: -19, rx: 5.2, rz: 5.6, count: 5, sizeMin: 1.2, sizeMax: 2.35 }
+    ],
+    landmarkBoulders: [
+      { x: -25, z: 9, size: 4.2, sx: 1.35, sy: 1.35, sz: 1.05, rot: 0.35, shade: { rx: 6.4, rz: 3.4, ox: 2.8, oz: 1.4 } },
+      { x: 24, z: -10, size: 4.5, sx: 1.15, sy: 1.5, sz: 1.18, rot: -0.52, shade: { rx: 6.8, rz: 3.6, ox: 2.9, oz: 1.3 } },
+      { x: -13, z: -22, size: 3.5, sx: 1.28, sy: 1.15, sz: 1.04, rot: 0.88, shade: { rx: 5.6, rz: 3.1, ox: 2.4, oz: 1.1 } },
+      { x: 16, z: 16, size: 3.3, sx: 1.1, sy: 1.2, sz: 1.18, rot: -0.2, shade: { rx: 5.4, rz: 3, ox: 2.3, oz: 1.2 } }
+    ],
+    terrain: {
+      ...DEFAULT_TERRAIN_PROFILE,
+      baseHeight: 0.24,
+      northRise: 0.75,
+      sideRise: 0.55,
+      sideNorthRise: 0.9,
+      roughnessScale: 0.78,
+      valleyFloorBase: 0.22,
+      valleyNorthRise: 0.32,
+      valleySideRise: 0.28,
+      campTerrace: 0.42,
+      campTerraceOutward: 0.18,
+      hills: [
+        { x: -26, z: 8, rx: 12, rz: 14, height: 1.4 },
+        { x: 26, z: -12, rx: 13, rz: 16, height: 1.55 },
+        { x: -18, z: -21, rx: 12, rz: 12, height: 1.2 },
+        { x: 19, z: 18, rx: 11, rz: 12, height: 1.1 }
+      ],
+      ridges: [
+        { x: -40, z: -2, rx: 7, rz: 42, height: 1.2 },
+        { x: 40, z: -4, rx: 7, rz: 42, height: 1.35 },
+        { x: 0, z: -39, rx: 34, rz: 8, height: 1.4 }
+      ]
+    },
+    shadeZones: [
+      { x: -22.2, z: 10.4, rx: 6.4, rz: 3.4 },
+      { x: 26.9, z: -8.7, rx: 6.8, rz: 3.6 },
+      { x: -10.6, z: -20.9, rx: 5.6, rz: 3.1 },
+      { x: 18.3, z: 17.2, rx: 5.4, rz: 3 }
+    ],
+    monsterCamp: { x: 0, z: -33, rot: -0.38, scale: 1.18, offset: 0.22 },
+    snowfall: {
+      enabled: false,
+      countScale: 0,
+      gustScale: 0,
+      windScale: 0
+    },
+    mechanics: {
+      sunlight: {
+        enabled: true,
+        tickSeconds: 1,
+        damagePerTick: 1.8
+      }
+    }
   }
 };
 
@@ -374,12 +610,23 @@ export function createWorld(scene, worldOptions = {}) {
   const ground = createGroundMesh();
   scene.add(ground);
 
+  const navGrid = config.theme === 'dungeon' ? createDungeonRecastNavigation() : null;
   const pathPoints = pathVectors();
-  createSky(scene);
-  createMountainRidge(scene);
-  createSnowMountain(scene);
-  createPath(scene, pathPoints);
-  createPuddles(scene);
+  const pathGraph = config.theme === 'dungeon' ? createDungeonNavigationGraph() : null;
+  const theme = config.theme ?? 'snow';
+  if (theme === 'snow') {
+    createSky(scene);
+    createMountainRidge(scene);
+    createSnowMountain(scene);
+  }
+  if (theme === 'dungeon') {
+    createDungeonPath(scene, pathPoints);
+  } else {
+    createPath(scene, pathPoints);
+  }
+  if (theme === 'snow') {
+    createPuddles(scene);
+  }
   const snowfall = createSnowfall(scene);
 
   const basePosition = config.playerBasePosition;
@@ -394,14 +641,31 @@ export function createWorld(scene, worldOptions = {}) {
   enemyCamp.scale.setScalar(1.35);
   scene.add(enemyCamp);
 
-  decorate(scene, pathPoints);
+  if (theme === 'dungeon') {
+    createDungeonDecor(scene, pathPoints);
+  } else if (theme === 'red-desert') {
+    createDesertDecor(scene, pathPoints);
+  } else {
+    decorate(scene, pathPoints);
+  }
   createSnowMonsterCamp(scene);
 
   return {
     config,
     ground,
-    heightAt: terrainHeightAt,
+    heightAt: worldSurfaceHeightAt,
+    isSafeSurface: (pointOrX, maybeZ = null) => {
+      const x = typeof pointOrX === 'number' ? pointOrX : pointOrX.x;
+      const z = typeof pointOrX === 'number' ? maybeZ : pointOrX.z;
+      if (config.theme !== 'dungeon') return true;
+      return isDungeonSafeSurfaceAt(x, z);
+    },
     pathPoints,
+    pathGraph,
+    navGrid,
+    findPath: (start, end, options = {}) => navGrid?.findPath(start, end, options) ?? [],
+    hasNavigationLine: (start, end) => navGrid?.hasLine(start, end) ?? true,
+    navigationDistance: (start, end) => navGrid?.pathDistance(start, end) ?? Infinity,
     playerBaseModel: base,
     enemyCampModel: enemyCamp,
     recoveryAura: base.userData.aura,
@@ -481,6 +745,9 @@ function rawPathPoints() {
 
 export function terrainHeightAt(x, z) {
   const config = worldConfig();
+  if (config.theme === 'dungeon') {
+    return dungeonTerrainHeightAt(x, z);
+  }
   const terrain = config.terrain;
   const pathDistance = distanceToPath(x, z, rawPathPoints());
   const northMask = northMaskAt(z);
@@ -521,6 +788,50 @@ export function terrainHeightAt(x, z) {
   height = mix(height, campTerrace, campShelf * 0.78);
 
   return Math.max(0, height);
+}
+
+function worldSurfaceHeightAt(x, z) {
+  if (worldConfig().theme === 'dungeon') {
+    return dungeonWalkableHeightAt(x, z);
+  }
+  return terrainHeightAt(x, z);
+}
+
+function dungeonLavaHeightAt(x, z) {
+  return -1.2 +
+    Math.sin(x * 0.23 + z * 0.11) * 0.08 +
+    Math.cos(x * 0.13 - z * 0.19) * 0.05;
+}
+
+function dungeonPlatformHeightAt(x, z) {
+  return 1.5 + (
+    Math.sin(x * 0.14 + z * 0.06) * 0.045 +
+    Math.cos(x * 0.07 - z * 0.12) * 0.038 +
+    (hash2(Math.floor(x * 0.28), Math.floor(z * 0.28)) - 0.5) * 0.022
+  );
+}
+
+function dungeonBridgeDeckHeightAt(x, z) {
+  return 1.26 + Math.sin((x + z) * 0.08) * 0.018;
+}
+
+function dungeonTerrainHeightAt(x, z) {
+  const platformMask = dungeonPlatformMaskAt(x, z);
+  return mix(
+    dungeonLavaHeightAt(x, z),
+    dungeonPlatformHeightAt(x, z),
+    smoothstep(0.05, 0.72, platformMask)
+  );
+}
+
+function dungeonWalkableHeightAt(x, z) {
+  if (isInsideDungeonBridge(x, z)) {
+    return dungeonBridgeDeckHeightAt(x, z);
+  }
+  if (isInsideDungeonPlatform(x, z)) {
+    return dungeonPlatformHeightAt(x, z);
+  }
+  return dungeonLavaHeightAt(x, z);
 }
 
 function createGroundMesh() {
@@ -577,6 +888,12 @@ function colorGroundGeometry(geometry) {
 function terrainColorAt(x, z, height) {
   const config = worldConfig();
   const palette = config.palette;
+  if (config.theme === 'dungeon') {
+    return dungeonTerrainColorAt(x, z, height, palette);
+  }
+  if (config.theme === 'red-desert') {
+    return desertTerrainColorAt(x, z, height, palette);
+  }
   const color = new THREE.Color(palette.base);
   const northMask = northMaskAt(z);
   const sideRise = smoothstep(10, 39, Math.abs(x));
@@ -596,11 +913,397 @@ function terrainColorAt(x, z, height) {
   return color;
 }
 
+function dungeonTerrainColorAt(x, z, height, palette) {
+  const platformMask = dungeonPlatformMaskAt(x, z);
+  const safeMask = platformMask;
+  const edgeMask = dungeonPlatformEdgeMaskAt(x, z);
+  const color = new THREE.Color('#050408');
+  const wallMask = smoothstep(28, 41, Math.max(Math.abs(x), Math.abs(z)));
+  const slab = Math.abs(Math.sin((x + 42) * 0.16) * Math.cos((z + 42) * 0.14));
+  const facet = hash2(Math.floor(x * 0.22), Math.floor(z * 0.22)) - 0.5;
+  const lavaPulse = 0.5 + Math.sin(x * 0.22 + z * 0.17) * 0.28 + Math.cos(x * 0.11 - z * 0.25) * 0.22;
+  color.lerp(new THREE.Color('#58120d'), 1 - safeMask);
+  color.lerp(new THREE.Color('#ff6c24'), clamp(lavaPulse, 0, 1) * (1 - safeMask) * 0.78);
+  color.lerp(new THREE.Color(palette.base), safeMask * 0.98);
+  color.lerp(new THREE.Color(palette.valley), safeMask * (0.12 + slab * 0.035));
+  color.lerp(new THREE.Color(palette.high), smoothstep(0.12, 1.4, height) * 0.08 * safeMask);
+  color.lerp(new THREE.Color('#100d15'), edgeMask * 0.58 + wallMask * 0.18);
+  color.offsetHSL(0.002 * facet, -0.004 * slab, (0.012 * facet - 0.004 * slab) * (0.32 + safeMask));
+  return color;
+}
+
+function dungeonPlatformMaskAt(x, z) {
+  return (worldConfig().dungeonPlatforms ?? []).reduce((best, platform) => {
+    const mask = dungeonPlatformFalloffAt(x, z, platform, 0.62, 1.08);
+    return Math.max(best, mask);
+  }, 0);
+}
+
+function dungeonRoadMaskAt(x, z) {
+  const halfWidth = Math.max(2.8, (worldConfig().dungeonRoadWidth ?? 12) * 0.5);
+  const distance = distanceToPath(x, z, rawPathPoints());
+  const widthWobble = (
+    Math.sin(x * 0.08 + z * 0.17) * 1.15 +
+    Math.cos(x * 0.16 - z * 0.06) * 0.82 +
+    (hash2(Math.floor(x * 0.16), Math.floor(z * 0.16)) - 0.5) * 1.3
+  );
+  const erodedBites = Math.max(0,
+    Math.sin(x * 0.29 - z * 0.13) * 0.55 +
+    Math.cos(x * 0.11 + z * 0.31) * 0.45
+  ) * 1.85;
+  const chippedEdge = (
+    Math.sin(x * 0.53 + z * 0.19) * 0.42 +
+    (hash2(Math.floor(x * 0.62), Math.floor(z * 0.62)) - 0.5) * 0.7
+  );
+  const naturalHalfWidth = halfWidth + widthWobble - erodedBites;
+  return 1 - smoothstep(
+    naturalHalfWidth * 0.86,
+    naturalHalfWidth * 1.24,
+    Math.max(0, distance + chippedEdge)
+  );
+}
+
+function dungeonBridgeMaskAt(x, z) {
+  const halfWidth = Math.max(0.6, (worldConfig().pathWidth ?? 3.2) * 0.5);
+  let best = 0;
+  dungeonBridgeSegments().forEach(([a, b]) => {
+    const [extendedA, extendedB] = extendDungeonBridgeSegment(a, b);
+    const distance = distanceToSegment2D(x, z, extendedA, extendedB);
+    best = Math.max(best, 1 - smoothstep(halfWidth * 0.74, halfWidth * 1.06, distance));
+  });
+  return best;
+}
+
+function isDungeonSafeSurfaceAt(x, z) {
+  return isInsideDungeonPlatform(x, z) || isInsideDungeonBridge(x, z);
+}
+
+function isDungeonNavigationWalkableAt(x, z) {
+  return isInsideDungeonPlatform(x, z) || Boolean(dungeonBridgeHitAt(x, z, DUNGEON_NAV_BRIDGE_HALF_WIDTH));
+}
+
+function dungeonPlatformEdgeMaskAt(x, z) {
+  return (worldConfig().dungeonPlatforms ?? []).reduce((best, platform) => {
+    const outer = dungeonPlatformFalloffAt(x, z, platform, 0.88, 1.16);
+    const inner = dungeonPlatformFalloffAt(x, z, platform, 0.58, 0.9);
+    return Math.max(best, Math.max(0, outer - inner));
+  }, 0);
+}
+
+function dungeonBridgeSegments() {
+  const bridges = worldConfig().dungeonBridges;
+  if (Array.isArray(bridges) && bridges.length) {
+    return bridges
+      .filter((bridge) => bridge?.from && bridge?.to)
+      .map((bridge) => [
+        new THREE.Vector3(bridge.from.x, 0, bridge.from.z),
+        new THREE.Vector3(bridge.to.x, 0, bridge.to.z)
+      ]);
+  }
+
+  const points = rawPathPoints();
+  return points.slice(0, -1).map((point, index) => [point, points[index + 1]]);
+}
+
+function extendDungeonBridgeSegment(a, b, overhang = DUNGEON_BRIDGE_OVERHANG) {
+  const dx = b.x - a.x;
+  const dz = b.z - a.z;
+  const length = Math.hypot(dx, dz);
+  if (length < 0.001) return [a.clone(), b.clone()];
+  const ux = dx / length;
+  const uz = dz / length;
+  return [
+    new THREE.Vector3(a.x - ux * overhang, 0, a.z - uz * overhang),
+    new THREE.Vector3(b.x + ux * overhang, 0, b.z + uz * overhang)
+  ];
+}
+
+function dungeonPlatformFalloffAt(x, z, platform, inner = 0, outer = 1) {
+  const distance = dungeonPlatformNormalizedDistanceAt(x, z, platform);
+  return 1 - smoothstep(inner, outer, distance);
+}
+
+function isInsideDungeonPlatform(x, z, inset = DUNGEON_NAV_PLATFORM_INSET) {
+  return (worldConfig().dungeonPlatforms ?? []).some((platform) => (
+    dungeonPlatformNormalizedDistanceAt(x, z, platform) <= inset
+  ));
+}
+
+function isInsideDungeonBridge(x, z) {
+  return Boolean(dungeonBridgeHitAt(x, z, DUNGEON_SAFE_BRIDGE_HALF_WIDTH));
+}
+
+function canTraverseDungeonNavigation(start, end) {
+  const startSurface = dungeonNavigationSurfaceAt(start.x, start.z);
+  const endSurface = dungeonNavigationSurfaceAt(end.x, end.z);
+  if (startSurface.isVoid || endSurface.isVoid) return false;
+  const isDiagonalStep =
+    Math.abs(start.x - end.x) > 0.001 &&
+    Math.abs(start.z - end.z) > 0.001 &&
+    Math.hypot(start.x - end.x, start.z - end.z) < 1.1;
+  const sharePlatform = startSurface.platform && endSurface.platform;
+  if (isDiagonalStep && (startSurface.bridge || endSurface.bridge) && !sharePlatform) {
+    return false;
+  }
+  if (sharePlatform) return true;
+  if (startSurface.bridge && endSurface.bridge) {
+    return startSurface.bridge.index === endSurface.bridge.index;
+  }
+  if (startSurface.bridge && endSurface.platform) {
+    return isDungeonBridgeLandingTransition(startSurface.bridge, end);
+  }
+  if (endSurface.bridge && startSurface.platform) {
+    return isDungeonBridgeLandingTransition(endSurface.bridge, start);
+  }
+  return false;
+}
+
+function dungeonNavigationSurfaceAt(x, z) {
+  const bridge = dungeonBridgeHitAt(x, z, DUNGEON_NAV_BRIDGE_HALF_WIDTH);
+  const platform = isInsideDungeonPlatform(x, z);
+  return {
+    bridge,
+    platform,
+    isVoid: !bridge && !platform
+  };
+}
+
+function isDungeonBridgeLandingTransition(bridgeHit, platformPoint) {
+  if (!bridgeHit) return false;
+  const atStart = bridgeHit.t <= DUNGEON_NAV_BRIDGE_LANDING_T;
+  const atEnd = bridgeHit.t >= 1 - DUNGEON_NAV_BRIDGE_LANDING_T;
+  if (!atStart && !atEnd) return false;
+  const landing = atStart ? bridgeHit.start : bridgeHit.end;
+  return Math.hypot(platformPoint.x - landing.x, platformPoint.z - landing.z) <=
+    DUNGEON_NAV_BRIDGE_LANDING_RADIUS;
+}
+
+function dungeonBridgeHitAt(x, z, halfWidth = DUNGEON_NAV_BRIDGE_HALF_WIDTH) {
+  let best = null;
+  dungeonBridgeSegments().forEach(([a, b], index) => {
+    const [extendedA, extendedB] = extendDungeonBridgeSegment(a, b);
+    const projection = projectToSegment2D(x, z, extendedA, extendedB);
+    if (projection.distance > halfWidth) return;
+    if (best && projection.distance >= best.distance) return;
+    best = {
+      index,
+      t: projection.t,
+      distance: projection.distance,
+      start: extendedA,
+      end: extendedB
+    };
+  });
+  return best;
+}
+
+function dungeonPlatformNormalizedDistanceAt(x, z, platform) {
+  const rot = platform.rot ?? 0;
+  const cos = Math.cos(-rot);
+  const sin = Math.sin(-rot);
+  const dx = x - platform.x;
+  const dz = z - platform.z;
+  const localX = dx * cos - dz * sin;
+  const localZ = dx * sin + dz * cos;
+  const angle = Math.atan2(localZ / (platform.rz ?? platform.radius ?? 1), localX / (platform.rx ?? platform.radius ?? 1));
+  const scale = irregularEllipseScaleAt(platform, angle);
+  const rx = (platform.rx ?? platform.radius ?? 1) * scale;
+  const rz = (platform.rz ?? platform.radius ?? rx) * scale;
+  return Math.hypot(localX / rx, localZ / rz);
+}
+
+function irregularEllipseScaleAt(zone, angle) {
+  const irregularity = zone.irregularity ?? 0;
+  if (irregularity <= 0) return 1;
+  const seed = (zone.x * 0.37 + zone.z * 0.29 + (zone.rx ?? 1) * 0.17) * 0.63;
+  const wobble =
+    Math.sin(angle * 3 + seed) * 0.52 +
+    Math.sin(angle * 5 - seed * 1.7) * 0.31 +
+    Math.sin(angle * 7 + seed * 0.6) * 0.17;
+  return clamp(1 + wobble * irregularity, 0.72, 1.24);
+}
+
+function ellipseBoundaryPoint(zone, angle, scaleFactor = 1) {
+  const rot = zone.rot ?? 0;
+  const cos = Math.cos(rot);
+  const sin = Math.sin(rot);
+  const rx = zone.rx ?? zone.radius ?? 1;
+  const rz = zone.rz ?? zone.radius ?? rx;
+  const edgeScale = irregularEllipseScaleAt(zone, angle) * scaleFactor;
+  const localX = Math.cos(angle) * rx * edgeScale;
+  const localZ = Math.sin(angle) * rz * edgeScale;
+  return {
+    x: zone.x + localX * cos - localZ * sin,
+    z: zone.z + localX * sin + localZ * cos
+  };
+}
+
+function ellipseFalloffAt(x, z, ellipse, inner = 0, outer = 1) {
+  const rot = ellipse.rot ?? 0;
+  const cos = Math.cos(-rot);
+  const sin = Math.sin(-rot);
+  const dx = x - ellipse.x;
+  const dz = z - ellipse.z;
+  const localX = dx * cos - dz * sin;
+  const localZ = dx * sin + dz * cos;
+  const rx = Math.max(0.1, ellipse.rx ?? ellipse.radius ?? 1);
+  const rz = Math.max(0.1, ellipse.rz ?? ellipse.radius ?? rx);
+  const distance = Math.sqrt((localX * localX) / (rx * rx) + (localZ * localZ) / (rz * rz));
+  return 1 - smoothstep(inner, outer, distance);
+}
+
+function desertTerrainColorAt(x, z, height, palette) {
+  const color = new THREE.Color(palette.base);
+  const pathDistance = distanceToPath(x, z, rawPathPoints());
+  const pathMask = 1 - smoothstep(0, worldConfig().pathWidth * 0.95, pathDistance);
+  const sideRise = smoothstep(14, 40, Math.abs(x));
+  const ridgeMask = northMaskAt(z) * 0.42 + sideRise * 0.28;
+  const dune = Math.sin(x * 0.15 + z * 0.09) * 0.5 + Math.cos(x * 0.09 - z * 0.17) * 0.5;
+  const facet = hash2(x * 0.08, z * 0.08) - 0.5;
+  color.lerp(new THREE.Color(palette.side), sideRise * 0.28);
+  color.lerp(new THREE.Color(palette.north), ridgeMask * 0.22);
+  color.lerp(new THREE.Color(palette.high), smoothstep(1.2, 3.2, height) * 0.22);
+  color.lerp(new THREE.Color(palette.path), pathMask * 0.36);
+  color.offsetHSL(0.004 * dune, 0.012 * dune, 0.024 * facet + 0.018 * dune);
+  return color;
+}
+
 function pathVectors() {
   return worldConfig().pathPoints.map((point) => {
-    const y = terrainHeightAt(point.x, point.z) + SURFACE_OFFSET;
+    const y = worldSurfaceHeightAt(point.x, point.z) + SURFACE_OFFSET;
     return new THREE.Vector3(point.x, y, point.z);
   });
+}
+
+function createDungeonRecastNavigation() {
+  const config = worldConfig();
+  const halfWidth = (config.ground.width ?? 84) * 0.5;
+  const halfDepth = (config.ground.depth ?? 84) * 0.5;
+  return new RecastNavigation({
+    meshes: createDungeonNavigationMeshes(),
+    bounds: {
+      minX: -halfWidth,
+      maxX: halfWidth,
+      minZ: -halfDepth,
+      maxZ: halfDepth
+    },
+    config: {
+      cs: 0.16,
+      ch: 0.1,
+      walkableHeight: 2,
+      walkableClimb: 0.22,
+      walkableRadius: 1,
+      maxEdgeLen: 18,
+      maxSimplificationError: 0.28,
+      minRegionArea: 2,
+      mergeRegionArea: 6,
+      detailSampleDist: 2.5,
+      detailSampleMaxError: 0.3
+    },
+    debugSampleStep: 1.1
+  });
+}
+
+function createDungeonNavigationMeshes() {
+  const positions = [];
+  const indices = [];
+  const addVertex = (x, z) => {
+    positions.push(x, 0, z);
+    return positions.length / 3 - 1;
+  };
+
+  (worldConfig().dungeonPlatforms ?? []).forEach((platform) => {
+    const segments = 34;
+    const center = addVertex(platform.x, platform.z);
+    const boundary = [];
+    for (let i = 0; i < segments; i += 1) {
+      const angle = (i / segments) * Math.PI * 2;
+      const point = ellipseBoundaryPoint(platform, angle, DUNGEON_NAV_PLATFORM_INSET);
+      boundary.push(addVertex(point.x, point.z));
+    }
+    for (let i = 0; i < segments; i += 1) {
+      const current = boundary[i];
+      const next = boundary[(i + 1) % segments];
+      indices.push(center, next, current);
+    }
+  });
+
+  dungeonBridgeSegments().forEach(([a, b]) => {
+    const [extendedA, extendedB] = extendDungeonBridgeSegment(a, b);
+    const dx = extendedB.x - extendedA.x;
+    const dz = extendedB.z - extendedA.z;
+    const length = Math.hypot(dx, dz);
+    if (length < 0.001) return;
+    const nx = -dz / length;
+    const nz = dx / length;
+    const halfWidth = DUNGEON_NAV_BRIDGE_HALF_WIDTH;
+    const leftA = addVertex(extendedA.x + nx * halfWidth, extendedA.z + nz * halfWidth);
+    const leftB = addVertex(extendedB.x + nx * halfWidth, extendedB.z + nz * halfWidth);
+    const rightB = addVertex(extendedB.x - nx * halfWidth, extendedB.z - nz * halfWidth);
+    const rightA = addVertex(extendedA.x - nx * halfWidth, extendedA.z - nz * halfWidth);
+    indices.push(leftA, leftB, rightB, leftA, rightB, rightA);
+  });
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  const mesh = new THREE.Mesh(geometry);
+  mesh.name = 'DungeonRecastNavigationSource';
+  return [mesh];
+}
+
+function createDungeonNavigationGraph() {
+  const nodes = [];
+  const keyToIndex = new Map();
+  const edges = [];
+  const edgeKeys = new Set();
+  const addNode = (point) => {
+    const key = `${point.x.toFixed(2)}:${point.z.toFixed(2)}`;
+    if (keyToIndex.has(key)) return keyToIndex.get(key);
+    const node = new THREE.Vector3(
+      point.x,
+      worldSurfaceHeightAt(point.x, point.z) + SURFACE_OFFSET,
+      point.z
+    );
+    const index = nodes.length;
+    nodes.push(node);
+    keyToIndex.set(key, index);
+    return index;
+  };
+  const addEdge = (a, b) => {
+    if (a === b) return;
+    const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+    if (edgeKeys.has(key)) return;
+    edgeKeys.add(key);
+    edges.push([a, b]);
+  };
+
+  rawPathPoints().forEach(addNode);
+  dungeonBridgeSegments().forEach(([a, b]) => {
+    addEdge(addNode(a), addNode(b));
+  });
+
+  for (let i = 0; i < nodes.length; i += 1) {
+    for (let j = i + 1; j < nodes.length; j += 1) {
+      if (Math.hypot(nodes[i].x - nodes[j].x, nodes[i].z - nodes[j].z) > 26) continue;
+      if (isDungeonSafeSegment(nodes[i], nodes[j])) {
+        addEdge(i, j);
+      }
+    }
+  }
+
+  return { nodes, edges };
+}
+
+function isDungeonSafeSegment(a, b) {
+  const sampleCount = Math.max(6, Math.ceil(Math.hypot(a.x - b.x, a.z - b.z) / 1.15));
+  for (let i = 0; i <= sampleCount; i += 1) {
+    const t = i / sampleCount;
+    const x = mix(a.x, b.x, t);
+    const z = mix(a.z, b.z, t);
+    if (!isDungeonSafeSurfaceAt(x, z)) return false;
+  }
+  return true;
 }
 
 function createPath(scene, points) {
@@ -634,12 +1337,147 @@ function createPath(scene, points) {
   }
 }
 
-function buildPathRibbon(scene, points, material) {
+function createDungeonPath(scene) {
+  createDungeonPlatformOverlays(scene);
+  dungeonBridgeSegments().forEach(([a, b], index) => {
+    if (!shouldBuildDungeonBridge(a, b)) return;
+    const [extendedA, extendedB] = extendDungeonBridgeSegment(a, b);
+    createDungeonBridge(
+      scene,
+      new THREE.Vector3(
+        extendedA.x,
+        dungeonBridgeDeckHeightAt(extendedA.x, extendedA.z) + SURFACE_OFFSET - 0.18,
+        extendedA.z
+      ),
+      new THREE.Vector3(
+        extendedB.x,
+        dungeonBridgeDeckHeightAt(extendedB.x, extendedB.z) + SURFACE_OFFSET - 0.18,
+        extendedB.z
+      ),
+      index
+    );
+  });
+}
+
+function shouldBuildDungeonBridge(a, b) {
+  for (let i = 1; i < 8; i += 1) {
+    const t = i / 8;
+    const x = mix(a.x, b.x, t);
+    const z = mix(a.z, b.z, t);
+    if (dungeonPlatformMaskAt(x, z) < 0.36) return true;
+  }
+  return false;
+}
+
+function createDungeonPlatformOverlays(scene) {
+  const topMaterial = mat('#5a5258', {
+    roughness: 0.94,
+    metalness: 0.02,
+    transparent: true,
+    opacity: 0.76,
+    depthWrite: false
+  }).clone();
+  const rimMaterial = mat('#120f17', {
+    roughness: 0.98,
+    transparent: true,
+    opacity: 0.94,
+    depthWrite: false
+  }).clone();
+
+  (worldConfig().dungeonPlatforms ?? []).forEach((platform, index) => {
+    const rim = createTerrainEllipseMesh(
+      {
+        ...platform,
+        rx: platform.rx * 1.04,
+        rz: platform.rz * 1.04
+      },
+      rimMaterial,
+      0.052,
+      28
+    );
+    const top = createTerrainEllipseMesh(platform, topMaterial, 0.052, 34);
+    rim.renderOrder = 3 + index * 2;
+    top.renderOrder = 4 + index * 2;
+    scene.add(rim, top);
+  });
+}
+
+function createDungeonBridge(scene, a, b, index = 0) {
+  const dx = b.x - a.x;
+  const dz = b.z - a.z;
+  const length = Math.hypot(dx, dz);
+  if (length < 0.01) return;
+
+  const angle = Math.atan2(dx, dz);
+  const group = new THREE.Group();
+  const plankMaterial = mat(index % 2 === 0 ? '#6f4b31' : '#735032', { roughness: 0.88 });
+  const railMaterial = mat('#4a2f20', { roughness: 0.9 });
+  const shadowMaterial = basicMat('#050407', {
+    transparent: true,
+    opacity: 0.36,
+    side: THREE.DoubleSide,
+    depthWrite: false
+  }).clone();
+
+  const plankCount = Math.max(4, Math.floor(length / 0.58));
+  for (let i = 0; i < plankCount; i += 1) {
+    const t = plankCount <= 1 ? 0.5 : i / (plankCount - 1);
+    const localZ = -length * 0.5 + t * length;
+    const plank = new THREE.Mesh(
+      new THREE.BoxGeometry(2.9 + ((i + index) % 3) * 0.12, 0.14, 0.42),
+      plankMaterial
+    );
+    plank.position.set(
+      ((i % 2) - 0.5) * 0.08,
+      0.1 + ((i + index) % 2) * 0.015,
+      localZ
+    );
+    plank.rotation.y = ((i + index) % 2 === 0 ? 1 : -1) * 0.025;
+    group.add(plank);
+  }
+
+  [-1, 1].forEach((side) => {
+    const landing = new THREE.Mesh(
+      new THREE.BoxGeometry(3.18, 0.16, 1.25),
+      plankMaterial
+    );
+    landing.position.set(0, 0.095, side * (length * 0.5 - 0.35));
+    landing.rotation.y = side * 0.018;
+    group.add(landing);
+  });
+
+  [-1, 1].forEach((side) => {
+    const rail = new THREE.Mesh(
+      new THREE.BoxGeometry(0.12, 0.18, length + 0.7),
+      railMaterial
+    );
+    rail.position.set(side * 1.58, 0.33, 0);
+    group.add(rail);
+  });
+
+  const shadow = new THREE.Mesh(
+    new THREE.PlaneGeometry(3.6, length + 1.8, 1, 1),
+    shadowMaterial
+  );
+  shadow.rotation.x = -Math.PI / 2;
+  shadow.position.y = -0.06;
+  shadow.renderOrder = 2;
+  group.add(shadow);
+
+  const midX = (a.x + b.x) * 0.5;
+  const midZ = (a.z + b.z) * 0.5;
+  group.position.set(midX, (a.y + b.y) * 0.5 - 0.24, midZ);
+  group.rotation.y = angle;
+  enableDecorationShadows(group);
+  scene.add(group);
+}
+
+function buildPathRibbon(scene, points, material, width = worldConfig().pathWidth, heightOffset = PATH_SURFACE_OFFSET, renderOrder = 2) {
   if (points.length < 2) return;
 
   const positions = [];
   const indices = [];
-  const halfWidth = worldConfig().pathWidth / 2;
+  const halfWidth = width / 2;
 
   points.forEach((point, index) => {
     const previous = points[Math.max(0, index - 1)];
@@ -653,8 +1491,8 @@ function buildPathRibbon(scene, points, material) {
     const nz = dx;
     const left = { x: point.x + nx * halfWidth, z: point.z + nz * halfWidth };
     const right = { x: point.x - nx * halfWidth, z: point.z - nz * halfWidth };
-    positions.push(left.x, terrainHeightAt(left.x, left.z) + PATH_SURFACE_OFFSET, left.z);
-    positions.push(right.x, terrainHeightAt(right.x, right.z) + PATH_SURFACE_OFFSET, right.z);
+    positions.push(left.x, terrainHeightAt(left.x, left.z) + heightOffset, left.z);
+    positions.push(right.x, terrainHeightAt(right.x, right.z) + heightOffset, right.z);
 
     if (index < points.length - 1) {
       const base = index * 2;
@@ -668,7 +1506,7 @@ function buildPathRibbon(scene, points, material) {
   geometry.computeVertexNormals();
   const path = new THREE.Mesh(geometry, material);
   path.receiveShadow = true;
-  path.renderOrder = 2;
+  path.renderOrder = renderOrder;
   scene.add(path);
 }
 
@@ -742,6 +1580,11 @@ function createSky(scene) {
 
 function createSnowfall(scene) {
   const snowfallConfig = worldConfig().snowfall;
+  if (snowfallConfig.enabled === false || (snowfallConfig.countScale ?? 1) <= 0) {
+    return {
+      update() {}
+    };
+  }
   const countScale = snowfallConfig.countScale ?? 1;
   const gustScale = snowfallConfig.gustScale ?? 1;
   const windScale = snowfallConfig.windScale ?? 1;
@@ -817,6 +1660,7 @@ function createSnowLayer({
 
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setDrawRange(0, placed);
   const material = new THREE.PointsMaterial({
     color: '#dff2ff',
     size,
@@ -1033,6 +1877,467 @@ function decorate(scene, pathPoints) {
   placeGrass(scene, pathPoints, random);
 }
 
+function createDungeonDecor(scene, pathPoints) {
+  createLavaSurface(scene);
+  createLavaEmbers(scene);
+  createDungeonWalls(scene);
+  createDungeonPlatformWalls(scene);
+  createDungeonPillars(scene);
+  createDungeonTraps(scene);
+  createDungeonCrystals(scene);
+  createDungeonBoneFields(scene);
+  createDungeonTorches(scene);
+  createDungeonCampfires(scene);
+
+  const random = seededRandom(worldConfig().seed ?? 611);
+  for (let i = 0; i < 52; i += 1) {
+    const x = -34 + random() * 68;
+    const z = -34 + random() * 68;
+    if (!isDungeonSafeSurfaceAt(x, z)) continue;
+    if (distanceToPath(x, z, pathPoints) < 3.8 && random() > 0.18) continue;
+    if (Math.hypot(x - worldConfig().playerBasePosition.x, z - worldConfig().playerBasePosition.z) < 8) continue;
+    if (Math.hypot(x - worldConfig().enemyCampPosition.x, z - worldConfig().enemyCampPosition.z) < 7) continue;
+    const rubble = createRock(0.42 + random() * 0.68, {
+      color: random() > 0.5 ? '#3c3940' : '#555059',
+      snowCap: false
+    });
+    placeOnTerrain(rubble, x, z, 0.02);
+    rubble.rotation.y = random() * Math.PI * 2;
+    scene.add(rubble);
+  }
+}
+
+function createLavaSurface(scene) {
+  const geometry = new THREE.PlaneGeometry(86, 86, 76, 76);
+  const position = geometry.attributes.position;
+  const colors = new Array(position.count * 3);
+  const deep = new THREE.Color('#360908');
+  const hot = new THREE.Color('#f05a1e');
+  const bright = new THREE.Color('#ffd25f');
+
+  for (let i = 0; i < position.count; i += 1) {
+    const x = position.getX(i);
+    const z = -position.getY(i);
+    const wave = Math.sin(x * 0.22 + z * 0.17) * 0.055 +
+      Math.cos(x * 0.1 - z * 0.28) * 0.038;
+    const pulse = clamp(
+      0.45 +
+      Math.sin(x * 0.19 + z * 0.13) * 0.27 +
+      Math.cos(x * 0.07 - z * 0.31) * 0.2 +
+      (hash2(Math.floor(x * 0.42), Math.floor(z * 0.42)) - 0.5) * 0.2,
+      0,
+      1
+    );
+    const color = deep.clone()
+      .lerp(hot, 0.58 + pulse * 0.32)
+      .lerp(bright, Math.max(0, pulse - 0.74) * 0.48);
+    const offset = i * 3;
+    position.setZ(i, -0.92 + wave);
+    colors[offset] = color.r;
+    colors[offset + 1] = color.g;
+    colors[offset + 2] = color.b;
+  }
+
+  position.needsUpdate = true;
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geometry.computeVertexNormals();
+
+  const lava = new THREE.Mesh(
+    geometry,
+    new THREE.MeshBasicMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.92,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    })
+  );
+  lava.rotation.x = -Math.PI / 2;
+  lava.renderOrder = 2;
+  scene.add(lava);
+}
+
+function createLavaEmbers(scene) {
+  const random = seededRandom(9812);
+  const count = 120;
+  const positions = new Float32Array(count * 3);
+  let placed = 0;
+  let attempts = 0;
+  while (placed < count && attempts < count * 8) {
+    attempts += 1;
+    const x = -39 + random() * 78;
+    const z = -39 + random() * 78;
+    if (isDungeonSafeSurfaceAt(x, z)) continue;
+    const offset = placed * 3;
+    positions[offset] = x;
+    positions[offset + 1] = terrainHeightAt(x, z) + 0.2 + random() * 0.48;
+    positions[offset + 2] = z;
+    placed += 1;
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  const material = new THREE.PointsMaterial({
+    color: '#ff8b35',
+    size: 0.22,
+    transparent: true,
+    opacity: 0.58,
+    depthWrite: false,
+    sizeAttenuation: true
+  });
+  const points = new THREE.Points(geometry, material);
+  points.frustumCulled = false;
+  points.renderOrder = 6;
+  scene.add(points);
+
+  const glow = new THREE.Mesh(
+    new THREE.PlaneGeometry(86, 86, 1, 1),
+    basicMat('#ff4b18', {
+      transparent: true,
+      opacity: 0.08,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    }).clone()
+  );
+  glow.rotation.x = -Math.PI / 2;
+  glow.position.y = -0.92;
+  glow.renderOrder = 1;
+  scene.add(glow);
+}
+
+function createDungeonWalls(scene) {
+  const random = seededRandom(7701);
+  const rim = [
+    { x: -42, z: -32, width: 7, height: 14, rot: -0.34 },
+    { x: -43, z: -24, width: 6.2, height: 11, rot: 0.18 },
+    { x: -39, z: -16, width: 6, height: 10, rot: 0.12 },
+    { x: -43, z: -6, width: 7.4, height: 12.5, rot: -0.08 },
+    { x: -42, z: 4, width: 7.5, height: 13, rot: -0.2 },
+    { x: -41, z: 14, width: 6.6, height: 11.2, rot: 0.22 },
+    { x: -39, z: 24, width: 6.5, height: 11, rot: 0.28 },
+    { x: -38, z: 34, width: 7.1, height: 13.5, rot: -0.12 },
+    { x: -30, z: 40, width: 8, height: 12, rot: -0.44 },
+    { x: -20, z: 42, width: 6.7, height: 10.5, rot: 0.34 },
+    { x: -10, z: 43, width: 7, height: 10, rot: 0.1 },
+    { x: 1, z: 43, width: 6.1, height: 9.6, rot: -0.24 },
+    { x: 12, z: 42, width: 8, height: 13, rot: -0.08 },
+    { x: 23, z: 41, width: 6.9, height: 11.4, rot: 0.18 },
+    { x: 34, z: 38, width: 7, height: 11, rot: 0.34 },
+    { x: 41, z: 31, width: 7.4, height: 13.8, rot: -0.32 },
+    { x: 42, z: 20, width: 6.4, height: 12, rot: -0.16 },
+    { x: 43, z: 9, width: 6.7, height: 11.2, rot: 0.28 },
+    { x: 41, z: -2, width: 7.5, height: 14, rot: 0.12 },
+    { x: 43, z: -13, width: 6.6, height: 12, rot: -0.18 },
+    { x: 40, z: -24, width: 8, height: 15, rot: -0.28 },
+    { x: 36, z: -34, width: 7.1, height: 12.4, rot: 0.16 },
+    { x: 24, z: -42, width: 8.5, height: 13, rot: 0.22 },
+    { x: 14, z: -43, width: 6.4, height: 10.8, rot: -0.2 },
+    { x: 4, z: -43, width: 7.2, height: 11, rot: -0.18 },
+    { x: -8, z: -43, width: 6.6, height: 10.2, rot: 0.26 },
+    { x: -18, z: -42, width: 8, height: 13, rot: 0.08 }
+  ];
+
+  rim.forEach((item) => {
+    const peak = createDungeonWallPeak(item.width, item.height, item.color ?? '#1b1824');
+    placeOnTerrain(peak, item.x, item.z, -0.62);
+    peak.rotation.y = item.rot;
+    peak.scale.z *= 1.35;
+    scene.add(peak);
+  });
+
+  for (let i = 0; i < 108; i += 1) {
+    const edge = i % 4;
+    const x = edge === 0 ? -39 + random() * 4 : edge === 1 ? 35 + random() * 5 : -38 + random() * 76;
+    const z = edge === 2 ? -39 + random() * 4 : edge === 3 ? 35 + random() * 5 : -38 + random() * 76;
+    const rock = createRock(1.35 + random() * 2.9, {
+      color: random() > 0.5 ? '#211d2a' : '#2b2632',
+      snowCap: false
+    });
+    rock.scale.x *= 0.8 + random() * 0.9;
+    rock.scale.y *= 1.1 + random() * 1.5;
+    rock.scale.z *= 0.8 + random() * 0.8;
+    placeOnTerrain(rock, x, z, -0.16);
+    rock.rotation.y = random() * Math.PI * 2;
+    scene.add(rock);
+  }
+}
+
+function createDungeonWallPeak(width, height, color = '#1b1824') {
+  const group = new THREE.Group();
+  const baseMat = mat(color, { roughness: 0.96 });
+  const shadeMat = mat('#100c15', { roughness: 0.98 });
+  const warmMat = mat('#2a1b18', { roughness: 0.96 });
+  const base = new THREE.Mesh(
+    new THREE.ConeGeometry(width, height, 7),
+    baseMat
+  );
+  const shoulder = new THREE.Mesh(
+    new THREE.ConeGeometry(width * 0.7, height * 0.48, 6),
+    shadeMat
+  );
+  const warmFace = new THREE.Mesh(
+    new THREE.ConeGeometry(width * 0.36, height * 0.38, 5),
+    warmMat
+  );
+  base.position.y = height * 0.5;
+  shoulder.position.set(width * 0.08, height * 0.76, -width * 0.08);
+  shoulder.rotation.z = 0.12;
+  warmFace.position.set(-width * 0.16, height * 0.54, width * 0.22);
+  warmFace.rotation.z = -0.2;
+  warmFace.scale.z = 0.58;
+  group.add(base, shoulder, warmFace);
+  return enableDecorationShadows(group);
+}
+
+function createDungeonPlatformWalls(scene) {
+  const random = seededRandom(9147);
+  (worldConfig().dungeonPlatforms ?? []).forEach((platform, platformIndex) => {
+    const count = platform.tone === 'small'
+      ? 8
+      : Math.max(14, Math.round((platform.rx + platform.rz) * 0.72));
+    for (let i = 0; i < count; i += 1) {
+      const angle = (i / count) * Math.PI * 2 + (platformIndex % 2) * 0.12;
+      if (isNearDungeonBridgeEntry(platform, angle)) continue;
+      const wobble = 0.92 + random() * 0.18;
+      const edge = ellipseBoundaryPoint(platform, angle, wobble);
+      const x = edge.x;
+      const z = edge.z;
+      const rock = createRock(0.78 + random() * 1.45, {
+        color: random() > 0.45 ? '#241f2a' : '#342d38',
+        snowCap: false
+      });
+      rock.scale.x *= 0.65 + random() * 0.55;
+      rock.scale.y *= 1.15 + random() * 1.1;
+      rock.scale.z *= 0.62 + random() * 0.6;
+      placeOnTerrain(rock, x, z, -0.08);
+      rock.rotation.y = angle + Math.PI * 0.5 + (random() - 0.5) * 0.45;
+      scene.add(rock);
+    }
+  });
+}
+
+function isNearDungeonBridgeEntry(platform, angle) {
+  const entry = ellipseBoundaryPoint(platform, angle);
+  return distanceToDungeonBridgeNetwork(entry.x, entry.z) < (worldConfig().pathWidth ?? 3.4) * 1.2;
+}
+
+function distanceToDungeonBridgeNetwork(x, z) {
+  return dungeonBridgeSegments().reduce((best, [a, b]) => (
+    Math.min(best, distanceToSegment2D(x, z, a, b))
+  ), Number.POSITIVE_INFINITY);
+}
+
+function createDungeonPillars(scene) {
+  const pillarPositions = [
+    { x: -15, z: 18, h: 2.2, broken: true },
+    { x: 14, z: 15, h: 1.6, broken: true },
+    { x: -18, z: -6, h: 2.7, broken: false },
+    { x: 22, z: -18, h: 2.1, broken: true },
+    { x: -6, z: -2, h: 1.9, broken: false },
+    { x: 7, z: -23, h: 2.4, broken: true }
+  ];
+  pillarPositions.forEach((item) => {
+    const group = new THREE.Group();
+    const base = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.88, 1.02, 0.32, 6),
+      mat('#474149')
+    );
+    const shaft = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.48, 0.62, item.h, 6),
+      mat('#56505a')
+    );
+    const cap = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.82, 0.66, 0.28, 6),
+      mat('#39343d')
+    );
+    base.position.y = 0.16;
+    shaft.position.y = 0.34 + item.h * 0.5;
+    cap.position.y = 0.46 + item.h;
+    if (item.broken) {
+      shaft.rotation.z = 0.08;
+      cap.rotation.z = -0.14;
+      cap.position.x = 0.08;
+    }
+    group.add(base, shaft, cap);
+    placeOnTerrain(group, item.x, item.z);
+    group.rotation.y = item.x * 0.08;
+    enableDecorationShadows(group);
+    scene.add(group);
+  });
+}
+
+function createDungeonTraps(scene) {
+  (worldConfig().mechanics?.traps ?? []).forEach((trap) => {
+    const model = trap.type === 'fireVent'
+      ? createFireVentModel(trap)
+      : createSpikeTrapModel(trap);
+    placeOnTerrain(model, trap.x, trap.z, 0.045);
+    model.rotation.y = trap.rotation ?? 0;
+    scene.add(model);
+  });
+}
+
+function createDungeonTorches(scene) {
+  [
+    { x: -8, z: 25 },
+    { x: -22, z: 4 },
+    { x: 6, z: 3 },
+    { x: 15, z: -9 },
+    { x: -3, z: -23 },
+    { x: 2, z: -32 }
+  ].forEach((item) => {
+    const torch = createTorchModel();
+    placeOnTerrain(torch, item.x, item.z, 0.04);
+    torch.rotation.y = item.x < 0 ? Math.PI * 0.5 : -Math.PI * 0.5;
+    scene.add(torch);
+
+    const light = new THREE.PointLight('#ff9c45', 1.6, 15, 2);
+    light.position.set(item.x, terrainHeightAt(item.x, item.z) + 2.4, item.z);
+    scene.add(light);
+  });
+}
+
+function createDungeonCrystals(scene) {
+  (worldConfig().dungeonCrystals ?? []).forEach((item) => {
+    const cluster = createCrystalClusterModel(item.scale ?? 1, item.color ?? '#8cff5f');
+    placeOnTerrain(cluster, item.x, item.z, 0.05);
+    cluster.rotation.y = (item.x + item.z) * 0.08;
+    scene.add(cluster);
+
+    const light = new THREE.PointLight(item.color ?? '#8cff5f', 1.05, 10, 2);
+    light.position.set(item.x, terrainHeightAt(item.x, item.z) + 1.3, item.z);
+    scene.add(light);
+  });
+}
+
+function createDungeonBoneFields(scene) {
+  [
+    { x: -31, z: -14, rot: 0.4, scale: 1.25, giant: true },
+    { x: 28, z: 8, rot: -0.55, scale: 1.08, giant: true },
+    { x: 12, z: -27, rot: 0.12, scale: 0.9, giant: false }
+  ].forEach((item) => {
+    const bones = item.giant
+      ? createGiantBeastSkeletonModel(item.scale)
+      : createRibBonesModel(item.scale);
+    placeOnTerrain(bones, item.x, item.z, 0.08);
+    bones.rotation.y = item.rot;
+    scene.add(bones);
+  });
+}
+
+function createDungeonCampfires(scene) {
+  [
+    { x: -17, z: 9, scale: 0.9 },
+    { x: 8, z: -4, scale: 1 },
+    { x: 2, z: -30, scale: 0.86 }
+  ].forEach((item) => {
+    const campfire = createCampfireModel(item.scale);
+    placeOnTerrain(campfire, item.x, item.z, 0.06);
+    scene.add(campfire);
+
+    const light = new THREE.PointLight('#ffb05a', 1.45 * item.scale, 12, 2);
+    light.position.set(item.x, terrainHeightAt(item.x, item.z) + 1.1, item.z);
+    scene.add(light);
+  });
+}
+
+function createDesertDecor(scene, pathPoints) {
+  const random = seededRandom(worldConfig().seed ?? 904);
+  createDesertShadeDiscs(scene);
+  placeDesertLandmarkBoulders(scene, pathPoints);
+  placeDesertBoulderClusters(scene, pathPoints, random);
+  placeCacti(scene, pathPoints, random);
+  placeDesertScrub(scene, pathPoints, random);
+}
+
+function createDesertShadeDiscs(scene) {
+  const material = basicMat('#3b241d', {
+    transparent: true,
+    opacity: 0.24,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    depthTest: true
+  }).clone();
+  (worldConfig().shadeZones ?? []).forEach((zone, index) => {
+    const meshShade = createTerrainEllipseMesh(zone, material, 0.068, 24);
+    meshShade.renderOrder = 4 + index;
+    scene.add(meshShade);
+  });
+}
+
+function placeDesertLandmarkBoulders(scene, pathPoints) {
+  worldConfig().landmarkBoulders.forEach((item) => {
+    if (distanceToPath(item.x, item.z, pathPoints) < 5.4) return;
+    if (Math.hypot(item.x - worldConfig().playerBasePosition.x, item.z - worldConfig().playerBasePosition.z) < 8) return;
+    if (Math.hypot(item.x - worldConfig().enemyCampPosition.x, item.z - worldConfig().enemyCampPosition.z) < 7) return;
+    const rock = createRock(item.size, {
+      color: item.color ?? '#974b38',
+      snowCap: false
+    });
+    rock.scale.set(item.sx, item.sy, item.sz);
+    placeOnTerrain(rock, item.x, item.z, 0.02);
+    rock.rotation.y = item.rot;
+    scene.add(rock);
+  });
+}
+
+function placeDesertBoulderClusters(scene, pathPoints, random) {
+  worldConfig().boulderClusters.forEach((cluster) => {
+    for (let i = 0; i < cluster.count; i += 1) {
+      const { x, z } = randomPointInEllipse(cluster, random);
+      if (!isDecorationClear(x, z, pathPoints, 5)) continue;
+      const size = cluster.sizeMin + random() * (cluster.sizeMax - cluster.sizeMin);
+      const rock = createRock(size, {
+        color: random() > 0.45 ? '#8e4434' : '#b45a3e',
+        snowCap: false
+      });
+      rock.scale.x *= 0.9 + random() * 0.5;
+      rock.scale.y *= 0.95 + random() * 0.65;
+      rock.scale.z *= 0.8 + random() * 0.56;
+      placeOnTerrain(rock, x, z, 0.02);
+      rock.rotation.y = random() * Math.PI * 2;
+      scene.add(rock);
+    }
+  });
+}
+
+function placeCacti(scene, pathPoints, random) {
+  const zones = [
+    { x: -33, z: 18, rx: 6, rz: 10, count: 10 },
+    { x: 33, z: 6, rx: 5, rz: 11, count: 9 },
+    { x: -29, z: -19, rx: 6, rz: 8, count: 8 },
+    { x: 30, z: -24, rx: 6, rz: 7, count: 7 },
+    { x: 8, z: 11, rx: 5, rz: 5, count: 5 }
+  ];
+  zones.forEach((zone) => {
+    for (let i = 0; i < zone.count; i += 1) {
+      const { x, z } = randomPointInEllipse(zone, random);
+      if (!isDecorationClear(x, z, pathPoints, 3.2)) continue;
+      const cactus = createCactusModel(0.75 + random() * 0.95);
+      placeOnTerrain(cactus, x, z);
+      cactus.rotation.y = random() * Math.PI * 2;
+      scene.add(cactus);
+    }
+  });
+}
+
+function placeDesertScrub(scene, pathPoints, random) {
+  const scrubColors = ['#75683f', '#877048', '#6b6038'];
+  for (let i = 0; i < 42; i += 1) {
+    const x = -36 + random() * 72;
+    const z = -34 + random() * 68;
+    if (!isDecorationClear(x, z, pathPoints, 2.3)) continue;
+    if (distanceToPath(x, z, pathPoints) < 5 && random() > 0.25) continue;
+    const scrub = createGrassTuft(
+      0.28 + random() * 0.34,
+      scrubColors[Math.floor(random() * scrubColors.length)]
+    );
+    placeOnTerrain(scrub, x, z, 0.12);
+    scrub.rotation.y = random() * Math.PI * 2;
+    scene.add(scrub);
+  }
+}
+
 function placeForests(scene, pathPoints, random) {
   worldConfig().forestZones.forEach((zone) => {
     for (let i = 0; i < zone.count; i += 1) {
@@ -1213,12 +2518,450 @@ function placeCottages(scene) {
 }
 
 function createSnowMonsterCamp(scene) {
+  if (worldConfig().theme === 'dungeon') {
+    createDungeonEnemyGate(scene);
+    return;
+  }
   const camp = createMonsterCampModel();
   const config = worldConfig().monsterCamp ?? { x: 4, z: -34, rot: -0.34, scale: 1.18 };
   placeOnTerrain(camp, config.x, config.z, config.offset ?? 0.28);
   camp.rotation.y = config.rot ?? -0.34;
   camp.scale.setScalar(config.scale ?? 1.18);
   scene.add(camp);
+}
+
+function createDungeonEnemyGate(scene) {
+  const config = worldConfig().monsterCamp ?? { x: 0, z: -33, rot: 0, scale: 1 };
+  const group = new THREE.Group();
+  const stone = mat('#3f4648', { roughness: 0.96 });
+  const glowMat = basicMat('#bd4a35', {
+    transparent: true,
+    opacity: 0.5,
+    side: THREE.DoubleSide,
+    depthWrite: false
+  }).clone();
+  const left = new THREE.Mesh(new THREE.BoxGeometry(0.7, 2.6, 0.8), stone);
+  const right = left.clone();
+  const top = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.55, 0.82), stone);
+  const portal = new THREE.Mesh(new THREE.PlaneGeometry(1.45, 1.8, 1, 1), glowMat);
+  left.position.set(-0.82, 1.3, 0);
+  right.position.set(0.82, 1.3, 0);
+  top.position.set(0, 2.58, 0);
+  portal.position.set(0, 1.28, 0.03);
+  group.add(left, right, top, portal);
+  group.scale.setScalar(config.scale ?? 1);
+  group.rotation.y = config.rot ?? 0;
+  placeOnTerrain(group, config.x, config.z, config.offset ?? 0.08);
+  enableDecorationShadows(group);
+  scene.add(group);
+}
+
+function createSpikeTrapModel(trap) {
+  const group = new THREE.Group();
+  const radius = trap.radius ?? 1.25;
+  const plate = new THREE.Mesh(
+    new THREE.CylinderGeometry(radius, radius * 1.05, 0.08, 8),
+    mat('#343534', { roughness: 0.96 })
+  );
+  plate.position.y = 0.04;
+  group.add(plate);
+
+  const spikeMat = mat('#9aa09a', { metalness: 0.12, roughness: 0.72 });
+  for (let i = 0; i < 9; i += 1) {
+    const ring = i === 0 ? 0 : radius * (i < 5 ? 0.36 : 0.68);
+    const angle = i === 0 ? 0 : (i / 8) * Math.PI * 2;
+    const spike = new THREE.Mesh(
+      new THREE.ConeGeometry(0.08, 0.42, 5),
+      spikeMat
+    );
+    spike.position.set(Math.cos(angle) * ring, 0.28, Math.sin(angle) * ring);
+    spike.rotation.y = angle;
+    group.add(spike);
+  }
+
+  enableDecorationShadows(group);
+  return group;
+}
+
+function createFireVentModel(trap) {
+  const group = new THREE.Group();
+  const radius = trap.radius ?? 1.2;
+  const base = new THREE.Mesh(
+    new THREE.CylinderGeometry(radius, radius * 1.08, 0.1, 10),
+    mat('#2f3030', { roughness: 0.95 })
+  );
+  const grate = new THREE.Mesh(
+    new THREE.CylinderGeometry(radius * 0.58, radius * 0.65, 0.045, 8),
+    mat('#12110f', { roughness: 0.85 })
+  );
+  const glow = new THREE.Mesh(
+    new THREE.CircleGeometry(radius * 0.52, 24),
+    basicMat('#ff7a26', {
+      transparent: true,
+      opacity: 0.46,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    }).clone()
+  );
+  base.position.y = 0.05;
+  grate.position.y = 0.12;
+  glow.position.y = 0.145;
+  glow.rotation.x = -Math.PI / 2;
+  group.add(base, grate, glow);
+  enableDecorationShadows(group);
+  return group;
+}
+
+function createTorchModel() {
+  const group = new THREE.Group();
+  const post = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.06, 0.075, 1.6, 6),
+    mat('#4f3322')
+  );
+  const bowl = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.18, 0.12, 0.18, 6),
+    mat('#2b2520')
+  );
+  const flameOuter = new THREE.Mesh(
+    new THREE.ConeGeometry(0.18, 0.48, 6),
+    basicMat('#ff7b2e', {
+      transparent: true,
+      opacity: 0.86
+    }).clone()
+  );
+  const flameInner = new THREE.Mesh(
+    new THREE.ConeGeometry(0.1, 0.36, 6),
+    basicMat('#ffd35a', {
+      transparent: true,
+      opacity: 0.92
+    }).clone()
+  );
+  post.position.y = 0.8;
+  bowl.position.y = 1.66;
+  flameOuter.position.y = 2.02;
+  flameInner.position.y = 2.04;
+  group.add(post, bowl, flameOuter, flameInner);
+  enableDecorationShadows(group);
+  return group;
+}
+
+function createCrystalClusterModel(scale = 1, color = '#8cff5f') {
+  const group = new THREE.Group();
+  const crystalMat = mat(color, {
+    roughness: 0.42,
+    emissive: color,
+    emissiveIntensity: 0.65,
+    transparent: true,
+    opacity: 0.92
+  }).clone();
+  const baseMat = mat('#2d3032', { roughness: 0.95 });
+  const base = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.58 * scale, 0.68 * scale, 0.18 * scale, 7),
+    baseMat
+  );
+  base.position.y = 0.09 * scale;
+  group.add(base);
+
+  const crystals = [
+    { x: 0, z: 0, h: 1.15, r: 0.18, rot: 0.1 },
+    { x: -0.28, z: 0.08, h: 0.78, r: 0.13, rot: -0.28 },
+    { x: 0.26, z: -0.12, h: 0.72, r: 0.12, rot: 0.36 },
+    { x: 0.12, z: 0.28, h: 0.52, r: 0.1, rot: -0.12 }
+  ];
+  crystals.forEach((item) => {
+    const crystal = new THREE.Mesh(
+      new THREE.ConeGeometry(item.r * scale, item.h * scale, 5),
+      crystalMat
+    );
+    crystal.position.set(item.x * scale, 0.18 * scale + item.h * scale * 0.5, item.z * scale);
+    crystal.rotation.z = item.rot;
+    crystal.rotation.y = item.rot * 2.4;
+    group.add(crystal);
+  });
+
+  const glow = new THREE.Mesh(
+    new THREE.CircleGeometry(1.15 * scale, 30),
+    basicMat(color, {
+      transparent: true,
+      opacity: 0.18,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    }).clone()
+  );
+  glow.rotation.x = -Math.PI / 2;
+  glow.position.y = 0.035;
+  glow.renderOrder = 8;
+  group.add(glow);
+  enableDecorationShadows(group);
+  return group;
+}
+
+function createRibBonesModel(scale = 1) {
+  const group = new THREE.Group();
+  const boneMat = mat('#c5bda4', { roughness: 0.86 });
+  const darkBone = mat('#8f876f', { roughness: 0.9 });
+  for (let i = 0; i < 5; i += 1) {
+    const z = (-0.75 + i * 0.36) * scale;
+    const left = cylinderBetween(
+      new THREE.Vector3(-0.08 * scale, 0.12 * scale, z),
+      new THREE.Vector3(-0.72 * scale, 0.42 * scale, z + 0.08 * scale),
+      0.04 * scale,
+      0.03 * scale,
+      boneMat
+    );
+    const right = cylinderBetween(
+      new THREE.Vector3(0.08 * scale, 0.12 * scale, z),
+      new THREE.Vector3(0.72 * scale, 0.42 * scale, z + 0.08 * scale),
+      0.04 * scale,
+      0.03 * scale,
+      boneMat
+    );
+    group.add(left, right);
+  }
+  const spine = cylinderBetween(
+    new THREE.Vector3(0, 0.11 * scale, -0.98 * scale),
+    new THREE.Vector3(0, 0.13 * scale, 0.98 * scale),
+    0.055 * scale,
+    0.05 * scale,
+    darkBone
+  );
+  group.add(spine);
+  enableDecorationShadows(group);
+  return group;
+}
+
+function createGiantBeastSkeletonModel(scale = 1) {
+  const group = new THREE.Group();
+  const boneMat = mat('#cbbf9d', { roughness: 0.9 });
+  const oldBone = mat('#8d8065', { roughness: 0.94 });
+
+  const spine = cylinderBetween(
+    new THREE.Vector3(0, 0.18 * scale, -1.65 * scale),
+    new THREE.Vector3(0, 0.18 * scale, 1.55 * scale),
+    0.07 * scale,
+    0.06 * scale,
+    oldBone
+  );
+  group.add(spine);
+
+  for (let i = 0; i < 7; i += 1) {
+    const z = (-1.1 + i * 0.34) * scale;
+    const width = (0.62 + Math.sin((i / 6) * Math.PI) * 0.62) * scale;
+    const height = (0.28 + Math.sin((i / 6) * Math.PI) * 0.34) * scale;
+    group.add(
+      cylinderBetween(
+        new THREE.Vector3(-0.04 * scale, 0.2 * scale, z),
+        new THREE.Vector3(-width, height, z + 0.08 * scale),
+        0.045 * scale,
+        0.028 * scale,
+        boneMat
+      ),
+      cylinderBetween(
+        new THREE.Vector3(0.04 * scale, 0.2 * scale, z),
+        new THREE.Vector3(width, height, z + 0.08 * scale),
+        0.045 * scale,
+        0.028 * scale,
+        boneMat
+      )
+    );
+  }
+
+  const skull = new THREE.Mesh(
+    new THREE.DodecahedronGeometry(0.34 * scale, 0),
+    boneMat
+  );
+  skull.position.set(0, 0.26 * scale, 1.92 * scale);
+  skull.scale.set(1.15, 0.72, 1.38);
+  const jaw = new THREE.Mesh(
+    new THREE.BoxGeometry(0.46 * scale, 0.12 * scale, 0.34 * scale),
+    oldBone
+  );
+  jaw.position.set(0, 0.15 * scale, 2.18 * scale);
+  const hornLeft = cylinderBetween(
+    new THREE.Vector3(-0.24 * scale, 0.38 * scale, 1.88 * scale),
+    new THREE.Vector3(-0.72 * scale, 0.58 * scale, 2.2 * scale),
+    0.045 * scale,
+    0.018 * scale,
+    boneMat
+  );
+  const hornRight = cylinderBetween(
+    new THREE.Vector3(0.24 * scale, 0.38 * scale, 1.88 * scale),
+    new THREE.Vector3(0.72 * scale, 0.58 * scale, 2.2 * scale),
+    0.045 * scale,
+    0.018 * scale,
+    boneMat
+  );
+  group.add(skull, jaw, hornLeft, hornRight);
+
+  [
+    [-0.9, -1.28, -1.4, -2.05],
+    [0.9, -1.28, 1.4, -2.05],
+    [-0.88, 1.12, -1.34, 1.72],
+    [0.88, 1.12, 1.34, 1.72]
+  ].forEach(([x0, z0, x1, z1]) => {
+    group.add(cylinderBetween(
+      new THREE.Vector3(x0 * scale, 0.14 * scale, z0 * scale),
+      new THREE.Vector3(x1 * scale, 0.2 * scale, z1 * scale),
+      0.065 * scale,
+      0.05 * scale,
+      oldBone
+    ));
+  });
+
+  group.scale.y = 0.92;
+  enableDecorationShadows(group);
+  return group;
+}
+
+function createCampfireModel(scale = 1) {
+  const group = new THREE.Group();
+  const stoneMat = mat('#4a4542', { roughness: 0.95 });
+  const logMat = mat('#5a3928', { roughness: 0.86 });
+  for (let i = 0; i < 8; i += 1) {
+    const angle = (i / 8) * Math.PI * 2;
+    const stone = new THREE.Mesh(
+      new THREE.DodecahedronGeometry(0.11 * scale, 0),
+      stoneMat
+    );
+    stone.position.set(
+      Math.cos(angle) * 0.58 * scale,
+      0.08 * scale,
+      Math.sin(angle) * 0.58 * scale
+    );
+    group.add(stone);
+  }
+  for (let i = 0; i < 3; i += 1) {
+    const log = new THREE.Mesh(
+      new THREE.BoxGeometry(0.18 * scale, 0.16 * scale, 0.9 * scale),
+      logMat
+    );
+    log.position.y = 0.16 * scale;
+    log.rotation.y = (i / 3) * Math.PI;
+    group.add(log);
+  }
+  const fireOuter = new THREE.Mesh(
+    new THREE.ConeGeometry(0.28 * scale, 0.78 * scale, 6),
+    basicMat('#ff7336', {
+      transparent: true,
+      opacity: 0.82,
+      depthWrite: false
+    }).clone()
+  );
+  const fireInner = new THREE.Mesh(
+    new THREE.ConeGeometry(0.16 * scale, 0.58 * scale, 6),
+    basicMat('#ffd55f', {
+      transparent: true,
+      opacity: 0.9,
+      depthWrite: false
+    }).clone()
+  );
+  fireOuter.position.y = 0.58 * scale;
+  fireInner.position.y = 0.56 * scale;
+  fireInner.rotation.y = 0.3;
+  group.add(fireOuter, fireInner);
+  enableDecorationShadows(group);
+  return group;
+}
+
+function createCactusModel(scale = 1) {
+  const group = new THREE.Group();
+  const cactusMat = mat('#3f7b55', { roughness: 0.88 });
+  const darkMat = mat('#2e5f43', { roughness: 0.9 });
+  const height = 1.4 * scale;
+  const trunk = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.16 * scale, 0.18 * scale, height, 7),
+    cactusMat
+  );
+  trunk.position.y = height * 0.5;
+  const crown = new THREE.Mesh(
+    new THREE.DodecahedronGeometry(0.18 * scale, 0),
+    cactusMat
+  );
+  crown.position.y = height + 0.06 * scale;
+  group.add(trunk, crown);
+
+  const leftArm = cylinderBetween(
+    new THREE.Vector3(-0.12 * scale, height * 0.52, 0),
+    new THREE.Vector3(-0.52 * scale, height * 0.68, 0),
+    0.07 * scale,
+    0.065 * scale,
+    darkMat
+  );
+  const leftTop = cylinderBetween(
+    new THREE.Vector3(-0.52 * scale, height * 0.68, 0),
+    new THREE.Vector3(-0.52 * scale, height * 0.9, 0),
+    0.065 * scale,
+    0.058 * scale,
+    darkMat
+  );
+  const rightArm = cylinderBetween(
+    new THREE.Vector3(0.12 * scale, height * 0.62, 0),
+    new THREE.Vector3(0.48 * scale, height * 0.76, 0),
+    0.065 * scale,
+    0.06 * scale,
+    cactusMat
+  );
+  const rightTop = cylinderBetween(
+    new THREE.Vector3(0.48 * scale, height * 0.76, 0),
+    new THREE.Vector3(0.48 * scale, height * 0.98, 0),
+    0.06 * scale,
+    0.052 * scale,
+    cactusMat
+  );
+  group.add(leftArm, leftTop, rightArm, rightTop);
+  enableDecorationShadows(group);
+  return group;
+}
+
+function createTerrainEllipseMesh(zone, material, offset = 0.06, segments = 18) {
+  const positions = [
+    zone.x,
+    terrainHeightAt(zone.x, zone.z) + offset,
+    zone.z
+  ];
+  const indices = [];
+
+  for (let i = 0; i <= segments; i += 1) {
+    const angle = (i / segments) * Math.PI * 2;
+    const point = ellipseBoundaryPoint(zone, angle);
+    const x = point.x;
+    const z = point.z;
+    positions.push(x, terrainHeightAt(x, z) + offset, z);
+  }
+
+  for (let i = 1; i <= segments; i += 1) {
+    indices.push(0, i, i + 1);
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return new THREE.Mesh(geometry, material);
+}
+
+function enableDecorationShadows(root) {
+  root.traverse((node) => {
+    if (!node.isMesh) return;
+    node.castShadow = true;
+    node.receiveShadow = true;
+  });
+  return root;
+}
+
+function cylinderBetween(start, end, radiusStart, radiusEnd, material) {
+  const center = start.clone().lerp(end, 0.5);
+  const direction = end.clone().sub(start);
+  const object = new THREE.Mesh(
+    new THREE.CylinderGeometry(radiusEnd, radiusStart, direction.length(), 6),
+    material
+  );
+  object.position.copy(center);
+  object.quaternion.setFromUnitVectors(
+    new THREE.Vector3(0, 1, 0),
+    direction.normalize()
+  );
+  return object;
 }
 
 function placeOnTerrain(object, x, z, offset = 0) {
@@ -1323,16 +3066,30 @@ function distanceToPath(x, z, points) {
 }
 
 function distanceToSegment2D(x, z, a, b) {
+  return projectToSegment2D(x, z, a, b).distance;
+}
+
+function projectToSegment2D(x, z, a, b) {
   const dx = b.x - a.x;
   const dz = b.z - a.z;
   const lengthSq = dx * dx + dz * dz;
   if (lengthSq < 0.0001) {
-    return Math.hypot(x - a.x, z - a.z);
+    return {
+      t: 0,
+      x: a.x,
+      z: a.z,
+      distance: Math.hypot(x - a.x, z - a.z)
+    };
   }
   const t = clamp(((x - a.x) * dx + (z - a.z) * dz) / lengthSq, 0, 1);
   const px = a.x + dx * t;
   const pz = a.z + dz * t;
-  return Math.hypot(x - px, z - pz);
+  return {
+    t,
+    x: px,
+    z: pz,
+    distance: Math.hypot(x - px, z - pz)
+  };
 }
 
 function smoothstep(edge0, edge1, value) {

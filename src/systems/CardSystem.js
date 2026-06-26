@@ -23,6 +23,7 @@ export class CardSystem {
     this.drawPile = shuffleCards([...this.cards]);
     this.discardPile = [];
     this.handCards = [];
+    this.temporaryCard = null;
     this.pendingDrawAnimations = new Set();
     this.drag = null;
     this.raycaster = new THREE.Raycaster();
@@ -65,6 +66,9 @@ export class CardSystem {
 
   renderHand() {
     this.hand.innerHTML = '';
+    if (this.temporaryCard) {
+      this.hand.appendChild(this.createTemporaryCardElement());
+    }
     for (let index = 0; index < HAND_SIZE; index += 1) {
       const card = this.handCards[index];
       if (!card) {
@@ -74,7 +78,8 @@ export class CardSystem {
 
       this.hand.appendChild(
         this.createCardElement(card, index, {
-          isDrawn: this.pendingDrawAnimations.has(card)
+          isDrawn: this.pendingDrawAnimations.has(card),
+          location: 'hand'
         })
       );
     }
@@ -82,15 +87,20 @@ export class CardSystem {
     this.updateCardAffordability();
   }
 
-  createCardElement(card, index, { isDrawn = false } = {}) {
+  createCardElement(card, index, { isDrawn = false, location = 'hand' } = {}) {
     const element = document.createElement('article');
-    element.className = `card${isDrawn ? ' is-drawn' : ''}`;
+    const temporaryClass = location === 'temporary' ? ' is-temporary-card' : '';
+    element.className = `card${temporaryClass}${isDrawn ? ' is-drawn' : ''}`;
     element.dataset.cardId = card.id;
-    element.dataset.handIndex = String(index);
+    element.dataset.cardLocation = location;
+    if (location === 'hand') {
+      element.dataset.handIndex = String(index);
+    }
     element.style.setProperty('--card-color', card.color);
     element.innerHTML = `
       <div class="card-cost">${cardEnergyCost(card)}</div>
       <div class="card-level">Lv.${card.level ?? 1}</div>
+      ${card.exhaust ? '<div class="card-keyword">消耗</div>' : ''}
       <div class="card-face">
         <div class="card-header">
           <div class="card-rune">${card.label}</div>
@@ -107,6 +117,13 @@ export class CardSystem {
     return element;
   }
 
+  createTemporaryCardElement() {
+    return this.createCardElement(this.temporaryCard, -1, {
+      isDrawn: this.pendingDrawAnimations.has(this.temporaryCard),
+      location: 'temporary'
+    });
+  }
+
   createEmptySlot() {
     const emptySlot = document.createElement('div');
     emptySlot.className = 'card-empty-slot';
@@ -114,7 +131,7 @@ export class CardSystem {
   }
 
   replaceHandSlot(index, element) {
-    const current = this.hand.children[index];
+    const current = this.hand.children[index + (this.temporaryCard ? 1 : 0)];
     if (!current) return false;
     current.replaceWith(element);
     return true;
@@ -206,6 +223,7 @@ export class CardSystem {
     event.stopPropagation();
     this.drag = {
       card,
+      sourceLocation: event.currentTarget.dataset.cardLocation ?? 'hand',
       valid: false,
       point: null,
       targetUnit: null,
@@ -439,11 +457,38 @@ export class CardSystem {
       this.flashEnergyPanel();
       return false;
     }
+    if (drag.sourceLocation === 'temporary' && drag.card === this.temporaryCard) {
+      this.spendEnergy(cost);
+      this.startTemporaryDiscardFall(drag);
+      return true;
+    }
     const index = this.handCards.indexOf(drag.card);
     if (index === -1) return false;
     this.spendEnergy(cost);
     this.startDiscardFall(drag, index);
     return true;
+  }
+
+  startTemporaryDiscardFall(drag) {
+    const sourceElement = drag.sourceElement;
+    const fallingElement = sourceElement
+      ? this.createDiscardFallingElement(sourceElement)
+      : null;
+    this.temporaryCard = null;
+    this.renderHand();
+
+    let fallingAnimation = null;
+    if (fallingElement) {
+      document.body.appendChild(fallingElement);
+      fallingAnimation = this.animateDiscardFallingElement(fallingElement);
+    }
+
+    window.setTimeout(() => {
+      fallingAnimation?.cancel();
+      fallingElement?.remove();
+      this.updateCardAffordability();
+      this.updatePileUi();
+    }, DISCARD_FALL_DELAY_MS);
   }
 
   startDiscardFall(drag, index) {
@@ -613,10 +658,18 @@ export class CardSystem {
   }
 
   moveCardToDiscard(card) {
+    if (card === this.temporaryCard) {
+      this.temporaryCard = null;
+      this.renderHand();
+      this.updatePileUi();
+      return true;
+    }
     const index = this.handCards.indexOf(card);
     if (index === -1) return false;
     this.handCards.splice(index, 1);
-    this.discardPile.push(card);
+    if (!card.exhaust) {
+      this.discardPile.push(card);
+    }
     this.refillDrawPileFromDiscardIfNeeded();
     const replacement = this.drawCard();
     if (replacement) {
@@ -627,6 +680,21 @@ export class CardSystem {
     this.renderHand();
     this.updatePileUi();
     return true;
+  }
+
+  addLootCard(cardDefinition) {
+    if (!cardDefinition) return { added: false, location: 'none' };
+    const card = createCardInstance(cardDefinition, `loot-${Date.now()}`);
+    if (!this.temporaryCard) {
+      this.temporaryCard = card;
+      this.pendingDrawAnimations.add(card);
+      this.renderHand();
+      this.updatePileUi();
+      return { added: true, location: 'temporary', card };
+    }
+    this.drawPile.unshift(card);
+    this.updatePileUi();
+    return { added: true, location: 'draw', card };
   }
 
   drawToFullHand({ animate = false } = {}) {
@@ -684,7 +752,9 @@ export class CardSystem {
 
   updateCardAffordability() {
     this.hand.querySelectorAll('.card').forEach((element) => {
-      const card = this.handCards[Number(element.dataset.handIndex)];
+      const card = element.dataset.cardLocation === 'temporary'
+        ? this.temporaryCard
+        : this.handCards[Number(element.dataset.handIndex)];
       if (!card) return;
       const canPlay = this.canSpend(cardEnergyCost(card));
       const canDiscard = this.canSpend(discardEnergyCost(card));
@@ -759,10 +829,20 @@ export class CardSystem {
 }
 
 function normalizeDeck(cards) {
-  return (cards?.length ? cards : CARD_DEFINITIONS).map((card, index) => ({
+  const source = cards?.length
+    ? cards
+    : CARD_DEFINITIONS.filter((card) => !card.lootOnly);
+  return source.map((card, index) => ({
     ...card,
     instanceId: card.instanceId ?? `${card.id}-${index}-${Math.random().toString(36).slice(2)}`
   }));
+}
+
+function createCardInstance(card, prefix = 'card') {
+  return {
+    ...card,
+    instanceId: `${prefix}-${card.id}-${Math.random().toString(36).slice(2)}`
+  };
 }
 
 function kindLabel(kind) {
@@ -1003,6 +1083,35 @@ const CARD_ART_RENDERERS = {
     <circle fill="#ffffff" opacity="0.7" cx="71" cy="48" r="3" />
     <circle fill="#ffffff" opacity="0.55" cx="78" cy="28" r="2" />
   `),
+  wolfInstinct: () => artSvg(`
+    <polygon fill="#26333a" points="0,52 18,42 43,44 68,38 96,49 96,64 0,64" />
+    <path fill="#dbe8e9" opacity="0.18" d="M17 49 C30 31 41 20 51 18 C65 20 76 32 82 50 C64 58 35 58 17 49 Z" />
+    <polygon fill="#8ea7b8" points="48,11 61,24 58,43 49,55 38,43 35,24" />
+    <polygon fill="#5f7380" points="48,17 57,27 55,41 49,49 41,41 39,27" />
+    <polygon fill="#dbe8e9" points="36,24 25,14 31,32" />
+    <polygon fill="#dbe8e9" points="60,24 72,14 65,32" />
+    <polygon fill="#142126" points="43,33 47,36 42,37" />
+    <polygon fill="#142126" points="54,33 50,36 55,37" />
+    <polygon fill="#eef5e8" points="47,42 51,42 49,46" />
+    <path fill="none" stroke="#dbe8e9" stroke-width="2" opacity="0.8" d="M18 51 C29 42 39 38 49 38 C59 38 70 42 82 51" />
+    <circle fill="#dbe8e9" opacity="0.65" cx="24" cy="44" r="3" />
+    <circle fill="#dbe8e9" opacity="0.55" cx="74" cy="44" r="3" />
+    <circle fill="#dbe8e9" opacity="0.45" cx="49" cy="53" r="2" />
+  `),
+  ursineSpirit: () => artSvg(`
+    <polygon fill="#3b3028" points="0,52 18,42 43,44 68,38 96,49 96,64 0,64" />
+    <ellipse fill="#ffe3a0" opacity="0.2" cx="50" cy="38" rx="35" ry="22" />
+    <polygon fill="#b98758" points="48,9 64,22 67,41 58,55 39,55 29,41 32,22" />
+    <polygon fill="#7a513b" points="48,17 59,26 61,40 54,49 42,49 35,40 38,26" />
+    <circle fill="#b98758" cx="34" cy="20" r="8" />
+    <circle fill="#b98758" cx="62" cy="20" r="8" />
+    <circle fill="#2b201b" cx="43" cy="34" r="3" />
+    <circle fill="#2b201b" cx="54" cy="34" r="3" />
+    <polygon fill="#fff2c7" points="45,42 51,42 48,47" />
+    <path fill="none" stroke="#ffe3a0" stroke-width="3" opacity="0.72" d="M21 47 C28 27 39 15 48 12 C59 15 70 27 77 47" />
+    <polygon fill="#ffe3a0" opacity="0.75" points="22,38 34,34 29,45" />
+    <polygon fill="#ffe3a0" opacity="0.75" points="74,38 62,34 67,45" />
+  `),
   default: () => artSvg(`
     <polygon fill="#2d3f36" points="0,51 18,42 43,44 68,38 96,49 96,64 0,64" />
     <polygon fill="#fff2c7" opacity="0.8" points="48,10 68,32 48,54 28,32" />
@@ -1167,6 +1276,7 @@ function createPileCardElement(card, index) {
   element.innerHTML = `
     <div class="pile-card-cost">${cardEnergyCost(card)}</div>
     <div class="pile-card-level">Lv.${card.level ?? 1}</div>
+    ${card.exhaust ? '<div class="pile-card-keyword">消耗</div>' : ''}
     <div class="pile-card-header">
       <span class="pile-card-rune">${card.label}</span>
       <span class="pile-card-kind">${kindLabel(card.kind)}</span>

@@ -624,6 +624,45 @@ export const UNIT_DEFINITIONS = {
       durabilityCost: 0
     }
   },
+  goblinTroll: {
+    name: '哥布林巨魔',
+    role: 'melee',
+    art: {
+      modelKey: 'unit.goblinTroll',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Heavy_Walk',
+        attack: 'Club_Slam',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.62,
+          events: {
+            impact: 0.6
+          }
+        },
+        hit: {
+          duration: 0.26
+        }
+      }
+    },
+    maxHealth: 44,
+    maxShield: 22,
+    speed: 2.18,
+    attackRange: 1.42,
+    attackRate: 0.58,
+    damage: 7.2,
+    knockback: 4.6,
+    aggroRange: 7.8,
+    weapon: {
+      name: '巨木棒',
+      maxDurability: 999,
+      durabilityCost: 0
+    }
+  },
   wolf: {
     name: '狼',
     role: 'melee',
@@ -661,6 +700,19 @@ export const UNIT_DEFINITIONS = {
       name: '利爪',
       maxDurability: 999,
       durabilityCost: 0
+    },
+    wildlife: {
+      drops: [
+        {
+          cardId: 'wolf-instinct-enchant',
+          chance: 0.55
+        }
+      ],
+      scaling: {
+        healthPerDifficulty: 0.14,
+        shieldPerDifficulty: 0.14,
+        damagePerDifficulty: 0.11
+      }
     }
   },
   bear: {
@@ -698,6 +750,65 @@ export const UNIT_DEFINITIONS = {
     aggroRange: 7.5,
     weapon: {
       name: '巨掌',
+      maxDurability: 999,
+      durabilityCost: 0
+    },
+    wildlife: {
+      drops: [
+        {
+          cardId: 'ursine-spirit-enchant',
+          chance: 0.65
+        }
+      ],
+      scaling: {
+        healthPerDifficulty: 0.16,
+        shieldPerDifficulty: 0.16,
+        damagePerDifficulty: 0.12
+      }
+    }
+  },
+  scorpion: {
+    name: '毒蝎',
+    role: 'melee',
+    art: {
+      modelKey: 'unit.scorpion',
+      rig: 'beast',
+      clips: {
+        idle: 'Idle',
+        walk: 'Skitter',
+        attack: 'Sting_Attack',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.5,
+          events: {
+            impact: 0.54
+          }
+        },
+        hit: {
+          duration: 0.2
+        }
+      }
+    },
+    maxHealth: 26,
+    maxShield: 13,
+    speed: 3.05,
+    attackRange: 1.18,
+    attackRate: 0.86,
+    damage: 3.4,
+    knockback: 1.65,
+    aggroRange: 8.1,
+    startingBuffs: [
+      {
+        buffId: 'poison',
+        level: 1,
+        scalesWithDifficulty: true
+      }
+    ],
+    weapon: {
+      name: '毒刺',
       maxDurability: 999,
       durabilityCost: 0
     }
@@ -869,6 +980,40 @@ export const BUFF_DEFINITIONS = {
       }
     ]
   },
+  wolfInstinct: {
+    name: '狼性',
+    category: 'enchantment',
+    color: '#8ea7b8',
+    duration: 999,
+    level: 1,
+    modifiers: [
+      {
+        stat: 'attackDamage',
+        type: 'add',
+        nearbyAllyAmountPerLevel: 1,
+        radius: 6
+      }
+    ]
+  },
+  ursineSpirit: {
+    name: '巨熊之魂',
+    category: 'enchantment',
+    color: '#b98758',
+    duration: 999,
+    level: 1,
+    modifiers: [
+      {
+        stat: 'attackDamage',
+        type: 'multiply',
+        percentPerLevel: 0.25
+      },
+      {
+        stat: 'maxHealth',
+        type: 'multiply',
+        percentPerLevel: 0.25
+      }
+    ]
+  },
   burning: {
     name: '燃烧',
     category: 'status',
@@ -948,7 +1093,9 @@ export const ENCHANTMENTS = {
   poison: BUFF_DEFINITIONS.poison,
   bleed: BUFF_DEFINITIONS.bleed,
   recovery: BUFF_DEFINITIONS.recovery,
-  spiritShield: BUFF_DEFINITIONS.spiritShield
+  spiritShield: BUFF_DEFINITIONS.spiritShield,
+  wolfInstinct: BUFF_DEFINITIONS.wolfInstinct,
+  ursineSpirit: BUFF_DEFINITIONS.ursineSpirit
 };
 
 export const CARD_DEFINITIONS = [
@@ -1292,6 +1439,46 @@ export const CARD_DEFINITIONS = [
       buffId: 'spiritShield'
     },
     color: '#8fb7dc'
+  },
+  {
+    id: 'wolf-instinct-enchant',
+    name: '狼性',
+    kind: 'enchant',
+    label: '狼',
+    artKey: 'wolfInstinct',
+    summary: '消耗。附近每名友军每级 +1 攻击',
+    target: 'friendly-unit',
+    radius: 1.1,
+    cooldown: 4,
+    energyCost: 1,
+    enchantmentId: 'wolfInstinct',
+    lootOnly: true,
+    exhaust: true,
+    effect: {
+      type: 'apply-buff',
+      buffId: 'wolfInstinct'
+    },
+    color: '#6f8795'
+  },
+  {
+    id: 'ursine-spirit-enchant',
+    name: '巨熊之魂',
+    kind: 'enchant',
+    label: '熊',
+    artKey: 'ursineSpirit',
+    summary: '消耗。每级 +25% 攻击与最大生命',
+    target: 'friendly-unit',
+    radius: 1.1,
+    cooldown: 4,
+    energyCost: 2,
+    enchantmentId: 'ursineSpirit',
+    lootOnly: true,
+    exhaust: true,
+    effect: {
+      type: 'apply-buff',
+      buffId: 'ursineSpirit'
+    },
+    color: '#9a6b45'
   }
 ];
 
@@ -1390,6 +1577,13 @@ export const LEVEL_DEFINITIONS = [
     subtitle: '怪物营地正在雪谷集结',
     baseReward: 45,
     targetTime: 180,
+    name: '雪原营地',
+    subtitle: '教学关：在雪原中熟悉出兵、附魔和基地推进',
+    baseDifficulty: 1,
+    enemyPool: [
+      { type: 'goblinSoldier', weight: 5, minWave: 1, minDifficulty: 1 },
+      { type: 'goblinArcher', weight: 2, minWave: 3, minDifficulty: 1 }
+    ],
     world: {
       sceneKey: 'snow-valley'
     }
@@ -1400,8 +1594,17 @@ export const LEVEL_DEFINITIONS = [
     subtitle: '林带更密，敌方射手开始增多',
     baseReward: 60,
     targetTime: 210,
+    name: '幽暗地牢',
+    subtitle: '地牢关：狭长石厅、地刺和喷火陷阱会切割战场',
+    baseDifficulty: 2,
+    enemyPool: [
+      { type: 'goblinSoldier', weight: 5, minWave: 1, minDifficulty: 1 },
+      { type: 'goblinArcher', weight: 3, minWave: 2, minDifficulty: 1 },
+      { type: 'skeletonSoldier', weight: 2, minWave: 3, minDifficulty: 2 },
+      { type: 'goblinTroll', weight: 1, minWave: 4, minDifficulty: 2 }
+    ],
     world: {
-      sceneKey: 'pine-pass'
+      sceneKey: 'dungeon-halls'
     }
   },
   {
@@ -1410,8 +1613,19 @@ export const LEVEL_DEFINITIONS = [
     subtitle: '高难度怪物会获得更高成长',
     baseReward: 80,
     targetTime: 240,
+    name: '赤岩沙漠',
+    subtitle: '沙漠关：阳光会灼烧友军，利用巨岩阴影推进',
+    baseDifficulty: 3,
+    enemyPool: [
+      { type: 'goblinSoldier', weight: 4, minWave: 1, minDifficulty: 1 },
+      { type: 'goblinArcher', weight: 3, minWave: 2, minDifficulty: 1 },
+      { type: 'skeletonSoldier', weight: 3, minWave: 2, minDifficulty: 1 },
+      { type: 'skeletonArcher', weight: 2, minWave: 4, minDifficulty: 2 },
+      { type: 'scorpion', weight: 2, minWave: 3, minDifficulty: 1 },
+      { type: 'ogre', weight: 1, minWave: 5, minDifficulty: 2 }
+    ],
     world: {
-      sceneKey: 'frozen-ridge'
+      sceneKey: 'red-desert'
     }
   }
 ];

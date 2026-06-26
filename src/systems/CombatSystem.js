@@ -13,6 +13,7 @@ import { clamp, direction2D, distance2D } from '../utils/math.js';
 const scratch = new THREE.Vector3();
 const projectileLaunchPosition = new THREE.Vector3();
 const projectileForward = new THREE.Vector3(0, 0, 1);
+const NAV_WAYPOINT_STOP_DISTANCE = 0.06;
 
 export class CombatSystem {
   constructor(game) {
@@ -89,7 +90,7 @@ export class CombatSystem {
         return;
       }
       const targetPosition = getTargetPosition(target);
-      const targetDistance = distance2D(unit.position, targetPosition);
+      const targetDistance = this.navigationDistance(unit.position, targetPosition);
       const targetRadius = targetCombatRadius(target);
       const attackRange = this.game.modifiers.getAttackRange(unit);
       if (targetDistance <= attackRange + targetRadius) {
@@ -118,11 +119,14 @@ export class CombatSystem {
   applyMotion(unit, dt) {
     const previousX = unit.position.x;
     const previousZ = unit.position.z;
+    const knockbackBeforeMove = unit.knockbackVelocity.lengthSq();
     unit.knockbackVelocity.clampLength(0, maxKnockbackVelocity(unit));
     unit.position.addScaledVector(unit.knockbackVelocity, dt);
     unit.knockbackVelocity.multiplyScalar(Math.pow(0.08, dt));
     this.clampToBattlefield(unit);
-    if (!this.game.isPointWalkable(unit.position)) {
+    if (!this.game.isPointWalkable(unit.position, {
+      allowUnsafeSurface: knockbackBeforeMove > 0.0004
+    })) {
       unit.position.x = previousX;
       unit.position.z = previousZ;
       unit.knockbackVelocity.set(0, 0, 0);
@@ -376,11 +380,11 @@ export class CombatSystem {
       const guardFilter = unit.controlMode === 'guard'
         ? (target) => this.isInsideGuardRadius(unit, target)
         : null;
-      return nearestUnit(unit, this.game.enemyUnits, aggroRange, guardFilter)
-        ?? nearestStructure(unit, this.game.enemyCamp, aggroRange, guardFilter);
+      return this.nearestReachableUnit(unit, this.game.enemyUnits, aggroRange, guardFilter)
+        ?? this.nearestReachableStructure(unit, this.game.enemyCamp, aggroRange, guardFilter);
     }
     if (unit.isWildlife) {
-      const friendly = nearestUnit(unit, this.game.friendlyUnits, aggroRange);
+      const friendly = this.nearestReachableUnit(unit, this.game.friendlyUnits, aggroRange);
       if (
         friendly &&
         distance2D(unit.spawnPoint, friendly.position) <= unit.leashRadius + aggroRange
@@ -389,9 +393,40 @@ export class CombatSystem {
       }
       return null;
     }
-    const friendly = nearestUnit(unit, this.game.friendlyUnits, aggroRange);
+    const friendly = this.nearestReachableUnit(unit, this.game.friendlyUnits, aggroRange);
     if (friendly) return friendly;
-    return nearestStructure(unit, this.game.playerBase, aggroRange);
+    return this.nearestReachableStructure(unit, this.game.playerBase, aggroRange);
+  }
+
+  navigationDistance(from, to) {
+    if (!from || !to) return Infinity;
+    if (this.game.world?.config?.theme === 'dungeon' && this.game.world?.navigationDistance) {
+      return this.game.world.navigationDistance(from, to);
+    }
+    return distance2D(from, to);
+  }
+
+  nearestReachableUnit(source, candidates, range, predicate = null) {
+    let best = null;
+    let bestDistance = range;
+    candidates.forEach((candidate) => {
+      if (!candidate.alive) return;
+      if (predicate && !predicate(candidate)) return;
+      const pathDistance = this.navigationDistance(source.position, candidate.position);
+      const distance = Math.max(0, pathDistance - targetCombatRadius(candidate));
+      if (distance < bestDistance) {
+        best = candidate;
+        bestDistance = distance;
+      }
+    });
+    return best;
+  }
+
+  nearestReachableStructure(source, structure, range, predicate = null) {
+    if (!structure?.alive) return null;
+    if (predicate && !predicate(structure)) return null;
+    const distance = this.navigationDistance(source.position, structure.position);
+    return distance <= range + targetCombatRadius(structure) ? structure : null;
   }
 
   ensureGuardState(unit) {
@@ -432,17 +467,29 @@ export class CombatSystem {
 
   moveToward(unit, targetPosition, dt, desiredDistance = 0.18) {
     if (!targetPosition) return;
-    const distance = distance2D(unit.position, targetPosition);
-    if (distance <= desiredDistance) return;
-    const dir = direction2D(unit.position, targetPosition);
-    const step = Math.min(this.game.modifiers.getMoveSpeed(unit) * dt, distance - desiredDistance);
+    const hasDirectLine = this.game.hasSafeSurfaceLine(unit.position, targetPosition);
+    if (hasDirectLine) {
+      this.game.clearUnitRoute?.(unit);
+    }
+    const safeWaypoint = hasDirectLine
+      ? null
+      : this.game.safeSurfaceWaypointToward(unit.position, targetPosition, unit, desiredDistance);
+    const movementTarget = safeWaypoint ?? targetPosition;
+    unit.navMoveTarget = targetPosition.clone?.() ?? null;
+    unit.navSteeringTarget = movementTarget.clone?.() ?? null;
+    const movementDesiredDistance = safeWaypoint ? NAV_WAYPOINT_STOP_DISTANCE : desiredDistance;
+    const distance = distance2D(unit.position, movementTarget);
+    if (distance <= movementDesiredDistance) return;
+    const dir = direction2D(unit.position, movementTarget);
+    const step = Math.min(this.game.modifiers.getMoveSpeed(unit) * dt, distance - movementDesiredDistance);
     if (step <= 0) return;
     stopUnitAnimation(unit, 'attack');
     const previousX = unit.position.x;
     const previousZ = unit.position.z;
+    const startedUnsafe = !this.game.isPointOnSafeSurface(unit.position);
     unit.position.addScaledVector(dir, step);
     this.clampToBattlefield(unit);
-    if (!this.game.isPointWalkable(unit.position)) {
+    if (!this.game.isPointWalkable(unit.position, { allowUnsafeSurface: startedUnsafe })) {
       unit.position.x = previousX;
       unit.position.z = previousZ;
       this.game.placeUnitOnGround(unit, dt);
@@ -450,7 +497,7 @@ export class CombatSystem {
     }
     this.game.placeUnitOnGround(unit, dt);
     unit.visualState = 'walk';
-    this.face(unit, targetPosition, dt);
+    this.face(unit, movementTarget, dt);
   }
 
   updateWildlifeWander(unit, dt) {
@@ -718,6 +765,7 @@ export class CombatSystem {
     });
     this.game.enemyUnits = this.game.enemyUnits.filter((unit) => {
       if (unit.alive) return true;
+      this.game.lootDrops?.handleUnitDeath(unit);
       this.removeDeadUnit(unit);
       this.game.score += 1;
       return false;
@@ -732,29 +780,6 @@ export class CombatSystem {
     this.game.scene.remove(unit.mesh);
     unit.statusElement?.remove();
   }
-}
-
-function nearestUnit(source, candidates, range, predicate = null) {
-  let best = null;
-  let bestDistance = range;
-  candidates.forEach((candidate) => {
-    if (!candidate.alive) return;
-    if (predicate && !predicate(candidate)) return;
-    const distance = Math.max(0, distance2D(source.position, candidate.position) - targetCombatRadius(candidate));
-    if (distance < bestDistance) {
-      best = candidate;
-      bestDistance = distance;
-    }
-  });
-  return best;
-}
-
-function nearestStructure(source, structure, range, predicate = null) {
-  if (!structure?.alive) return null;
-  if (predicate && !predicate(structure)) return null;
-  return distance2D(source.position, structure.position) <= range + targetCombatRadius(structure)
-    ? structure
-    : null;
 }
 
 function getTargetPosition(target) {
@@ -779,7 +804,9 @@ function stopDistance(unit, modifiers) {
 }
 
 function crowdRadius(unit) {
+  if (unit.type === 'goblinTroll') return 0.64;
   if (unit.type === 'ogre') return 0.78;
+  if (unit.type === 'scorpion') return 0.45;
   if (unit.type === 'bear') return 0.72;
   if (unit.type === 'wolf') return 0.48;
   return unit.definition.role === 'ranged' ? 0.36 : 0.42;
@@ -795,8 +822,10 @@ function hitStunDuration(knockback) {
 }
 
 function maxKnockbackVelocity(unit) {
+  if (unit.type === 'goblinTroll') return 6.8;
   if (unit.type === 'ogre') return 7;
   if (unit.type === 'bear') return 8;
+  if (unit.type === 'scorpion') return 8.8;
   if (unit.type === 'wolf') return 9;
   return 10;
 }

@@ -9,6 +9,8 @@ import { CardSystem } from './CardSystem.js';
 import { CombatSystem } from './CombatSystem.js';
 import { EffectsSystem } from './EffectsSystem.js';
 import { AltarSystem } from './AltarSystem.js';
+import { LevelMechanicSystem } from './LevelMechanicSystem.js';
+import { LootDropSystem } from './LootDropSystem.js';
 import { AttributeSet, bindAttributeGetter } from './AttributeSet.js';
 import { ModifierSystem } from './ModifierSystem.js';
 import { RecoverySystem } from './RecoverySystem.js';
@@ -16,6 +18,9 @@ import { SpellSystem } from './SpellSystem.js';
 import { clamp, polarOffset } from '../utils/math.js';
 
 const STRUCTURE_PUSH_PADDING = 0.18;
+const ROUTE_REPATH_DISTANCE = 1.15;
+const ROUTE_REJOIN_DISTANCE = 2.2;
+const ROUTE_WAYPOINT_RADIUS = 0.38;
 
 export class Game {
   constructor({ canvas, session = null, onLevelComplete = null } = {}) {
@@ -82,6 +87,15 @@ export class Game {
     });
 
     this.world = createWorld(this.scene, this.worldConfig);
+    this.navDebugEnabled = initialNavDebugEnabled();
+    this.navDebugGroup = new THREE.Group();
+    this.navDebugGroup.name = 'NavDebug';
+    this.navDebugGroup.visible = this.navDebugEnabled;
+    this.navDebugRouteGroup = new THREE.Group();
+    this.navDebugRouteGroup.name = 'NavDebugRoutes';
+    this.navDebugGroup.add(this.navDebugRouteGroup);
+    this.navDebugGrid = null;
+    this.scene.add(this.navDebugGroup);
     this.playerBase.position.y = this.groundHeightAt(this.playerBase.position);
     setupStructureBody(this.playerBase, this.world.playerBaseModel, {
       collisionRadius: 3.55,
@@ -120,7 +134,9 @@ export class Game {
     this.cardSystem = new CardSystem(this, {
       deck: this.levelSession.deck
     });
+    this.lootDrops = new LootDropSystem(this);
     this.altars = new AltarSystem(this, this.world.config?.altars ?? this.worldConfig.altars);
+    this.levelMechanics = new LevelMechanicSystem(this);
     this.selectionBox = createSelectionBoxElement();
 
     this.dom = {
@@ -184,6 +200,9 @@ export class Game {
     this.stop();
     this.eventController.abort();
     this.cardSystem?.destroy?.();
+    this.lootDrops?.destroy?.();
+    this.levelMechanics?.destroy?.();
+    this.disposeNavDebug();
     this.renderer.dispose();
     this.selectionBox?.remove();
     this.guardVisuals.forEach((visuals) => {
@@ -210,6 +229,8 @@ export class Game {
     this.combat.update(dt);
     this.recovery.update(dt);
     this.altars.update(dt);
+    this.levelMechanics.update(dt);
+    this.lootDrops.update(dt);
     this.effects.update(dt);
     this.updateStructureFeedback(dt);
     this.updateCamera(dt);
@@ -217,6 +238,7 @@ export class Game {
     this.updateSelection();
     this.updateGuardVisuals(dt);
     this.updateUnitVisuals(dt);
+    this.updateNavDebug();
     this.updateHud();
     this.renderer.render(this.scene, this.camera);
     this.checkLevelEnd();
@@ -365,7 +387,7 @@ export class Game {
   }
 
   spawnEnemyWave(wave, { orders = 'attack' } = {}) {
-    const difficulty = Math.max(1, this.levelSession.difficulty ?? 1);
+    const difficulty = this.effectiveDifficulty();
     const count = Math.min(12, 2 + Math.floor(wave * 0.72) + Math.floor((difficulty - 1) * 0.45));
     for (let i = 0; i < count; i += 1) {
       const offset = polarOffset(i, count, 1.2 + (i % 3) * 0.45);
@@ -387,6 +409,10 @@ export class Game {
   }
 
   enemyTypeForWave(wave, index, difficulty) {
+    const pool = this.levelSession.level.enemyPool ?? [];
+    const pooledType = selectEnemyFromPool(pool, wave, index, difficulty);
+    if (pooledType) return pooledType;
+
     const wizardUnlocked = difficulty >= 4 || wave >= 7;
     if (wizardUnlocked) {
       const wizardEvery = difficulty >= 6 ? 5 : 7;
@@ -409,6 +435,15 @@ export class Game {
     if (!archerUnlocked) return 'goblinSoldier';
     const archerEvery = difficulty >= 5 ? 2 : difficulty >= 3 ? 3 : 4;
     return (index + wave) % archerEvery === 0 ? 'goblinArcher' : 'goblinSoldier';
+  }
+
+  levelBaseDifficulty() {
+    return Math.max(1, Math.floor(this.levelSession.level.baseDifficulty ?? 1));
+  }
+
+  effectiveDifficulty() {
+    const challengeDifficulty = Math.max(1, Math.floor(this.levelSession.difficulty ?? 1));
+    return this.levelBaseDifficulty() + challengeDifficulty - 1;
   }
 
   applyEnemyDifficulty(unit, wave, difficulty) {
@@ -470,6 +505,7 @@ export class Game {
         team: TEAMS.ENEMY,
         position: new THREE.Vector3(spawn.x, this.groundHeightAt(spawn), spawn.z)
       });
+      this.applyWildlifeDifficulty(unit);
       this.attachUnitStatus(unit);
       unit.isWildlife = true;
       unit.spawnPoint = unit.position.clone();
@@ -482,6 +518,37 @@ export class Game {
       this.scene.add(unit.mesh);
       this.effects.spawnRing(unit.position, spawn.type === 'bear' ? '#9b6b45' : '#8aa0a8', 0.66, 0.5);
     });
+  }
+
+  applyWildlifeDifficulty(unit) {
+    const difficulty = this.effectiveDifficulty();
+    if (difficulty <= 1) return;
+    const scaling = unit.definition.wildlife?.scaling ?? {};
+    const bonusLevel = difficulty - 1;
+    const healthFactor = 1 + bonusLevel * (scaling.healthPerDifficulty ?? 0.12);
+    const shieldFactor = 1 + bonusLevel * (
+      scaling.shieldPerDifficulty ?? scaling.healthPerDifficulty ?? 0.12
+    );
+    const damageFactor = 1 + bonusLevel * (scaling.damagePerDifficulty ?? 0.1);
+    unit.attributes.addModifiers([
+      {
+        stat: 'maxHealth',
+        type: 'multiply',
+        amount: healthFactor
+      },
+      {
+        stat: 'maxShield',
+        type: 'multiply',
+        amount: shieldFactor
+      },
+      {
+        stat: 'attackDamage',
+        type: 'multiply',
+        amount: damageFactor
+      }
+    ], 'wildlife:difficulty');
+    unit.health = unit.maxHealth;
+    unit.clampToAttributeCaps();
   }
 
   groundHeightAt(pointOrX, maybeZ = null) {
@@ -500,7 +567,7 @@ export class Game {
     unit.position.y += clamp(groundY - unit.position.y, -maxStep, maxStep);
   }
 
-  isPointWalkable(point) {
+  isPointWalkable(point, options = {}) {
     if (
       Math.abs(point.x) > BALANCE.battlefield.halfWidth ||
       point.z < BALANCE.battlefield.minZ ||
@@ -509,7 +576,98 @@ export class Game {
       return false;
     }
 
+    if (!options.allowUnsafeSurface && !this.isPointOnSafeSurface(point)) {
+      return false;
+    }
+
     return !this.getStructureCollision(point);
+  }
+
+  isPointOnSafeSurface(point) {
+    return this.world?.isSafeSurface?.(point) ?? true;
+  }
+
+  hasSafeSurfaceLine(start, end) {
+    if (this.world?.config?.theme !== 'dungeon') return true;
+    if (!start || !end) return true;
+    if (this.world?.hasNavigationLine) {
+      return this.world.hasNavigationLine(start, end);
+    }
+    const distance = Math.hypot(end.x - start.x, end.z - start.z);
+    const sampleCount = Math.max(2, Math.ceil(distance / 1.15));
+    for (let i = 1; i <= sampleCount; i += 1) {
+      const t = i / sampleCount;
+      const point = {
+        x: start.x + (end.x - start.x) * t,
+        z: start.z + (end.z - start.z) * t
+      };
+      if (!this.isPointOnSafeSurface(point)) return false;
+    }
+    return true;
+  }
+
+  safeSurfaceWaypointToward(position, targetPosition, unit = null, desiredDistance = 0.22) {
+    if (this.world?.config?.theme !== 'dungeon') return null;
+    return this.navGridWaypointToward(position, targetPosition, unit, desiredDistance);
+  }
+
+  navGridWaypointToward(position, targetPosition, unit = null, desiredDistance = 0.22) {
+    if (!this.world?.findPath || !position || !targetPosition) return null;
+    if (!unit) {
+      const path = this.world.findPath(position, targetPosition, { smooth: false });
+      const waypoint = path[0]?.clone?.();
+      if (!waypoint) return null;
+      return waypoint;
+    }
+
+    const targetChanged = !unit.routeTarget ||
+      flatDistance(unit.routeTarget, targetPosition) > ROUTE_REPATH_DISTANCE;
+    const currentWaypoint = Array.isArray(unit.route)
+      ? unit.route[unit.routeIndex ?? 0]
+      : null;
+    const offRoute = currentWaypoint &&
+      flatDistance(unit.position, currentWaypoint) > ROUTE_REJOIN_DISTANCE &&
+      !this.world.hasNavigationLine?.(unit.position, currentWaypoint);
+    const needsRoute = targetChanged ||
+      !Array.isArray(unit.route) ||
+      unit.route.length === 0 ||
+      offRoute;
+
+    if (needsRoute) {
+      unit.route = this.world.findPath(position, targetPosition, { smooth: false });
+      unit.routeIndex = 0;
+      unit.routeTarget = new THREE.Vector3(targetPosition.x, 0, targetPosition.z);
+    }
+
+    if (!Array.isArray(unit.route) || unit.route.length === 0) return null;
+
+    let index = clamp(unit.routeIndex ?? 0, 0, unit.route.length - 1);
+    while (
+      index < unit.route.length - 1 &&
+      flatDistance(position, unit.route[index]) <= ROUTE_WAYPOINT_RADIUS
+    ) {
+      index += 1;
+    }
+    unit.routeIndex = index;
+
+    const waypoint = unit.route[index]?.clone?.();
+    if (!waypoint) return null;
+    if (index === unit.route.length - 1 && flatDistance(position, waypoint) <= desiredDistance) {
+      return null;
+    }
+    const steeringTarget = waypoint;
+    steeringTarget.y = 0;
+    unit.navSteeringTarget = steeringTarget.clone();
+    return steeringTarget;
+  }
+
+  clearUnitRoute(unit) {
+    if (!unit) return;
+    unit.route = null;
+    unit.routeIndex = null;
+    unit.routeTarget = null;
+    unit.navSteeringTarget = null;
+    unit.navMoveTarget = null;
   }
 
   getBlockingStructures() {
@@ -677,6 +835,7 @@ export class Game {
     }
 
     if (event.button !== 0 || this.cardSystem.drag) return;
+    if (this.lootDrops?.tryOpenPickup(event)) return;
     event.preventDefault();
     this.selectionDrag = {
       pointerId: event.pointerId,
@@ -709,8 +868,13 @@ export class Game {
 
   onKeyDown(event) {
     if (event.repeat || isTextInputTarget(event.target)) return;
-    if (!this.selectedUnits.some((unit) => unit.alive)) return;
     const key = event.key.toLowerCase();
+    if (key === 'n') {
+      event.preventDefault();
+      this.setNavDebugEnabled(!this.navDebugEnabled);
+      return;
+    }
+    if (!this.selectedUnits.some((unit) => unit.alive)) return;
     if (key === 's') {
       event.preventDefault();
       this.stopSelectedUnits();
@@ -906,8 +1070,7 @@ export class Game {
       const forceMove = this.isUnitEngaged(unit);
       unit.commandMoveGoal = forceMove ? destination.clone() : null;
       unit.moveGoal = destination.clone();
-      unit.route = null;
-      unit.routeIndex = null;
+      this.clearUnitRoute(unit);
       unit.target = null;
       unit.controlMode = 'normal';
       unit.guardPoint = null;
@@ -931,6 +1094,7 @@ export class Game {
       unit.moveGoal = null;
       unit.commandMoveGoal = null;
       unit.target = null;
+      this.clearUnitRoute(unit);
       unit.guardPoint = null;
       unit.guardRadius = null;
       unit.knockbackVelocity.set(0, 0, 0);
@@ -949,6 +1113,7 @@ export class Game {
       unit.moveGoal = null;
       unit.commandMoveGoal = null;
       unit.target = null;
+      this.clearUnitRoute(unit);
     });
     this.combat.cancelPendingAttacksFor(units);
     this.effects.spawnRing(units[0].position, '#78e3ff', 0.8, 0.52);
@@ -1050,6 +1215,94 @@ export class Game {
     this.guardVisuals.set(unit, visuals);
     this.scene.add(visuals.flag, visuals.rangeRing);
     return visuals;
+  }
+
+  setNavDebugEnabled(enabled) {
+    this.navDebugEnabled = Boolean(enabled);
+    if (this.navDebugGroup) {
+      this.navDebugGroup.visible = this.navDebugEnabled;
+    }
+    try {
+      window.localStorage?.setItem('villageWar.navDebug', this.navDebugEnabled ? '1' : '0');
+    } catch {
+      // Ignore private-mode storage failures.
+    }
+    if (this.navDebugEnabled) {
+      this.ensureNavDebugGrid();
+    }
+  }
+
+  ensureNavDebugGrid() {
+    if (this.navDebugGrid || !this.world?.navGrid || !this.navDebugGroup) return;
+    const positions = [];
+    const debugPoints = this.world.navGrid.debugPoints ?? [];
+    debugPoints.forEach((point) => {
+      positions.push(point.x, this.groundHeightAt(point) + 0.08, point.z);
+    });
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    const material = new THREE.PointsMaterial({
+      color: '#57f2ff',
+      size: 0.08,
+      transparent: true,
+      opacity: 0.42,
+      depthWrite: false
+    });
+    this.navDebugGrid = new THREE.Points(geometry, material);
+    this.navDebugGrid.name = 'NavDebugGrid';
+    this.navDebugGrid.renderOrder = 12;
+    this.navDebugGroup.add(this.navDebugGrid);
+  }
+
+  updateNavDebug() {
+    if (!this.navDebugEnabled || !this.navDebugGroup) return;
+    this.ensureNavDebugGrid();
+    clearObjectChildren(this.navDebugRouteGroup);
+
+    const units = this.selectedUnits.filter((unit) => unit.alive);
+    units.forEach((unit, index) => {
+      const color = index === 0 ? '#fff36a' : '#9cfffb';
+      const route = Array.isArray(unit.route) ? unit.route : [];
+      if (route.length) {
+        const points = [
+          this.navDebugSurfacePoint(unit.position),
+          ...route.map((point) => this.navDebugSurfacePoint(point))
+        ];
+        this.navDebugRouteGroup.add(createDebugLine(points, color, 0.88));
+      }
+      if (unit.navMoveTarget) {
+        this.navDebugRouteGroup.add(createDebugMarker(
+          this.navDebugSurfacePoint(unit.navMoveTarget),
+          '#ff5d5d',
+          0.18
+        ));
+      }
+      if (unit.navSteeringTarget) {
+        const steeringTarget = this.navDebugSurfacePoint(unit.navSteeringTarget);
+        this.navDebugRouteGroup.add(createDebugMarker(steeringTarget, '#ffffff', 0.13));
+        this.navDebugRouteGroup.add(createDebugLine(
+          [this.navDebugSurfacePoint(unit.position), steeringTarget],
+          '#ffffff',
+          0.72
+        ));
+      }
+    });
+  }
+
+  navDebugSurfacePoint(point) {
+    const surfacePoint = point.clone?.() ?? new THREE.Vector3(point.x, 0, point.z);
+    surfacePoint.y = this.groundHeightAt(surfacePoint);
+    return surfacePoint;
+  }
+
+  disposeNavDebug() {
+    if (!this.navDebugGroup) return;
+    this.scene.remove(this.navDebugGroup);
+    clearObjectChildren(this.navDebugGroup);
+    disposeObject3D(this.navDebugGroup);
+    this.navDebugGroup = null;
+    this.navDebugRouteGroup = null;
+    this.navDebugGrid = null;
   }
 
   updateUnitVisuals(dt) {
@@ -1257,11 +1510,14 @@ function normalizeLevelSession(session) {
     baseReward: 0,
     targetTime: 180
   };
-  const fallbackDeck = CARD_DEFINITIONS.slice(0, 5).map((card, index) => ({
-    ...card,
-    level: 1,
-    instanceId: `debug-${card.id}-${index}`
-  }));
+  const fallbackDeck = CARD_DEFINITIONS
+    .filter((card) => !card.lootOnly)
+    .slice(0, 5)
+    .map((card, index) => ({
+      ...card,
+      level: 1,
+      instanceId: `debug-${card.id}-${index}`
+    }));
   const level = session?.level ?? fallbackLevel;
   return {
     level,
@@ -1280,7 +1536,7 @@ function createSelectionBoxElement() {
 }
 
 function isGameUiTarget(target) {
-  return Boolean(target?.closest?.('.hud, .card, .energy-panel, .card-pile-dock, .pile-viewer, .drag-ghost'));
+  return Boolean(target?.closest?.('.hud, .card, .energy-panel, .card-pile-dock, .pile-viewer, .loot-confirm, .drag-ghost'));
 }
 
 function isTextInputTarget(target) {
@@ -1302,6 +1558,98 @@ function commandFormationOffset(index, total, radius) {
 
 function enemyEnchantmentLevel(wave, difficulty) {
   return 1 + Math.floor((Math.max(1, difficulty) - 1) / 2) + Math.floor((Math.max(1, wave) - 1) / 4);
+}
+
+function selectEnemyFromPool(pool, wave, index, difficulty) {
+  if (!Array.isArray(pool) || pool.length === 0) return null;
+  const candidates = pool.filter((entry) => (
+    wave >= (entry.minWave ?? 1) &&
+    difficulty >= (entry.minDifficulty ?? 1)
+  ));
+  if (!candidates.length) return pool[0]?.type ?? null;
+
+  const totalWeight = candidates.reduce((sum, entry) => sum + Math.max(1, entry.weight ?? 1), 0);
+  let roll = stableEnemyRoll(wave, index, difficulty) % totalWeight;
+  for (const entry of candidates) {
+    roll -= Math.max(1, entry.weight ?? 1);
+    if (roll < 0) return entry.type;
+  }
+  return candidates[candidates.length - 1].type;
+}
+
+function stableEnemyRoll(wave, index, difficulty) {
+  return Math.abs(
+    (wave * 73856093) ^
+    (index * 19349663) ^
+    (difficulty * 83492791)
+  );
+}
+
+function flatDistance(a, b) {
+  return Math.hypot(a.x - b.x, a.z - b.z);
+}
+
+function initialNavDebugEnabled() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('navdebug')) return params.get('navdebug') !== '0';
+    return window.localStorage?.getItem('villageWar.navDebug') === '1';
+  } catch {
+    return false;
+  }
+}
+
+function createDebugLine(points, color, opacity = 0.8) {
+  const positions = [];
+  points.forEach((point) => {
+    positions.push(point.x, (point.y ?? 0) + 0.18, point.z);
+  });
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  const material = new THREE.LineBasicMaterial({
+    color,
+    transparent: true,
+    opacity,
+    depthWrite: false
+  });
+  const line = new THREE.Line(geometry, material);
+  line.renderOrder = 14;
+  return line;
+}
+
+function createDebugMarker(point, color, radius = 0.14) {
+  const marker = new THREE.Mesh(
+    new THREE.SphereGeometry(radius, 8, 6),
+    new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.86,
+      depthWrite: false
+    })
+  );
+  marker.position.set(point.x, (point.y ?? 0) + 0.32, point.z);
+  marker.renderOrder = 15;
+  return marker;
+}
+
+function clearObjectChildren(object) {
+  if (!object) return;
+  [...object.children].forEach((child) => {
+    object.remove(child);
+    disposeObject3D(child);
+  });
+}
+
+function disposeObject3D(object) {
+  object.traverse?.((node) => {
+    node.geometry?.dispose?.();
+    const material = node.material;
+    if (Array.isArray(material)) {
+      material.forEach((item) => item?.dispose?.());
+    } else {
+      material?.dispose?.();
+    }
+  });
 }
 
 function countBy(items, selector) {
@@ -1356,10 +1704,12 @@ function createStructureStatusElement(team) {
 }
 
 function unitStatusHeight(unit) {
+  if (unit.type === 'goblinTroll') return 2.35;
   if (unit.type === 'ogre') return 2.65;
   if (unit.type === 'wizard') return 1.85;
   if (unit.type === 'skeletonArcher') return 2.02;
   if (unit.type === 'skeletonSoldier') return 2.05;
+  if (unit.type === 'scorpion') return 1.28;
   if (unit.type === 'bear') return 1.9;
   if (unit.type === 'wolf') return 1.25;
   return 2.25;

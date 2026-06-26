@@ -6,6 +6,7 @@ import {
   createEnergyOrbModel,
   createGoblinArcherModel,
   createGoblinSoldierModel,
+  createGoblinTrollModel,
   createHolyBoltModel,
   createKnightModel,
   createMeteorModel,
@@ -13,6 +14,7 @@ import {
   createPhysicianModel,
   createPurifierModel,
   createRaiderModel,
+  createScorpionModel,
   createSkeletonArcherModel,
   createSkeletonSoldierModel,
   createSwordsmanModel,
@@ -36,6 +38,8 @@ const UNIT_FACTORIES = {
   wizard: () => createWizardModel(),
   goblinSoldier: () => createGoblinSoldierModel(),
   goblinArcher: () => createGoblinArcherModel(),
+  goblinTroll: () => createGoblinTrollModel(),
+  scorpion: () => createScorpionModel(),
   wolf: () => createWolfModel(),
   bear: () => createBearModel()
 };
@@ -164,7 +168,7 @@ function applyAttackPose(unit, root, t, pulse) {
     applyRaiderAttack(root, t, pulse);
     return;
   }
-  if (unit.type === 'berserker' || unit.type === 'ogre') {
+  if (unit.type === 'berserker' || unit.type === 'ogre' || unit.type === 'goblinTroll') {
     applyRaiderAttack(root, t, pulse);
     return;
   }
@@ -172,7 +176,7 @@ function applyAttackPose(unit, root, t, pulse) {
     applyCasterAttack(root, t, pulse);
     return;
   }
-  if (unit.type === 'wolf' || unit.type === 'bear') {
+  if (unit.type === 'wolf' || unit.type === 'bear' || unit.type === 'scorpion') {
     applyBeastAttack(root, t, pulse, unit.type);
     return;
   }
