@@ -38,6 +38,24 @@ export class NavigationGrid {
     this.rows = Math.ceil((maxZ - minZ) / cellSize);
     this.walkable = new Uint8Array(this.cols * this.rows);
     this.build();
+    this.debugPoints = null;
+    this.debugLines = null;
+    this.cameFrom = new Int32Array(this.walkable.length);
+    this.gScore = new Float32Array(this.walkable.length);
+    this.closed = new Uint8Array(this.walkable.length);
+    this.heap = new MinHeap();
+    this.stats = {
+      findPath: 0,
+      pathDistance: 0,
+      hasLine: 0,
+      nearestWalkableCell: 0,
+      expandedCells: 0
+    };
+  }
+
+  ensureDebugGeometry() {
+    this.debugPoints = this.debugPoints ?? this.buildDebugPoints();
+    this.debugLines = this.debugLines ?? this.buildDebugLines();
   }
 
   build() {
@@ -74,7 +92,43 @@ export class NavigationGrid {
     return new THREE.Vector3(px, 0, pz);
   }
 
+  buildDebugPoints() {
+    const points = [];
+    for (let z = 0; z < this.rows; z += 1) {
+      for (let x = 0; x < this.cols; x += 1) {
+        if (!this.isCellWalkable(x, z)) continue;
+        if ((x + z) % 2 !== 0) continue;
+        points.push(this.cellCenter(x, z));
+      }
+    }
+    return points;
+  }
+
+  buildDebugLines() {
+    const positions = [];
+    const addLine = (ax, az, bx, bz, y) => {
+      positions.push(ax, y, az, bx, y, bz);
+    };
+
+    for (let z = 0; z < this.rows; z += 1) {
+      for (let x = 0; x < this.cols; x += 1) {
+        if (!this.isCellWalkable(x, z)) continue;
+        const x0 = this.minX + x * this.cellSize;
+        const z0 = this.minZ + z * this.cellSize;
+        const x1 = Math.min(x0 + this.cellSize, this.maxX);
+        const z1 = Math.min(z0 + this.cellSize, this.maxZ);
+        const y = this.heightAt(this.cellCenter(x, z));
+        if (!this.isCellWalkable(x - 1, z)) addLine(x0, z0, x0, z1, y);
+        if (!this.isCellWalkable(x + 1, z)) addLine(x1, z0, x1, z1, y);
+        if (!this.isCellWalkable(x, z - 1)) addLine(x0, z0, x1, z0, y);
+        if (!this.isCellWalkable(x, z + 1)) addLine(x0, z1, x1, z1, y);
+      }
+    }
+    return { positions };
+  }
+
   hasLine(start, end, stepSize = this.cellSize * 0.55) {
+    this.stats.hasLine += 1;
     if (!start || !end) return true;
     const distance = Math.hypot(end.x - start.x, end.z - start.z);
     const sampleCount = Math.max(1, Math.ceil(distance / Math.max(0.1, stepSize)));
@@ -92,6 +146,7 @@ export class NavigationGrid {
   }
 
   nearestWalkableCell(point, maxRing = 14, options = {}) {
+    this.stats.nearestWalkableCell += 1;
     const base = this.pointToCell(point);
     if (this.isReachableCellFromPoint(point, base.x, base.z, options)) return base;
 
@@ -124,12 +179,19 @@ export class NavigationGrid {
   }
 
   findPath(start, end, options = {}) {
+    this.stats.findPath += 1;
     if (!start || !end) return [];
-    const startCell = this.nearestWalkableCell(start, options.startSearchRings ?? 14, {
-      requireLine: true
+    const startRequireLine = options.startRequireLine ?? true;
+    let startCell = this.nearestWalkableCell(start, options.startSearchRings ?? 14, {
+      requireLine: startRequireLine
     });
+    if (!startCell && startRequireLine && options.startAllowLooseFallback) {
+      startCell = this.nearestWalkableCell(start, options.startSearchRings ?? 14, {
+        requireLine: false
+      });
+    }
     const endCell = this.nearestWalkableCell(end, options.endSearchRings ?? 14, {
-      requireLine: true
+      requireLine: options.endRequireLine ?? false
     });
     if (!startCell || !endCell) return [];
     const startIndex = this.index(startCell.x, startCell.z);
@@ -139,12 +201,14 @@ export class NavigationGrid {
       return this.hasLine(start, target) ? [target] : [this.cellCenter(startCell.x, startCell.z), target];
     }
 
-    const cameFrom = new Int32Array(this.walkable.length);
+    const cameFrom = this.cameFrom;
     cameFrom.fill(-1);
-    const gScore = new Float32Array(this.walkable.length);
+    const gScore = this.gScore;
     gScore.fill(Number.POSITIVE_INFINITY);
-    const closed = new Uint8Array(this.walkable.length);
-    const heap = new MinHeap();
+    const closed = this.closed;
+    closed.fill(0);
+    const heap = this.heap;
+    heap.clear();
 
     gScore[startIndex] = 0;
     heap.push(startIndex, heuristic(startCell, endCell));
@@ -164,19 +228,20 @@ export class NavigationGrid {
       const cx = current % this.cols;
       const cz = Math.floor(current / this.cols);
 
-      NEIGHBORS.forEach((neighbor) => {
+      for (const neighbor of NEIGHBORS) {
         const nx = cx + neighbor.dx;
         const nz = cz + neighbor.dz;
-        if (!this.canStep(cx, cz, nx, nz, neighbor)) return;
+        if (!this.canStep(cx, cz, nx, nz, neighbor)) continue;
         const next = this.index(nx, nz);
-        if (closed[next]) return;
+        if (closed[next]) continue;
         const tentative = gScore[current] + neighbor.cost * this.cellSize;
-        if (tentative >= gScore[next]) return;
+        if (tentative >= gScore[next]) continue;
         cameFrom[next] = current;
         gScore[next] = tentative;
-        heap.push(next, tentative + heuristic({ x: nx, z: nz }, endCell) * this.cellSize);
-      });
+        heap.push(next, tentative + Math.hypot(nx - endCell.x, nz - endCell.z) * this.cellSize);
+      }
     }
+    this.stats.expandedCells += iterations;
 
     if (!reached) return [];
     const cells = [];
@@ -205,6 +270,32 @@ export class NavigationGrid {
       : smoothPath(start, rawPoints, this);
   }
 
+  pathDistance(start, end) {
+    this.stats.pathDistance += 1;
+    const path = this.findPath(start, end, {
+      smooth: false,
+      startAllowLooseFallback: true,
+      endRequireLine: false
+    });
+    if (!path.length) return Infinity;
+    let distance = Math.hypot(path[0].x - start.x, path[0].z - start.z);
+    for (let i = 1; i < path.length; i += 1) {
+      distance += Math.hypot(path[i].x - path[i - 1].x, path[i].z - path[i - 1].z);
+    }
+    distance += Math.hypot(end.x - path[path.length - 1].x, end.z - path[path.length - 1].z);
+    return distance;
+  }
+
+  takeStats() {
+    const stats = { ...this.stats };
+    this.stats.findPath = 0;
+    this.stats.pathDistance = 0;
+    this.stats.hasLine = 0;
+    this.stats.nearestWalkableCell = 0;
+    this.stats.expandedCells = 0;
+    return stats;
+  }
+
   canStep(cx, cz, nx, nz, neighbor) {
     if (!this.isCellWalkable(nx, nz)) return false;
     if (!this.isCellWalkable(cx + neighbor.dx, cz) || !this.isCellWalkable(cx, cz + neighbor.dz)) {
@@ -212,12 +303,7 @@ export class NavigationGrid {
     }
     const from = this.cellCenter(cx, cz);
     const to = this.cellCenter(nx, nz);
-    if (!this.canTraverse(from, to)) return false;
-    return this.hasLine(
-      from,
-      to,
-      this.cellSize * 0.35
-    );
+    return this.canTraverse(from, to);
   }
 
   canTraverse(start, end) {
@@ -257,34 +343,42 @@ function heuristic(a, b) {
 
 class MinHeap {
   constructor() {
-    this.items = [];
+    this.indices = [];
+    this.priorities = [];
   }
 
   get length() {
-    return this.items.length;
+    return this.indices.length;
   }
 
   push(index, priority) {
-    const item = { index, priority };
-    this.items.push(item);
-    this.bubbleUp(this.items.length - 1);
+    this.indices.push(index);
+    this.priorities.push(priority);
+    this.bubbleUp(this.indices.length - 1);
+  }
+
+  clear() {
+    this.indices.length = 0;
+    this.priorities.length = 0;
   }
 
   pop() {
-    const root = this.items[0];
-    const last = this.items.pop();
-    if (this.items.length > 0 && last) {
-      this.items[0] = last;
+    const root = this.indices[0];
+    const lastIndex = this.indices.pop();
+    const lastPriority = this.priorities.pop();
+    if (this.indices.length > 0) {
+      this.indices[0] = lastIndex;
+      this.priorities[0] = lastPriority;
       this.sinkDown(0);
     }
-    return root.index;
+    return root;
   }
 
   bubbleUp(index) {
     while (index > 0) {
       const parent = Math.floor((index - 1) / 2);
-      if (this.items[parent].priority <= this.items[index].priority) break;
-      [this.items[parent], this.items[index]] = [this.items[index], this.items[parent]];
+      if (this.priorities[parent] <= this.priorities[index]) break;
+      this.swap(parent, index);
       index = parent;
     }
   }
@@ -295,20 +389,25 @@ class MinHeap {
       const right = left + 1;
       let smallest = index;
       if (
-        left < this.items.length &&
-        this.items[left].priority < this.items[smallest].priority
+        left < this.indices.length &&
+        this.priorities[left] < this.priorities[smallest]
       ) {
         smallest = left;
       }
       if (
-        right < this.items.length &&
-        this.items[right].priority < this.items[smallest].priority
+        right < this.indices.length &&
+        this.priorities[right] < this.priorities[smallest]
       ) {
         smallest = right;
       }
       if (smallest === index) break;
-      [this.items[smallest], this.items[index]] = [this.items[index], this.items[smallest]];
+      this.swap(smallest, index);
       index = smallest;
     }
+  }
+
+  swap(a, b) {
+    [this.indices[a], this.indices[b]] = [this.indices[b], this.indices[a]];
+    [this.priorities[a], this.priorities[b]] = [this.priorities[b], this.priorities[a]];
   }
 }

@@ -1176,18 +1176,6 @@ export function createBaseModel() {
   );
   group.add(keep, keepRoof, gate);
 
-  for (let i = 0; i < 6; i += 1) {
-    const angle = (Math.PI * 2 * i) / 6;
-    const wall = mesh(
-      new THREE.BoxGeometry(2.7, 0.72, 0.32),
-      stone,
-      new THREE.Vector3(Math.cos(angle) * 3.15, 0.45, Math.sin(angle) * 3.15),
-      new THREE.Vector3(1, 1, 1)
-    );
-    wall.rotation.y = -angle;
-    group.add(wall);
-  }
-
   const aura = new THREE.Group();
   aura.userData.isAura = true;
   group.add(aura);

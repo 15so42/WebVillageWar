@@ -8,21 +8,31 @@ import {
   updateUnitAnimation
 } from '../art/visualRegistry.js';
 import { BALANCE, TEAMS } from '../data/gameData.js';
+import { disposeObject3D } from '../utils/dispose.js';
 import { clamp, direction2D, distance2D } from '../utils/math.js';
 
 const scratch = new THREE.Vector3();
 const projectileLaunchPosition = new THREE.Vector3();
 const projectileForward = new THREE.Vector3(0, 0, 1);
-const NAV_WAYPOINT_STOP_DISTANCE = 0.06;
+const NAV_DISTANCE_CACHE_CELL = 0.75;
+const NAV_DISTANCE_CACHE_LIMIT = 2048;
+const TARGET_RESCAN_INTERVAL = 0.24;
+const TARGET_IDLE_RESCAN_INTERVAL = 0.42;
+const TARGET_RESCAN_JITTER = 0.14;
+const NAVIGATION_TARGET_EPSILON = 0.04;
 
 export class CombatSystem {
   constructor(game) {
     this.game = game;
     this.projectiles = [];
     this.pendingAttacks = [];
+    this.navDistanceCache = new Map();
   }
 
   update(dt) {
+    if (this.navDistanceCache.size > NAV_DISTANCE_CACHE_LIMIT) {
+      this.navDistanceCache.clear();
+    }
     const activeUnits = [...this.game.friendlyUnits, ...this.game.enemyUnits].filter(
       (unit) => unit.alive
     );
@@ -79,8 +89,7 @@ export class CombatSystem {
       return;
     }
 
-    const target = this.acquireTarget(unit);
-    unit.target = target;
+    const target = this.targetForUnit(unit, dt);
 
     if (target) {
       if (this.shouldBreakGuardChase(unit, target)) {
@@ -90,7 +99,7 @@ export class CombatSystem {
         return;
       }
       const targetPosition = getTargetPosition(target);
-      const targetDistance = this.navigationDistance(unit.position, targetPosition);
+      const targetDistance = this.attackDistance(unit, targetPosition);
       const targetRadius = targetCombatRadius(target);
       const attackRange = this.game.modifiers.getAttackRange(unit);
       if (targetDistance <= attackRange + targetRadius) {
@@ -131,7 +140,6 @@ export class CombatSystem {
       unit.position.z = previousZ;
       unit.knockbackVelocity.set(0, 0, 0);
     }
-    this.game.placeUnitOnGround(unit, dt);
   }
 
   clampToBattlefield(unit) {
@@ -190,8 +198,6 @@ export class CombatSystem {
           b.position.x = bx;
           b.position.z = bz;
         }
-        this.game.placeUnitOnGround(a, dt);
-        this.game.placeUnitOnGround(b, dt);
       }
     }
   }
@@ -398,12 +404,62 @@ export class CombatSystem {
     return this.nearestReachableStructure(unit, this.game.playerBase, aggroRange);
   }
 
+  targetForUnit(unit, dt) {
+    unit.targetSearchTimer = Math.max(0, (unit.targetSearchTimer ?? targetSearchDelay(unit, 0)) - dt);
+    const current = unit.target?.alive !== false ? unit.target : null;
+    if (unit.targetSearchTimer > 0) {
+      return current;
+    }
+
+    const target = this.acquireTarget(unit);
+    unit.target = target;
+    unit.targetSearchTimer = target
+      ? targetSearchDelay(unit, TARGET_RESCAN_INTERVAL)
+      : targetSearchDelay(unit, TARGET_IDLE_RESCAN_INTERVAL);
+    return target;
+  }
+
   navigationDistance(from, to) {
     if (!from || !to) return Infinity;
     if (this.game.world?.config?.theme === 'dungeon' && this.game.world?.navigationDistance) {
-      return this.game.world.navigationDistance(from, to);
+      const key = navigationDistanceCacheKey(from, to);
+      const cached = this.navDistanceCache.get(key);
+      if (cached != null) return cached;
+      const distance = this.game.world.navigationDistance(from, to);
+      this.navDistanceCache.set(key, distance);
+      return distance;
     }
     return distance2D(from, to);
+  }
+
+  attackDistance(source, targetPosition) {
+    if (!source || !targetPosition) return Infinity;
+    const directDistance = distance2D(source.position, targetPosition);
+    if (source.definition.role === 'ranged') {
+      return directDistance;
+    }
+    if (this.game.hasSafeSurfaceLine(source.position, targetPosition)) {
+      return directDistance;
+    }
+    return this.navigationDistance(source.position, targetPosition);
+  }
+
+  targetingDistance(source, target) {
+    const targetPosition = getTargetPosition(target);
+    if (!source || !targetPosition) return Infinity;
+    const directDistance = distance2D(source.position, targetPosition);
+    if (source.definition.role !== 'ranged') {
+      return this.game.hasSafeSurfaceLine(source.position, targetPosition)
+        ? directDistance
+        : this.navigationDistance(source.position, targetPosition);
+    }
+
+    const attackRange = this.game.modifiers.getAttackRange(source) + targetCombatRadius(target);
+    if (directDistance <= attackRange) {
+      return directDistance;
+    }
+
+    return this.navigationDistance(source.position, targetPosition);
   }
 
   nearestReachableUnit(source, candidates, range, predicate = null) {
@@ -412,8 +468,10 @@ export class CombatSystem {
     candidates.forEach((candidate) => {
       if (!candidate.alive) return;
       if (predicate && !predicate(candidate)) return;
-      const pathDistance = this.navigationDistance(source.position, candidate.position);
-      const distance = Math.max(0, pathDistance - targetCombatRadius(candidate));
+      const distance = Math.max(
+        0,
+        distance2D(source.position, candidate.position) - targetCombatRadius(candidate)
+      );
       if (distance < bestDistance) {
         best = candidate;
         bestDistance = distance;
@@ -425,8 +483,10 @@ export class CombatSystem {
   nearestReachableStructure(source, structure, range, predicate = null) {
     if (!structure?.alive) return null;
     if (predicate && !predicate(structure)) return null;
-    const distance = this.navigationDistance(source.position, structure.position);
-    return distance <= range + targetCombatRadius(structure) ? structure : null;
+    const directDistance = distance2D(source.position, structure.position);
+    if (directDistance > range) return null;
+    const distance = this.targetingDistance(source, structure);
+    return distance <= range ? structure : null;
   }
 
   ensureGuardState(unit) {
@@ -467,35 +527,61 @@ export class CombatSystem {
 
   moveToward(unit, targetPosition, dt, desiredDistance = 0.18) {
     if (!targetPosition) return;
-    const hasDirectLine = this.game.hasSafeSurfaceLine(unit.position, targetPosition);
-    if (hasDirectLine) {
-      this.game.clearUnitRoute?.(unit);
+    const usesNavigationSteering = Boolean(this.game.world?.navGrid);
+    const usesLooseNavigationMotion = usesNavigationSteering;
+    const safeSteering = usesNavigationSteering
+      ? this.game.safeSurfaceSteeringToward(unit.position, targetPosition, unit, NAVIGATION_TARGET_EPSILON)
+      : null;
+
+    if (usesNavigationSteering && !safeSteering) {
+      unit.navMoveTarget = targetPosition.clone?.() ?? null;
+      unit.navSteeringTarget = null;
+      return;
     }
-    const safeWaypoint = hasDirectLine
-      ? null
-      : this.game.safeSurfaceWaypointToward(unit.position, targetPosition, unit, desiredDistance);
-    const movementTarget = safeWaypoint ?? targetPosition;
+
+    const movementTarget = safeSteering?.debugTarget ?? targetPosition;
+    const movementDirection = safeSteering?.direction ?? direction2D(unit.position, targetPosition);
     unit.navMoveTarget = targetPosition.clone?.() ?? null;
     unit.navSteeringTarget = movementTarget.clone?.() ?? null;
-    const movementDesiredDistance = safeWaypoint ? NAV_WAYPOINT_STOP_DISTANCE : desiredDistance;
-    const distance = distance2D(unit.position, movementTarget);
-    if (distance <= movementDesiredDistance) return;
-    const dir = direction2D(unit.position, movementTarget);
-    const step = Math.min(this.game.modifiers.getMoveSpeed(unit) * dt, distance - movementDesiredDistance);
+    const targetDistance = distance2D(unit.position, targetPosition);
+    if (targetDistance <= desiredDistance) return;
+    const maxStep = this.game.modifiers.getMoveSpeed(unit) * dt;
+    const step = usesNavigationSteering && usesLooseNavigationMotion
+      ? maxStep
+      : Math.min(maxStep, targetDistance - desiredDistance);
     if (step <= 0) return;
     stopUnitAnimation(unit, 'attack');
     const previousX = unit.position.x;
     const previousZ = unit.position.z;
-    const startedUnsafe = !this.game.isPointOnSafeSurface(unit.position);
-    unit.position.addScaledVector(dir, step);
-    this.clampToBattlefield(unit);
-    if (!this.game.isPointWalkable(unit.position, { allowUnsafeSurface: startedUnsafe })) {
-      unit.position.x = previousX;
-      unit.position.z = previousZ;
-      this.game.placeUnitOnGround(unit, dt);
+
+    if (usesNavigationSteering && usesLooseNavigationMotion) {
+      unit.position.addScaledVector(movementDirection, step);
+      this.clampToBattlefield(unit);
+      unit.visualState = 'walk';
+      this.face(unit, movementTarget, dt);
       return;
     }
-    this.game.placeUnitOnGround(unit, dt);
+
+    const startedUnsafe = !this.game.isPointOnSafeSurface(unit.position);
+    let moved = false;
+    for (const scale of [1, 0.5, 0.25]) {
+      unit.position.x = previousX;
+      unit.position.z = previousZ;
+      unit.position.addScaledVector(movementDirection, step * scale);
+      this.clampToBattlefield(unit);
+      if (this.game.isPointWalkable(unit.position, {
+        allowUnsafeSurface: startedUnsafe
+      })) {
+        moved = true;
+        break;
+      }
+    }
+    if (!moved) {
+      unit.position.x = previousX;
+      unit.position.z = previousZ;
+      this.game.clearUnitRoute?.(unit);
+      return;
+    }
     unit.visualState = 'walk';
     this.face(unit, movementTarget, dt);
   }
@@ -598,7 +684,7 @@ export class CombatSystem {
     if (target?.position && source.definition.role === 'melee') {
       const allowedRange =
         this.game.modifiers.getAttackRange(source) + targetCombatRadius(target) + 0.85;
-      if (distance2D(source.position, target.position) > allowedRange) return;
+      if (this.attackDistance(source, target.position) > allowedRange) return;
     }
 
     if (source.definition.role === 'ranged' && target?.alive !== false) {
@@ -653,8 +739,7 @@ export class CombatSystem {
       const projectile = this.projectiles[i];
       projectile.age += dt;
       if (projectile.target?.alive === false || projectile.age > 2.5) {
-        this.game.scene.remove(projectile.object);
-        this.projectiles.splice(i, 1);
+        this.removeProjectileAt(i);
         continue;
       }
       const targetPosition = projectile.target.position.clone();
@@ -667,14 +752,21 @@ export class CombatSystem {
           knockback: projectile.knockback,
           isProjectile: true
         });
-        this.game.scene.remove(projectile.object);
-        this.projectiles.splice(i, 1);
+        this.removeProjectileAt(i);
         continue;
       }
       dir.normalize();
       projectile.object.position.addScaledVector(dir, projectile.speed * dt);
       projectile.object.quaternion.setFromUnitVectors(projectileForward, dir);
     }
+  }
+
+  removeProjectileAt(index) {
+    const projectile = this.projectiles[index];
+    if (!projectile) return;
+    this.game.scene.remove(projectile.object);
+    disposeObject3D(projectile.object);
+    this.projectiles.splice(index, 1);
   }
 
   applyAttack(source, target, override = {}) {
@@ -778,6 +870,7 @@ export class CombatSystem {
       Math.max(0.68, crowdRadius(unit) * 1.35)
     );
     this.game.scene.remove(unit.mesh);
+    disposeObject3D(unit.mesh);
     unit.statusElement?.remove();
   }
 }
@@ -785,6 +878,21 @@ export class CombatSystem {
 function getTargetPosition(target) {
   if (!target) return null;
   return target.position ?? target;
+}
+
+function navigationDistanceCacheKey(a, b) {
+  const ax = Math.round(a.x / NAV_DISTANCE_CACHE_CELL);
+  const az = Math.round(a.z / NAV_DISTANCE_CACHE_CELL);
+  const bx = Math.round(b.x / NAV_DISTANCE_CACHE_CELL);
+  const bz = Math.round(b.z / NAV_DISTANCE_CACHE_CELL);
+  const first = `${ax}:${az}`;
+  const second = `${bx}:${bz}`;
+  return first <= second ? `${first}|${second}` : `${second}|${first}`;
+}
+
+function targetSearchDelay(unit, baseDelay) {
+  const phase = ((unit.id * 47) % 100) / 100;
+  return baseDelay + phase * TARGET_RESCAN_JITTER;
 }
 
 function targetCombatRadius(target) {

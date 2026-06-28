@@ -1,7 +1,10 @@
 import * as THREE from 'three';
 import { basicMat, mat } from '../art/lowpoly.js';
 import { createSpellModel } from '../art/visualRegistry.js';
+import { disposeObject3D } from '../utils/dispose.js';
 import { clamp, lerp } from '../utils/math.js';
+
+const MAX_ACTIVE_EFFECTS = 260;
 
 export class EffectsSystem {
   constructor(scene) {
@@ -17,14 +20,15 @@ export class EffectsSystem {
       effect.age += dt;
       effect.update?.(dt, effect.age / effect.duration);
       if (effect.age >= effect.duration) {
-        effect.dispose?.();
-        this.scene.remove(effect.object);
-        this.effects.splice(i, 1);
+        this.removeEffectAt(i);
       }
     }
   }
 
   addEffect(object, duration, update, dispose) {
+    while (this.effects.length >= MAX_ACTIVE_EFFECTS) {
+      this.removeEffectAt(0);
+    }
     this.scene.add(object);
     this.effects.push({
       object,
@@ -33,6 +37,15 @@ export class EffectsSystem {
       update,
       dispose
     });
+  }
+
+  removeEffectAt(index) {
+    const effect = this.effects[index];
+    if (!effect) return;
+    effect.dispose?.();
+    this.scene.remove(effect.object);
+    disposeObject3D(effect.object);
+    this.effects.splice(index, 1);
   }
 
   spawnRing(position, color = '#ffffff', radius = 1, duration = 0.55) {
@@ -53,7 +66,7 @@ export class EffectsSystem {
     this.addEffect(ring, duration, (_, t) => {
       ring.scale.setScalar(radius * (1 + t * 0.45));
       ring.material.opacity = 0.76 * (1 - t);
-    });
+    }, () => disposeObject3D(ring, { materials: true }));
   }
 
   spawnMoveDestination(position, radius = 1) {
@@ -120,7 +133,7 @@ export class EffectsSystem {
       ring.material.opacity = 0.95 * (1 - t);
       inner.material.opacity = 0.8 * (1 - t);
       beam.material.opacity = 0.38 * (1 - t);
-    });
+    }, () => disposeObject3D(group, { materials: true }));
   }
 
   spawnHit(position, color = '#f6e7a0') {

@@ -15,7 +15,7 @@ import {
   mat
 } from '../art/lowpoly.js';
 import { clamp, seededRandom } from '../utils/math.js';
-import { RecastNavigation } from './RecastNavigation.js';
+import { NavigationGrid } from './NavigationGrid.js';
 
 const FOREST_ZONES = [
   { x: -31, z: 19, rx: 11, rz: 17, count: 82, tone: 'deep' },
@@ -62,11 +62,28 @@ const SNOW_CENTER = { x: 2, z: -33 };
 const SURFACE_OFFSET = 0.42;
 const PATH_SURFACE_OFFSET = 0.035;
 const DUNGEON_BRIDGE_OVERHANG = 2.8;
-const DUNGEON_NAV_PLATFORM_INSET = 0.92;
+const DUNGEON_SAFE_PLATFORM_INSET = 0.94;
+const DUNGEON_NAV_PLATFORM_INSET = 0.62;
+const DUNGEON_NAV_BRIDGE_ENTRY_PLATFORM_INSET = 0.78;
 const DUNGEON_SAFE_BRIDGE_HALF_WIDTH = 1.18;
-const DUNGEON_NAV_BRIDGE_HALF_WIDTH = 0.4;
-const DUNGEON_NAV_BRIDGE_LANDING_T = 0.2;
-const DUNGEON_NAV_BRIDGE_LANDING_RADIUS = 1.05;
+const DUNGEON_NAV_BRIDGE_HALF_WIDTH = 0.55;
+const DUNGEON_NAV_BRIDGE_OVERHANG = DUNGEON_BRIDGE_OVERHANG;
+const DUNGEON_NAV_MESH_STEP = 0.8;
+const DUNGEON_NAV_BRIDGE_ENTRY_DEPTH = DUNGEON_NAV_BRIDGE_OVERHANG + DUNGEON_NAV_MESH_STEP * 1.5;
+const DUNGEON_NAV_BRIDGE_ENTRY_APPROACH_DEPTH = 6.2;
+const DUNGEON_NAV_BRIDGE_ENTRY_BACKTRACK = 0.5;
+const DUNGEON_BRIDGEHEAD_CLEAR_HALF_WIDTH = 0.72;
+const DUNGEON_BRIDGEHEAD_BLOCK_HALF_WIDTH = 2.35;
+const DUNGEON_BRIDGEHEAD_BLOCK_INWARD = 1.8;
+const DUNGEON_BRIDGEHEAD_BLOCK_BACK = 1.15;
+const DUNGEON_BRIDGE_HEIGHT_BLEND_START = DUNGEON_BRIDGE_OVERHANG + DUNGEON_SAFE_BRIDGE_HALF_WIDTH;
+const DUNGEON_BRIDGE_HEIGHT_BLEND_DEPTH = 2.8;
+const WORLD_NAV_MESH_STEP = 0.8;
+const WORLD_NAV_EDGE_MARGIN = 0.35;
+const WORLD_NAV_PLAYER_BASE_RADIUS = 2.35;
+const WORLD_NAV_ENEMY_CAMP_RADIUS = 3.05;
+const DESERT_SHADOW_X_PER_HEIGHT = 0.34;
+const DESERT_SHADOW_Z_PER_HEIGHT = -0.36;
 const SNOWFALL_CENTER = new THREE.Vector3();
 
 const DEFAULT_TERRAIN_PROFILE = {
@@ -424,7 +441,7 @@ const WORLD_PRESETS = {
       { x: -6, z: 15, rx: 8.6, rz: 5.7, rot: -0.34, tone: 'medium', irregularity: 0.13 },
       { x: 5, z: -2, rx: 15.2, rz: 8.2, rot: 0.18, tone: 'grand', irregularity: 0.11 },
       { x: 3, z: -18.4, rx: 8.4, rz: 5.4, rot: -0.18, tone: 'medium', irregularity: 0.12 },
-      { x: 0, z: -33, rx: 12.4, rz: 7.5, rot: -0.06, tone: 'large', irregularity: 0.1 },
+      { x: 0, z: -33, rx: 15.4, rz: 9.3, rot: -0.06, tone: 'large', irregularity: 0.1 },
       { x: 34, z: 8, rx: 7.4, rz: 5.2, rot: 0.26, tone: 'small', irregularity: 0.14 },
       { x: -31, z: -6, rx: 8.2, rz: 5.7, rot: -0.24, tone: 'small', irregularity: 0.14 },
       { x: -30, z: -25, rx: 7.3, rz: 4.9, rot: 0.18, tone: 'small', irregularity: 0.15 }
@@ -481,8 +498,11 @@ const WORLD_PRESETS = {
       fogNear: 74,
       fogFar: 210,
       sun: '#fff0a8',
+      sunIntensity: 4.15,
       hemiSky: '#ffd9a0',
-      hemiGround: '#7d4636'
+      hemiGround: '#7d4636',
+      hemiIntensity: 1.18,
+      shadowMapSize: 2048
     },
     palette: {
       base: '#b76245',
@@ -530,10 +550,10 @@ const WORLD_PRESETS = {
       { x: 18, z: -7, r: 6 }
     ],
     boulderClusters: [
-      { x: -27, z: 8, rx: 5.4, rz: 7.2, count: 6, sizeMin: 1.35, sizeMax: 2.75 },
-      { x: 25, z: -12, rx: 5.8, rz: 7.6, count: 7, sizeMin: 1.45, sizeMax: 3 },
-      { x: 18, z: 17, rx: 4.6, rz: 5.2, count: 5, sizeMin: 1.25, sizeMax: 2.45 },
-      { x: -18, z: -19, rx: 5.2, rz: 5.6, count: 5, sizeMin: 1.2, sizeMax: 2.35 }
+      { x: -30, z: 8, rx: 7.2, rz: 9.4, count: 8, sizeMin: 1.35, sizeMax: 2.75 },
+      { x: 28, z: -12, rx: 7.8, rz: 9.6, count: 9, sizeMin: 1.45, sizeMax: 3 },
+      { x: 21, z: 18, rx: 6.6, rz: 6.8, count: 7, sizeMin: 1.25, sizeMax: 2.45 },
+      { x: -21, z: -21, rx: 6.8, rz: 7.2, count: 7, sizeMin: 1.2, sizeMax: 2.35 }
     ],
     landmarkBoulders: [
       { x: -25, z: 9, size: 4.2, sx: 1.35, sy: 1.35, sz: 1.05, rot: 0.35, shade: { rx: 6.4, rz: 3.4, ox: 2.8, oz: 1.4 } },
@@ -554,17 +574,30 @@ const WORLD_PRESETS = {
       campTerrace: 0.42,
       campTerraceOutward: 0.18,
       hills: [
-        { x: -26, z: 8, rx: 12, rz: 14, height: 1.4 },
-        { x: 26, z: -12, rx: 13, rz: 16, height: 1.55 },
-        { x: -18, z: -21, rx: 12, rz: 12, height: 1.2 },
-        { x: 19, z: 18, rx: 11, rz: 12, height: 1.1 }
+        { x: -30, z: 9, rx: 14, rz: 16, height: 1.65 },
+        { x: 29, z: -12, rx: 15, rz: 17, height: 1.78 },
+        { x: -21, z: -22, rx: 13, rz: 13, height: 1.42 },
+        { x: 22, z: 18, rx: 13, rz: 13, height: 1.38 },
+        { x: 0, z: 4, rx: 24, rz: 18, height: 0.38 }
       ],
       ridges: [
-        { x: -40, z: -2, rx: 7, rz: 42, height: 1.2 },
-        { x: 40, z: -4, rx: 7, rz: 42, height: 1.35 },
-        { x: 0, z: -39, rx: 34, rz: 8, height: 1.4 }
+        { x: -40, z: -2, rx: 7, rz: 42, height: 1.55 },
+        { x: 40, z: -4, rx: 7, rz: 42, height: 1.7 },
+        { x: 0, z: -39, rx: 34, rz: 8, height: 1.55 }
       ]
     },
+    sandstoneFields: [
+      { x: 0, z: 0, rx: 38, rz: 35, count: 28, minHeight: 4.2, maxHeight: 11.6, mesaChance: 0.2, clearance: 1.4 },
+      { x: -4, z: 4, rx: 29, rz: 26, count: 9, minHeight: 2.8, maxHeight: 6.2, mesaChance: 0.36, clearance: 1.1 },
+      { x: 2, z: -8, rx: 34, rz: 24, count: 10, minHeight: 4.8, maxHeight: 10.4, mesaChance: 0.16, clearance: 1.2 }
+    ],
+    sandstoneLandmarks: [
+      { kind: 'mushroom', x: -35, z: 21, radius: 1.55, height: 11.2, rot: 0.24, sx: 1.08, sz: 0.86 },
+      { kind: 'mesa', x: 34, z: 12, radius: 3.6, height: 5.4, rot: -0.38, sx: 1.18, sz: 0.78 },
+      { kind: 'arch', x: -29, z: -12, radius: 1.18, height: 5.8, span: 5.8, rot: 0.64, sx: 1, sz: 0.9 },
+      { kind: 'mushroom', x: 31, z: -27, radius: 1.35, height: 9.4, rot: -0.48, sx: 0.92, sz: 1.12 },
+      { kind: 'mesa', x: -19, z: 24, radius: 3.1, height: 4.8, rot: 0.92, sx: 1.25, sz: 0.72 }
+    ],
     shadeZones: [
       { x: -22.2, z: 10.4, rx: 6.4, rz: 3.4 },
       { x: 26.9, z: -8.7, rx: 6.8, rz: 3.6 },
@@ -596,21 +629,22 @@ export function createWorld(scene, worldOptions = {}) {
   scene.background = new THREE.Color(config.sky.background);
   scene.fog = new THREE.Fog(config.sky.fog, config.sky.fogNear, config.sky.fogFar);
 
-  const sun = new THREE.DirectionalLight(config.sky.sun, 3.55);
+  const sun = new THREE.DirectionalLight(config.sky.sun, config.sky.sunIntensity ?? 3.55);
   sun.position.set(-44, 82, 46);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
+  const shadowMapSize = config.sky.shadowMapSize ?? 1024;
+  sun.shadow.mapSize.set(shadowMapSize, shadowMapSize);
   sun.shadow.camera.left = -86;
   sun.shadow.camera.right = 86;
   sun.shadow.camera.top = 86;
   sun.shadow.camera.bottom = -86;
   scene.add(sun);
-  scene.add(new THREE.HemisphereLight(config.sky.hemiSky, config.sky.hemiGround, 1.85));
+  scene.add(new THREE.HemisphereLight(config.sky.hemiSky, config.sky.hemiGround, config.sky.hemiIntensity ?? 1.85));
 
   const ground = createGroundMesh();
   scene.add(ground);
 
-  const navGrid = config.theme === 'dungeon' ? createDungeonRecastNavigation() : null;
+  const navGrid = createNavigationGrid();
   const pathPoints = pathVectors();
   const pathGraph = config.theme === 'dungeon' ? createDungeonNavigationGraph() : null;
   const theme = config.theme ?? 'snow';
@@ -660,18 +694,23 @@ export function createWorld(scene, worldOptions = {}) {
       if (config.theme !== 'dungeon') return true;
       return isDungeonSafeSurfaceAt(x, z);
     },
+    isWalkable: (pointOrX, maybeZ = null) => {
+      const x = typeof pointOrX === 'number' ? pointOrX : pointOrX.x;
+      const z = typeof pointOrX === 'number' ? maybeZ : pointOrX.z;
+      return isWorldNavigationWalkableAt(x, z);
+    },
     pathPoints,
     pathGraph,
     navGrid,
-    findPath: (start, end, options = {}) => navGrid?.findPath(start, end, options) ?? [],
-    hasNavigationLine: (start, end) => navGrid?.hasLine(start, end) ?? true,
-    navigationDistance: (start, end) => navGrid?.pathDistance(start, end) ?? Infinity,
     playerBaseModel: base,
     enemyCampModel: enemyCamp,
     recoveryAura: base.userData.aura,
     update: (dt, cameraTarget) => {
       snowfall.update(dt, cameraTarget);
-    }
+    },
+    findPath: (start, end, options = {}) => navGrid?.findPath(start, end, options) ?? [],
+    hasNavigationLine: (start, end) => navGrid?.hasLine(start, end) ?? true,
+    navigationDistance: (start, end) => navGrid?.pathDistance(start, end) ?? Infinity
   };
 }
 
@@ -681,9 +720,11 @@ function resolveWorldConfig(worldOptions = {}) {
   const rawPathPoints = (merged.pathPoints ?? BALANCE.world.pathPoints).map(
     (point) => new THREE.Vector3(point.x, 0, point.z)
   );
+  const dungeonBridgeSegmentsCache = buildDungeonBridgeSegments(merged, rawPathPoints);
   return {
     ...merged,
     rawPathPoints,
+    dungeonBridgeSegmentsCache,
     playerBasePosition: merged.playerBasePosition ?? BALANCE.playerBase.position,
     enemyCampPosition: merged.enemyCampPosition ?? BALANCE.enemyCamp.position
   };
@@ -763,6 +804,9 @@ export function terrainHeightAt(x, z) {
   terrain.ridges.forEach((ridge) => {
     height += ridgeHeight(x, z, ridge.x, ridge.z, ridge.rx, ridge.rz, ridge.height);
   });
+  if (config.theme === 'red-desert') {
+    height += desertSandstoneTerrainHeightAt(x, z, pathDistance);
+  }
 
   const roughness = (
     Math.sin(x * 0.18 + z * 0.09) * 0.24 +
@@ -817,9 +861,10 @@ function dungeonBridgeDeckHeightAt(x, z) {
 
 function dungeonTerrainHeightAt(x, z) {
   const platformMask = dungeonPlatformMaskAt(x, z);
+  const platformHeight = dungeonPlatformSurfaceHeightAt(x, z);
   return mix(
     dungeonLavaHeightAt(x, z),
-    dungeonPlatformHeightAt(x, z),
+    platformHeight,
     smoothstep(0.05, 0.72, platformMask)
   );
 }
@@ -828,10 +873,20 @@ function dungeonWalkableHeightAt(x, z) {
   if (isInsideDungeonBridge(x, z)) {
     return dungeonBridgeDeckHeightAt(x, z);
   }
-  if (isInsideDungeonPlatform(x, z)) {
-    return dungeonPlatformHeightAt(x, z);
+  if (
+    isInsideDungeonPlatform(x, z, DUNGEON_SAFE_PLATFORM_INSET) ||
+    isInsideDungeonBridgeEntryPlatform(x, z)
+  ) {
+    return dungeonPlatformSurfaceHeightAt(x, z);
   }
   return dungeonLavaHeightAt(x, z);
+}
+
+function dungeonPlatformSurfaceHeightAt(x, z) {
+  const platformHeight = dungeonPlatformHeightAt(x, z);
+  const bridgeBlend = dungeonBridgeEntryHeightBlendAt(x, z);
+  if (bridgeBlend == null) return platformHeight;
+  return mix(dungeonBridgeDeckHeightAt(x, z), platformHeight, bridgeBlend);
 }
 
 function createGroundMesh() {
@@ -966,20 +1021,23 @@ function dungeonRoadMaskAt(x, z) {
 function dungeonBridgeMaskAt(x, z) {
   const halfWidth = Math.max(0.6, (worldConfig().pathWidth ?? 3.2) * 0.5);
   let best = 0;
-  dungeonBridgeSegments().forEach(([a, b]) => {
-    const [extendedA, extendedB] = extendDungeonBridgeSegment(a, b);
-    const distance = distanceToSegment2D(x, z, extendedA, extendedB);
+  dungeonBridgeSegments().forEach((segment) => {
+    const distance = distanceToSegment2D(x, z, segment.extendedStart, segment.extendedEnd);
     best = Math.max(best, 1 - smoothstep(halfWidth * 0.74, halfWidth * 1.06, distance));
   });
   return best;
 }
 
 function isDungeonSafeSurfaceAt(x, z) {
-  return isInsideDungeonPlatform(x, z) || isInsideDungeonBridge(x, z);
+  return isInsideDungeonPlatform(x, z, DUNGEON_SAFE_PLATFORM_INSET) || isInsideDungeonBridge(x, z);
 }
 
 function isDungeonNavigationWalkableAt(x, z) {
-  return isInsideDungeonPlatform(x, z) || Boolean(dungeonBridgeHitAt(x, z, DUNGEON_NAV_BRIDGE_HALF_WIDTH));
+  if (dungeonBridgeHitAt(x, z, DUNGEON_NAV_BRIDGE_HALF_WIDTH, DUNGEON_NAV_BRIDGE_OVERHANG)) return true;
+  return (
+    isInsideDungeonPlatform(x, z) ||
+    isInsideDungeonBridgeEntryPlatform(x, z)
+  ) && !isDungeonBridgeheadSideBlockedAt(x, z);
 }
 
 function dungeonPlatformEdgeMaskAt(x, z) {
@@ -991,18 +1049,32 @@ function dungeonPlatformEdgeMaskAt(x, z) {
 }
 
 function dungeonBridgeSegments() {
-  const bridges = worldConfig().dungeonBridges;
+  return worldConfig().dungeonBridgeSegmentsCache ?? [];
+}
+
+function buildDungeonBridgeSegments(config, rawPathPoints) {
+  const bridges = config.dungeonBridges;
+  const rawSegments = [];
   if (Array.isArray(bridges) && bridges.length) {
-    return bridges
+    bridges
       .filter((bridge) => bridge?.from && bridge?.to)
-      .map((bridge) => [
+      .forEach((bridge) => rawSegments.push([
         new THREE.Vector3(bridge.from.x, 0, bridge.from.z),
         new THREE.Vector3(bridge.to.x, 0, bridge.to.z)
-      ]);
+      ]));
+  } else {
+    rawPathPoints.slice(0, -1).forEach((point, index) => {
+      rawSegments.push([point, rawPathPoints[index + 1]]);
+    });
   }
 
-  const points = rawPathPoints();
-  return points.slice(0, -1).map((point, index) => [point, points[index + 1]]);
+  return rawSegments.map(([a, b]) => {
+    const segment = [a, b];
+    const [extendedStart, extendedEnd] = extendDungeonBridgeSegment(a, b);
+    segment.extendedStart = extendedStart;
+    segment.extendedEnd = extendedEnd;
+    return segment;
+  });
 }
 
 function extendDungeonBridgeSegment(a, b, overhang = DUNGEON_BRIDGE_OVERHANG) {
@@ -1027,6 +1099,68 @@ function isInsideDungeonPlatform(x, z, inset = DUNGEON_NAV_PLATFORM_INSET) {
   return (worldConfig().dungeonPlatforms ?? []).some((platform) => (
     dungeonPlatformNormalizedDistanceAt(x, z, platform) <= inset
   ));
+}
+
+function isInsideDungeonBridgeEntryPlatform(x, z) {
+  if (!isInsideDungeonPlatform(x, z, DUNGEON_NAV_BRIDGE_ENTRY_PLATFORM_INSET)) return false;
+  return dungeonBridgeSegments().some(([a, b]) => (
+    isInsideDungeonBridgeEntryPlatformFromEnd(x, z, a, b) ||
+    isInsideDungeonBridgeEntryPlatformFromEnd(x, z, b, a)
+  ));
+}
+
+function isInsideDungeonBridgeEntryPlatformFromEnd(x, z, entry, opposite) {
+  const dx = opposite.x - entry.x;
+  const dz = opposite.z - entry.z;
+  const length = Math.hypot(dx, dz);
+  if (length < 0.001) return false;
+
+  const ux = dx / length;
+  const uz = dz / length;
+  const relX = x - entry.x;
+  const relZ = z - entry.z;
+  const awayFromBridge = -(relX * ux + relZ * uz);
+  const lateral = Math.abs(relX * -uz + relZ * ux);
+
+  return awayFromBridge >= -DUNGEON_NAV_BRIDGE_ENTRY_BACKTRACK &&
+    awayFromBridge <= DUNGEON_NAV_BRIDGE_ENTRY_APPROACH_DEPTH &&
+    lateral <= DUNGEON_BRIDGEHEAD_CLEAR_HALF_WIDTH;
+}
+
+function dungeonBridgeEntryHeightBlendAt(x, z) {
+  let best = null;
+  dungeonBridgeSegments().forEach(([a, b]) => {
+    const startBlend = dungeonBridgeEntryHeightBlendFromEnd(x, z, a, b);
+    const endBlend = dungeonBridgeEntryHeightBlendFromEnd(x, z, b, a);
+    if (startBlend != null) best = best == null ? startBlend : Math.min(best, startBlend);
+    if (endBlend != null) best = best == null ? endBlend : Math.min(best, endBlend);
+  });
+  return best;
+}
+
+function dungeonBridgeEntryHeightBlendFromEnd(x, z, entry, opposite) {
+  const dx = opposite.x - entry.x;
+  const dz = opposite.z - entry.z;
+  const length = Math.hypot(dx, dz);
+  if (length < 0.001) return null;
+
+  const ux = dx / length;
+  const uz = dz / length;
+  const relX = x - entry.x;
+  const relZ = z - entry.z;
+  const awayFromBridge = -(relX * ux + relZ * uz);
+  const lateral = Math.abs(relX * -uz + relZ * ux);
+
+  const rampDistance = Math.max(0, awayFromBridge - DUNGEON_BRIDGE_HEIGHT_BLEND_START);
+  if (
+    awayFromBridge < -DUNGEON_NAV_BRIDGE_ENTRY_BACKTRACK ||
+    awayFromBridge > DUNGEON_BRIDGE_HEIGHT_BLEND_START + DUNGEON_BRIDGE_HEIGHT_BLEND_DEPTH ||
+    lateral > DUNGEON_BRIDGEHEAD_CLEAR_HALF_WIDTH
+  ) {
+    return null;
+  }
+
+  return smoothstep(0, DUNGEON_BRIDGE_HEIGHT_BLEND_DEPTH, rampDistance);
 }
 
 function isInsideDungeonBridge(x, z) {
@@ -1059,8 +1193,11 @@ function canTraverseDungeonNavigation(start, end) {
 }
 
 function dungeonNavigationSurfaceAt(x, z) {
-  const bridge = dungeonBridgeHitAt(x, z, DUNGEON_NAV_BRIDGE_HALF_WIDTH);
-  const platform = isInsideDungeonPlatform(x, z);
+  const bridge = dungeonBridgeHitAt(x, z, DUNGEON_NAV_BRIDGE_HALF_WIDTH, DUNGEON_NAV_BRIDGE_OVERHANG);
+  const platform = (
+    isInsideDungeonPlatform(x, z) ||
+    isInsideDungeonBridgeEntryPlatform(x, z)
+  ) && !isDungeonBridgeheadSideBlockedAt(x, z);
   return {
     bridge,
     platform,
@@ -1070,30 +1207,97 @@ function dungeonNavigationSurfaceAt(x, z) {
 
 function isDungeonBridgeLandingTransition(bridgeHit, platformPoint) {
   if (!bridgeHit) return false;
-  const atStart = bridgeHit.t <= DUNGEON_NAV_BRIDGE_LANDING_T;
-  const atEnd = bridgeHit.t >= 1 - DUNGEON_NAV_BRIDGE_LANDING_T;
+  const entryStart = bridgeHit.entryStart ?? bridgeHit.start;
+  const entryEnd = bridgeHit.entryEnd ?? bridgeHit.end;
+  const dx = entryEnd.x - entryStart.x;
+  const dz = entryEnd.z - entryStart.z;
+  const length = Math.hypot(dx, dz);
+  if (length < 0.001) return false;
+
+  const bridgeX = bridgeHit.x ?? bridgeHit.start.x;
+  const bridgeZ = bridgeHit.z ?? bridgeHit.start.z;
+  const atStart = Math.hypot(bridgeX - entryStart.x, bridgeZ - entryStart.z) <=
+    DUNGEON_NAV_BRIDGE_ENTRY_DEPTH;
+  const atEnd = Math.hypot(bridgeX - entryEnd.x, bridgeZ - entryEnd.z) <=
+    DUNGEON_NAV_BRIDGE_ENTRY_DEPTH;
   if (!atStart && !atEnd) return false;
-  const landing = atStart ? bridgeHit.start : bridgeHit.end;
-  return Math.hypot(platformPoint.x - landing.x, platformPoint.z - landing.z) <=
-    DUNGEON_NAV_BRIDGE_LANDING_RADIUS;
+
+  const ux = dx / length;
+  const uz = dz / length;
+  const entry = atStart ? entryStart : entryEnd;
+  const relX = platformPoint.x - entry.x;
+  const relZ = platformPoint.z - entry.z;
+  const awayFromBridge = (relX * ux + relZ * uz) * (atStart ? -1 : 1);
+  const lateral = Math.abs(relX * -uz + relZ * ux);
+
+  return awayFromBridge >= -DUNGEON_NAV_BRIDGE_ENTRY_BACKTRACK &&
+    awayFromBridge <= DUNGEON_NAV_BRIDGE_ENTRY_APPROACH_DEPTH &&
+    lateral <= DUNGEON_BRIDGEHEAD_CLEAR_HALF_WIDTH;
 }
 
-function dungeonBridgeHitAt(x, z, halfWidth = DUNGEON_NAV_BRIDGE_HALF_WIDTH) {
+function dungeonBridgeHitAt(
+  x,
+  z,
+  halfWidth = DUNGEON_NAV_BRIDGE_HALF_WIDTH,
+  overhang = DUNGEON_BRIDGE_OVERHANG
+) {
   let best = null;
-  dungeonBridgeSegments().forEach(([a, b], index) => {
-    const [extendedA, extendedB] = extendDungeonBridgeSegment(a, b);
+  dungeonBridgeSegments().forEach((segment, index) => {
+    const [a, b] = segment;
+    const useCachedOverhang = overhang === DUNGEON_BRIDGE_OVERHANG;
+    const extendedA = useCachedOverhang ? segment.extendedStart : extendDungeonBridgeSegment(a, b, overhang)[0];
+    const extendedB = useCachedOverhang ? segment.extendedEnd : extendDungeonBridgeSegment(a, b, overhang)[1];
     const projection = projectToSegment2D(x, z, extendedA, extendedB);
     if (projection.distance > halfWidth) return;
     if (best && projection.distance >= best.distance) return;
+    const entryStartT = projectToSegment2D(a.x, a.z, extendedA, extendedB).t;
+    const entryEndT = projectToSegment2D(b.x, b.z, extendedA, extendedB).t;
     best = {
       index,
       t: projection.t,
+      x: projection.x,
+      z: projection.z,
       distance: projection.distance,
       start: extendedA,
-      end: extendedB
+      end: extendedB,
+      entryStart: a,
+      entryEnd: b,
+      entryStartT,
+      entryEndT
     };
   });
   return best;
+}
+
+function isDungeonBridgeheadSideBlockedAt(x, z) {
+  return dungeonBridgeSegments().some(([a, b]) => (
+    isDungeonBridgeheadSideBlockedFromEnd(x, z, a, b) ||
+    isDungeonBridgeheadSideBlockedFromEnd(x, z, b, a)
+  ));
+}
+
+function isDungeonBridgeheadSideBlockedFromEnd(x, z, landing, opposite) {
+  const dx = opposite.x - landing.x;
+  const dz = opposite.z - landing.z;
+  const length = Math.hypot(dx, dz);
+  if (length < 0.001) return false;
+
+  const ux = dx / length;
+  const uz = dz / length;
+  const relX = x - landing.x;
+  const relZ = z - landing.z;
+  const along = relX * ux + relZ * uz;
+  const lateral = Math.abs(relX * -uz + relZ * ux);
+
+  if (
+    along < -DUNGEON_BRIDGEHEAD_BLOCK_BACK ||
+    along > DUNGEON_BRIDGEHEAD_BLOCK_INWARD
+  ) {
+    return false;
+  }
+
+  return lateral > DUNGEON_BRIDGEHEAD_CLEAR_HALF_WIDTH &&
+    lateral <= DUNGEON_BRIDGEHEAD_BLOCK_HALF_WIDTH;
 }
 
 function dungeonPlatformNormalizedDistanceAt(x, z, platform) {
@@ -1158,13 +1362,61 @@ function desertTerrainColorAt(x, z, height, palette) {
   const sideRise = smoothstep(14, 40, Math.abs(x));
   const ridgeMask = northMaskAt(z) * 0.42 + sideRise * 0.28;
   const dune = Math.sin(x * 0.15 + z * 0.09) * 0.5 + Math.cos(x * 0.09 - z * 0.17) * 0.5;
+  const strata = Math.sin(height * 5.8 + x * 0.08 - z * 0.035);
   const facet = hash2(x * 0.08, z * 0.08) - 0.5;
   color.lerp(new THREE.Color(palette.side), sideRise * 0.28);
   color.lerp(new THREE.Color(palette.north), ridgeMask * 0.22);
   color.lerp(new THREE.Color(palette.high), smoothstep(1.2, 3.2, height) * 0.22);
+  color.lerp(new THREE.Color('#f0a05d'), Math.max(0, strata) * 0.045);
+  color.lerp(new THREE.Color('#833a30'), Math.max(0, -strata) * 0.035);
   color.lerp(new THREE.Color(palette.path), pathMask * 0.36);
   color.offsetHSL(0.004 * dune, 0.012 * dune, 0.024 * facet + 0.018 * dune);
   return color;
+}
+
+function desertSandstoneTerrainHeightAt(x, z, pathDistance) {
+  const config = worldConfig();
+  let height = 0;
+  (config.sandstoneFields ?? []).forEach((field, index) => {
+    const broad = ellipseFalloffAt(x, z, {
+      ...field,
+      rx: field.rx * 1.18,
+      rz: field.rz * 1.18
+    }, 0, 1);
+    const core = ellipseFalloffAt(x, z, {
+      ...field,
+      rx: field.rx * 0.74,
+      rz: field.rz * 0.74
+    }, 0, 1);
+    const fractured = (
+      Math.sin(x * 0.34 + z * 0.18 + index) * 0.055 +
+      Math.cos(x * 0.21 - z * 0.29 - index * 0.7) * 0.045
+    );
+    height += broad * 0.22 + core * 0.16 + Math.max(0, broad - core * 0.72) * 0.18 + fractured * broad;
+  });
+  (config.sandstoneLandmarks ?? []).forEach((item, index) => {
+    const radius = item.kind === 'arch'
+      ? (item.span ?? 5) * 0.7
+      : (item.radius ?? 2) * (item.kind === 'mesa' ? 2.2 : 1.8);
+    const mound = ellipseFalloffAt(x, z, {
+      x: item.x,
+      z: item.z,
+      rx: radius * (item.sx ?? 1),
+      rz: radius * 0.72 * (item.sz ?? 1),
+      rot: item.rot ?? 0
+    }, 0, 1);
+    const steps = Math.max(0, Math.sin(mound * Math.PI * 5 + index * 0.6)) * 0.06;
+    height += mound * (item.kind === 'mesa' ? 0.42 : 0.28) + steps * mound;
+  });
+
+  const pathMask = smoothstep(5.2, 11.5, pathDistance);
+  const clearingMask = Math.max(
+    ...config.clearings.map((clearing) => (
+      1 - smoothstep(clearing.r * 0.72, clearing.r + 2.2, Math.hypot(x - clearing.x, z - clearing.z))
+    )),
+    0
+  );
+  return height * pathMask * (1 - clearingMask * 0.82);
 }
 
 function pathVectors() {
@@ -1174,82 +1426,63 @@ function pathVectors() {
   });
 }
 
-function createDungeonRecastNavigation() {
+function createNavigationGrid() {
   const config = worldConfig();
   const halfWidth = (config.ground.width ?? 84) * 0.5;
   const halfDepth = (config.ground.depth ?? 84) * 0.5;
-  return new RecastNavigation({
-    meshes: createDungeonNavigationMeshes(),
-    bounds: {
-      minX: -halfWidth,
-      maxX: halfWidth,
-      minZ: -halfDepth,
-      maxZ: halfDepth
-    },
-    config: {
-      cs: 0.16,
-      ch: 0.1,
-      walkableHeight: 2,
-      walkableClimb: 0.22,
-      walkableRadius: 1,
-      maxEdgeLen: 18,
-      maxSimplificationError: 0.28,
-      minRegionArea: 2,
-      mergeRegionArea: 6,
-      detailSampleDist: 2.5,
-      detailSampleMaxError: 0.3
-    },
-    debugSampleStep: 1.1
+  return new NavigationGrid({
+    minX: -halfWidth,
+    maxX: halfWidth,
+    minZ: -halfDepth,
+    maxZ: halfDepth,
+    cellSize: config.navigationStep ?? config.dungeonNavigationStep ?? (
+      config.theme === 'dungeon' ? DUNGEON_NAV_MESH_STEP : WORLD_NAV_MESH_STEP
+    ),
+    isWalkable: (point) => isWorldNavigationWalkableAt(point.x, point.z),
+    heightAt: (point) => worldSurfaceHeightAt(point.x, point.z),
+    canTraverse: canTraverseWorldNavigation
   });
 }
 
-function createDungeonNavigationMeshes() {
-  const positions = [];
-  const indices = [];
-  const addVertex = (x, z) => {
-    positions.push(x, 0, z);
-    return positions.length / 3 - 1;
-  };
+function isWorldNavigationWalkableAt(x, z) {
+  const config = worldConfig();
+  if (config.theme === 'dungeon') return isDungeonNavigationWalkableAt(x, z);
 
-  (worldConfig().dungeonPlatforms ?? []).forEach((platform) => {
-    const segments = 34;
-    const center = addVertex(platform.x, platform.z);
-    const boundary = [];
-    for (let i = 0; i < segments; i += 1) {
-      const angle = (i / segments) * Math.PI * 2;
-      const point = ellipseBoundaryPoint(platform, angle, DUNGEON_NAV_PLATFORM_INSET);
-      boundary.push(addVertex(point.x, point.z));
+  const halfWidth = (config.ground.width ?? BALANCE.world.ground.width) * 0.5 - WORLD_NAV_EDGE_MARGIN;
+  const halfDepth = (config.ground.depth ?? BALANCE.world.ground.depth) * 0.5 - WORLD_NAV_EDGE_MARGIN;
+  if (x < -halfWidth || x > halfWidth || z < -halfDepth || z > halfDepth) return false;
+  return !isInsideWorldNavigationBlocker(x, z);
+}
+
+function canTraverseWorldNavigation(start, end) {
+  if (worldConfig().theme === 'dungeon') {
+    return canTraverseDungeonNavigation(start, end);
+  }
+  return isWorldNavigationWalkableAt(start.x, start.z) &&
+    isWorldNavigationWalkableAt(end.x, end.z);
+}
+
+function isInsideWorldNavigationBlocker(x, z) {
+  return worldNavigationBlockers().some((blocker) => (
+    Math.hypot(x - blocker.x, z - blocker.z) <= blocker.radius
+  ));
+}
+
+function worldNavigationBlockers() {
+  const config = worldConfig();
+  if (config.theme === 'dungeon') return [];
+  return [
+    {
+      x: config.playerBasePosition.x,
+      z: config.playerBasePosition.z,
+      radius: WORLD_NAV_PLAYER_BASE_RADIUS
+    },
+    {
+      x: config.enemyCampPosition.x,
+      z: config.enemyCampPosition.z,
+      radius: WORLD_NAV_ENEMY_CAMP_RADIUS
     }
-    for (let i = 0; i < segments; i += 1) {
-      const current = boundary[i];
-      const next = boundary[(i + 1) % segments];
-      indices.push(center, next, current);
-    }
-  });
-
-  dungeonBridgeSegments().forEach(([a, b]) => {
-    const [extendedA, extendedB] = extendDungeonBridgeSegment(a, b);
-    const dx = extendedB.x - extendedA.x;
-    const dz = extendedB.z - extendedA.z;
-    const length = Math.hypot(dx, dz);
-    if (length < 0.001) return;
-    const nx = -dz / length;
-    const nz = dx / length;
-    const halfWidth = DUNGEON_NAV_BRIDGE_HALF_WIDTH;
-    const leftA = addVertex(extendedA.x + nx * halfWidth, extendedA.z + nz * halfWidth);
-    const leftB = addVertex(extendedB.x + nx * halfWidth, extendedB.z + nz * halfWidth);
-    const rightB = addVertex(extendedB.x - nx * halfWidth, extendedB.z - nz * halfWidth);
-    const rightA = addVertex(extendedA.x - nx * halfWidth, extendedA.z - nz * halfWidth);
-    indices.push(leftA, leftB, rightB, leftA, rightB, rightA);
-  });
-
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geometry.setIndex(indices);
-  geometry.computeVertexNormals();
-  const mesh = new THREE.Mesh(geometry);
-  mesh.name = 'DungeonRecastNavigationSource';
-  return [mesh];
+  ];
 }
 
 function createDungeonNavigationGraph() {
@@ -1451,7 +1684,7 @@ function createDungeonBridge(scene, a, b, index = 0) {
       new THREE.BoxGeometry(0.12, 0.18, length + 0.7),
       railMaterial
     );
-    rail.position.set(side * 1.58, 0.33, 0);
+    rail.position.set(side * 1.58, 0.22, 0);
     group.add(rail);
   });
 
@@ -1660,7 +1893,7 @@ function createSnowLayer({
 
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geometry.setDrawRange(0, placed);
+  geometry.setDrawRange(0, count);
   const material = new THREE.PointsMaterial({
     color: '#dff2ff',
     size,
@@ -2131,9 +2364,7 @@ function createDungeonPillars(scene) {
   const pillarPositions = [
     { x: -15, z: 18, h: 2.2, broken: true },
     { x: 14, z: 15, h: 1.6, broken: true },
-    { x: -18, z: -6, h: 2.7, broken: false },
     { x: 22, z: -18, h: 2.1, broken: true },
-    { x: -6, z: -2, h: 1.9, broken: false },
     { x: 7, z: -23, h: 2.4, broken: true }
   ];
   pillarPositions.forEach((item) => {
@@ -2243,7 +2474,9 @@ function createDungeonCampfires(scene) {
 
 function createDesertDecor(scene, pathPoints) {
   const random = seededRandom(worldConfig().seed ?? 904);
-  createDesertShadeDiscs(scene);
+  worldConfig().sunlightShadeZones = [];
+  placeDesertSandstoneLandmarks(scene, pathPoints, random);
+  placeDesertSandstoneFields(scene, pathPoints, random);
   placeDesertLandmarkBoulders(scene, pathPoints);
   placeDesertBoulderClusters(scene, pathPoints, random);
   placeCacti(scene, pathPoints, random);
@@ -2299,6 +2532,196 @@ function placeDesertBoulderClusters(scene, pathPoints, random) {
       scene.add(rock);
     }
   });
+}
+
+function placeDesertSandstoneLandmarks(scene, pathPoints, random) {
+  (worldConfig().sandstoneLandmarks ?? []).forEach((item) => {
+    if (!isDesertSandstoneClear(item.x, item.z, 2.8)) return;
+    const landmark = item.kind === 'arch'
+      ? createLayeredSandstoneArch(item.span ?? 4.8, item.height ?? 4, item.radius ?? 1, random)
+      : item.kind === 'mesa'
+        ? createLayeredSandstoneMesa(item.radius ?? 3, item.height ?? 3.4, random)
+        : createLayeredSandstonePillar(item.radius ?? 1.1, item.height ?? 6, random);
+    registerDesertSunlightShade(
+      item.x,
+      item.z,
+      item.kind === 'arch' ? (item.span ?? 4.8) * 0.42 : item.radius ?? 1.4,
+      item.height ?? 4.8,
+      item.kind === 'mesa' ? 1.15 : 1
+    );
+    placeOnTerrain(landmark, item.x, item.z, -0.04);
+    landmark.rotation.y = item.rot ?? 0;
+    landmark.scale.x *= item.sx ?? 1;
+    landmark.scale.z *= item.sz ?? 1;
+    scene.add(landmark);
+  });
+}
+
+function placeDesertSandstoneFields(scene, pathPoints, random) {
+  (worldConfig().sandstoneFields ?? []).forEach((field) => {
+    for (let i = 0; i < field.count; i += 1) {
+      const point = randomPointInEllipse(field, random);
+      if (!isDesertSandstoneClear(point.x, point.z, field.clearance ?? 1.2)) continue;
+
+      const height = (field.minHeight ?? 2.2) +
+        random() * ((field.maxHeight ?? 6) - (field.minHeight ?? 2.2));
+      const radius = 0.62 + random() * 0.82 + height * 0.06;
+      const isMesa = random() < (field.mesaChance ?? 0.24);
+      const pillar = isMesa
+        ? createLayeredSandstoneMesa(radius * (1.35 + random() * 0.75), height * (0.55 + random() * 0.22), random)
+        : createLayeredSandstonePillar(radius, height, random);
+      registerDesertSunlightShade(
+        point.x,
+        point.z,
+        isMesa ? radius * 1.7 : radius,
+        height,
+        isMesa ? 1.12 : 1
+      );
+      placeOnTerrain(pillar, point.x, point.z, -0.04);
+      pillar.rotation.y = random() * Math.PI * 2;
+      pillar.scale.x *= 0.86 + random() * 0.34;
+      pillar.scale.z *= 0.82 + random() * 0.4;
+      scene.add(pillar);
+    }
+  });
+}
+
+function registerDesertSunlightShade(x, z, radius, height, scale = 1) {
+  const zones = worldConfig().sunlightShadeZones;
+  if (!Array.isArray(zones)) return;
+  const offsetX = DESERT_SHADOW_X_PER_HEIGHT * height;
+  const offsetZ = DESERT_SHADOW_Z_PER_HEIGHT * height;
+  zones.push({
+    x: x + offsetX * 0.42,
+    z: z + offsetZ * 0.42,
+    rx: Math.max(1.4, radius * 1.2 + height * 0.38) * scale,
+    rz: Math.max(0.65, radius * 0.72 + height * 0.12) * scale,
+    rot: Math.atan2(offsetZ, offsetX)
+  });
+}
+
+function isDesertSandstoneClear(x, z, clearance = 1.2) {
+  const config = worldConfig();
+  if (config.clearings.some((clearing) => Math.hypot(x - clearing.x, z - clearing.z) < clearing.r * 0.72)) {
+    return false;
+  }
+  if (isAltarClearing(x, z)) return false;
+  if (Math.hypot(x - config.playerBasePosition.x, z - config.playerBasePosition.z) < 8.8 + clearance) {
+    return false;
+  }
+  if (Math.hypot(x - config.enemyCampPosition.x, z - config.enemyCampPosition.z) < 7.2 + clearance) {
+    return false;
+  }
+  return true;
+}
+
+function createLayeredSandstonePillar(radius, height, random) {
+  const group = new THREE.Group();
+  const colors = ['#b95d3e', '#d27a4e', '#ecaa6b', '#8f4234', '#c76846'];
+  const bands = Math.max(8, Math.round(height * 2.2));
+  let y = 0;
+  for (let i = 0; i < bands; i += 1) {
+    const t = i / Math.max(1, bands - 1);
+    const bandHeight = height * (0.055 + random() * 0.045);
+    const waist = 0.48 + Math.sin(t * Math.PI * 2.35 + radius) * 0.12 + (random() - 0.5) * 0.16;
+    const capBias = Math.max(
+      0,
+      smoothstep(0.72, 1, t) * 0.68 +
+      smoothstep(0.08, 0, t) * 0.42
+    );
+    const bandRadius = radius * clamp(waist + capBias + random() * 0.1, 0.34, 1.75);
+    const meshBand = new THREE.Mesh(
+      new THREE.CylinderGeometry(
+        bandRadius * (0.92 + random() * 0.22),
+        bandRadius * (0.9 + random() * 0.24),
+        bandHeight,
+        8
+      ),
+      mat(colors[i % colors.length], { roughness: 0.98 })
+    );
+    meshBand.position.set(
+      (random() - 0.5) * radius * 0.18,
+      y + bandHeight * 0.5,
+      (random() - 0.5) * radius * 0.18
+    );
+    meshBand.rotation.y = random() * Math.PI * 2;
+    group.add(meshBand);
+    y += bandHeight * (0.82 + random() * 0.16);
+  }
+
+  const cap = new THREE.Mesh(
+    new THREE.CylinderGeometry(radius * 1.65, radius * 1.15, height * 0.16, 9),
+    mat('#f1b875', { roughness: 0.98 })
+  );
+  cap.position.y = y + height * 0.06;
+  cap.scale.z = 0.72 + random() * 0.22;
+  cap.rotation.y = random() * Math.PI * 2;
+  group.add(cap);
+
+  return enableDecorationShadows(group);
+}
+
+function createLayeredSandstoneArch(span, height, thickness, random) {
+  const group = new THREE.Group();
+  const left = createLayeredSandstonePillar(thickness * 0.68, height * 0.78, random);
+  const right = createLayeredSandstonePillar(thickness * 0.72, height * 0.74, random);
+  left.position.set(-span * 0.5, 0, 0);
+  right.position.set(span * 0.5, 0, 0.12);
+  left.scale.z = 0.78;
+  right.scale.z = 0.82;
+  group.add(left, right);
+
+  const colors = ['#9b4635', '#c56542', '#e18a54', '#efb06f'];
+  const slabCount = 5;
+  for (let i = 0; i < slabCount; i += 1) {
+    const t = i / Math.max(1, slabCount - 1);
+    const slab = new THREE.Mesh(
+      new THREE.BoxGeometry(
+        span + thickness * (1.15 + t * 0.32),
+        thickness * (0.18 + random() * 0.04),
+        thickness * (1.05 - t * 0.08)
+      ),
+      mat(colors[i % colors.length], { roughness: 0.98 })
+    );
+    slab.position.set(
+      (random() - 0.5) * thickness * 0.18,
+      height * (0.72 + t * 0.065),
+      (random() - 0.5) * thickness * 0.16
+    );
+    slab.rotation.y = (random() - 0.5) * 0.16;
+    slab.rotation.z = (random() - 0.5) * 0.06;
+    group.add(slab);
+  }
+
+  return enableDecorationShadows(group);
+}
+
+function createLayeredSandstoneMesa(radius, height, random) {
+  const group = new THREE.Group();
+  const colors = ['#9e4937', '#bd6242', '#e08a55', '#f0b775', '#c96b47'];
+  const layers = Math.max(5, Math.round(height * 1.7));
+  let y = 0;
+  for (let i = 0; i < layers; i += 1) {
+    const t = i / Math.max(1, layers - 1);
+    const layerHeight = height * (0.09 + random() * 0.055);
+    const layerRadius = radius * (1.08 - t * 0.34 + Math.sin(t * Math.PI * 3) * 0.08 + random() * 0.08);
+    const mesaLayer = new THREE.Mesh(
+      new THREE.CylinderGeometry(
+        layerRadius * (0.92 + random() * 0.16),
+        layerRadius * (0.96 + random() * 0.16),
+        layerHeight,
+        10
+      ),
+      mat(colors[i % colors.length], { roughness: 0.98 })
+    );
+    mesaLayer.position.y = y + layerHeight * 0.5;
+    mesaLayer.scale.z = 0.6 + random() * 0.24;
+    mesaLayer.rotation.y = random() * Math.PI * 2;
+    group.add(mesaLayer);
+    y += layerHeight * (0.84 + random() * 0.12);
+  }
+
+  return enableDecorationShadows(group);
 }
 
 function placeCacti(scene, pathPoints, random) {

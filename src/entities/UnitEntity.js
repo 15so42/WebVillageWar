@@ -31,6 +31,8 @@ export class UnitEntity {
     this.attackTimer = Math.random() * 0.25;
     this.hitStunTimer = 0;
     this.knockbackVelocity = new THREE.Vector3();
+    this.verticalVelocity = 0;
+    this.grounded = true;
     this.moveGoal = null;
     this.commandMoveGoal = null;
     this.controlMode = 'normal';
@@ -58,6 +60,7 @@ export class UnitEntity {
     this.statusElement = createUnitStatusElement(team);
     this.enchantHalo = createEnchantHalo();
     this.mesh.add(this.enchantHalo);
+    disableDynamicUnitShadows(this.mesh);
   }
 
   get position() {
@@ -280,6 +283,14 @@ function createEnchantHalo() {
   group.add(fire, thorns);
   group.visible = false;
   return group;
+}
+
+function disableDynamicUnitShadows(root) {
+  root.traverse((node) => {
+    if (!node.isMesh) return;
+    node.castShadow = false;
+    node.receiveShadow = false;
+  });
 }
 
 function refreshEnchantHalo(unit) {

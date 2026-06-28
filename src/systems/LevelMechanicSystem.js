@@ -112,13 +112,25 @@ export class LevelMechanicSystem {
   }
 
   isInShade(position, sunlight = this.config.sunlight ?? {}) {
-    const zones = sunlight.shadeZones ?? this.game.world?.config?.shadeZones ?? [];
+    const generatedZones = this.game.world?.config?.sunlightShadeZones ?? [];
+    const fallbackZones = generatedZones.length
+      ? []
+      : this.game.world?.config?.shadeZones ?? [];
+    const zones = [
+      ...generatedZones,
+      ...(sunlight.shadeZones ?? fallbackZones)
+    ];
     return zones.some((zone) => {
       const dx = position.x - zone.x;
       const dz = position.z - zone.z;
+      const rot = zone.rot ?? 0;
+      const cos = Math.cos(-rot);
+      const sin = Math.sin(-rot);
+      const localX = dx * cos - dz * sin;
+      const localZ = dx * sin + dz * cos;
       const rx = Math.max(0.1, zone.rx ?? zone.radius ?? 3);
       const rz = Math.max(0.1, zone.rz ?? zone.radius ?? rx);
-      return (dx * dx) / (rx * rx) + (dz * dz) / (rz * rz) <= 1;
+      return (localX * localX) / (rx * rx) + (localZ * localZ) / (rz * rz) <= 1;
     });
   }
 

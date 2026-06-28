@@ -36,6 +36,7 @@ export class CardSystem {
     this.ghost = document.querySelector('#drag-ghost');
     this.hand = document.querySelector('#card-hand');
     this.energyPanel = createEnergyPanel(this.hand);
+    this.energyParts = collectEnergyPanel(this.energyPanel);
     this.hintPanel = createGameHintPanel(this.energyPanel);
     this.hintOwner = null;
     this.activePileViewer = null;
@@ -774,19 +775,13 @@ export class CardSystem {
     this.lastRenderedEnergy = energyStep;
     this.lastRenderedProgress = progressStep;
     const filledEnergy = Math.floor(this.energy + 0.0001);
-    const cells = Array.from({ length: MAX_ENERGY }, (_, index) => {
-      const filledClass = index < filledEnergy ? ' is-filled' : '';
-      return `<span class="energy-cell${filledClass}"></span>`;
-    }).join('');
     this.energyPanel.style.setProperty('--energy-progress', `${progress * 100}%`);
-    this.energyPanel.innerHTML = `
-      <div class="energy-title">
-        <span>能量</span>
-        <strong>${formatEnergy(this.energy)}/${MAX_ENERGY}</strong>
-      </div>
-      <div class="energy-cells">${cells}</div>
-      <div class="energy-progress"><div class="energy-progress-fill"></div></div>
-    `;
+    if (this.energyParts?.value) {
+      this.energyParts.value.textContent = `${formatEnergy(this.energy)}/${MAX_ENERGY}`;
+    }
+    this.energyParts?.cells?.forEach((cell, index) => {
+      cell.classList.toggle('is-filled', index < filledEnergy);
+    });
   }
 
   flashEnergyPanel() {
@@ -1193,6 +1188,24 @@ function createEnergyPanel(hand) {
   panel.setAttribute('aria-label', 'energy');
   hand.before(panel);
   return panel;
+}
+
+function collectEnergyPanel(panel) {
+  if (!panel.querySelector('.energy-value')) {
+    const cells = Array.from({ length: MAX_ENERGY }, () => '<span class="energy-cell"></span>').join('');
+    panel.innerHTML = `
+      <div class="energy-title">
+        <span>能量</span>
+        <strong class="energy-value">0/${MAX_ENERGY}</strong>
+      </div>
+      <div class="energy-cells">${cells}</div>
+      <div class="energy-progress"><div class="energy-progress-fill"></div></div>
+    `;
+  }
+  return {
+    value: panel.querySelector('.energy-value'),
+    cells: [...panel.querySelectorAll('.energy-cell')]
+  };
 }
 
 function createGameHintPanel(anchor) {

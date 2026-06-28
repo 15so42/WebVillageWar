@@ -21,6 +21,23 @@ const STRUCTURE_PUSH_PADDING = 0.18;
 const ROUTE_REPATH_DISTANCE = 1.15;
 const ROUTE_REJOIN_DISTANCE = 2.2;
 const ROUTE_WAYPOINT_RADIUS = 0.38;
+const ROUTE_REPATH_COOLDOWN = 0.48;
+const ROUTE_BLOCKED_REPATH_COOLDOWN = 0.45;
+const ROUTE_REPATH_JITTER = 0.16;
+const ROUTE_STEERING_LOOKAHEAD_DISTANCE = 1.6;
+const ROUTE_RECOVERY_LOOKAHEAD_DISTANCE = 0.55;
+const NAV_LINE_RECHECK_COOLDOWN = 0.12;
+const NAV_LINE_RECHECK_DISTANCE = 0.55;
+const OFF_ROUTE_RECHECK_COOLDOWN = 0.18;
+const UNIT_GRAVITY = 28;
+const UNIT_MAX_FALL_SPEED = 18;
+const UNIT_CLIMB_SPEED = 3.4;
+const UNIT_MAX_SMOOTH_CLIMB_HEIGHT = 0.58;
+const UNIT_GROUND_EPSILON = 0.006;
+const INITIAL_ATTACK_WAVE_DELAY = 18;
+const MIN_ENEMY_WAVE_DELAY = 12;
+const EARLY_ENEMY_WAVE_DELAY = 24;
+const ENEMY_WAVE_DELAY_DECAY = 0.65;
 
 export class Game {
   constructor({ canvas, session = null, onLevelComplete = null } = {}) {
@@ -40,7 +57,7 @@ export class Game {
       canvas,
       antialias: true,
       alpha: false,
-      preserveDrawingBuffer: true
+      preserveDrawingBuffer: false
     });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
@@ -61,7 +78,7 @@ export class Game {
     this.enemyUnits = [];
     this.score = 0;
     this.wave = 1;
-    this.waveTimer = 12;
+    this.waveTimer = INITIAL_ATTACK_WAVE_DELAY;
     this.lastCardPlayed = null;
     this.selectedUnit = null;
     this.selectedUnits = [];
@@ -88,6 +105,8 @@ export class Game {
 
     this.world = createWorld(this.scene, this.worldConfig);
     this.navDebugEnabled = initialNavDebugEnabled();
+    this.perfDebugEnabled = initialPerfDebugEnabled();
+    this.perfTracker = this.perfDebugEnabled ? new PerfTracker() : null;
     this.navDebugGroup = new THREE.Group();
     this.navDebugGroup.name = 'NavDebug';
     this.navDebugGroup.visible = this.navDebugEnabled;
@@ -95,11 +114,14 @@ export class Game {
     this.navDebugRouteGroup.name = 'NavDebugRoutes';
     this.navDebugGroup.add(this.navDebugRouteGroup);
     this.navDebugGrid = null;
+    this.navDebugMesh = null;
+    this.navDebugTimer = 0;
+    this.hudUpdateTimer = 0;
     this.scene.add(this.navDebugGroup);
     this.playerBase.position.y = this.groundHeightAt(this.playerBase.position);
     setupStructureBody(this.playerBase, this.world.playerBaseModel, {
-      collisionRadius: 3.55,
-      attackRadius: 3.35
+      collisionRadius: 2.05,
+      attackRadius: 2.2
     });
     this.enemyCamp = createStructureState({
       id: 'enemy-camp',
@@ -223,25 +245,75 @@ export class Game {
     if (this.waveTimer <= 0 && this.playerBase.health > 0 && this.enemyCamp.alive) {
       this.wave += 1;
       this.spawnEnemyWave(this.wave, { orders: 'attack' });
-      this.waveTimer = Math.max(12, 18 - this.wave * 0.35);
+      this.waveTimer = nextEnemyWaveDelay(this.wave);
     }
-    this.cardSystem.update(dt);
-    this.combat.update(dt);
-    this.recovery.update(dt);
-    this.altars.update(dt);
-    this.levelMechanics.update(dt);
-    this.lootDrops.update(dt);
-    this.effects.update(dt);
-    this.updateStructureFeedback(dt);
-    this.updateCamera(dt);
-    this.world.update?.(dt, this.cameraTarget);
-    this.updateSelection();
-    this.updateGuardVisuals(dt);
-    this.updateUnitVisuals(dt);
-    this.updateNavDebug();
-    this.updateHud();
-    this.renderer.render(this.scene, this.camera);
+    const perf = this.perfTracker;
+    if (perf) {
+      perf.beginFrame(dt);
+      this.measurePerf('card', () => this.cardSystem.update(dt));
+      this.measurePerf('combat', () => this.combat.update(dt));
+      this.measurePerf('recovery', () => this.recovery.update(dt));
+      this.measurePerf('altars', () => this.altars.update(dt));
+      this.measurePerf('mechanics', () => this.levelMechanics.update(dt));
+      this.measurePerf('loot', () => this.lootDrops.update(dt));
+      this.measurePerf('effects', () => this.effects.update(dt));
+      this.measurePerf('structure', () => this.updateStructureFeedback(dt));
+      this.measurePerf('camera', () => this.updateCamera(dt));
+      this.measurePerf('world', () => this.world.update?.(dt, this.cameraTarget));
+      this.measurePerf('selection', () => this.updateSelection());
+      this.measurePerf('guardVisuals', () => this.updateGuardVisuals(dt));
+      this.measurePerf('unitVisuals', () => this.updateUnitVisuals(dt));
+      this.measurePerf('navDebug', () => this.updateNavDebug(dt));
+      this.measurePerf('hud', () => this.updateHud(dt));
+      this.measurePerf('render', () => this.renderer.render(this.scene, this.camera));
+      perf.endFrame(this.createPerfCounters({ takeNavStats: true }));
+    } else {
+      this.cardSystem.update(dt);
+      this.combat.update(dt);
+      this.recovery.update(dt);
+      this.altars.update(dt);
+      this.levelMechanics.update(dt);
+      this.lootDrops.update(dt);
+      this.effects.update(dt);
+      this.updateStructureFeedback(dt);
+      this.updateCamera(dt);
+      this.world.update?.(dt, this.cameraTarget);
+      this.updateSelection();
+      this.updateGuardVisuals(dt);
+      this.updateUnitVisuals(dt);
+      this.updateNavDebug(dt);
+      this.updateHud(dt);
+      this.renderer.render(this.scene, this.camera);
+    }
     this.checkLevelEnd();
+  }
+
+  measurePerf(name, action) {
+    const startedAt = performance.now();
+    const result = action();
+    this.perfTracker?.add(name, performance.now() - startedAt);
+    return result;
+  }
+
+  createPerfCounters({ takeNavStats = false } = {}) {
+    const navGrid = this.world?.navGrid;
+    const rendererInfo = this.renderer.info;
+    return {
+      friendly: this.friendlyUnits.length,
+      enemies: this.enemyUnits.length,
+      effects: this.effects?.effects?.length ?? 0,
+      projectiles: this.combat?.projectiles?.length ?? 0,
+      pendingAttacks: this.combat?.pendingAttacks?.length ?? 0,
+      navDistanceCache: this.combat?.navDistanceCache?.size ?? 0,
+      sceneChildren: this.scene.children.length,
+      rendererGeometries: rendererInfo?.memory?.geometries ?? 0,
+      rendererTextures: rendererInfo?.memory?.textures ?? 0,
+      renderCalls: rendererInfo?.render?.calls ?? 0,
+      triangles: rendererInfo?.render?.triangles ?? 0,
+      nav: takeNavStats
+        ? navGrid?.takeStats?.() ?? null
+        : navGrid?.stats ? { ...navGrid.stats } : null
+    };
   }
 
   resize() {
@@ -559,12 +631,45 @@ export class Game {
 
   placeUnitOnGround(unit, dt = 0) {
     const groundY = this.groundHeightAt(unit.position);
-    if (dt <= 0) {
+    if (dt <= 0 || !Number.isFinite(unit.verticalVelocity)) {
       unit.position.y = groundY;
+      unit.verticalVelocity = 0;
+      unit.grounded = true;
       return;
     }
-    const maxStep = 8 * dt;
-    unit.position.y += clamp(groundY - unit.position.y, -maxStep, maxStep);
+
+    const groundOffset = groundY - unit.position.y;
+    if (groundOffset > UNIT_GROUND_EPSILON) {
+      if (groundOffset > UNIT_MAX_SMOOTH_CLIMB_HEIGHT) {
+        unit.position.y = groundY;
+      } else {
+        unit.position.y += Math.min(groundOffset, UNIT_CLIMB_SPEED * dt);
+      }
+      unit.verticalVelocity = 0;
+      unit.grounded = true;
+      return;
+    }
+
+    if (groundOffset >= -UNIT_GROUND_EPSILON) {
+      unit.position.y = groundY;
+      unit.verticalVelocity = 0;
+      unit.grounded = true;
+      return;
+    }
+
+    unit.verticalVelocity = Math.max(
+      (unit.verticalVelocity ?? 0) - UNIT_GRAVITY * dt,
+      -UNIT_MAX_FALL_SPEED
+    );
+    unit.position.y += unit.verticalVelocity * dt;
+
+    if (unit.position.y <= groundY + UNIT_GROUND_EPSILON) {
+      unit.position.y = groundY;
+      unit.verticalVelocity = 0;
+      unit.grounded = true;
+    } else {
+      unit.grounded = false;
+    }
   }
 
   isPointWalkable(point, options = {}) {
@@ -580,6 +685,15 @@ export class Game {
       return false;
     }
 
+    if (
+      !options.allowUnsafeSurface &&
+      !options.allowOffNavigation &&
+      this.world?.isWalkable &&
+      !this.world.isWalkable(point)
+    ) {
+      return false;
+    }
+
     return !this.getStructureCollision(point);
   }
 
@@ -587,8 +701,11 @@ export class Game {
     return this.world?.isSafeSurface?.(point) ?? true;
   }
 
+  isPointOnNavigationSurface(point) {
+    return this.world?.isWalkable?.(point) ?? true;
+  }
+
   hasSafeSurfaceLine(start, end) {
-    if (this.world?.config?.theme !== 'dungeon') return true;
     if (!start || !end) return true;
     if (this.world?.hasNavigationLine) {
       return this.world.hasNavigationLine(start, end);
@@ -607,17 +724,40 @@ export class Game {
   }
 
   safeSurfaceWaypointToward(position, targetPosition, unit = null, desiredDistance = 0.22) {
-    if (this.world?.config?.theme !== 'dungeon') return null;
-    return this.navGridWaypointToward(position, targetPosition, unit, desiredDistance);
+    return this.safeSurfaceSteeringToward(position, targetPosition, unit, desiredDistance)?.debugTarget ?? null;
+  }
+
+  safeSurfaceSteeringToward(position, targetPosition, unit = null, desiredDistance = 0.22) {
+    if (!this.world?.navGrid) return null;
+    return this.navGridSteeringToward(position, targetPosition, unit, desiredDistance);
   }
 
   navGridWaypointToward(position, targetPosition, unit = null, desiredDistance = 0.22) {
+    return this.navGridSteeringToward(position, targetPosition, unit, desiredDistance)?.debugTarget ?? null;
+  }
+
+  navGridSteeringToward(position, targetPosition, unit = null, desiredDistance = 0.22) {
     if (!this.world?.findPath || !position || !targetPosition) return null;
+    const startsOnNavigation = this.isPointOnNavigationSurface(position);
+    const hasDirectNavigationLine = startsOnNavigation &&
+      this.hasNavigationLineForUnit(unit, position, targetPosition);
     if (!unit) {
-      const path = this.world.findPath(position, targetPosition, { smooth: false });
-      const waypoint = path[0]?.clone?.();
-      if (!waypoint) return null;
-      return waypoint;
+      if (hasDirectNavigationLine) {
+        return steeringFromRoute(position, targetPosition, [targetPosition], {
+          desiredDistance,
+          startsOnNavigation
+        });
+      }
+      const path = this.world.findPath(position, targetPosition, {
+        smooth: false,
+        startRequireLine: startsOnNavigation,
+        startAllowLooseFallback: true,
+        endRequireLine: false
+      });
+      return steeringFromRoute(position, targetPosition, path, {
+        desiredDistance,
+        startsOnNavigation
+      });
     }
 
     const targetChanged = !unit.routeTarget ||
@@ -625,18 +765,37 @@ export class Game {
     const currentWaypoint = Array.isArray(unit.route)
       ? unit.route[unit.routeIndex ?? 0]
       : null;
-    const offRoute = currentWaypoint &&
-      flatDistance(unit.position, currentWaypoint) > ROUTE_REJOIN_DISTANCE &&
-      !this.world.hasNavigationLine?.(unit.position, currentWaypoint);
-    const needsRoute = targetChanged ||
+    const offRoute = currentWaypoint && this.isUnitOffRoute(unit, currentWaypoint);
+    const needsRoute = !hasDirectNavigationLine && (
+      targetChanged ||
       !Array.isArray(unit.route) ||
       unit.route.length === 0 ||
-      offRoute;
+      offRoute
+    );
+
+    if (hasDirectNavigationLine) {
+      this.clearUnitRoute(unit);
+      const steering = steeringFromRoute(position, targetPosition, [targetPosition], {
+        desiredDistance,
+        startsOnNavigation
+      });
+      unit.navSteeringTarget = steering?.debugTarget?.clone?.() ?? null;
+      return steering;
+    }
 
     if (needsRoute) {
-      unit.route = this.world.findPath(position, targetPosition, { smooth: false });
-      unit.routeIndex = 0;
-      unit.routeTarget = new THREE.Vector3(targetPosition.x, 0, targetPosition.z);
+      const canRepath = (unit.nextRouteRepathAt ?? 0) <= this.elapsedTime;
+      if (canRepath) {
+        unit.route = this.world.findPath(position, targetPosition, {
+          smooth: false,
+          startRequireLine: startsOnNavigation,
+          startAllowLooseFallback: true,
+          endRequireLine: false
+        });
+        unit.routeIndex = 0;
+        unit.routeTarget = new THREE.Vector3(targetPosition.x, 0, targetPosition.z);
+        unit.nextRouteRepathAt = this.elapsedTime + routeRepathCooldown(unit, ROUTE_REPATH_COOLDOWN);
+      }
     }
 
     if (!Array.isArray(unit.route) || unit.route.length === 0) return null;
@@ -644,21 +803,75 @@ export class Game {
     let index = clamp(unit.routeIndex ?? 0, 0, unit.route.length - 1);
     while (
       index < unit.route.length - 1 &&
-      flatDistance(position, unit.route[index]) <= ROUTE_WAYPOINT_RADIUS
+      (
+        flatDistance(position, unit.route[index]) <= ROUTE_WAYPOINT_RADIUS ||
+        flatDistance(position, unit.route[index + 1]) < flatDistance(position, unit.route[index])
+      )
     ) {
       index += 1;
     }
     unit.routeIndex = index;
 
-    const waypoint = unit.route[index]?.clone?.();
-    if (!waypoint) return null;
-    if (index === unit.route.length - 1 && flatDistance(position, waypoint) <= desiredDistance) {
-      return null;
+    const steering = steeringFromRoute(
+      position,
+      targetPosition,
+      unit.route.slice(index),
+      {
+        desiredDistance,
+        startsOnNavigation
+      }
+    );
+    if (steering?.debugTarget) {
+      unit.navSteeringTarget = steering.debugTarget.clone();
+    } else {
+      unit.navSteeringTarget = null;
     }
-    const steeringTarget = waypoint;
-    steeringTarget.y = 0;
-    unit.navSteeringTarget = steeringTarget.clone();
-    return steeringTarget;
+    return steering;
+  }
+
+  hasNavigationLineForUnit(unit, position, targetPosition) {
+    if (!this.world?.hasNavigationLine) return false;
+    if (!unit) return this.world.hasNavigationLine(position, targetPosition);
+
+    const targetChanged = !unit.navDirectLineTarget ||
+      flatDistance(unit.navDirectLineTarget, targetPosition) > NAV_LINE_RECHECK_DISTANCE;
+    const positionChanged = !unit.navDirectLinePosition ||
+      flatDistance(unit.navDirectLinePosition, position) > NAV_LINE_RECHECK_DISTANCE;
+    const shouldCheck = targetChanged ||
+      positionChanged ||
+      (unit.nextNavDirectLineCheckAt ?? 0) <= this.elapsedTime;
+
+    if (shouldCheck) {
+      unit.hasNavDirectLine = this.world.hasNavigationLine(position, targetPosition);
+      unit.nextNavDirectLineCheckAt = this.elapsedTime + NAV_LINE_RECHECK_COOLDOWN;
+      unit.navDirectLineTarget = new THREE.Vector3(targetPosition.x, 0, targetPosition.z);
+      unit.navDirectLinePosition = new THREE.Vector3(position.x, 0, position.z);
+    }
+    return unit.hasNavDirectLine === true;
+  }
+
+  isUnitOffRoute(unit, waypoint) {
+    if (!unit || !waypoint) return false;
+    if (flatDistance(unit.position, waypoint) <= ROUTE_REJOIN_DISTANCE) {
+      unit.isOffRoute = false;
+      return false;
+    }
+
+    const waypointChanged = !unit.offRouteCheckTarget ||
+      flatDistance(unit.offRouteCheckTarget, waypoint) > NAV_LINE_RECHECK_DISTANCE;
+    const positionChanged = !unit.offRouteCheckPosition ||
+      flatDistance(unit.offRouteCheckPosition, unit.position) > NAV_LINE_RECHECK_DISTANCE;
+    const shouldCheck = waypointChanged ||
+      positionChanged ||
+      (unit.nextOffRouteCheckAt ?? 0) <= this.elapsedTime;
+
+    if (shouldCheck) {
+      unit.isOffRoute = !this.world.hasNavigationLine?.(unit.position, waypoint);
+      unit.nextOffRouteCheckAt = this.elapsedTime + OFF_ROUTE_RECHECK_COOLDOWN;
+      unit.offRouteCheckTarget = waypoint.clone?.() ?? new THREE.Vector3(waypoint.x, 0, waypoint.z);
+      unit.offRouteCheckPosition = new THREE.Vector3(unit.position.x, 0, unit.position.z);
+    }
+    return unit.isOffRoute === true;
   }
 
   clearUnitRoute(unit) {
@@ -668,6 +881,16 @@ export class Game {
     unit.routeTarget = null;
     unit.navSteeringTarget = null;
     unit.navMoveTarget = null;
+    unit.nextRouteRepathAt = 0;
+  }
+
+  requestUnitRouteRepath(unit, delay = ROUTE_BLOCKED_REPATH_COOLDOWN) {
+    if (!unit) return;
+    unit.route = null;
+    unit.routeIndex = null;
+    unit.routeTarget = null;
+    unit.navSteeringTarget = null;
+    unit.nextRouteRepathAt = this.elapsedTime + routeRepathCooldown(unit, delay);
   }
 
   getBlockingStructures() {
@@ -714,7 +937,35 @@ export class Game {
     resolved.x = clamp(resolved.x, -BALANCE.battlefield.halfWidth, BALANCE.battlefield.halfWidth);
     resolved.z = clamp(resolved.z, BALANCE.battlefield.minZ, BALANCE.battlefield.maxZ);
     resolved.y = this.groundHeightAt(resolved);
-    return resolved;
+    return this.isPointWalkable(resolved)
+      ? resolved
+      : this.resolveNearestNavigationPoint(resolved, { maxRings: 14, requireSafeSurface: false }) ?? resolved;
+  }
+
+  resolveCommandPoint(point) {
+    if (!point) return null;
+    point.y = this.groundHeightAt(point);
+    if (this.isPointWalkable(point)) return point;
+    return this.resolveNearestNavigationPoint(point, {
+      maxRings: 14,
+      requireSafeSurface: true
+    });
+  }
+
+  resolveNearestNavigationPoint(point, {
+    maxRings = 12,
+    requireSafeSurface = true
+  } = {}) {
+    if (!this.world?.navGrid?.nearestWalkableCell || !this.world?.navGrid?.cellCenter) return null;
+    if (requireSafeSurface && !this.isPointOnSafeSurface(point)) return null;
+
+    const cell = this.world.navGrid.nearestWalkableCell(point, maxRings, {
+      requireLine: false
+    });
+    if (!cell) return null;
+    const snapped = this.world.navGrid.cellCenter(cell.x, cell.z);
+    snapped.y = this.groundHeightAt(snapped);
+    return this.isPointWalkable(snapped) ? snapped : null;
   }
 
   updateStructureFeedback(dt) {
@@ -1139,9 +1390,7 @@ export class Game {
       const terrainHit = this.raycaster.intersectObject(this.world.ground, false)[0];
       if (terrainHit?.point) {
         const point = terrainHit.point.clone();
-        point.y = this.groundHeightAt(point);
-        if (!this.isPointWalkable(point)) return null;
-        return point;
+        return this.resolveCommandPoint(point);
       }
     }
 
@@ -1149,9 +1398,7 @@ export class Game {
     if (!this.raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), point)) {
       return null;
     }
-    point.y = this.groundHeightAt(point);
-    if (!this.isPointWalkable(point)) return null;
-    return point;
+    return this.resolveCommandPoint(point);
   }
 
   updateSelection() {
@@ -1222,41 +1469,54 @@ export class Game {
     if (this.navDebugGroup) {
       this.navDebugGroup.visible = this.navDebugEnabled;
     }
-    try {
-      window.localStorage?.setItem('villageWar.navDebug', this.navDebugEnabled ? '1' : '0');
-    } catch {
-      // Ignore private-mode storage failures.
-    }
     if (this.navDebugEnabled) {
       this.ensureNavDebugGrid();
     }
   }
 
   ensureNavDebugGrid() {
-    if (this.navDebugGrid || !this.world?.navGrid || !this.navDebugGroup) return;
-    const positions = [];
-    const debugPoints = this.world.navGrid.debugPoints ?? [];
-    debugPoints.forEach((point) => {
-      positions.push(point.x, this.groundHeightAt(point) + 0.08, point.z);
-    });
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    const material = new THREE.PointsMaterial({
-      color: '#57f2ff',
-      size: 0.08,
-      transparent: true,
-      opacity: 0.42,
-      depthWrite: false
-    });
-    this.navDebugGrid = new THREE.Points(geometry, material);
-    this.navDebugGrid.name = 'NavDebugGrid';
-    this.navDebugGrid.renderOrder = 12;
-    this.navDebugGroup.add(this.navDebugGrid);
+    if (!this.world?.navGrid || !this.navDebugGroup) return;
+    this.world.navGrid.ensureDebugGeometry?.();
+
+    if (!this.navDebugMesh) {
+      this.navDebugMesh = createNavDebugMesh(
+        this.world.navGrid.debugLines,
+        (point) => this.groundHeightAt(point)
+      );
+      if (this.navDebugMesh) {
+        this.navDebugGroup.add(this.navDebugMesh);
+      }
+    }
+
+    if (!this.navDebugGrid) {
+      const positions = [];
+      const debugPoints = this.world.navGrid.debugPoints ?? [];
+      debugPoints.forEach((point) => {
+        positions.push(point.x, this.groundHeightAt(point) + 0.08, point.z);
+      });
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      const material = new THREE.PointsMaterial({
+        color: '#57f2ff',
+        size: 0.08,
+        transparent: true,
+        opacity: 0.42,
+        depthWrite: false,
+        depthTest: false
+      });
+      this.navDebugGrid = new THREE.Points(geometry, material);
+      this.navDebugGrid.name = 'NavDebugGrid';
+      this.navDebugGrid.renderOrder = 1001;
+      this.navDebugGroup.add(this.navDebugGrid);
+    }
   }
 
-  updateNavDebug() {
+  updateNavDebug(dt = 0) {
     if (!this.navDebugEnabled || !this.navDebugGroup) return;
     this.ensureNavDebugGrid();
+    this.navDebugTimer -= dt;
+    if (this.navDebugTimer > 0) return;
+    this.navDebugTimer = 0.12;
     clearObjectChildren(this.navDebugRouteGroup);
 
     const units = this.selectedUnits.filter((unit) => unit.alive);
@@ -1303,6 +1563,7 @@ export class Game {
     this.navDebugGroup = null;
     this.navDebugRouteGroup = null;
     this.navDebugGrid = null;
+    this.navDebugMesh = null;
   }
 
   updateUnitVisuals(dt) {
@@ -1344,7 +1605,11 @@ export class Game {
     element.style.transform = `translate3d(${screen.x}px, ${screen.y}px, 0) translate(-50%, -100%)`;
   }
 
-  updateHud() {
+  updateHud(dt = 0) {
+    this.hudUpdateTimer -= dt;
+    if (this.hudUpdateTimer > 0) return;
+    this.hudUpdateTimer = 0.1;
+
     const baseRatio = Math.round(
       (this.playerBase.health / this.playerBase.maxHealth) * 100
     );
@@ -1374,7 +1639,23 @@ export class Game {
       this.dom.selectedStats.textContent = 'HP - / 武器 -';
       this.dom.selectedEnchants.textContent = '附魔 -';
     }
-    this.dom.debug.textContent = JSON.stringify(this.snapshot());
+    if (this.perfDebugEnabled && this.dom.debug) {
+      this.dom.debug.hidden = false;
+      this.dom.debug.textContent = JSON.stringify(this.perfDebugSnapshot());
+    } else if (this.dom.debug && !this.dom.debug.hidden) {
+      this.dom.debug.textContent = JSON.stringify(this.snapshot());
+    }
+  }
+
+  perfDebugSnapshot() {
+    return {
+      level: this.levelSession.level.id,
+      sceneKey: this.world.config?.sceneKey ?? this.worldConfig.sceneKey,
+      elapsedTime: Number(this.elapsedTime.toFixed(1)),
+      wave: this.wave,
+      counts: this.createPerfCounters(),
+      perf: this.perfTracker?.snapshot() ?? null
+    };
   }
 
   snapshot() {
@@ -1589,14 +1870,195 @@ function flatDistance(a, b) {
   return Math.hypot(a.x - b.x, a.z - b.z);
 }
 
+function routeRepathCooldown(unit, baseDelay) {
+  const id = Number.isFinite(unit?.id) ? unit.id : 0;
+  const jitter = ((id * 37) % 100) / 100 * ROUTE_REPATH_JITTER;
+  return Math.max(0, baseDelay) + jitter;
+}
+
+function nextEnemyWaveDelay(wave) {
+  return Math.max(
+    MIN_ENEMY_WAVE_DELAY,
+    EARLY_ENEMY_WAVE_DELAY - wave * ENEMY_WAVE_DELAY_DECAY
+  );
+}
+
+function steeringFromRoute(position, targetPosition, route, {
+  desiredDistance = 0.22,
+  startsOnNavigation = true
+} = {}) {
+  if (!Array.isArray(route) || route.length === 0) return null;
+  if (flatDistance(position, targetPosition) <= desiredDistance) return null;
+
+  const lookaheadDistance = startsOnNavigation
+    ? ROUTE_STEERING_LOOKAHEAD_DISTANCE
+    : ROUTE_RECOVERY_LOOKAHEAD_DISTANCE;
+  const debugTarget = routeLookaheadPoint(position, route, lookaheadDistance);
+  if (!debugTarget) return null;
+
+  const dx = debugTarget.x - position.x;
+  const dz = debugTarget.z - position.z;
+  const length = Math.hypot(dx, dz);
+  if (length < 0.001) return null;
+
+  return {
+    direction: new THREE.Vector3(dx / length, 0, dz / length),
+    debugTarget
+  };
+}
+
+function routeLookaheadPoint(position, route, lookaheadDistance) {
+  let anchor = position;
+  let remaining = Math.max(0.05, lookaheadDistance);
+  let last = null;
+
+  for (const point of route) {
+    const distance = flatDistance(anchor, point);
+    if (distance < 0.001) {
+      anchor = point;
+      last = point;
+      continue;
+    }
+
+    if (distance >= remaining) {
+      const t = remaining / distance;
+      return new THREE.Vector3(
+        anchor.x + (point.x - anchor.x) * t,
+        0,
+        anchor.z + (point.z - anchor.z) * t
+      );
+    }
+
+    remaining -= distance;
+    anchor = point;
+    last = point;
+  }
+
+  return last?.clone?.() ?? null;
+}
+
 function initialNavDebugEnabled() {
   try {
     const params = new URLSearchParams(window.location.search);
     if (params.has('navdebug')) return params.get('navdebug') !== '0';
-    return window.localStorage?.getItem('villageWar.navDebug') === '1';
+    return false;
   } catch {
     return false;
   }
+}
+
+function initialPerfDebugEnabled() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('perfdebug')) return params.get('perfdebug') !== '0';
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+class PerfTracker {
+  constructor() {
+    this.interval = 1;
+    this.lastSnapshot = null;
+    this.resetWindow();
+  }
+
+  resetWindow() {
+    this.elapsed = 0;
+    this.frames = 0;
+    this.sections = new Map();
+    this.nav = {
+      findPath: 0,
+      pathDistance: 0,
+      hasLine: 0,
+      nearestWalkableCell: 0,
+      expandedCells: 0
+    };
+    this.counts = null;
+    this.frameStartedAt = 0;
+  }
+
+  beginFrame(dt) {
+    this.elapsed += dt;
+    this.frames += 1;
+    this.frameStartedAt = performance.now();
+  }
+
+  add(name, ms) {
+    const stat = this.sections.get(name) ?? {
+      total: 0,
+      max: 0,
+      count: 0
+    };
+    stat.total += ms;
+    stat.max = Math.max(stat.max, ms);
+    stat.count += 1;
+    this.sections.set(name, stat);
+  }
+
+  endFrame(counters = {}) {
+    if (this.frameStartedAt > 0) {
+      this.add('frame', performance.now() - this.frameStartedAt);
+      this.frameStartedAt = 0;
+    }
+    if (counters.nav) {
+      Object.keys(this.nav).forEach((key) => {
+        this.nav[key] += counters.nav[key] ?? 0;
+      });
+    }
+    this.counts = {
+      ...counters,
+      nav: undefined
+    };
+    if (this.elapsed < this.interval) return;
+
+    this.lastSnapshot = {
+      fps: roundPerf(this.frames / Math.max(0.001, this.elapsed)),
+      seconds: roundPerf(this.elapsed),
+      sections: this.sectionSnapshot(),
+      counts: {
+        ...this.counts,
+        nav: this.navSnapshot()
+      }
+    };
+    this.resetWindow();
+  }
+
+  sectionSnapshot() {
+    const sections = {};
+    this.sections.forEach((stat, name) => {
+      sections[name] = {
+        avgMs: roundPerf(stat.total / Math.max(1, stat.count)),
+        maxMs: roundPerf(stat.max)
+      };
+    });
+    return sections;
+  }
+
+  navSnapshot() {
+    const perSecond = 1 / Math.max(0.001, this.elapsed);
+    return {
+      findPath: this.nav.findPath,
+      pathDistance: this.nav.pathDistance,
+      hasLine: this.nav.hasLine,
+      nearestWalkableCell: this.nav.nearestWalkableCell,
+      expandedCells: this.nav.expandedCells,
+      findPathPerSecond: roundPerf(this.nav.findPath * perSecond),
+      hasLinePerSecond: roundPerf(this.nav.hasLine * perSecond),
+      expandedCellsPerSecond: roundPerf(this.nav.expandedCells * perSecond)
+    };
+  }
+
+  snapshot() {
+    return this.lastSnapshot ?? {
+      warmingUp: true
+    };
+  }
+}
+
+function roundPerf(value) {
+  return Number(value.toFixed(2));
 }
 
 function createDebugLine(points, color, opacity = 0.8) {
@@ -1607,13 +2069,14 @@ function createDebugLine(points, color, opacity = 0.8) {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   const material = new THREE.LineBasicMaterial({
-    color,
-    transparent: true,
-    opacity,
-    depthWrite: false
-  });
+      color,
+      transparent: true,
+      opacity,
+      depthWrite: false,
+      depthTest: false
+    });
   const line = new THREE.Line(geometry, material);
-  line.renderOrder = 14;
+  line.renderOrder = 1002;
   return line;
 }
 
@@ -1624,12 +2087,42 @@ function createDebugMarker(point, color, radius = 0.14) {
       color,
       transparent: true,
       opacity: 0.86,
-      depthWrite: false
+      depthWrite: false,
+      depthTest: false
     })
   );
   marker.position.set(point.x, (point.y ?? 0) + 0.32, point.z);
-  marker.renderOrder = 15;
+  marker.renderOrder = 1003;
   return marker;
+}
+
+function createNavDebugMesh(debugLines, heightAt) {
+  if (!debugLines?.positions?.length) return null;
+  const positions = new Float32Array(debugLines.positions.length);
+  for (let i = 0; i < debugLines.positions.length; i += 3) {
+    const x = debugLines.positions[i];
+    const y = debugLines.positions[i + 1];
+    const z = debugLines.positions[i + 2];
+    positions[i] = x;
+    positions[i + 1] = (Number.isFinite(y) ? y : heightAt({ x, z })) + 0.16;
+    positions[i + 2] = z;
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  const lines = new THREE.LineSegments(
+    geometry,
+    new THREE.LineBasicMaterial({
+      color: '#8ffff3',
+      transparent: true,
+      opacity: 0.62,
+      depthWrite: false,
+      depthTest: false
+    })
+  );
+  lines.name = 'NavDebugMesh';
+  lines.renderOrder = 1000;
+  return lines;
 }
 
 function clearObjectChildren(object) {
