@@ -50,6 +50,10 @@ export class ModifierSystem {
     return this.getAttribute(unit, 'projectileSpeed', unit.definition.projectileSpeed ?? 0);
   }
 
+  getDodgeChance(unit) {
+    return clamp01(this.getAttribute(unit, 'dodgeChance', unit?.definition?.dodgeChance ?? 0));
+  }
+
   getMaxDurability(unit) {
     return this.getAttribute(unit, 'maxDurability', unit.definition.weapon.maxDurability);
   }

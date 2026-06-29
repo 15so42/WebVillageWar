@@ -48,7 +48,13 @@ export class CombatSystem {
     if (!unit.alive) return;
     unit.visualState = 'idle';
     unit.attackTimer -= dt;
+    this.tickAbilityCooldowns(unit, dt);
     unit.hitStunTimer = Math.max(0, unit.hitStunTimer - dt);
+
+    if (unit.underConstruction) {
+      this.applyMotion(unit, dt);
+      return;
+    }
 
     if (unit.hitStunTimer > 0) {
       this.applyMotion(unit, dt);
@@ -102,6 +108,10 @@ export class CombatSystem {
       const targetDistance = this.attackDistance(unit, targetPosition);
       const targetRadius = targetCombatRadius(target);
       const attackRange = this.game.modifiers.getAttackRange(unit);
+      if (this.tryRangedWeaponAbility(unit, target, targetDistance, targetRadius)) {
+        this.applyMotion(unit, dt);
+        return;
+      }
       if (targetDistance <= attackRange + targetRadius) {
         this.face(unit, targetPosition, dt);
         this.tryAttack(unit, target);
@@ -179,22 +189,29 @@ export class CombatSystem {
         }
 
         const overlap = minDistance - distance;
-        const push = Math.min(overlap * 0.5, maxPush);
+        const aStatic = a.isBuilding || a.definition.canMove === false;
+        const bStatic = b.isBuilding || b.definition.canMove === false;
+        if (aStatic && bStatic) continue;
+        const push = Math.min(overlap * (aStatic || bStatic ? 1 : 0.5), maxPush);
         const ax = a.position.x;
         const az = a.position.z;
         const bx = b.position.x;
         const bz = b.position.z;
-        a.position.x += nx * push;
-        a.position.z += nz * push;
-        b.position.x -= nx * push;
-        b.position.z -= nz * push;
+        if (!aStatic) {
+          a.position.x += nx * push;
+          a.position.z += nz * push;
+        }
+        if (!bStatic) {
+          b.position.x -= nx * push;
+          b.position.z -= nz * push;
+        }
         this.clampToBattlefield(a);
         this.clampToBattlefield(b);
-        if (!this.game.isPointWalkable(a.position)) {
+        if (!aStatic && !this.game.isPointWalkable(a.position)) {
           a.position.x = ax;
           a.position.z = az;
         }
-        if (!this.game.isPointWalkable(b.position)) {
+        if (!bStatic && !this.game.isPointWalkable(b.position)) {
           b.position.x = bx;
           b.position.z = bz;
         }
@@ -212,6 +229,9 @@ export class CombatSystem {
     }
     if (support.shield) {
       this.updateShieldAbility(unit, support.shield, dt);
+    }
+    if (support.repairAura) {
+      this.updateRepairAura(unit, support.repairAura, dt);
     }
   }
 
@@ -314,6 +334,90 @@ export class CombatSystem {
     });
   }
 
+  tickAbilityCooldowns(unit, dt) {
+    if (!unit.abilityCooldowns?.size) return;
+    unit.abilityCooldowns.forEach((remaining, key) => {
+      unit.abilityCooldowns.set(key, Math.max(0, remaining - dt));
+    });
+  }
+
+  updateRepairAura(unit, ability, dt) {
+    const key = 'repairAura';
+    const cooldown = Math.max(0.1, ability.tickInterval ?? 1);
+    const remaining = this.tickSupportCooldown(unit, key, ability, cooldown, dt);
+    if (remaining > 0) return;
+
+    const targets = this.findRepairAuraTargets(unit, ability);
+    if (!targets.length) {
+      unit.supportCooldowns.set(key, Math.min(0.5, cooldown));
+      return;
+    }
+
+    const amount = Math.max(0, ability.amount ?? 0);
+    let restoredTotal = 0;
+    targets.forEach((target) => {
+      const restored = target.restoreDurability?.(amount) ?? 0;
+      restoredTotal += restored;
+      if (restored > 0.01) {
+        this.game.effects.spawnRing(target.position, '#9dd8ff', 0.42, 0.28);
+      }
+    });
+
+    if (restoredTotal > 0.01) {
+      unit.supportCooldowns.set(key, cooldown);
+      this.game.effects.spawnRing(unit.position, '#9dd8ff', 0.66, 0.44);
+      this.game.effects.spawnDamageNumber(unit.position, 1, {
+        text: `修缮+${formatSupportAmount(restoredTotal)}`,
+        color: '#dff8ff',
+        stroke: '#12303a',
+        height: unit.projectileHitHeight ?? 1.55,
+        duration: 0.72,
+        fontSize: 78,
+        baseHeight: 0.48,
+        fadeStart: 0.62
+      });
+    } else {
+      unit.supportCooldowns.set(key, 0.25);
+    }
+  }
+
+  tryRangedWeaponAbility(unit, target, targetDistance, targetRadius = 0) {
+    const ability = unit.definition.weaponAbility?.rangedProjectile;
+    if (!ability || unit.attackTimer > 0 || unit.weapon.durability <= 0) return false;
+    const key = ability.key ?? 'rangedProjectile';
+    if ((unit.abilityCooldowns.get(key) ?? 0) > 0) return false;
+    const range = Math.max(0, ability.range ?? unit.definition.attackRange ?? 0);
+    if (targetDistance > range + targetRadius) return false;
+    const targetPosition = getTargetPosition(target);
+    if (!targetPosition || !this.game.hasSafeSurfaceLine(unit.position, targetPosition)) return false;
+
+    const cooldown = Math.max(0.1, ability.cooldown ?? 7);
+    unit.abilityCooldowns.set(key, cooldown);
+    unit.attackTimer = Math.max(unit.attackTimer, ability.attackLockSeconds ?? 0.35);
+    unit.visualState = 'idle';
+    const duration = getAnimationDuration(unit, 'attack');
+    playUnitAnimation(unit, 'attack', duration);
+    this.pendingAttacks.push({
+      source: unit,
+      target,
+      role: 'rangedAbility',
+      eventName: 'release',
+      elapsed: 0,
+      fired: false,
+      fireAt: getAnimationEventTime(unit, 'attack', 'release'),
+      duration,
+      projectileOverride: {
+        projectileType: ability.projectileType ?? 'dagger',
+        projectileSpeed: ability.projectileSpeed ?? unit.definition.projectileSpeed ?? 13,
+        damage: this.game.modifiers.getAttackDamage(unit) * (ability.damageMultiplier ?? 1),
+        knockback: ability.knockback ?? this.game.modifiers.getKnockback(unit),
+        damageTypes: ability.damageTypes
+      }
+    });
+    unit.spendDurability(ability.durabilityCost ?? this.game.modifiers.getDurabilityCost(unit));
+    return true;
+  }
+
   tickSupportCooldown(unit, key, ability, cooldown, dt) {
     let remaining = unit.supportCooldowns.get(key);
     if (!Number.isFinite(remaining)) {
@@ -360,6 +464,24 @@ export class CombatSystem {
         return (1 - shieldRatio) * 120 - distance;
       }
     );
+  }
+
+  findRepairAuraTargets(unit, ability) {
+    const candidates = unit.team === TEAMS.PLAYER ? this.game.friendlyUnits : this.game.enemyUnits;
+    const range = Math.max(0, ability.range ?? 5.4);
+    const maxTargets = Math.max(1, Math.floor(ability.maxTargets ?? 4));
+    return candidates
+      .filter((candidate) => {
+        if (!candidate.alive || candidate === unit || candidate.underConstruction) return false;
+        if (!candidate.weapon || candidate.weapon.durability >= candidate.weapon.maxDurability - 0.01) return false;
+        return distance2D(unit.position, candidate.position) <= range;
+      })
+      .sort((a, b) => {
+        const missingA = a.weapon.maxDurability - a.weapon.durability;
+        const missingB = b.weapon.maxDurability - b.weapon.durability;
+        return missingB - missingA;
+      })
+      .slice(0, maxTargets);
   }
 
   findSupportTarget(unit, ability, predicate, scoreFn) {
@@ -527,6 +649,7 @@ export class CombatSystem {
 
   moveToward(unit, targetPosition, dt, desiredDistance = 0.18) {
     if (!targetPosition) return;
+    if (unit.isBuilding || unit.definition.canMove === false) return;
     const usesNavigationSteering = Boolean(this.game.world?.navGrid);
     const usesLooseNavigationMotion = usesNavigationSteering;
     const safeSteering = usesNavigationSteering
@@ -687,9 +810,9 @@ export class CombatSystem {
       if (this.attackDistance(source, target.position) > allowedRange) return;
     }
 
-    if (source.definition.role === 'ranged' && target?.alive !== false) {
+    if (attack.projectileOverride || (source.definition.role === 'ranged' && target?.alive !== false)) {
       this.syncSourcePoseForAttackEvent(attack);
-      this.spawnProjectile(source, target);
+      this.spawnProjectile(source, target, attack.projectileOverride);
       return;
     }
     this.applyAttack(source, target);
@@ -716,8 +839,8 @@ export class CombatSystem {
     return projectileLaunchPosition;
   }
 
-  spawnProjectile(source, target) {
-    const projectileType = source.definition.projectileType ?? 'arrow';
+  spawnProjectile(source, target, override = {}) {
+    const projectileType = override.projectileType ?? source.definition.projectileType ?? 'arrow';
     const arrow = createProjectileModel(projectileType, {
       color: resolveProjectileColor(source, projectileType)
     });
@@ -727,9 +850,10 @@ export class CombatSystem {
       object: arrow,
       source,
       target,
-      speed: this.game.modifiers.getProjectileSpeed(source),
-      damage: this.game.modifiers.getAttackDamage(source),
-      knockback: this.game.modifiers.getKnockback(source),
+      speed: override.projectileSpeed ?? this.game.modifiers.getProjectileSpeed(source),
+      damage: override.damage ?? this.game.modifiers.getAttackDamage(source),
+      knockback: override.knockback ?? this.game.modifiers.getKnockback(source),
+      damageTypes: override.damageTypes,
       age: 0
     });
   }
@@ -750,6 +874,7 @@ export class CombatSystem {
         this.applyAttack(projectile.source, projectile.target, {
           damage: projectile.damage,
           knockback: projectile.knockback,
+          damageTypes: projectile.damageTypes,
           isProjectile: true
         });
         this.removeProjectileAt(i);
@@ -772,6 +897,7 @@ export class CombatSystem {
   applyAttack(source, target, override = {}) {
     const context = this.game.modifiers.createAttackContext(source, target, override);
     this.game.buffs.modifyAttack(context);
+    this.applySourceAttackTraits(context);
 
     if (target === this.game.playerBase) {
       this.game.damagePlayerBase(context.damage);
@@ -802,6 +928,10 @@ export class CombatSystem {
     damageContext.damageTypes = damageContext.damageTypes instanceof Set
       ? damageContext.damageTypes
       : new Set(damageContext.damageTypes ?? []);
+
+    if (this.tryDodgeDamage(damageContext)) {
+      return false;
+    }
 
     this.game.buffs.beforeDamage(damageContext);
     this.applyInnateDamageTraits(damageContext);
@@ -836,6 +966,26 @@ export class CombatSystem {
     return true;
   }
 
+  tryDodgeDamage(context) {
+    if (!context.isAttack || context.damageTypes?.has?.('true')) return false;
+    if (context.damageTypes?.has?.('undodgeable')) return false;
+    if (!context.source || !context.target?.attributes || context.target.isBuilding) return false;
+    const chance = this.game.modifiers.getDodgeChance(context.target);
+    if (chance <= 0 || Math.random() >= chance) return false;
+    this.game.effects.spawnDamageNumber(context.target.position, 1, {
+      text: '闪避',
+      color: '#dff8ff',
+      stroke: '#12303a',
+      height: context.target.projectileHitHeight ?? 1.45,
+      duration: 0.62,
+      fontSize: 92,
+      baseHeight: 0.5,
+      fadeStart: 0.58
+    });
+    this.game.effects.spawnRing(context.target.position, '#dff8ff', 0.55, 0.34);
+    return true;
+  }
+
   applyInnateDamageTraits(context) {
     if (!context.target?.definition?.traits?.length) return;
     if (!context.isAttack || context.damageTypes?.has?.('true')) return;
@@ -846,6 +996,16 @@ export class CombatSystem {
       if (reduction <= 0 || context.damage <= 0) return;
       context.damage = Math.max(0, context.damage - reduction);
       this.game.effects.spawnRing(context.target.position, '#d9d2a2', 0.48, 0.32);
+    });
+  }
+
+  applySourceAttackTraits(context) {
+    if (!context.source?.definition?.traits?.length) return;
+    if (!context.isAttack || context.damageTypes?.has?.('true')) return;
+    context.source.definition.traits.forEach((trait) => {
+      if (trait.type !== 'damageMultiplierVsFamily') return;
+      if (context.target?.definition?.family !== trait.family) return;
+      context.damage *= trait.multiplier ?? 1;
     });
   }
 
@@ -865,6 +1025,7 @@ export class CombatSystem {
   }
 
   removeDeadUnit(unit) {
+    this.game.buffs.unitDeath(unit);
     this.game.effects.spawnDeathBurst(
       unit.position.clone(),
       Math.max(0.68, crowdRadius(unit) * 1.35)
@@ -946,6 +1107,7 @@ function resolveProjectileColor(source, projectileType) {
   if (source.hasEnchantment?.('fire')) return '#ffb66c';
   if (source.definition?.projectileColor) return source.definition.projectileColor;
   if (projectileType === 'holyBolt') return '#e9fbff';
+  if (projectileType === 'bolt') return '#d8dde0';
   return '#e7ddc0';
 }
 

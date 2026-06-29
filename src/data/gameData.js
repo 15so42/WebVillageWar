@@ -176,8 +176,152 @@ export const UNIT_DEFINITIONS = {
       durabilityCost: 1
     }
   },
+  crossbowman: {
+    name: '弩手',
+    role: 'ranged',
+    art: {
+      modelKey: 'unit.crossbowman',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Walk',
+        attack: 'Crossbow_Shot',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 1.08,
+          events: {
+            release: 0.48
+          }
+        },
+        hit: {
+          duration: 0.24
+        }
+      }
+    },
+    maxHealth: 19,
+    maxShield: 9.5,
+    speed: 2.55,
+    attackRange: 8.8,
+    attackRate: 1 / 3,
+    damage: 12,
+    knockback: 6.3,
+    aggroRange: 10.8,
+    projectileSpeed: 16.5,
+    projectileType: 'bolt',
+    weapon: {
+      name: '十字弩',
+      maxDurability: 38,
+      durabilityCost: 1.4
+    }
+  },
+  rogue: {
+    name: '盗贼',
+    role: 'melee',
+    art: {
+      modelKey: 'unit.rogue',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Walk',
+        attack: 'Dagger_Attack',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.42,
+          events: {
+            impact: 0.5,
+            release: 0.5
+          }
+        },
+        hit: {
+          duration: 0.2
+        }
+      }
+    },
+    maxHealth: 16,
+    maxShield: 8,
+    speed: 3.75,
+    attackRange: 1.12,
+    attackRate: 1.28,
+    damage: 4,
+    knockback: 2.4,
+    aggroRange: 9.4,
+    dodgeChance: 0.2,
+    weaponAbility: {
+      rangedProjectile: {
+        key: 'throwDagger',
+        cooldown: 7,
+        initialCooldown: 0.8,
+        range: 7.5,
+        projectileType: 'dagger',
+        projectileSpeed: 14.5,
+        damageMultiplier: 1,
+        knockback: 1.2,
+        attackLockSeconds: 0.38,
+        durabilityCost: 0.7
+      }
+    },
+    weapon: {
+      name: '匕首',
+      maxDurability: 32,
+      durabilityCost: 0.75
+    }
+  },
+  engineer: {
+    name: '矮人工匠',
+    role: 'melee',
+    art: {
+      modelKey: 'unit.engineer',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Walk',
+        attack: 'Wrench_Swing',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.5,
+          events: {
+            impact: 0.56
+          }
+        },
+        hit: {
+          duration: 0.22
+        }
+      }
+    },
+    maxHealth: 18,
+    maxShield: 9,
+    speed: 3.05,
+    attackRange: 1.18,
+    attackRate: 0.75,
+    damage: 2,
+    knockback: 1.8,
+    aggroRange: 6.5,
+    support: {
+      repairAura: {
+        tickInterval: 7,
+        initialCooldown: 7,
+        range: 5.4,
+        amount: 5,
+        maxTargets: 1
+      }
+    },
+    weapon: {
+      name: '铁匠锤',
+      maxDurability: 40,
+      durabilityCost: 0.65
+    }
+  },
   physician: {
-    name: '医师',
+    name: '牧师',
     role: 'ranged',
     art: {
       modelKey: 'unit.physician',
@@ -224,7 +368,14 @@ export const UNIT_DEFINITIONS = {
       name: '治疗杖',
       maxDurability: 42,
       durabilityCost: 0.7
-    }
+    },
+    traits: [
+      {
+        type: 'damageMultiplierVsFamily',
+        family: 'undead',
+        multiplier: 2
+      }
+    ]
   },
   purifier: {
     name: '净咒师',
@@ -326,6 +477,162 @@ export const UNIT_DEFINITIONS = {
       durabilityCost: 0.7
     }
   },
+  arrowTower: {
+    name: '箭塔',
+    role: 'ranged',
+    isBuilding: true,
+    canMove: false,
+    canReceiveBuffs: false,
+    immuneToStatusEffects: true,
+    art: {
+      modelKey: 'unit.arrowTower',
+      rig: 'building',
+      clips: {
+        idle: 'Idle',
+        attack: 'Tower_Shot',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.48,
+          events: {
+            release: 0.45
+          }
+        },
+        hit: {
+          duration: 0.12
+        }
+      }
+    },
+    maxHealth: 999,
+    maxShield: 0,
+    speed: 0,
+    attackRange: 9.2,
+    attackRate: 0.72,
+    damage: 5,
+    knockback: 0.9,
+    aggroRange: 10.2,
+    projectileSpeed: 15.5,
+    projectileType: 'arrow',
+    projectileHitHeight: 3.25,
+    collisionRadius: 0.86,
+    weapon: {
+      name: '箭塔',
+      maxDurability: 999,
+      durabilityCost: 0
+    }
+  },
+  repairStation: {
+    name: '维修站',
+    role: 'support',
+    isBuilding: true,
+    canMove: false,
+    canReceiveBuffs: false,
+    immuneToStatusEffects: true,
+    art: {
+      modelKey: 'unit.repairStation',
+      rig: 'building',
+      clips: {
+        idle: 'Idle',
+        hit: 'Hit',
+        death: 'Death'
+      }
+    },
+    maxHealth: 650,
+    maxShield: 0,
+    speed: 0,
+    attackRange: 0,
+    attackRate: 0,
+    damage: 0,
+    knockback: 0,
+    aggroRange: 0,
+    projectileHitHeight: 2.1,
+    collisionRadius: 0.95,
+    buildingAura: {
+      type: 'restoreDurability',
+      radius: 5.6,
+      durabilityPerSecond: 10,
+      restorePerDurability: 1
+    },
+    weapon: {
+      name: '维修储备',
+      maxDurability: 1000,
+      durabilityCost: 0
+    }
+  },
+  canteen: {
+    name: '食堂',
+    role: 'support',
+    isBuilding: true,
+    canMove: false,
+    canReceiveBuffs: false,
+    immuneToStatusEffects: true,
+    art: {
+      modelKey: 'unit.canteen',
+      rig: 'building',
+      clips: {
+        idle: 'Idle',
+        hit: 'Hit',
+        death: 'Death'
+      }
+    },
+    maxHealth: 500,
+    maxShield: 0,
+    speed: 0,
+    attackRange: 0,
+    attackRate: 0,
+    damage: 0,
+    knockback: 0,
+    aggroRange: 0,
+    projectileHitHeight: 2.2,
+    collisionRadius: 1.05,
+    buildingAura: {
+      type: 'restoreHealthFromDurability',
+      radius: 5.8,
+      durabilityPerSecond: 8,
+      healthPerDurability: 2
+    },
+    weapon: {
+      name: '食材储备',
+      maxDurability: 500,
+      durabilityCost: 0
+    }
+  },
+  beacon: {
+    name: '信标',
+    role: 'support',
+    isBuilding: true,
+    deploymentBeacon: true,
+    canMove: false,
+    canReceiveBuffs: false,
+    immuneToStatusEffects: true,
+    deploymentRadius: 7.5,
+    art: {
+      modelKey: 'unit.beacon',
+      rig: 'building',
+      clips: {
+        idle: 'Idle',
+        hit: 'Hit',
+        death: 'Death'
+      }
+    },
+    maxHealth: 450,
+    maxShield: 0,
+    speed: 0,
+    attackRange: 0,
+    attackRate: 0,
+    damage: 0,
+    knockback: 0,
+    aggroRange: 0,
+    projectileHitHeight: 2.5,
+    collisionRadius: 0.82,
+    weapon: {
+      name: '信标核心',
+      maxDurability: 600,
+      durabilityCost: 0
+    }
+  },
   raider: {
     name: '蛮兵',
     role: 'melee',
@@ -407,6 +714,7 @@ export const UNIT_DEFINITIONS = {
   skeletonSoldier: {
     name: '骷髅兵',
     role: 'melee',
+    family: 'undead',
     art: {
       modelKey: 'unit.skeletonSoldier',
       rig: 'humanoid',
@@ -452,6 +760,7 @@ export const UNIT_DEFINITIONS = {
   skeletonArcher: {
     name: '骷髅射手',
     role: 'ranged',
+    family: 'undead',
     art: {
       modelKey: 'unit.skeletonArcher',
       rig: 'humanoid',
@@ -878,6 +1187,22 @@ export const BUFF_DEFINITIONS = {
       }
     ]
   },
+  block: {
+    name: '格挡',
+    category: 'enchantment',
+    color: '#d8dde0',
+    duration: 999,
+    level: 1,
+    effects: [
+      {
+        event: 'beforeDamage',
+        op: 'absorbDamageWithDurability',
+        absorbPerDurability: 2,
+        absorbPerDurabilityPerLevel: 0.5,
+        vfx: 'block'
+      }
+    ]
+  },
   power: {
     name: '力量',
     category: 'enchantment',
@@ -889,6 +1214,88 @@ export const BUFF_DEFINITIONS = {
         stat: 'attackDamage',
         type: 'add',
         amountPerLevel: 1
+      }
+    ]
+  },
+  phoenix: {
+    name: '不死鸟',
+    category: 'enchantment',
+    color: '#ffb66c',
+    duration: 999,
+    level: 1,
+    effects: [
+      {
+        event: 'receiveDamage',
+        op: 'restoreHealthMissingChance',
+        amountPerLevel: 1,
+        color: '#ffb66c'
+      }
+    ]
+  },
+  spiritWeapon: {
+    name: '灵武',
+    category: 'enchantment',
+    color: '#dff8ff',
+    duration: 999,
+    level: 1,
+    tickInterval: 5,
+    effects: [
+      {
+        event: 'tick',
+        op: 'restoreDurability',
+        amountPerLevel: 2,
+        color: '#dff8ff'
+      }
+    ]
+  },
+  soulEater: {
+    name: '噬魂',
+    category: 'enchantment',
+    color: '#9f6bff',
+    duration: 999,
+    level: 1,
+    effects: [
+      {
+        event: 'unitDeath',
+        op: 'gainMaxHealthOnDeathNearby',
+        amountPerLevel: 1,
+        radius: 6,
+        cooldown: 3,
+        color: '#caa7ff'
+      }
+    ]
+  },
+  lifesteal: {
+    name: '吸血',
+    category: 'enchantment',
+    color: '#b54848',
+    duration: 999,
+    level: 1,
+    effects: [
+      {
+        event: 'afterDamage',
+        op: 'lifestealFromDamage',
+        percentBase: 0.1,
+        percentPerLevel: 0.04,
+        color: '#ff9b9b'
+      }
+    ]
+  },
+  drain: {
+    name: '汲取',
+    category: 'enchantment',
+    color: '#7fd8b0',
+    duration: 999,
+    level: 1,
+    effects: [
+      {
+        event: 'afterDamage',
+        op: 'applyBuff',
+        buffId: 'drained',
+        duration: 3,
+        damagePerSecondPerLevel: 1,
+        healPerSecondPerLevel: 1,
+        vfx: 'drain'
       }
     ]
   },
@@ -1048,6 +1455,39 @@ export const BUFF_DEFINITIONS = {
       }
     ]
   },
+  smokeDodge: {
+    name: '烟雾闪避',
+    category: 'status',
+    color: '#eef7ff',
+    duration: 1.2,
+    modifiers: [
+      {
+        stat: 'dodgeChance',
+        type: 'add',
+        amount: 0.05,
+        amountPerLevel: 0.05
+      }
+    ]
+  },
+  drained: {
+    name: '汲取中',
+    category: 'status',
+    color: '#7fd8b0',
+    duration: 3,
+    tickInterval: 1,
+    damagePerSecond: 1,
+    healPerSecond: 1,
+    hidden: true,
+    negative: true,
+    effects: [
+      {
+        event: 'tick',
+        op: 'damageOverTimeAndHealSource',
+        vfx: 'drain',
+        healColor: '#b7f3dd'
+      }
+    ]
+  },
   bleeding: {
     name: '流血',
     category: 'status',
@@ -1089,7 +1529,13 @@ export const ENCHANTMENTS = {
   thorns: BUFF_DEFINITIONS.thorns,
   toughness: BUFF_DEFINITIONS.toughness,
   protection: BUFF_DEFINITIONS.protection,
+  block: BUFF_DEFINITIONS.block,
   power: BUFF_DEFINITIONS.power,
+  phoenix: BUFF_DEFINITIONS.phoenix,
+  spiritWeapon: BUFF_DEFINITIONS.spiritWeapon,
+  soulEater: BUFF_DEFINITIONS.soulEater,
+  lifesteal: BUFF_DEFINITIONS.lifesteal,
+  drain: BUFF_DEFINITIONS.drain,
   poison: BUFF_DEFINITIONS.poison,
   bleed: BUFF_DEFINITIONS.bleed,
   recovery: BUFF_DEFINITIONS.recovery,
@@ -1200,8 +1646,68 @@ export const CARD_DEFINITIONS = [
     color: '#3f7d5b'
   },
   {
+    id: 'crossbowmen',
+    name: '派遣弩手',
+    kind: 'summon',
+    label: '弩',
+    artKey: 'crossbowman',
+    summary: '重弩远程单位，3 秒一发，初始伤害 12 且强击退',
+    target: 'ground',
+    radius: 1.15,
+    cooldown: 8,
+    energyCost: 4,
+    unitType: 'crossbowman',
+    count: 1,
+    effect: {
+      type: 'spawn-units',
+      unitType: 'crossbowman',
+      count: 1
+    },
+    color: '#4f6f78'
+  },
+  {
+    id: 'rogues',
+    name: '派遣盗贼',
+    kind: 'summon',
+    label: '盗',
+    artKey: 'rogue',
+    summary: '近战匕首单位，每 7 秒投掷飞刀，20% 闪避普通攻击',
+    target: 'ground',
+    radius: 1.15,
+    cooldown: 6,
+    energyCost: 3,
+    unitType: 'rogue',
+    count: 1,
+    effect: {
+      type: 'spawn-units',
+      unitType: 'rogue',
+      count: 1
+    },
+    color: '#4f5f7c'
+  },
+  {
+    id: 'engineers',
+    name: '派遣矮人工匠',
+    kind: 'summon',
+    label: '工',
+    artKey: 'engineer',
+    summary: '每 7 秒为周围 1 个单位恢复 5 耐久',
+    target: 'ground',
+    radius: 1.15,
+    cooldown: 7,
+    energyCost: 4,
+    unitType: 'engineer',
+    count: 1,
+    effect: {
+      type: 'spawn-units',
+      unitType: 'engineer',
+      count: 1
+    },
+    color: '#6b9ab8'
+  },
+  {
     id: 'physicians',
-    name: '派遣医师',
+    name: '派遣牧师',
     kind: 'summon',
     label: '医',
     artKey: 'physician',
@@ -1218,6 +1724,86 @@ export const CARD_DEFINITIONS = [
       count: 1
     },
     color: '#5f9f73'
+  },
+  {
+    id: 'arrow-tower',
+    name: '建造箭塔',
+    kind: 'building',
+    label: '塔',
+    artKey: 'arrowTower',
+    summary: '30 秒建成，建成后自动射击周围敌人',
+    target: 'ground',
+    radius: 1.35,
+    cooldown: 16,
+    energyCost: 5,
+    unitType: 'arrowTower',
+    buildSeconds: 30,
+    effect: {
+      type: 'build-structure',
+      unitType: 'arrowTower',
+      buildSeconds: 30
+    },
+    color: '#8f6a3f'
+  },
+  {
+    id: 'repair-station',
+    name: '建造维修站',
+    kind: 'building',
+    label: '修',
+    artKey: 'repairStation',
+    summary: '消耗自身耐久，为周围单位恢复武器耐久',
+    target: 'ground',
+    radius: 1.45,
+    cooldown: 18,
+    energyCost: 7,
+    unitType: 'repairStation',
+    buildSeconds: 30,
+    effect: {
+      type: 'build-structure',
+      unitType: 'repairStation',
+      buildSeconds: 30
+    },
+    color: '#6b9ab8'
+  },
+  {
+    id: 'canteen',
+    name: '建造食堂',
+    kind: 'building',
+    label: '食',
+    artKey: 'canteen',
+    summary: '消耗自身耐久，为周围单位恢复 2 倍生命',
+    target: 'ground',
+    radius: 1.55,
+    cooldown: 18,
+    energyCost: 7,
+    unitType: 'canteen',
+    buildSeconds: 30,
+    effect: {
+      type: 'build-structure',
+      unitType: 'canteen',
+      buildSeconds: 30
+    },
+    color: '#b98758'
+  },
+  {
+    id: 'beacon',
+    name: '建造信标',
+    kind: 'building',
+    label: '标',
+    artKey: 'beacon',
+    summary: '建成后允许在附近派遣单位，只能放在友军附近',
+    target: 'ground',
+    radius: 1.25,
+    cooldown: 14,
+    energyCost: 4,
+    unitType: 'beacon',
+    buildSeconds: 30,
+    effect: {
+      type: 'build-structure',
+      unitType: 'beacon',
+      buildSeconds: 30
+    },
+    color: '#dff8ff'
   },
   {
     id: 'purifiers',
@@ -1265,7 +1851,7 @@ export const CARD_DEFINITIONS = [
     kind: 'spell',
     label: '陨',
     artKey: 'meteor',
-    summary: '范围伤害与击退',
+    summary: '敌我双方都会受到范围伤害与击退',
     target: 'ground',
     radius: 3.25,
     cooldown: 8.5,
@@ -1277,6 +1863,62 @@ export const CARD_DEFINITIONS = [
       spellId: 'meteor'
     },
     color: '#9a3f35'
+  },
+  {
+    id: 'poison-fog',
+    name: '释放毒雾',
+    kind: 'spell',
+    label: '毒',
+    artKey: 'poisonFog',
+    summary: '10 秒毒雾，持续给区域内单位施加中毒',
+    target: 'ground',
+    radius: 3.35,
+    cooldown: 10.5,
+    energyCost: 4,
+    effect: {
+      type: 'create-area-effect',
+      areaEffect: {
+        kind: 'poisonFog',
+        target: 'all',
+        duration: 10,
+        radius: 3.35,
+        applyInterval: 0.45,
+        buffId: 'poisoned',
+        buffDuration: 1.35,
+        damagePerSecondBase: 1.2,
+        damagePerSecondPerLevel: 1.2,
+        color: '#78b85a',
+        accent: '#dff6a5'
+      }
+    },
+    color: '#78b85a'
+  },
+  {
+    id: 'white-smoke',
+    name: '释放白色烟雾',
+    kind: 'spell',
+    label: '烟',
+    artKey: 'whiteSmoke',
+    summary: '30 秒白烟，区域内单位获得等级相关闪避率',
+    target: 'ground',
+    radius: 3.45,
+    cooldown: 16,
+    energyCost: 4,
+    effect: {
+      type: 'create-area-effect',
+      areaEffect: {
+        kind: 'whiteSmoke',
+        target: 'all',
+        duration: 30,
+        radius: 3.45,
+        applyInterval: 0.5,
+        buffId: 'smokeDodge',
+        buffDuration: 1.35,
+        color: '#eef7ff',
+        accent: '#ffffff'
+      }
+    },
+    color: '#eef7ff'
   },
   {
     id: 'fire-enchant',
@@ -1351,6 +1993,24 @@ export const CARD_DEFINITIONS = [
     color: '#557fc9'
   },
   {
+    id: 'block-enchant',
+    name: '格挡附加',
+    kind: 'enchant',
+    label: '挡',
+    artKey: 'block',
+    summary: '受伤时优先消耗武器耐久吸收伤害，等级提高效率',
+    target: 'friendly-unit',
+    radius: 1.1,
+    cooldown: 4,
+    energyCost: 3,
+    enchantmentId: 'block',
+    effect: {
+      type: 'apply-buff',
+      buffId: 'block'
+    },
+    color: '#d8dde0'
+  },
+  {
     id: 'power-enchant',
     name: '力量附加',
     kind: 'enchant',
@@ -1367,6 +2027,96 @@ export const CARD_DEFINITIONS = [
       buffId: 'power'
     },
     color: '#b97d2c'
+  },
+  {
+    id: 'phoenix-enchant',
+    name: '不死鸟附加',
+    kind: 'enchant',
+    label: '凰',
+    artKey: 'phoenix',
+    summary: '受伤时按缺血比例概率恢复等级点生命',
+    target: 'friendly-unit',
+    radius: 1.1,
+    cooldown: 4,
+    energyCost: 4,
+    enchantmentId: 'phoenix',
+    effect: {
+      type: 'apply-buff',
+      buffId: 'phoenix'
+    },
+    color: '#ff9a47'
+  },
+  {
+    id: 'spirit-weapon-enchant',
+    name: '灵武附加',
+    kind: 'enchant',
+    label: '灵',
+    artKey: 'spiritWeapon',
+    summary: '每 5 秒恢复等级 x2 的武器耐久',
+    target: 'friendly-unit',
+    radius: 1.1,
+    cooldown: 4,
+    energyCost: 3,
+    enchantmentId: 'spiritWeapon',
+    effect: {
+      type: 'apply-buff',
+      buffId: 'spiritWeapon'
+    },
+    color: '#dff8ff'
+  },
+  {
+    id: 'soul-eater-enchant',
+    name: '噬魂附加',
+    kind: 'enchant',
+    label: '魂',
+    artKey: 'soulEater',
+    summary: '附近单位死亡时增加最大生命，3 秒冷却',
+    target: 'friendly-unit',
+    radius: 1.1,
+    cooldown: 4,
+    energyCost: 4,
+    enchantmentId: 'soulEater',
+    effect: {
+      type: 'apply-buff',
+      buffId: 'soulEater'
+    },
+    color: '#9f6bff'
+  },
+  {
+    id: 'lifesteal-enchant',
+    name: '吸血附加',
+    kind: 'enchant',
+    label: '吸',
+    artKey: 'lifesteal',
+    summary: '按普通攻击伤害比例恢复生命',
+    target: 'friendly-unit',
+    radius: 1.1,
+    cooldown: 4,
+    energyCost: 4,
+    enchantmentId: 'lifesteal',
+    effect: {
+      type: 'apply-buff',
+      buffId: 'lifesteal'
+    },
+    color: '#b54848'
+  },
+  {
+    id: 'drain-enchant',
+    name: '汲取附加',
+    kind: 'enchant',
+    label: '汲',
+    artKey: 'drain',
+    summary: '命中后汲取目标，3 秒内造成伤害并治疗自己',
+    target: 'friendly-unit',
+    radius: 1.1,
+    cooldown: 4,
+    energyCost: 4,
+    enchantmentId: 'drain',
+    effect: {
+      type: 'apply-buff',
+      buffId: 'drain'
+    },
+    color: '#7fd8b0'
   },
   {
     id: 'poison-enchant',
@@ -1501,6 +2251,18 @@ export const CARD_META = {
     buyCost: 0,
     upgradeBaseCost: 24
   },
+  crossbowmen: {
+    buyCost: 150,
+    upgradeBaseCost: 42
+  },
+  rogues: {
+    buyCost: 100,
+    upgradeBaseCost: 32
+  },
+  engineers: {
+    buyCost: 115,
+    upgradeBaseCost: 32
+  },
   'fire-enchant': {
     initial: true,
     buyCost: 0,
@@ -1532,6 +2294,22 @@ export const CARD_META = {
     buyCost: 120,
     upgradeBaseCost: 34
   },
+  'arrow-tower': {
+    buyCost: 130,
+    upgradeBaseCost: 40
+  },
+  'repair-station': {
+    buyCost: 160,
+    upgradeBaseCost: 44
+  },
+  canteen: {
+    buyCost: 160,
+    upgradeBaseCost: 44
+  },
+  beacon: {
+    buyCost: 100,
+    upgradeBaseCost: 34
+  },
   purifiers: {
     buyCost: 150,
     upgradeBaseCost: 38
@@ -1543,6 +2321,14 @@ export const CARD_META = {
   meteor: {
     buyCost: 140,
     upgradeBaseCost: 45
+  },
+  'poison-fog': {
+    buyCost: 120,
+    upgradeBaseCost: 36
+  },
+  'white-smoke': {
+    buyCost: 130,
+    upgradeBaseCost: 38
   },
   'thorns-enchant': {
     buyCost: 90,
@@ -1556,9 +2342,33 @@ export const CARD_META = {
     buyCost: 110,
     upgradeBaseCost: 34
   },
+  'block-enchant': {
+    buyCost: 120,
+    upgradeBaseCost: 34
+  },
   'power-enchant': {
     buyCost: 95,
     upgradeBaseCost: 30
+  },
+  'phoenix-enchant': {
+    buyCost: 135,
+    upgradeBaseCost: 38
+  },
+  'spirit-weapon-enchant': {
+    buyCost: 105,
+    upgradeBaseCost: 32
+  },
+  'soul-eater-enchant': {
+    buyCost: 150,
+    upgradeBaseCost: 42
+  },
+  'lifesteal-enchant': {
+    buyCost: 140,
+    upgradeBaseCost: 40
+  },
+  'drain-enchant': {
+    buyCost: 135,
+    upgradeBaseCost: 38
   },
   'poison-enchant': {
     buyCost: 120,
@@ -1584,6 +2394,19 @@ export const LEVEL_DEFINITIONS = [
       { type: 'goblinSoldier', weight: 5, minWave: 1, minDifficulty: 1 },
       { type: 'goblinArcher', weight: 2, minWave: 3, minDifficulty: 1 }
     ],
+    enemyStrategy: {
+      profile: 'snow-control',
+      squadSize: 3,
+      thinkInterval: 3.4,
+      captureWeight: 1.45,
+      rallyWeight: 0.95,
+      holdWeight: 0.55,
+      attackWeight: 0.86,
+      minAttackSquads: 2,
+      rallyPathIndices: [2, 4, 6],
+      chokePathIndices: [3, 5, 7],
+      openingOrders: ['capture', 'rally', 'attack']
+    },
     world: {
       sceneKey: 'snow-valley'
     }
@@ -1603,6 +2426,19 @@ export const LEVEL_DEFINITIONS = [
       { type: 'skeletonSoldier', weight: 2, minWave: 3, minDifficulty: 2 },
       { type: 'goblinTroll', weight: 1, minWave: 4, minDifficulty: 2 }
     ],
+    enemyStrategy: {
+      profile: 'dungeon-choke',
+      squadSize: 4,
+      thinkInterval: 3,
+      captureWeight: 0.85,
+      rallyWeight: 1.15,
+      holdWeight: 1.65,
+      attackWeight: 0.72,
+      minAttackSquads: 2,
+      rallyPathIndices: [2, 5, 7],
+      chokePathIndices: [2, 4, 6, 8],
+      openingOrders: ['hold', 'rally', 'capture']
+    },
     world: {
       sceneKey: 'dungeon-halls'
     }
@@ -1624,6 +2460,20 @@ export const LEVEL_DEFINITIONS = [
       { type: 'scorpion', weight: 2, minWave: 3, minDifficulty: 1 },
       { type: 'ogre', weight: 1, minWave: 5, minDifficulty: 2 }
     ],
+    enemyStrategy: {
+      profile: 'desert-pressure',
+      squadSize: 3,
+      thinkInterval: 2.8,
+      captureWeight: 0.65,
+      rallyWeight: 1.1,
+      holdWeight: 0.5,
+      attackWeight: 1.35,
+      minAttackSquads: 1,
+      rallyPathIndices: [2, 4, 6],
+      flankPathIndices: [1, 5],
+      chokePathIndices: [3, 5],
+      openingOrders: ['rally', 'attack', 'capture']
+    },
     world: {
       sceneKey: 'red-desert'
     }

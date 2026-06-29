@@ -1,9 +1,16 @@
 import {
   createArcherModel,
+  createArrowTowerModel,
   createArrowModel,
   createBearModel,
+  createBeaconModel,
   createBerserkerModel,
+  createBoltModel,
+  createCanteenModel,
+  createCrossbowmanModel,
+  createDaggerModel,
   createEnergyOrbModel,
+  createEngineerModel,
   createGoblinArcherModel,
   createGoblinSoldierModel,
   createGoblinTrollModel,
@@ -14,6 +21,8 @@ import {
   createPhysicianModel,
   createPurifierModel,
   createRaiderModel,
+  createRepairStationModel,
+  createRogueModel,
   createScorpionModel,
   createSkeletonArcherModel,
   createSkeletonSoldierModel,
@@ -28,6 +37,9 @@ const UNIT_FACTORIES = {
   swordsman: ({ team }) => createSwordsmanModel(team),
   berserker: ({ team }) => createBerserkerModel(team),
   archer: ({ team }) => createArcherModel(team),
+  crossbowman: ({ team }) => createCrossbowmanModel(team),
+  rogue: ({ team }) => createRogueModel(team),
+  engineer: ({ team }) => createEngineerModel(team),
   physician: ({ team }) => createPhysicianModel(team),
   purifier: ({ team }) => createPurifierModel(team),
   warder: ({ team }) => createWarderModel(team),
@@ -41,11 +53,17 @@ const UNIT_FACTORIES = {
   goblinTroll: () => createGoblinTrollModel(),
   scorpion: () => createScorpionModel(),
   wolf: () => createWolfModel(),
-  bear: () => createBearModel()
+  bear: () => createBearModel(),
+  arrowTower: ({ team }) => createArrowTowerModel(team),
+  repairStation: ({ team }) => createRepairStationModel(team),
+  canteen: ({ team }) => createCanteenModel(team),
+  beacon: ({ team }) => createBeaconModel(team)
 };
 
 const PROJECTILE_FACTORIES = {
   arrow: ({ color }) => createArrowModel(color),
+  bolt: ({ color }) => createBoltModel(color),
+  dagger: ({ color }) => createDaggerModel(color),
   holyBolt: ({ color }) => createHolyBoltModel(color),
   energyOrb: ({ color }) => createEnergyOrbModel(color)
 };
@@ -116,6 +134,12 @@ export function updateUnitAnimation(unit, dt) {
   }
 
   const time = performance.now() * 0.001;
+  if (unit.isBuilding) {
+    root.position.y = 0;
+    root.rotation.set(0, 0, 0);
+    root.scale.setScalar(1);
+    return;
+  }
   if (unit.visualState === 'walk') {
     root.rotation.x = 0;
     root.rotation.y = 0;
@@ -168,6 +192,14 @@ function applyAttackPose(unit, root, t, pulse) {
     applyRaiderAttack(root, t, pulse);
     return;
   }
+  if (unit.type === 'rogue') {
+    applyRogueAttack(root, t, pulse);
+    return;
+  }
+  if (unit.type === 'crossbowman') {
+    applyCrossbowAttack(root, t, pulse);
+    return;
+  }
   if (unit.type === 'berserker' || unit.type === 'ogre' || unit.type === 'goblinTroll') {
     applyRaiderAttack(root, t, pulse);
     return;
@@ -181,6 +213,59 @@ function applyAttackPose(unit, root, t, pulse) {
     return;
   }
   applySwordsmanAttack(root, t, pulse);
+}
+
+function applyRogueAttack(root, t, pulse) {
+  applySwordsmanAttack(root, t, pulse);
+  const { offhandPivot, projectileSocket } = root.userData.parts ?? {};
+  const feint = bell(0.12, 0.34, 0.62, t);
+  const release = bell(0.42, 0.52, 0.7, t);
+  root.rotation.z += pulse * 0.025;
+  root.position.y += pulse * 0.025;
+  if (offhandPivot) {
+    offhandPivot.rotation.x += -0.34 * feint + 0.42 * release;
+    offhandPivot.rotation.z += 0.26 * feint - 0.18 * release;
+  }
+  if (projectileSocket) {
+    projectileSocket.position.z += release * 0.18;
+  }
+}
+
+function applyCrossbowAttack(root, t, pulse) {
+  const { upperBodyPivot, weaponPivot, offhandPivot, gripPivot, projectileSocket, heldBolt, string } = root.userData.parts ?? {};
+  const aim = smoothstep(0, 0.28, t) * (1 - smoothstep(0.78, 1, t));
+  const release = bell(0.44, 0.5, 0.66, t);
+  const recover = smoothstep(0.66, 1, t);
+  root.position.y += pulse * 0.025;
+  root.rotation.z = -0.012 * pulse;
+  if (upperBodyPivot) {
+    upperBodyPivot.rotation.y += -0.42 * aim + 0.08 * release;
+    upperBodyPivot.rotation.x += 0.018 * aim - 0.014 * release;
+  }
+  if (weaponPivot) {
+    weaponPivot.position.z += 0.08 * aim - 0.16 * release + 0.04 * recover;
+    weaponPivot.position.y += 0.035 * aim - 0.025 * release;
+    weaponPivot.rotation.x += -0.03 * aim + 0.055 * release;
+    weaponPivot.rotation.z += 0.018 * aim;
+  }
+  if (offhandPivot) {
+    offhandPivot.rotation.x += -0.18 * aim + 0.08 * release;
+    offhandPivot.rotation.z += 0.04 * aim;
+  }
+  if (gripPivot) {
+    gripPivot.rotation.x += -0.14 * aim + 0.11 * release;
+    gripPivot.rotation.z += -0.035 * aim;
+  }
+  if (string) {
+    string.position.z -= 0.12 * aim;
+    string.scale.x = 1 - 0.16 * aim;
+  }
+  if (heldBolt) {
+    heldBolt.visible = t < 0.48;
+  }
+  if (projectileSocket) {
+    projectileSocket.position.z += 0.12 * release;
+  }
 }
 
 function applySwordsmanAttack(root, t, pulse) {

@@ -20,23 +20,23 @@ export class SpellSystem {
 
   castMeteor({ point, card }) {
     this.game.effects.spawnMeteor(point.clone(), card.radius, () => {
-      this.game.enemyUnits.forEach((enemy) => {
-        if (!enemy.alive) return;
-        const distance = distance2D(enemy.position, point);
+      [...this.game.friendlyUnits, ...this.game.enemyUnits].forEach((unit) => {
+        if (!unit.alive || unit.underConstruction) return;
+        const distance = distance2D(unit.position, point);
         if (distance > card.radius) return;
         const falloff = 1 - distance / card.radius;
         this.game.combat.applyDamage(
-          enemy,
+          unit,
           card.damage * (0.65 + falloff * 0.35),
           null,
           0
         );
 
-        const dir = enemy.position.clone().sub(point).setY(0);
+        const dir = unit.position.clone().sub(point).setY(0);
         if (dir.lengthSq() > 0.001) {
           dir.normalize();
-          enemy.knockbackVelocity.addScaledVector(dir, card.knockback * (0.45 + falloff));
-          enemy.hitStunTimer = Math.max(enemy.hitStunTimer, 0.22);
+          unit.knockbackVelocity.addScaledVector(dir, card.knockback * (0.45 + falloff));
+          unit.hitStunTimer = Math.max(unit.hitStunTimer, 0.22);
         }
       });
     });

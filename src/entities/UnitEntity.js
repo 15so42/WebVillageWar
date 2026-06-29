@@ -33,6 +33,20 @@ export class UnitEntity {
     this.knockbackVelocity = new THREE.Vector3();
     this.verticalVelocity = 0;
     this.grounded = true;
+    this.isBuilding = this.definition.isBuilding === true;
+    this.canReceiveBuffs = this.definition.canReceiveBuffs !== false;
+    this.immuneToStatusEffects = this.definition.immuneToStatusEffects === true;
+    this.collisionRadius = this.definition.collisionRadius;
+    this.attackRadius = this.definition.attackRadius;
+    this.projectileHitHeight = this.definition.projectileHitHeight;
+    this.abilityCooldowns = new Map();
+    const rangedProjectile = this.definition.weaponAbility?.rangedProjectile;
+    if (rangedProjectile) {
+      this.abilityCooldowns.set(
+        rangedProjectile.key ?? 'rangedProjectile',
+        Math.max(0, rangedProjectile.initialCooldown ?? 0)
+      );
+    }
     this.moveGoal = null;
     this.commandMoveGoal = null;
     this.controlMode = 'normal';
@@ -77,6 +91,7 @@ export class UnitEntity {
     const isEnchantment = definition.category === 'enchantment';
     const level = resolveBuffLevel(definition, existing, overrides, isEnchantment);
     const damagePerSecond = resolveStackingNumber('damagePerSecond', definition, existing, overrides);
+    const healPerSecond = resolveStackingNumber('healPerSecond', definition, existing, overrides);
     this.attributes.removeModifiersBySource(buffModifierSource(id));
     const duration = overrides.duration ?? definition.duration ?? 0;
     const instance = {
@@ -85,9 +100,10 @@ export class UnitEntity {
       id,
       level,
       ...(damagePerSecond !== null ? { damagePerSecond } : {}),
+      ...(healPerSecond !== null ? { healPerSecond } : {}),
       source: overrides.source ?? existing?.source ?? null,
       remaining: duration,
-      tickTimer: overrides.tickInterval ?? definition.tickInterval ?? existing?.tickTimer ?? 0
+      tickTimer: overrides.tickTimer ?? existing?.tickTimer ?? overrides.tickInterval ?? definition.tickInterval ?? 0
     };
     this.buffs.set(id, instance);
     this.attributes.addModifiers(instance.modifiers, buffModifierSource(id), {
@@ -110,6 +126,7 @@ export class UnitEntity {
     if (!buff) return;
     this.buffs.delete(id);
     this.attributes.removeModifiersBySource(buffModifierSource(id));
+    this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:soul-bonus`);
     this.clampToAttributeCaps();
     if (this.enchantments.has(id)) {
       this.enchantments.delete(id);
@@ -172,7 +189,9 @@ export class UnitEntity {
   }
 
   updateVisual(camera, dt) {
-    updateUnitAnimation(this, dt);
+    if (!this.underConstruction) {
+      updateUnitAnimation(this, dt);
+    }
     refreshStatusElement(this, dt);
     this.enchantHalo.rotation.y += 0.035;
     this.enchantHalo.visible = this.enchantments.size > 0;
@@ -215,6 +234,7 @@ function createUnitAttributes(definition) {
     knockback: definition.knockback,
     aggroRange: definition.aggroRange,
     projectileSpeed: definition.projectileSpeed ?? 0,
+    dodgeChance: definition.dodgeChance ?? 0,
     maxDurability: definition.weapon.maxDurability,
     durabilityCost: definition.weapon.durabilityCost
   });
@@ -230,6 +250,7 @@ function bindUnitAttributeGetters(unit) {
   bindAttributeGetter(unit, 'knockback', 'knockback');
   bindAttributeGetter(unit, 'aggroRange', 'aggroRange');
   bindAttributeGetter(unit, 'projectileSpeed', 'projectileSpeed');
+  bindAttributeGetter(unit, 'dodgeChance', 'dodgeChance');
   bindAttributeGetter(unit, 'maxDurability', 'maxDurability');
   bindAttributeGetter(unit, 'durabilityCost', 'durabilityCost');
 }

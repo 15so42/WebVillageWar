@@ -615,7 +615,7 @@ const WORLD_PRESETS = {
       sunlight: {
         enabled: true,
         tickSeconds: 1,
-        damagePerTick: 1.8
+        damagePerTick: 0.36
       }
     }
   }

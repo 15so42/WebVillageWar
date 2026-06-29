@@ -5,7 +5,7 @@ import {
   LEVEL_DEFINITIONS,
   STARTER_CARD_IDS
 } from '../data/gameData.js';
-import { cardEnergyCost, createCardArtMarkup } from './CardSystem.js';
+import { cardEnergyCost, cardThemeColor, createCardArtMarkup } from './CardSystem.js';
 
 const STORAGE_KEY = 'village-war-meta-v1';
 
@@ -324,7 +324,7 @@ export class MetaGameSystem {
     const disabled = options.disabled ? 'disabled' : '';
     const selected = options.selected ? ' is-selected' : '';
     return `
-      <article class="meta-card${selected}" style="--card-color:${card.color}">
+      <article class="meta-card${selected}" style="--card-color:${cardThemeColor(card)}">
         <div class="meta-card-cost">${cardEnergyCost(card)}</div>
         <div class="meta-card-level">Lv.${card.level ?? 1}</div>
         <div class="meta-card-face">
@@ -506,6 +506,7 @@ function upgradeCost(id, level) {
 function kindLabel(kind) {
   if (kind === 'summon') return '单位';
   if (kind === 'spell') return '法术';
+  if (kind === 'building') return '建筑';
   return '附魔';
 }
 

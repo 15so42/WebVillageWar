@@ -4,14 +4,17 @@ import { BALANCE, CARD_DEFINITIONS, LEVEL_DEFINITIONS, TEAMS } from '../data/gam
 import { UnitEntity } from '../entities/UnitEntity.js';
 import { createWorld } from '../world/createWorld.js';
 import { BuffSystem } from './BuffSystem.js';
+import { BuildingSystem } from './BuildingSystem.js';
 import { CardEffectSystem } from './CardEffectSystem.js';
 import { CardSystem } from './CardSystem.js';
 import { CombatSystem } from './CombatSystem.js';
 import { EffectsSystem } from './EffectsSystem.js';
 import { AltarSystem } from './AltarSystem.js';
+import { EnemyCommanderSystem } from './EnemyCommanderSystem.js';
 import { LevelMechanicSystem } from './LevelMechanicSystem.js';
 import { LootDropSystem } from './LootDropSystem.js';
 import { AttributeSet, bindAttributeGetter } from './AttributeSet.js';
+import { AreaEffectSystem } from './AreaEffectSystem.js';
 import { ModifierSystem } from './ModifierSystem.js';
 import { RecoverySystem } from './RecoverySystem.js';
 import { SpellSystem } from './SpellSystem.js';
@@ -38,6 +41,8 @@ const INITIAL_ATTACK_WAVE_DELAY = 18;
 const MIN_ENEMY_WAVE_DELAY = 12;
 const EARLY_ENEMY_WAVE_DELAY = 24;
 const ENEMY_WAVE_DELAY_DECAY = 0.65;
+const SUMMON_DEPLOY_RADIUS = 7.5;
+const BEACON_PLACEMENT_RADIUS = 5.5;
 
 export class Game {
   constructor({ canvas, session = null, onLevelComplete = null } = {}) {
@@ -147,8 +152,10 @@ export class Game {
     this.worldUi.append(this.playerBase.statusElement, this.enemyCamp.statusElement);
 
     this.effects = new EffectsSystem(this.scene);
+    this.areaEffects = new AreaEffectSystem(this);
     this.modifiers = new ModifierSystem(this);
     this.buffs = new BuffSystem(this);
+    this.buildings = new BuildingSystem(this);
     this.combat = new CombatSystem(this);
     this.spells = new SpellSystem(this);
     this.cardEffects = new CardEffectSystem(this);
@@ -158,6 +165,7 @@ export class Game {
     });
     this.lootDrops = new LootDropSystem(this);
     this.altars = new AltarSystem(this, this.world.config?.altars ?? this.worldConfig.altars);
+    this.enemyCommander = new EnemyCommanderSystem(this);
     this.levelMechanics = new LevelMechanicSystem(this);
     this.selectionBox = createSelectionBoxElement();
 
@@ -222,7 +230,10 @@ export class Game {
     this.stop();
     this.eventController.abort();
     this.cardSystem?.destroy?.();
+    this.buildings?.destroy?.();
     this.lootDrops?.destroy?.();
+    this.enemyCommander?.destroy?.();
+    this.areaEffects?.destroy?.();
     this.levelMechanics?.destroy?.();
     this.disposeNavDebug();
     this.renderer.dispose();
@@ -251,10 +262,13 @@ export class Game {
     if (perf) {
       perf.beginFrame(dt);
       this.measurePerf('card', () => this.cardSystem.update(dt));
+      this.measurePerf('enemyCommander', () => this.enemyCommander.update(dt));
       this.measurePerf('combat', () => this.combat.update(dt));
+      this.measurePerf('buildings', () => this.buildings.update(dt));
       this.measurePerf('recovery', () => this.recovery.update(dt));
       this.measurePerf('altars', () => this.altars.update(dt));
       this.measurePerf('mechanics', () => this.levelMechanics.update(dt));
+      this.measurePerf('areaEffects', () => this.areaEffects.update(dt));
       this.measurePerf('loot', () => this.lootDrops.update(dt));
       this.measurePerf('effects', () => this.effects.update(dt));
       this.measurePerf('structure', () => this.updateStructureFeedback(dt));
@@ -269,10 +283,13 @@ export class Game {
       perf.endFrame(this.createPerfCounters({ takeNavStats: true }));
     } else {
       this.cardSystem.update(dt);
+      this.enemyCommander.update(dt);
       this.combat.update(dt);
+      this.buildings.update(dt);
       this.recovery.update(dt);
       this.altars.update(dt);
       this.levelMechanics.update(dt);
+      this.areaEffects.update(dt);
       this.lootDrops.update(dt);
       this.effects.update(dt);
       this.updateStructureFeedback(dt);
@@ -426,6 +443,60 @@ export class Game {
     }
   }
 
+  buildStructureUnit(type, point, options = {}) {
+    const position = this.resolveWalkablePoint(point.clone());
+    position.y = this.groundHeightAt(position);
+    const unit = new UnitEntity({
+      type,
+      team: TEAMS.PLAYER,
+      position
+    });
+    this.applySummonCardLevel(unit, options.sourceCard);
+    this.attachUnitStatus(unit);
+    this.friendlyUnits.push(unit);
+    this.scene.add(unit.mesh);
+    this.buildings.startConstruction(unit, options.buildSeconds ?? options.sourceCard?.buildSeconds ?? 30);
+    this.effects.spawnRing(unit.position, '#dff8ff', 1.1, 0.62);
+    this.selectUnit(unit);
+    return unit;
+  }
+
+  canDeploySummonAt(point) {
+    if (!point) return false;
+    return this.getSummonDeploymentAnchors().some((anchor) => (
+      Math.hypot(point.x - anchor.position.x, point.z - anchor.position.z) <= anchor.radius
+    ));
+  }
+
+  canPlaceBeaconAt(point) {
+    if (!point) return false;
+    return this.friendlyUnits.some((unit) => (
+      unit.alive &&
+      !unit.underConstruction &&
+      !unit.isBuilding &&
+      Math.hypot(point.x - unit.position.x, point.z - unit.position.z) <= BEACON_PLACEMENT_RADIUS
+    ));
+  }
+
+  getSummonDeploymentAnchors() {
+    const anchors = [];
+    if (this.playerBase?.alive !== false) {
+      anchors.push({
+        position: this.playerBase.position,
+        radius: SUMMON_DEPLOY_RADIUS
+      });
+    }
+    this.friendlyUnits.forEach((unit) => {
+      if (!unit.alive || unit.underConstruction) return;
+      if (unit.definition?.deploymentBeacon !== true) return;
+      anchors.push({
+        position: unit.position,
+        radius: unit.definition.deploymentRadius ?? SUMMON_DEPLOY_RADIUS
+      });
+    });
+    return anchors;
+  }
+
   applySummonCardLevel(unit, card) {
     const level = Math.max(1, Math.floor(card?.level ?? 1));
     if (level <= 1) return;
@@ -461,6 +532,7 @@ export class Game {
   spawnEnemyWave(wave, { orders = 'attack' } = {}) {
     const difficulty = this.effectiveDifficulty();
     const count = Math.min(12, 2 + Math.floor(wave * 0.72) + Math.floor((difficulty - 1) * 0.45));
+    const spawnedUnits = [];
     for (let i = 0; i < count; i += 1) {
       const offset = polarOffset(i, count, 1.2 + (i % 3) * 0.45);
       const position = this.resolveWalkablePoint(this.enemyCamp.position.clone().setY(0).add(offset));
@@ -473,11 +545,13 @@ export class Game {
       this.applyEnemyDifficulty(unit, wave, difficulty);
       this.attachUnitStatus(unit);
       this.enemyUnits.push(unit);
+      spawnedUnits.push(unit);
       this.scene.add(unit.mesh);
-      if (orders === 'attack') {
+      if (orders === 'attack' && !this.enemyCommander) {
         this.orderEnemyAttack(unit, i, count);
       }
     }
+    this.enemyCommander?.registerWave(spawnedUnits, wave, orders);
   }
 
   enemyTypeForWave(wave, index, difficulty) {
@@ -1672,6 +1746,7 @@ export class Game {
       selectedCount: this.selectedUnits.length,
       selectedIds: this.selectedUnits.map((unit) => unit.id),
       altars: this.altars.snapshot(),
+      enemyCommander: this.enemyCommander?.snapshot?.() ?? null,
       camera: {
         targetX: Number(this.cameraTarget.x.toFixed(2)),
         targetZ: Number(this.cameraTarget.z.toFixed(2)),
