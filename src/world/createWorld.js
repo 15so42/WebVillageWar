@@ -626,6 +626,7 @@ let activeWorldConfig = resolveWorldConfig();
 export function createWorld(scene, worldOptions = {}) {
   activeWorldConfig = resolveWorldConfig(worldOptions);
   const config = activeWorldConfig;
+  config.navigationBlockers = [];
   scene.background = new THREE.Color(config.sky.background);
   scene.fog = new THREE.Fog(config.sky.fog, config.sky.fogNear, config.sky.fogFar);
 
@@ -644,7 +645,6 @@ export function createWorld(scene, worldOptions = {}) {
   const ground = createGroundMesh();
   scene.add(ground);
 
-  const navGrid = createNavigationGrid();
   const pathPoints = pathVectors();
   const pathGraph = config.theme === 'dungeon' ? createDungeonNavigationGraph() : null;
   const theme = config.theme ?? 'snow';
@@ -683,6 +683,7 @@ export function createWorld(scene, worldOptions = {}) {
     decorate(scene, pathPoints);
   }
   createSnowMonsterCamp(scene);
+  const navGrid = createNavigationGrid();
 
   return {
     config,
@@ -1481,8 +1482,22 @@ function worldNavigationBlockers() {
       x: config.enemyCampPosition.x,
       z: config.enemyCampPosition.z,
       radius: WORLD_NAV_ENEMY_CAMP_RADIUS
-    }
+    },
+    ...(config.navigationBlockers ?? [])
   ];
+}
+
+function registerWorldNavigationBlocker(x, z, radius, kind = 'decor') {
+  const config = worldConfig();
+  if (config.theme === 'dungeon') return;
+  const blockers = config.navigationBlockers;
+  if (!Array.isArray(blockers)) return;
+  blockers.push({
+    x,
+    z,
+    radius: Math.max(0.16, radius),
+    kind
+  });
 }
 
 function createDungeonNavigationGraph() {
@@ -2554,6 +2569,7 @@ function placeDesertSandstoneLandmarks(scene, pathPoints, random) {
     landmark.scale.x *= item.sx ?? 1;
     landmark.scale.z *= item.sz ?? 1;
     scene.add(landmark);
+    registerDesertSandstoneNavigationBlockers(item);
   });
 }
 
@@ -2582,8 +2598,53 @@ function placeDesertSandstoneFields(scene, pathPoints, random) {
       pillar.scale.x *= 0.86 + random() * 0.34;
       pillar.scale.z *= 0.82 + random() * 0.4;
       scene.add(pillar);
+      registerWorldNavigationBlocker(
+        point.x,
+        point.z,
+        isMesa ? radius * 1.45 : radius * 0.82,
+        isMesa ? 'desert-mesa' : 'desert-pillar'
+      );
     }
   });
+}
+
+function registerDesertSandstoneNavigationBlockers(item) {
+  if (worldConfig().theme !== 'red-desert') return;
+  if (item.kind === 'arch') {
+    const span = item.span ?? 4.8;
+    const thickness = item.radius ?? 1;
+    const rotation = item.rot ?? 0;
+    const supportRadius = thickness * 0.72 * Math.max(item.sx ?? 1, item.sz ?? 1);
+    [-span * 0.5, span * 0.5].forEach((localX) => {
+      const point = rotateLocalPoint(localX, 0, rotation);
+      registerWorldNavigationBlocker(
+        item.x + point.x,
+        item.z + point.z,
+        supportRadius,
+        'desert-arch-pillar'
+      );
+    });
+    return;
+  }
+
+  const baseRadius = item.kind === 'mesa'
+    ? (item.radius ?? 3) * 1.28
+    : (item.radius ?? 1.1) * 0.88;
+  registerWorldNavigationBlocker(
+    item.x,
+    item.z,
+    baseRadius * Math.max(item.sx ?? 1, item.sz ?? 1),
+    item.kind === 'mesa' ? 'desert-mesa' : 'desert-pillar'
+  );
+}
+
+function rotateLocalPoint(x, z, rotation) {
+  const cos = Math.cos(rotation);
+  const sin = Math.sin(rotation);
+  return {
+    x: x * cos - z * sin,
+    z: x * sin + z * cos
+  };
 }
 
 function registerDesertSunlightShade(x, z, radius, height, scale = 1) {
@@ -2777,6 +2838,7 @@ function placeForests(scene, pathPoints, random) {
       placeOnTerrain(tree, x, z);
       tree.rotation.y = random() * Math.PI * 2;
       scene.add(tree);
+      registerWorldNavigationBlocker(x, z, 0.42 + height * 0.24, 'snow-tree');
     }
   });
 }
