@@ -19,6 +19,7 @@ import { ModifierSystem } from './ModifierSystem.js';
 import { RecoverySystem } from './RecoverySystem.js';
 import { SpellSystem } from './SpellSystem.js';
 import { clamp, polarOffset } from '../utils/math.js';
+import { disposeObject3D as disposeUnitObject3D } from '../utils/dispose.js';
 
 const STRUCTURE_PUSH_PADDING = 0.18;
 const ROUTE_REPATH_DISTANCE = 1.15;
@@ -43,6 +44,9 @@ const EARLY_ENEMY_WAVE_DELAY = 24;
 const ENEMY_WAVE_DELAY_DECAY = 0.65;
 const SUMMON_DEPLOY_RADIUS = 7.5;
 const BEACON_PLACEMENT_RADIUS = 5.5;
+const SPIDER_FIRST_EGG_SECONDS = 37;
+const SPIDER_EGG_INTERVAL_SECONDS = 60;
+const SPIDER_EGG_HATCH_SECONDS = 15;
 
 export class Game {
   constructor({ canvas, session = null, onLevelComplete = null } = {}) {
@@ -263,6 +267,7 @@ export class Game {
       perf.beginFrame(dt);
       this.measurePerf('card', () => this.cardSystem.update(dt));
       this.measurePerf('enemyCommander', () => this.enemyCommander.update(dt));
+      this.measurePerf('spiders', () => this.updateSpiderLifecycle(dt));
       this.measurePerf('combat', () => this.combat.update(dt));
       this.measurePerf('buildings', () => this.buildings.update(dt));
       this.measurePerf('recovery', () => this.recovery.update(dt));
@@ -284,6 +289,7 @@ export class Game {
     } else {
       this.cardSystem.update(dt);
       this.enemyCommander.update(dt);
+      this.updateSpiderLifecycle(dt);
       this.combat.update(dt);
       this.buildings.update(dt);
       this.recovery.update(dt);
@@ -543,6 +549,8 @@ export class Game {
         position
       });
       this.applyEnemyDifficulty(unit, wave, difficulty);
+      this.applySpiderSpawnTraits(unit, wave, difficulty, i);
+      this.initializeSpiderLifecycle(unit);
       this.attachUnitStatus(unit);
       this.enemyUnits.push(unit);
       spawnedUnits.push(unit);
@@ -628,6 +636,115 @@ export class Game {
         sourceUnitType: unit.type
       });
     });
+  }
+
+  applySpiderSpawnTraits(unit, wave, difficulty, seedIndex = 0) {
+    if (unit.type !== 'spider') return;
+    if (stableEnemyRoll(wave, seedIndex + unit.id * 17, difficulty) % 3 !== 0) return;
+    this.buffs.applyBuff(unit, 'poison', unit, {
+      level: enemyEnchantmentLevel(wave, difficulty),
+      sourceUnitType: unit.type
+    });
+  }
+
+  initializeSpiderLifecycle(unit) {
+    if (unit.type !== 'spider') return;
+    unit.spiderEggTimer = SPIDER_FIRST_EGG_SECONDS;
+    unit.spiderEggCount = 0;
+  }
+
+  updateSpiderLifecycle(dt) {
+    [...this.enemyUnits].forEach((unit) => {
+      if (!unit.alive) return;
+      if (unit.type === 'spider') {
+        this.updateSpiderEggLaying(unit, dt);
+      } else if (unit.type === 'spiderEgg') {
+        this.updateSpiderEggHatching(unit, dt);
+      }
+    });
+  }
+
+  updateSpiderEggLaying(unit, dt) {
+    unit.spiderEggTimer = (unit.spiderEggTimer ?? SPIDER_FIRST_EGG_SECONDS) - dt;
+    if (unit.spiderEggTimer > 0) return;
+    unit.spiderEggTimer += SPIDER_EGG_INTERVAL_SECONDS;
+    if (unit.spiderEggTimer <= 0) {
+      unit.spiderEggTimer = SPIDER_EGG_INTERVAL_SECONDS;
+    }
+    this.spawnSpiderEgg(unit);
+  }
+
+  spawnSpiderEgg(parent) {
+    const position = this.spiderEggSpawnPoint(parent);
+    if (!position) return;
+    const egg = new UnitEntity({
+      type: 'spiderEgg',
+      team: TEAMS.ENEMY,
+      position
+    });
+    egg.hatchTimer = SPIDER_EGG_HATCH_SECONDS;
+    egg.parentSpiderId = parent.id;
+    this.attachUnitStatus(egg);
+    this.enemyUnits.push(egg);
+    this.scene.add(egg.mesh);
+    this.effects.spawnRing(egg.position, '#b6d48d', 0.56, 0.45);
+  }
+
+  spiderEggSpawnPoint(parent) {
+    const eggIndex = parent.spiderEggCount ?? 0;
+    parent.spiderEggCount = eggIndex + 1;
+    const baseAngle = parent.mesh.rotation.y + Math.PI + eggIndex * 1.618;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const angle = baseAngle + attempt * 0.78;
+      const radius = 0.58 + attempt * 0.08;
+      const candidate = parent.position.clone();
+      candidate.x += Math.sin(angle) * radius;
+      candidate.z += Math.cos(angle) * radius;
+      candidate.y = this.groundHeightAt(candidate);
+      const resolved = this.resolveWalkablePoint(candidate, 0.08);
+      if (this.isPointWalkable(resolved)) return resolved;
+    }
+    return null;
+  }
+
+  updateSpiderEggHatching(egg, dt) {
+    egg.hatchTimer = (egg.hatchTimer ?? SPIDER_EGG_HATCH_SECONDS) - dt;
+    if (egg.hatchTimer > 0) return;
+    this.hatchSpiderEgg(egg);
+  }
+
+  hatchSpiderEgg(egg) {
+    if (!egg.alive) return;
+    const position = egg.position.clone();
+    position.y = this.groundHeightAt(position);
+    const wave = this.wave;
+    const difficulty = this.effectiveDifficulty();
+    this.removeEnemyUnitSilently(egg);
+
+    const spider = new UnitEntity({
+      type: 'spider',
+      team: TEAMS.ENEMY,
+      position
+    });
+    this.applyEnemyDifficulty(spider, wave, difficulty);
+    this.initializeSpiderLifecycle(spider);
+    this.attachUnitStatus(spider);
+    this.enemyUnits.push(spider);
+    this.scene.add(spider.mesh);
+    this.orderEnemyAttack(spider, 0, 1);
+    this.effects.spawnRing(spider.position, '#78b85a', 0.72, 0.48);
+  }
+
+  removeEnemyUnitSilently(unit) {
+    unit.alive = false;
+    const index = this.enemyUnits.indexOf(unit);
+    if (index >= 0) {
+      this.enemyUnits.splice(index, 1);
+    }
+    this.combat?.cancelPendingAttacksFor?.([unit]);
+    this.scene.remove(unit.mesh);
+    disposeUnitObject3D(unit.mesh);
+    unit.statusElement?.remove();
   }
 
   orderEnemyAttack(unit, index, total) {
@@ -2278,6 +2395,8 @@ function unitStatusHeight(unit) {
   if (unit.type === 'skeletonArcher') return 2.02;
   if (unit.type === 'skeletonSoldier') return 2.05;
   if (unit.type === 'scorpion') return 1.28;
+  if (unit.type === 'spider') return 1.18;
+  if (unit.type === 'spiderEgg') return 0.88;
   if (unit.type === 'bear') return 1.9;
   if (unit.type === 'wolf') return 1.25;
   return 2.25;

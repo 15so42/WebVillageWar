@@ -56,6 +56,14 @@ export class CombatSystem {
       return;
     }
 
+    if (isImmobileUnit(unit)) {
+      unit.target = null;
+      unit.moveGoal = null;
+      unit.commandMoveGoal = null;
+      unit.knockbackVelocity.set(0, 0, 0);
+      return;
+    }
+
     if (unit.hitStunTimer > 0) {
       this.applyMotion(unit, dt);
       return;
@@ -189,8 +197,8 @@ export class CombatSystem {
         }
 
         const overlap = minDistance - distance;
-        const aStatic = a.isBuilding || a.definition.canMove === false;
-        const bStatic = b.isBuilding || b.definition.canMove === false;
+        const aStatic = a.isBuilding || a.definition.canMove === false || isImmobileUnit(a);
+        const bStatic = b.isBuilding || b.definition.canMove === false || isImmobileUnit(b);
         if (aStatic && bStatic) continue;
         const push = Math.min(overlap * (aStatic || bStatic ? 1 : 0.5), maxPush);
         const ax = a.position.x;
@@ -1076,9 +1084,15 @@ function crowdRadius(unit) {
   if (unit.type === 'goblinTroll') return 0.64;
   if (unit.type === 'ogre') return 0.78;
   if (unit.type === 'scorpion') return 0.45;
+  if (unit.type === 'spider') return 0.42;
+  if (unit.type === 'spiderEgg') return 0.34;
   if (unit.type === 'bear') return 0.72;
   if (unit.type === 'wolf') return 0.48;
   return unit.definition.role === 'ranged' ? 0.36 : 0.42;
+}
+
+function isImmobileUnit(unit) {
+  return unit.type === 'spiderEgg';
 }
 
 function deterministicPairAngle(a, b) {
@@ -1095,6 +1109,8 @@ function maxKnockbackVelocity(unit) {
   if (unit.type === 'ogre') return 7;
   if (unit.type === 'bear') return 8;
   if (unit.type === 'scorpion') return 8.8;
+  if (unit.type === 'spider') return 8.6;
+  if (unit.type === 'spiderEgg') return 0;
   if (unit.type === 'wolf') return 9;
   return 10;
 }

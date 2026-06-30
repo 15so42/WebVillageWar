@@ -19,9 +19,11 @@ export class MetaGameSystem {
     this.deckSelection = this.progress.ownedCards.slice(0, DECK_SIZE);
     this.lastResult = null;
     this.root = createMetaRoot();
+    this.onDebugKeyDown = (event) => this.handleDebugKeyDown(event);
     this.root.addEventListener('click', (event) => this.onClick(event));
     this.root.addEventListener('pointerdown', stopMetaEvent);
     this.root.addEventListener('contextmenu', stopMetaEvent);
+    document.addEventListener('keydown', this.onDebugKeyDown);
     this.show('levels');
   }
 
@@ -121,6 +123,20 @@ export class MetaGameSystem {
     if (action === 'upgrade-card') {
       this.upgradeCard(actionTarget.dataset.cardId);
     }
+  }
+
+  handleDebugKeyDown(event) {
+    if (event.repeat || isTextInputTarget(event.target)) return;
+    const isDebugGoldKey = event.shiftKey && (
+      event.code === 'KeyB' ||
+      event.key?.toLowerCase() === 'b'
+    );
+    if (!isDebugGoldKey) return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.progress.coins += 1000;
+    saveProgress(this.progress);
+    this.render();
   }
 
   render() {
@@ -522,4 +538,11 @@ function stopMetaEvent(event) {
     event.preventDefault();
   }
   event.stopPropagation();
+}
+
+function isTextInputTarget(target) {
+  return target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
+    target?.isContentEditable;
 }

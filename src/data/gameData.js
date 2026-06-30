@@ -1121,6 +1121,84 @@ export const UNIT_DEFINITIONS = {
       maxDurability: 999,
       durabilityCost: 0
     }
+  },
+  spider: {
+    name: '蜘蛛',
+    role: 'melee',
+    art: {
+      modelKey: 'unit.spider',
+      rig: 'beast',
+      clips: {
+        idle: 'Idle',
+        walk: 'Skitter',
+        attack: 'Bite_Attack',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.44,
+          events: {
+            impact: 0.52
+          }
+        },
+        hit: {
+          duration: 0.18
+        }
+      }
+    },
+    maxHealth: 22,
+    maxShield: 8,
+    speed: 3.3,
+    attackRange: 1.04,
+    attackRate: 1.05,
+    damage: 3.2,
+    knockback: 1.25,
+    aggroRange: 7.6,
+    weapon: {
+      name: '毒牙',
+      maxDurability: 999,
+      durabilityCost: 0
+    }
+  },
+  spiderEgg: {
+    name: '蜘蛛卵',
+    role: 'melee',
+    art: {
+      modelKey: 'unit.spiderEgg',
+      rig: 'egg',
+      clips: {
+        idle: 'Idle',
+        walk: 'Idle',
+        attack: 'Idle',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.3,
+          events: {
+            impact: 1
+          }
+        },
+        hit: {
+          duration: 0.16
+        }
+      }
+    },
+    maxHealth: 15,
+    maxShield: 0,
+    speed: 0,
+    attackRange: 0,
+    attackRate: 1,
+    damage: 0,
+    knockback: 0,
+    aggroRange: 0,
+    weapon: {
+      name: '卵壳',
+      maxDurability: 999,
+      durabilityCost: 0
+    }
   }
 };
 
@@ -2392,6 +2470,7 @@ export const LEVEL_DEFINITIONS = [
     baseDifficulty: 1,
     enemyPool: [
       { type: 'goblinSoldier', weight: 5, minWave: 1, minDifficulty: 1 },
+      { type: 'spider', weight: 1, minWave: 2, minDifficulty: 1 },
       { type: 'goblinArcher', weight: 2, minWave: 3, minDifficulty: 1 }
     ],
     enemyStrategy: {
@@ -2423,6 +2502,7 @@ export const LEVEL_DEFINITIONS = [
     enemyPool: [
       { type: 'goblinSoldier', weight: 5, minWave: 1, minDifficulty: 1 },
       { type: 'goblinArcher', weight: 3, minWave: 2, minDifficulty: 1 },
+      { type: 'spider', weight: 1, minWave: 2, minDifficulty: 1 },
       { type: 'skeletonSoldier', weight: 2, minWave: 3, minDifficulty: 2 },
       { type: 'goblinTroll', weight: 1, minWave: 4, minDifficulty: 2 }
     ],
@@ -2456,6 +2536,7 @@ export const LEVEL_DEFINITIONS = [
       { type: 'goblinSoldier', weight: 4, minWave: 1, minDifficulty: 1 },
       { type: 'goblinArcher', weight: 3, minWave: 2, minDifficulty: 1 },
       { type: 'skeletonSoldier', weight: 3, minWave: 2, minDifficulty: 1 },
+      { type: 'spider', weight: 1, minWave: 2, minDifficulty: 1 },
       { type: 'skeletonArcher', weight: 2, minWave: 4, minDifficulty: 2 },
       { type: 'scorpion', weight: 2, minWave: 3, minDifficulty: 1 },
       { type: 'ogre', weight: 1, minWave: 5, minDifficulty: 2 }

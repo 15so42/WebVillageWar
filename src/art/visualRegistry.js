@@ -26,6 +26,8 @@ import {
   createScorpionModel,
   createSkeletonArcherModel,
   createSkeletonSoldierModel,
+  createSpiderEggModel,
+  createSpiderModel,
   createSwordsmanModel,
   createWarderModel,
   createWizardModel,
@@ -52,6 +54,8 @@ const UNIT_FACTORIES = {
   goblinArcher: () => createGoblinArcherModel(),
   goblinTroll: () => createGoblinTrollModel(),
   scorpion: () => createScorpionModel(),
+  spider: () => createSpiderModel(),
+  spiderEgg: () => createSpiderEggModel(),
   wolf: () => createWolfModel(),
   bear: () => createBearModel(),
   arrowTower: ({ team }) => createArrowTowerModel(team),
@@ -208,7 +212,7 @@ function applyAttackPose(unit, root, t, pulse) {
     applyCasterAttack(root, t, pulse);
     return;
   }
-  if (unit.type === 'wolf' || unit.type === 'bear' || unit.type === 'scorpion') {
+  if (unit.type === 'wolf' || unit.type === 'bear' || unit.type === 'scorpion' || unit.type === 'spider') {
     applyBeastAttack(root, t, pulse, unit.type);
     return;
   }

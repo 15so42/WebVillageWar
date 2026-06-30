@@ -2305,6 +2305,155 @@ export function createScorpionModel() {
   return enableShadows(group);
 }
 
+export function createSpiderModel() {
+  const group = new THREE.Group();
+  const shellMat = mat('#2d3730');
+  const abdomenMat = mat('#3f4f3e');
+  const legMat = mat('#1f261f');
+  const fangMat = mat('#d6d6c6');
+  const eyeMat = mat('#78d06c', { emissive: '#2a6d2d', emissiveIntensity: 0.25 });
+
+  const abdomen = mesh(
+    new THREE.DodecahedronGeometry(0.42, 0),
+    abdomenMat,
+    new THREE.Vector3(0, 0.43, -0.32),
+    new THREE.Vector3(1.08, 0.62, 1.2)
+  );
+  const thorax = mesh(
+    new THREE.DodecahedronGeometry(0.34, 0),
+    shellMat,
+    new THREE.Vector3(0, 0.45, 0.18),
+    new THREE.Vector3(1.02, 0.56, 0.92)
+  );
+  const head = mesh(
+    new THREE.DodecahedronGeometry(0.24, 0),
+    shellMat,
+    new THREE.Vector3(0, 0.47, 0.66),
+    new THREE.Vector3(1, 0.64, 0.8)
+  );
+  const eyeLeft = mesh(
+    new THREE.BoxGeometry(0.045, 0.035, 0.018),
+    eyeMat,
+    new THREE.Vector3(-0.08, 0.54, 0.82),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const eyeRight = eyeLeft.clone();
+  eyeRight.position.x = 0.08;
+  const fangLeft = mesh(
+    new THREE.ConeGeometry(0.026, 0.16, 5),
+    fangMat,
+    new THREE.Vector3(-0.07, 0.33, 0.84),
+    new THREE.Vector3(1, 1, 1)
+  );
+  fangLeft.rotation.x = Math.PI;
+  const fangRight = fangLeft.clone();
+  fangRight.position.x = 0.07;
+  const headPivot = createPivot(
+    'spiderHeadPivot',
+    new THREE.Vector3(0, 0.44, 0.5),
+    [head, eyeLeft, eyeRight, fangLeft, fangRight]
+  );
+
+  const legs = new THREE.Group();
+  for (let i = 0; i < 4; i += 1) {
+    const z = 0.38 - i * 0.25;
+    const sweep = (1.5 - i) * 0.1;
+    const lift = i === 0 ? 0.03 : 0;
+    for (const side of [-1, 1]) {
+      const hip = new THREE.Vector3(side * 0.28, 0.39, z);
+      const knee = new THREE.Vector3(side * (0.5 + i * 0.035), 0.22 + lift, z + sweep);
+      const foot = new THREE.Vector3(side * (0.82 + i * 0.045), 0.12, z + sweep * 1.6);
+      legs.add(
+        cylinderBetween(hip, knee, 0.032, 0.027, legMat),
+        cylinderBetween(knee, foot, 0.027, 0.02, legMat)
+      );
+    }
+  }
+
+  const frontLeft = cylinderBetween(
+    new THREE.Vector3(-0.18, 0.43, 0.58),
+    new THREE.Vector3(-0.42, 0.28, 0.88),
+    0.036,
+    0.025,
+    legMat
+  );
+  const frontRight = cylinderBetween(
+    new THREE.Vector3(0.18, 0.43, 0.58),
+    new THREE.Vector3(0.42, 0.28, 0.88),
+    0.036,
+    0.025,
+    legMat
+  );
+  const frontPivot = createPivot(
+    'spiderFrontPivot',
+    new THREE.Vector3(0, 0.42, 0.52),
+    [frontLeft, frontRight]
+  );
+
+  const marking = mesh(
+    new THREE.BoxGeometry(0.12, 0.028, 0.32),
+    mat('#6a8a55'),
+    new THREE.Vector3(0, 0.66, -0.34),
+    new THREE.Vector3(1, 1, 1)
+  );
+  marking.rotation.x = -0.14;
+
+  group.add(abdomen, thorax, marking, legs, headPivot, frontPivot);
+  group.userData.parts = {
+    headPivot,
+    frontPivot
+  };
+  return enableShadows(group);
+}
+
+export function createSpiderEggModel() {
+  const group = new THREE.Group();
+  const shell = mat('#d8c4ad', { roughness: 0.9 });
+  const wetShell = mat('#c9e0bd', { roughness: 0.86 });
+  const spotMat = mat('#7a8f6a');
+  const crackMat = mat('#5f5148');
+
+  const egg = mesh(
+    new THREE.DodecahedronGeometry(0.38, 0),
+    shell,
+    new THREE.Vector3(0, 0.38, 0),
+    new THREE.Vector3(0.86, 1.14, 0.78)
+  );
+  const cap = mesh(
+    new THREE.DodecahedronGeometry(0.24, 0),
+    wetShell,
+    new THREE.Vector3(-0.06, 0.58, 0.02),
+    new THREE.Vector3(0.72, 0.28, 0.58)
+  );
+  const spotA = mesh(
+    new THREE.DodecahedronGeometry(0.055, 0),
+    spotMat,
+    new THREE.Vector3(0.17, 0.42, 0.2),
+    new THREE.Vector3(1, 0.32, 0.72)
+  );
+  const spotB = spotA.clone();
+  spotB.position.set(-0.16, 0.32, -0.12);
+  spotB.scale.set(0.82, 0.24, 0.56);
+  const crackA = boxBetween(
+    new THREE.Vector3(-0.06, 0.57, 0.32),
+    new THREE.Vector3(0.12, 0.49, 0.35),
+    0.018,
+    0.016,
+    crackMat
+  );
+  const crackB = boxBetween(
+    new THREE.Vector3(0.12, 0.49, 0.35),
+    new THREE.Vector3(0.04, 0.43, 0.38),
+    0.018,
+    0.016,
+    crackMat
+  );
+
+  group.add(egg, cap, spotA, spotB, crackA, crackB);
+  group.scale.setScalar(0.92);
+  return enableShadows(group);
+}
+
 export function createReticle() {
   const group = new THREE.Group();
   const disc = new THREE.Mesh(
