@@ -8,6 +8,8 @@ import {
 import { cardEnergyCost, cardThemeColor, createCardArtMarkup } from './CardSystem.js';
 
 const STORAGE_KEY = 'village-war-meta-v1';
+const STARTING_COINS = 10000;
+const STARTING_COINS_VERSION = 1;
 
 export class MetaGameSystem {
   constructor({ onStartLevel }) {
@@ -471,8 +473,11 @@ function loadProgress() {
   LEVEL_DEFINITIONS.forEach((level) => {
     levelDifficulties[level.id] = Math.max(1, Math.floor(raw?.levelDifficulties?.[level.id] ?? 1));
   });
+  const hasStartingCoinsGrant = raw?.startingCoinsVersion === STARTING_COINS_VERSION;
+  const storedCoins = Math.max(0, Math.floor(raw?.coins ?? 0));
   const progress = {
-    coins: Math.max(0, Math.floor(raw?.coins ?? 0)),
+    coins: hasStartingCoinsGrant ? storedCoins : Math.max(storedCoins, STARTING_COINS),
+    startingCoinsVersion: STARTING_COINS_VERSION,
     ownedCards,
     cardLevels,
     levelDifficulties
