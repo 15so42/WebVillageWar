@@ -67,7 +67,10 @@ export class MetaGameSystem {
     const speedBonus = Math.max(0, (targetTime - result.elapsedTime) / targetTime);
     const speedMultiplier = 1 + Math.min(0.6, speedBonus * 0.6);
     const difficultyMultiplier = 1 + (difficulty - 1) * 0.45;
-    return Math.max(1, Math.round(level.baseReward * difficultyMultiplier * speedMultiplier));
+    const abilityMultiplier = Math.max(0, result.rewardMultiplier ?? 1);
+    return Math.max(1, Math.round(
+      level.baseReward * difficultyMultiplier * speedMultiplier * abilityMultiplier
+    ));
   }
 
   onClick(event) {
@@ -273,6 +276,7 @@ export class MetaGameSystem {
         <section class="meta-panel">
           <div class="meta-section-title">卡牌商店</div>
           <p>购买后会进入局外卡牌库，并可在升级界面无限升级。</p>
+          <p class="meta-control-note">目前只支持电脑端操控。</p>
         </section>
         <section class="meta-card-grid">
           ${unowned.length ? unowned.map((card) => {
@@ -523,6 +527,8 @@ function kindLabel(kind) {
   if (kind === 'summon') return '单位';
   if (kind === 'spell') return '法术';
   if (kind === 'building') return '建筑';
+  if (kind === 'tactic') return '战术';
+  if (kind === 'ability') return '能力';
   return '附魔';
 }
 

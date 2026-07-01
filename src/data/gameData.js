@@ -217,6 +217,53 @@ export const UNIT_DEFINITIONS = {
       durabilityCost: 1.4
     }
   },
+  waterMage: {
+    name: '水法师',
+    role: 'ranged',
+    art: {
+      modelKey: 'unit.waterMage',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Walk',
+        attack: 'Water_Cast',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 1.08,
+          events: {
+            release: 0.52
+          }
+        },
+        hit: {
+          duration: 0.24
+        }
+      }
+    },
+    maxHealth: 18,
+    maxShield: 9,
+    speed: 2.65,
+    attackRange: 8.2,
+    attackRate: 1 / 3,
+    damage: 12,
+    knockback: 2.6,
+    aggroRange: 10.6,
+    projectileSpeed: 5.8,
+    projectileType: 'waterOrb',
+    projectileColor: '#65d8ff',
+    projectilePierce: {
+      radius: 0.86,
+      maxDistance: 9.2,
+      hitInterval: 0.08
+    },
+    weapon: {
+      name: '潮汐杖',
+      maxDurability: 40,
+      durabilityCost: 1.5
+    }
+  },
   rogue: {
     name: '盗贼',
     role: 'melee',
@@ -1295,6 +1342,60 @@ export const BUFF_DEFINITIONS = {
       }
     ]
   },
+  explosion: {
+    name: '爆炸',
+    category: 'enchantment',
+    color: '#ffb45c',
+    duration: 999,
+    level: 1,
+    effects: [
+      {
+        event: 'afterDamage',
+        op: 'explodeOnHit',
+        damagePerLevel: 2,
+        radius: 2.65,
+        knockback: 0.42,
+        color: '#ffb45c'
+      }
+    ]
+  },
+  critical: {
+    name: '暴击',
+    category: 'enchantment',
+    color: '#ffd166',
+    duration: 999,
+    level: 1,
+    effects: [
+      {
+        event: 'modifyAttack',
+        op: 'criticalHit',
+        chancePerLevel: 0.05,
+        multiplier: 3,
+        color: '#ffd166'
+      }
+    ]
+  },
+  focus: {
+    name: '凝神',
+    category: 'enchantment',
+    color: '#b7e8ff',
+    duration: 999,
+    level: 1,
+    tickInterval: 5,
+    effects: [
+      {
+        event: 'tick',
+        op: 'accumulateFocusedRange',
+        amountPerLevel: 0.1,
+        color: '#b7e8ff'
+      },
+      {
+        event: 'modifyAttack',
+        op: 'consumeFocusedRange',
+        color: '#b7e8ff'
+      }
+    ]
+  },
   phoenix: {
     name: '不死鸟',
     category: 'enchantment',
@@ -1439,7 +1540,7 @@ export const BUFF_DEFINITIONS = {
       {
         event: 'tick',
         op: 'restoreHealth',
-        amountPerLevel: 0.5
+        amountPerLevel: 0.25
       }
     ]
   },
@@ -1454,14 +1555,14 @@ export const BUFF_DEFINITIONS = {
       {
         stat: 'maxShield',
         type: 'add',
-        amountPerLevel: 1
+        amountPerLevel: 0.5
       }
     ],
     effects: [
       {
         event: 'tick',
         op: 'restoreShield',
-        amountPerLevel: 0.3
+        amountPerLevel: 0.15
       }
     ]
   },
@@ -1609,6 +1710,9 @@ export const ENCHANTMENTS = {
   protection: BUFF_DEFINITIONS.protection,
   block: BUFF_DEFINITIONS.block,
   power: BUFF_DEFINITIONS.power,
+  explosion: BUFF_DEFINITIONS.explosion,
+  critical: BUFF_DEFINITIONS.critical,
+  focus: BUFF_DEFINITIONS.focus,
   phoenix: BUFF_DEFINITIONS.phoenix,
   spiritWeapon: BUFF_DEFINITIONS.spiritWeapon,
   soulEater: BUFF_DEFINITIONS.soulEater,
@@ -1620,6 +1724,58 @@ export const ENCHANTMENTS = {
   spiritShield: BUFF_DEFINITIONS.spiritShield,
   wolfInstinct: BUFF_DEFINITIONS.wolfInstinct,
   ursineSpirit: BUFF_DEFINITIONS.ursineSpirit
+};
+
+export const PLAYER_ABILITY_DEFINITIONS = {
+  exhaustEnergy: {
+    id: 'exhaustEnergy',
+    name: '回收术',
+    label: '收',
+    color: '#7fd8b0',
+    summary: '卡牌被消耗时获得能量'
+  },
+  periodicEnergy: {
+    id: 'periodicEnergy',
+    name: '魔力泉',
+    label: '泉',
+    color: '#7f8fc7',
+    summary: '每 10 秒获得能量'
+  },
+  enchantEcho: {
+    id: 'enchantEcho',
+    name: '附魔回响',
+    label: '响',
+    color: '#b68cff',
+    summary: '使用附魔牌时概率额外生效'
+  },
+  deathExplosion: {
+    id: 'deathExplosion',
+    name: '殉爆印记',
+    label: '爆',
+    color: '#ffb45c',
+    summary: '友方单位死亡时爆炸'
+  },
+  buildingDurability: {
+    id: 'buildingDurability',
+    name: '加固工法',
+    label: '固',
+    color: '#d8c58d',
+    summary: '之后新建建筑获得额外耐久'
+  },
+  randomHealOnCard: {
+    id: 'randomHealOnCard',
+    name: '生机回流',
+    label: '愈',
+    color: '#6edc8b',
+    summary: '打出牌时随机治疗友军'
+  },
+  victoryGold: {
+    id: 'victoryGold',
+    name: '凯旋税印',
+    label: '金',
+    color: '#ffd166',
+    summary: '胜利后获得更多金币'
+  }
 };
 
 export const CARD_DEFINITIONS = [
@@ -1742,6 +1898,26 @@ export const CARD_DEFINITIONS = [
       count: 1
     },
     color: '#4f6f78'
+  },
+  {
+    id: 'water-mages',
+    name: '派遣水法师',
+    kind: 'summon',
+    label: '水',
+    artKey: 'waterMage',
+    summary: '每 3 秒发射穿透水球，水球只会伤害同一单位一次',
+    target: 'ground',
+    radius: 1.15,
+    cooldown: 8,
+    energyCost: 4,
+    unitType: 'waterMage',
+    count: 1,
+    effect: {
+      type: 'spawn-units',
+      unitType: 'waterMage',
+      count: 1
+    },
+    color: '#4f9fbd'
   },
   {
     id: 'rogues',
@@ -1999,6 +2175,213 @@ export const CARD_DEFINITIONS = [
     color: '#eef7ff'
   },
   {
+    id: 'focus-energy',
+    name: '凝聚能量',
+    kind: 'tactic',
+    label: '能',
+    artKey: 'tacticEnergySmall',
+    summary: '获得 3 点能量；升级后每级额外 +1',
+    target: 'none',
+    radius: 1,
+    cooldown: 0,
+    energyCost: 0,
+    effect: {
+      type: 'gain-energy',
+      amountBase: 3,
+      amountPerLevel: 1
+    },
+    color: '#6f718a'
+  },
+  {
+    id: 'burst-energy',
+    name: '爆发能量',
+    kind: 'tactic',
+    label: '涌',
+    artKey: 'tacticEnergyLarge',
+    summary: '消耗。获得 6 点能量；升级后每级额外 +1',
+    target: 'none',
+    radius: 1,
+    cooldown: 0,
+    energyCost: 0,
+    exhaust: true,
+    effect: {
+      type: 'gain-energy',
+      amountBase: 6,
+      amountPerLevel: 1
+    },
+    color: '#7f8fc7'
+  },
+  {
+    id: 'field-upgrade',
+    name: '战场研习',
+    kind: 'tactic',
+    label: '研',
+    artKey: 'tacticUpgrade',
+    summary: '消耗。选择一张手牌，将其升级 1 次；升级后额外升级次数 +1',
+    target: 'hand-card',
+    radius: 1,
+    cooldown: 0,
+    energyCost: 6,
+    exhaust: true,
+    effect: {
+      type: 'upgrade-hand-card',
+      amountBase: 1,
+      amountPerLevel: 1
+    },
+    color: '#8a6fc4'
+  },
+  {
+    id: 'field-exhaust',
+    name: '战术裁撤',
+    kind: 'tactic',
+    label: '裁',
+    artKey: 'tacticExhaust',
+    summary: '选择一张手牌进行消耗；升级后会额外随机消耗手牌',
+    target: 'hand-card',
+    radius: 1,
+    cooldown: 0,
+    energyCost: 5,
+    effect: {
+      type: 'exhaust-hand-card',
+      amountBase: 1,
+      amountPerLevel: 1
+    },
+    color: '#9f6b70'
+  },
+  {
+    id: 'exhaust-energy-ability',
+    name: '回收术',
+    kind: 'ability',
+    label: '收',
+    artKey: 'abilityExhaustEnergy',
+    summary: '卡牌被消耗时获得能量',
+    target: 'none',
+    radius: 1,
+    cooldown: 0,
+    energyCost: 2,
+    effect: {
+      type: 'acquire-ability',
+      abilityId: 'exhaustEnergy',
+      stacksBase: 1,
+      stacksPerLevel: 1
+    },
+    color: '#7fd8b0'
+  },
+  {
+    id: 'periodic-energy-ability',
+    name: '魔力泉',
+    kind: 'ability',
+    label: '泉',
+    artKey: 'abilityPeriodicEnergy',
+    summary: '每 10 秒获得一次能量',
+    target: 'none',
+    radius: 1,
+    cooldown: 0,
+    energyCost: 3,
+    effect: {
+      type: 'acquire-ability',
+      abilityId: 'periodicEnergy',
+      stacksBase: 1,
+      stacksPerLevel: 1
+    },
+    color: '#7f8fc7'
+  },
+  {
+    id: 'enchant-echo-ability',
+    name: '附魔回响',
+    kind: 'ability',
+    label: '响',
+    artKey: 'abilityEnchantEcho',
+    summary: '使用附魔牌时有概率额外生效一次',
+    target: 'none',
+    radius: 1,
+    cooldown: 0,
+    energyCost: 4,
+    effect: {
+      type: 'acquire-ability',
+      abilityId: 'enchantEcho',
+      stacksBase: 1,
+      stacksPerLevel: 1
+    },
+    color: '#b68cff'
+  },
+  {
+    id: 'death-explosion-ability',
+    name: '殉爆印记',
+    kind: 'ability',
+    label: '爆',
+    artKey: 'abilityDeathExplosion',
+    summary: '友方单位死亡时产生爆炸',
+    target: 'none',
+    radius: 1,
+    cooldown: 0,
+    energyCost: 4,
+    effect: {
+      type: 'acquire-ability',
+      abilityId: 'deathExplosion',
+      stacksBase: 1,
+      stacksPerLevel: 1
+    },
+    color: '#ffb45c'
+  },
+  {
+    id: 'building-durability-ability',
+    name: '加固工法',
+    kind: 'ability',
+    label: '固',
+    artKey: 'abilityBuildingDurability',
+    summary: '之后新建建筑获得额外耐久',
+    target: 'none',
+    radius: 1,
+    cooldown: 0,
+    energyCost: 3,
+    effect: {
+      type: 'acquire-ability',
+      abilityId: 'buildingDurability',
+      stacksBase: 1,
+      stacksPerLevel: 1
+    },
+    color: '#d8c58d'
+  },
+  {
+    id: 'random-heal-ability',
+    name: '生机回流',
+    kind: 'ability',
+    label: '愈',
+    artKey: 'abilityRandomHeal',
+    summary: '打出牌时随机治疗友军',
+    target: 'none',
+    radius: 1,
+    cooldown: 0,
+    energyCost: 4,
+    effect: {
+      type: 'acquire-ability',
+      abilityId: 'randomHealOnCard',
+      stacksBase: 1,
+      stacksPerLevel: 1
+    },
+    color: '#6edc8b'
+  },
+  {
+    id: 'victory-gold-ability',
+    name: '凯旋税印',
+    kind: 'ability',
+    label: '金',
+    artKey: 'abilityVictoryGold',
+    summary: '游戏胜利后获得更多金币',
+    target: 'none',
+    radius: 1,
+    cooldown: 0,
+    energyCost: 2,
+    effect: {
+      type: 'acquire-ability',
+      abilityId: 'victoryGold',
+      stacksBase: 1,
+      stacksPerLevel: 1
+    },
+    color: '#ffd166'
+  },
+  {
     id: 'fire-enchant',
     name: '火焰附加',
     kind: 'enchant',
@@ -2105,6 +2488,60 @@ export const CARD_DEFINITIONS = [
       buffId: 'power'
     },
     color: '#b97d2c'
+  },
+  {
+    id: 'explosion-enchant',
+    name: '爆炸附加',
+    kind: 'enchant',
+    label: '爆',
+    artKey: 'explosion',
+    summary: '命中后在目标处爆炸，对周围敌人造成等级 x2 物理伤害',
+    target: 'friendly-unit',
+    radius: 1.1,
+    cooldown: 4,
+    energyCost: 4,
+    enchantmentId: 'explosion',
+    effect: {
+      type: 'apply-buff',
+      buffId: 'explosion'
+    },
+    color: '#ffb45c'
+  },
+  {
+    id: 'critical-enchant',
+    name: '暴击附加',
+    kind: 'enchant',
+    label: '暴',
+    artKey: 'critical',
+    summary: '每级 +5% 暴击率，暴击造成三倍伤害；超过 100% 后转为提高暴击倍率',
+    target: 'friendly-unit',
+    radius: 1.1,
+    cooldown: 4,
+    energyCost: 4,
+    enchantmentId: 'critical',
+    effect: {
+      type: 'apply-buff',
+      buffId: 'critical'
+    },
+    color: '#ffd166'
+  },
+  {
+    id: 'focus-enchant',
+    name: '凝神附加',
+    kind: 'enchant',
+    label: '凝',
+    artKey: 'focus',
+    summary: '待机每 5 秒增加等级 x0.1 攻击距离，下一次攻击转为额外伤害并清零',
+    target: 'friendly-unit',
+    radius: 1.1,
+    cooldown: 4,
+    energyCost: 3,
+    enchantmentId: 'focus',
+    effect: {
+      type: 'apply-buff',
+      buffId: 'focus'
+    },
+    color: '#b7e8ff'
   },
   {
     id: 'phoenix-enchant',
@@ -2333,6 +2770,10 @@ export const CARD_META = {
     buyCost: 150,
     upgradeBaseCost: 42
   },
+  'water-mages': {
+    buyCost: 155,
+    upgradeBaseCost: 44
+  },
   rogues: {
     buyCost: 100,
     upgradeBaseCost: 32
@@ -2408,6 +2849,50 @@ export const CARD_META = {
     buyCost: 130,
     upgradeBaseCost: 38
   },
+  'focus-energy': {
+    buyCost: 95,
+    upgradeBaseCost: 70
+  },
+  'burst-energy': {
+    buyCost: 140,
+    upgradeBaseCost: 90
+  },
+  'field-upgrade': {
+    buyCost: 180,
+    upgradeBaseCost: 110
+  },
+  'field-exhaust': {
+    buyCost: 150,
+    upgradeBaseCost: 95
+  },
+  'exhaust-energy-ability': {
+    buyCost: 150,
+    upgradeBaseCost: 95
+  },
+  'periodic-energy-ability': {
+    buyCost: 165,
+    upgradeBaseCost: 105
+  },
+  'enchant-echo-ability': {
+    buyCost: 190,
+    upgradeBaseCost: 125
+  },
+  'death-explosion-ability': {
+    buyCost: 185,
+    upgradeBaseCost: 120
+  },
+  'building-durability-ability': {
+    buyCost: 170,
+    upgradeBaseCost: 110
+  },
+  'random-heal-ability': {
+    buyCost: 195,
+    upgradeBaseCost: 125
+  },
+  'victory-gold-ability': {
+    buyCost: 175,
+    upgradeBaseCost: 115
+  },
   'thorns-enchant': {
     buyCost: 90,
     upgradeBaseCost: 30
@@ -2427,6 +2912,18 @@ export const CARD_META = {
   'power-enchant': {
     buyCost: 95,
     upgradeBaseCost: 30
+  },
+  'explosion-enchant': {
+    buyCost: 145,
+    upgradeBaseCost: 40
+  },
+  'critical-enchant': {
+    buyCost: 130,
+    upgradeBaseCost: 38
+  },
+  'focus-enchant': {
+    buyCost: 115,
+    upgradeBaseCost: 36
   },
   'phoenix-enchant': {
     buyCost: 135,
@@ -2497,7 +2994,7 @@ export const LEVEL_DEFINITIONS = [
     baseReward: 60,
     targetTime: 210,
     name: '幽暗地牢',
-    subtitle: '地牢关：狭长石厅、地刺和喷火陷阱会切割战场',
+    subtitle: '地牢关：多个石台由狭窄通路连接，争夺平台之间的推进路线',
     baseDifficulty: 2,
     enemyPool: [
       { type: 'goblinSoldier', weight: 5, minWave: 1, minDifficulty: 1 },

@@ -8,7 +8,11 @@ export class CardEffectSystem {
       'build-structure': (context) => this.buildStructure(context),
       'create-area-effect': (context) => this.createAreaEffect(context),
       'cast-spell': (context) => this.castSpell(context),
-      'apply-buff': (context) => this.applyBuff(context)
+      'apply-buff': (context) => this.applyBuff(context),
+      'acquire-ability': (context) => this.acquireAbility(context),
+      'gain-energy': (context) => this.gainEnergy(context),
+      'upgrade-hand-card': (context) => this.upgradeHandCard(context),
+      'exhaust-hand-card': (context) => this.exhaustHandCard(context)
     };
   }
 
@@ -25,7 +29,8 @@ export class CardEffectSystem {
       card,
       effect,
       point: drag.point?.clone(),
-      targetUnit: drag.targetUnit
+      targetUnit: drag.targetUnit,
+      targetCard: drag.targetCard
     });
     if (resolved === false) return false;
     this.game.lastCardPlayed = card.id;
@@ -82,6 +87,43 @@ export class CardEffectSystem {
     this.game.selectUnit(targetUnit);
     return Boolean(buff);
   }
+
+  acquireAbility({ card, effect }) {
+    const abilityId = effect.abilityId ?? card.abilityId;
+    const stacks = resolveCardEffectNumber(card, effect, 'stacks', 1);
+    return this.game.abilities?.acquire(abilityId, stacks) === true;
+  }
+
+  gainEnergy({ card, effect }) {
+    const amount = resolveCardEffectNumber(card, effect, 'amount', effect.amount ?? 0);
+    this.game.cardSystem.addEnergy(amount);
+    return true;
+  }
+
+  upgradeHandCard({ card, effect, targetCard }) {
+    if (!targetCard || targetCard === card) return false;
+    const amount = resolveCardEffectNumber(card, effect, 'amount', effect.amount ?? 1);
+    return this.game.cardSystem.upgradeHandCard(targetCard, amount);
+  }
+
+  exhaustHandCard({ card, effect, targetCard }) {
+    if (!targetCard || targetCard === card) return false;
+    const amount = resolveCardEffectNumber(card, effect, 'amount', effect.amount ?? 1);
+    return this.game.cardSystem.exhaustHandCard(targetCard, amount, {
+      excludeCards: [card]
+    }) > 0;
+  }
+
+}
+
+function resolveCardEffectNumber(card, effect, field, fallback = 0) {
+  if (Number.isFinite(effect[field])) return effect[field];
+  const level = Math.max(1, Math.floor(card?.level ?? 1));
+  const base = Number.isFinite(effect[`${field}Base`]) ? effect[`${field}Base`] : fallback;
+  const perLevel = Number.isFinite(effect[`${field}PerLevel`])
+    ? effect[`${field}PerLevel`]
+    : 0;
+  return base + perLevel * Math.max(0, level - 1);
 }
 
 function legacyEffectFor(card) {

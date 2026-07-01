@@ -142,6 +142,48 @@ export class BuffSystem {
       return;
     }
 
+    if (effect.op === 'criticalHit') {
+      if (!context.source?.alive || !context.isAttack || context.damage <= 0) return;
+      const rawChance = Math.max(0, resolveEffectNumber(effect, 'chance', context, 0));
+      if (rawChance <= 0) return;
+      const chance = clamp01(rawChance);
+      if (Math.random() >= chance) return;
+      const baseMultiplier = Math.max(1, effect.multiplier ?? 3);
+      const overflowChance = Math.max(0, rawChance - 1);
+      const multiplier = baseMultiplier + overflowChance * Math.max(0, baseMultiplier - 1);
+      context.damage *= multiplier;
+      context.criticalMultiplier = multiplier;
+      this.game.effects.spawnDamageNumber(context.source.position, 1, {
+        text: `暴击x${formatEffectAmount(multiplier)}`,
+        color: effect.color ?? '#ffd166',
+        stroke: '#3a2410',
+        height: context.source.projectileHitHeight ?? 1.55,
+        duration: 0.66,
+        fontSize: 78,
+        baseHeight: 0.48
+      });
+      return;
+    }
+
+    if (effect.op === 'consumeFocusedRange') {
+      if (!context.source?.alive || !context.isAttack) return;
+      const bonus = Math.max(0, context.buff?.focusRangeBonus ?? 0);
+      if (bonus <= 0.001) return;
+      context.damage += bonus;
+      clearFocusedRange(context.source, context.buff);
+      this.game.effects.spawnRing(context.source.position, effect.color ?? '#b7e8ff', 0.62, 0.38);
+      this.game.effects.spawnDamageNumber(context.source.position, 1, {
+        text: `凝神+${formatEffectAmount(bonus)}`,
+        color: effect.color ?? '#b7e8ff',
+        stroke: '#183146',
+        height: context.source.projectileHitHeight ?? 1.58,
+        duration: 0.7,
+        fontSize: 76,
+        baseHeight: 0.48
+      });
+      return;
+    }
+
     if (effect.op === 'addDamageType') {
       if (effect.damageType === 'true') {
         context.damageTypes.add('true');
@@ -209,6 +251,40 @@ export class BuffSystem {
       }
       if (applied && effect.vfx === 'curse') {
         this.game.effects.spawnCurseParticles(context.target, 6);
+      }
+      return;
+    }
+
+    if (effect.op === 'explodeOnHit') {
+      if (!context.source?.alive || !context.target?.position || !context.isAttack) return;
+      const damage = resolveEffectNumber(effect, 'damage', context, 0);
+      const radius = Math.max(0, resolveEffectNumber(effect, 'radius', context, effect.radius ?? 2.4));
+      if (damage <= 0 || radius <= 0) return;
+      const center = context.target.position;
+      const enemies = getEnemiesOf(this.game, context.source);
+      let hitCount = 0;
+      enemies.forEach((unit) => {
+        if (!unit.alive || unit === context.source || !unit.position) return;
+        if (distance2D(center, unit.position) > radius) return;
+        hitCount += 1;
+        this.game.combat.applyDamage(unit, damage, context.source, effect.knockback ?? 0, {
+          damage,
+          source: context.source,
+          target: unit,
+          damageTypes: new Set(effect.damageTypes ?? []),
+          isAttack: false,
+          isExplosionDamage: true,
+          damageNumberHeight: unit.projectileHitHeight ?? 1.45,
+          damageNumberDuration: 0.66
+        });
+      });
+      if (hitCount > 0) {
+        this.game.effects.spawnRing(center, effect.color ?? '#ffb45c', radius, 0.46);
+        this.game.effects.spawnHit({
+          x: center.x,
+          y: (center.y ?? 0) + 0.82,
+          z: center.z
+        }, effect.color ?? '#ffb45c');
       }
       return;
     }
@@ -400,6 +476,23 @@ export class BuffSystem {
       return;
     }
 
+    if (effect.op === 'accumulateFocusedRange') {
+      const unit = context.target;
+      if (!unit?.alive || !context.buff) return;
+      if (!isUnitIdleForFocus(unit)) return;
+      const amount = resolveEffectNumber(effect, 'amount', context, 0);
+      if (amount <= 0) return;
+      context.buff.focusRangeBonus = Math.max(0, (context.buff.focusRangeBonus ?? 0) + amount);
+      unit.attributes.removeModifiersBySource(focusedRangeModifierSource(context.buff.id));
+      unit.attributes.addModifier({
+        stat: 'attackRange',
+        type: 'add',
+        amount: context.buff.focusRangeBonus
+      }, focusedRangeModifierSource(context.buff.id));
+      this.game.effects.spawnRing(unit.position, effect.color ?? '#b7e8ff', 0.44, 0.28);
+      return;
+    }
+
     if (effect.op === 'restoreHealth') {
       if (!context.target?.alive) return;
       const amount = resolveEffectNumber(effect, 'amount', context, 0);
@@ -473,13 +566,50 @@ function isStatusImmune(unit, buffId) {
 
 function orderedBuffsForEvent(owner, eventName) {
   const buffs = [...owner.buffs.values()];
+  if (eventName === 'modifyAttack') {
+    return buffs.sort((a, b) => modifyAttackPriority(a) - modifyAttackPriority(b));
+  }
   if (eventName !== 'beforeDamage') return buffs;
   return buffs.sort((a, b) => beforeDamagePriority(a) - beforeDamagePriority(b));
+}
+
+function modifyAttackPriority(buff) {
+  if (buff.id === 'focus') return -50;
+  if (buff.id === 'critical') return 50;
+  return 0;
 }
 
 function beforeDamagePriority(buff) {
   if (buff.id === 'block') return -100;
   return 0;
+}
+
+function clearFocusedRange(unit, buff) {
+  if (!unit?.attributes || !buff) return;
+  buff.focusRangeBonus = 0;
+  unit.attributes.removeModifiersBySource(focusedRangeModifierSource(buff.id));
+}
+
+function focusedRangeModifierSource(id) {
+  return `buff:${id}:focus-range`;
+}
+
+function isUnitIdleForFocus(unit) {
+  if (unit.target?.alive !== false && unit.target) return false;
+  if (unit.moveGoal || unit.commandMoveGoal) return false;
+  if (unit.hitStunTimer > 0) return false;
+  if ((unit.knockbackVelocity?.lengthSq?.() ?? 0) > 0.0004) return false;
+  return unit.visualState === 'idle' || !unit.visualState;
+}
+
+function getEnemiesOf(game, source) {
+  return [...(game.friendlyUnits ?? []), ...(game.enemyUnits ?? [])].filter((unit) => (
+    unit?.alive && unit.team !== source.team
+  ));
+}
+
+function distance2D(a, b) {
+  return Math.hypot((a.x ?? 0) - (b.x ?? 0), (a.z ?? 0) - (b.z ?? 0));
 }
 
 function clamp01(value) {

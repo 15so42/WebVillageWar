@@ -15,6 +15,7 @@ import { LevelMechanicSystem } from './LevelMechanicSystem.js';
 import { LootDropSystem } from './LootDropSystem.js';
 import { AttributeSet, bindAttributeGetter } from './AttributeSet.js';
 import { AreaEffectSystem } from './AreaEffectSystem.js';
+import { AbilitySystem } from './AbilitySystem.js';
 import { ModifierSystem } from './ModifierSystem.js';
 import { RecoverySystem } from './RecoverySystem.js';
 import { SpellSystem } from './SpellSystem.js';
@@ -47,14 +48,18 @@ const BEACON_PLACEMENT_RADIUS = 5.5;
 const SPIDER_FIRST_EGG_SECONDS = 37;
 const SPIDER_EGG_INTERVAL_SECONDS = 60;
 const SPIDER_EGG_HATCH_SECONDS = 15;
+const TOUCH_TAP_THRESHOLD = 7;
 
 export class Game {
-  constructor({ canvas, session = null, onLevelComplete = null } = {}) {
+  constructor({ canvas, session = null, onLevelComplete = null, onRestart = null, onExitToMenu = null } = {}) {
     this.canvas = canvas;
     this.levelSession = normalizeLevelSession(session);
     this.onLevelComplete = onLevelComplete;
+    this.onRestart = onRestart;
+    this.onExitToMenu = onExitToMenu;
     this.elapsedTime = 0;
     this.levelFinished = false;
+    this.paused = false;
     this.destroyed = false;
     this.eventController = new AbortController();
     this.worldConfig = this.levelSession.level.world ?? BALANCE.world;
@@ -80,6 +85,8 @@ export class Game {
     this.pointerScreen = new THREE.Vector2(window.innerWidth * 0.5, window.innerHeight * 0.5);
     this.edgePanActive = false;
     this.cameraDrag = null;
+    this.mobileShiftHeld = false;
+    this.mobileShiftPointerId = null;
     this.updateCamera(0);
 
     this.clock = new THREE.Clock();
@@ -167,6 +174,7 @@ export class Game {
     this.cardSystem = new CardSystem(this, {
       deck: this.levelSession.deck
     });
+    this.abilities = new AbilitySystem(this);
     this.lootDrops = new LootDropSystem(this);
     this.altars = new AltarSystem(this, this.world.config?.altars ?? this.worldConfig.altars);
     this.enemyCommander = new EnemyCommanderSystem(this);
@@ -180,6 +188,10 @@ export class Game {
       selectedName: document.querySelector('#selected-name'),
       selectedStats: document.querySelector('#selected-stats'),
       selectedEnchants: document.querySelector('#selected-enchants'),
+      settingsButton: document.querySelector('#game-settings-button'),
+      mobileShiftButton: document.querySelector('#mobile-shift-button'),
+      pauseOverlay: document.querySelector('#pause-overlay'),
+      pauseReason: document.querySelector('#pause-reason'),
       debug: document.querySelector('#debug-state')
     };
 
@@ -201,7 +213,26 @@ export class Game {
     window.addEventListener('contextmenu', (event) => this.onGameContextMenu(event), { capture: true, signal });
     window.addEventListener('keydown', (event) => this.onKeyDown(event), { signal });
     window.addEventListener('resize', () => this.resize(), { signal });
+    window.addEventListener('popstate', (event) => this.onReturnNavigation(event), { signal });
+    this.dom.settingsButton?.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      this.setPaused(true, '设置');
+    }, { signal });
+    this.dom.mobileShiftButton?.addEventListener('pointerdown', (event) => this.onMobileShiftDown(event), { signal });
+    this.dom.mobileShiftButton?.addEventListener('pointerup', (event) => this.onMobileShiftUp(event), { signal });
+    this.dom.mobileShiftButton?.addEventListener('pointercancel', (event) => this.onMobileShiftUp(event), { signal });
+    this.dom.mobileShiftButton?.addEventListener('lostpointercapture', () => this.setMobileShiftHeld(false), { signal });
+    window.addEventListener('pointerup', (event) => this.onGlobalPointerRelease(event), { signal });
+    window.addEventListener('pointercancel', (event) => this.onGlobalPointerRelease(event), { signal });
+    this.dom.pauseOverlay?.addEventListener('click', (event) => this.onPauseOverlayClick(event), { signal });
+    this.dom.pauseOverlay?.addEventListener('pointerdown', stopUiEvent, { signal });
+    this.dom.pauseOverlay?.addEventListener('contextmenu', stopUiEvent, { signal });
     this.resize();
+    document.body.classList.add('is-game-active');
+    if (this.dom.settingsButton) this.dom.settingsButton.hidden = false;
+    if (this.dom.mobileShiftButton) this.dom.mobileShiftButton.hidden = false;
+    this.armReturnNavigationTrap();
 
     this.summonUnits('raider', 1, this.playerBase.position.clone().add(new THREE.Vector3(-1.4, 0, -2.2)), 0.7, {
       select: false
@@ -242,6 +273,10 @@ export class Game {
     this.disposeNavDebug();
     this.renderer.dispose();
     this.selectionBox?.remove();
+    document.body.classList.remove('is-game-active', 'is-game-paused');
+    if (this.dom.settingsButton) this.dom.settingsButton.hidden = true;
+    if (this.dom.mobileShiftButton) this.dom.mobileShiftButton.hidden = true;
+    if (this.dom.pauseOverlay) this.dom.pauseOverlay.hidden = true;
     this.guardVisuals.forEach((visuals) => {
       this.scene.remove(visuals.flag, visuals.rangeRing);
     });
@@ -255,6 +290,12 @@ export class Game {
   tick() {
     if (this.destroyed) return;
     const dt = Math.min(this.clock.getDelta(), 0.05);
+    if (this.paused) {
+      this.updateCamera(0);
+      this.updateHud(0);
+      this.renderer.render(this.scene, this.camera);
+      return;
+    }
     this.elapsedTime += dt;
     this.waveTimer -= dt;
     if (this.waveTimer <= 0 && this.playerBase.health > 0 && this.enemyCamp.alive) {
@@ -266,6 +307,7 @@ export class Game {
     if (perf) {
       perf.beginFrame(dt);
       this.measurePerf('card', () => this.cardSystem.update(dt));
+      this.measurePerf('abilities', () => this.abilities.update(dt));
       this.measurePerf('enemyCommander', () => this.enemyCommander.update(dt));
       this.measurePerf('spiders', () => this.updateSpiderLifecycle(dt));
       this.measurePerf('combat', () => this.combat.update(dt));
@@ -288,6 +330,7 @@ export class Game {
       perf.endFrame(this.createPerfCounters({ takeNavStats: true }));
     } else {
       this.cardSystem.update(dt);
+      this.abilities.update(dt);
       this.enemyCommander.update(dt);
       this.updateSpiderLifecycle(dt);
       this.combat.update(dt);
@@ -348,27 +391,6 @@ export class Game {
   }
 
   updateCamera(dt) {
-    if (dt > 0 && this.edgePanActive && !this.cardSystem.drag && !this.selectionDrag && !this.cameraDrag) {
-      const margin = 26;
-      const width = window.innerWidth;
-      const height = window.innerHeight;
-      let panX = 0;
-      let panZ = 0;
-
-      if (this.pointerScreen.x <= margin) panX -= 1;
-      if (this.pointerScreen.x >= width - margin) panX += 1;
-      if (this.pointerScreen.y <= margin) panZ -= 1;
-      if (this.pointerScreen.y >= height - margin) panZ += 1;
-
-      if (panX !== 0 || panZ !== 0) {
-        const length = Math.hypot(panX, panZ);
-        const speed = 12 + this.cameraDistance * 0.24;
-        this.cameraTarget.x += (panX / length) * speed * dt;
-        this.cameraTarget.z += (panZ / length) * speed * dt;
-        this.clampCameraTarget();
-      }
-    }
-
     this.applyCameraDragDelta();
     this.cameraTarget.y = 4;
     this.camera.position.copy(this.cameraTarget).addScaledVector(
@@ -418,7 +440,7 @@ export class Game {
 
   onWindowPointerMove(event) {
     this.pointerScreen.set(event.clientX, event.clientY);
-    this.edgePanActive = !this.cameraDrag && !isGameUiTarget(event.target);
+    this.edgePanActive = false;
   }
 
   onGameContextMenu(event) {
@@ -458,6 +480,7 @@ export class Game {
       position
     });
     this.applySummonCardLevel(unit, options.sourceCard);
+    this.abilities?.applyNewBuildingDurability(unit);
     this.attachUnitStatus(unit);
     this.friendlyUnits.push(unit);
     this.scene.add(unit.mesh);
@@ -476,11 +499,8 @@ export class Game {
 
   canPlaceBeaconAt(point) {
     if (!point) return false;
-    return this.friendlyUnits.some((unit) => (
-      unit.alive &&
-      !unit.underConstruction &&
-      !unit.isBuilding &&
-      Math.hypot(point.x - unit.position.x, point.z - unit.position.z) <= BEACON_PLACEMENT_RADIUS
+    return this.getBeaconPlacementAnchors().some((anchor) => (
+      Math.hypot(point.x - anchor.position.x, point.z - anchor.position.z) <= anchor.radius
     ));
   }
 
@@ -501,6 +521,19 @@ export class Game {
       });
     });
     return anchors;
+  }
+
+  getBeaconPlacementAnchors() {
+    return this.friendlyUnits
+      .filter((unit) => (
+        unit.alive &&
+        !unit.underConstruction &&
+        !unit.isBuilding
+      ))
+      .map((unit) => ({
+        position: unit.position,
+        radius: BEACON_PLACEMENT_RADIUS
+      }));
   }
 
   applySummonCardLevel(unit, card) {
@@ -1243,8 +1276,82 @@ export class Game {
       wave: this.wave,
       session: this.levelSession,
       playerBaseHealth: this.playerBase.health,
-      enemyCampHealth: this.enemyCamp.health
+      enemyCampHealth: this.enemyCamp.health,
+      rewardMultiplier: this.abilities?.getRewardMultiplier?.() ?? 1
     });
+  }
+
+  setPaused(paused, reason = '设置') {
+    if (this.destroyed || this.levelFinished) return;
+    this.paused = Boolean(paused);
+    document.body.classList.toggle('is-game-paused', this.paused);
+    if (this.paused) {
+      this.cancelCameraDrag();
+      this.cancelSelectionDrag();
+      if (this.dom.pauseReason) {
+        this.dom.pauseReason.textContent = reason === '返回' ? '返回键已暂停' : '游戏已暂停';
+      }
+      if (this.dom.pauseOverlay) this.dom.pauseOverlay.hidden = false;
+      this.clock.getDelta();
+    } else {
+      if (this.dom.pauseOverlay) this.dom.pauseOverlay.hidden = true;
+      this.clock.getDelta();
+    }
+  }
+
+  onPauseOverlayClick(event) {
+    const actionTarget = event.target.closest('[data-pause-action]');
+    if (!actionTarget) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const action = actionTarget.dataset.pauseAction;
+    if (action === 'continue') {
+      this.setPaused(false);
+      return;
+    }
+    if (action === 'fullscreen') {
+      this.requestFullscreen();
+      return;
+    }
+    if (action === 'restart') {
+      this.onRestart?.(this.levelSession);
+      return;
+    }
+    if (action === 'menu') {
+      this.onExitToMenu?.();
+    }
+  }
+
+  onReturnNavigation(event) {
+    if (this.destroyed || this.levelFinished) return;
+    event.preventDefault?.();
+    this.setPaused(true, '返回');
+    this.armReturnNavigationTrap();
+  }
+
+  async requestFullscreen() {
+    const root = document.documentElement;
+    const request = root.requestFullscreen
+      ?? root.webkitRequestFullscreen
+      ?? root.msRequestFullscreen;
+    if (!request) {
+      if (this.dom.pauseReason) this.dom.pauseReason.textContent = '当前浏览器不支持网页全屏';
+      return;
+    }
+    try {
+      await request.call(root);
+      if (this.dom.pauseReason) this.dom.pauseReason.textContent = '已进入全屏';
+    } catch {
+      if (this.dom.pauseReason) this.dom.pauseReason.textContent = '请用浏览器菜单或添加到主屏幕后全屏游玩';
+    }
+  }
+
+  armReturnNavigationTrap() {
+    try {
+      window.history.pushState({ villageWarPauseTrap: true }, '', window.location.href);
+    } catch {
+      // Browsers can reject history mutations in unusual embedded contexts.
+    }
   }
 
   selectUnit(unit) {
@@ -1265,6 +1372,19 @@ export class Game {
     if (event.target !== this.canvas) return;
     this.pointerScreen.set(event.clientX, event.clientY);
 
+    if (event.pointerType === 'touch') {
+      event.preventDefault();
+      if (this.mobileShiftHeld) {
+        this.beginSelectionDrag(event);
+      } else {
+        this.beginCameraDrag(event, {
+          mode: 'touch-pan',
+          issueCommandOnTap: true
+        });
+      }
+      return;
+    }
+
     if (event.button === 1) {
       this.beginCameraDrag(event);
       return;
@@ -1279,6 +1399,11 @@ export class Game {
     if (event.button !== 0 || this.cardSystem.drag) return;
     if (this.lootDrops?.tryOpenPickup(event)) return;
     event.preventDefault();
+    this.beginSelectionDrag(event);
+  }
+
+  beginSelectionDrag(event) {
+    if (this.cardSystem.drag) return;
     this.selectionDrag = {
       pointerId: event.pointerId,
       startX: event.clientX,
@@ -1288,7 +1413,7 @@ export class Game {
       active: false
     };
     if (event.pointerId != null) {
-      this.canvas.setPointerCapture?.(event.pointerId);
+      safeSetPointerCapture(this.canvas, event.pointerId);
     }
   }
 
@@ -1311,6 +1436,12 @@ export class Game {
   onKeyDown(event) {
     if (event.repeat || isTextInputTarget(event.target)) return;
     const key = event.key.toLowerCase();
+    if (key === 'escape') {
+      event.preventDefault();
+      this.setPaused(!this.paused, '设置');
+      return;
+    }
+    if (this.paused) return;
     if (key === 'n') {
       event.preventDefault();
       this.setNavDebugEnabled(!this.navDebugEnabled);
@@ -1347,7 +1478,7 @@ export class Game {
     const drag = this.selectionDrag;
     this.selectionDrag = null;
     if (event.pointerId != null) {
-      this.canvas.releasePointerCapture?.(event.pointerId);
+      safeReleasePointerCapture(this.canvas, event.pointerId);
     }
     this.hideSelectionBox();
 
@@ -1364,7 +1495,7 @@ export class Game {
     if (!this.isCurrentSelectionEvent(event)) return;
     this.selectionDrag = null;
     if (event.pointerId != null) {
-      this.canvas.releasePointerCapture?.(event.pointerId);
+      safeReleasePointerCapture(this.canvas, event.pointerId);
     }
     this.hideSelectionBox();
   }
@@ -1374,21 +1505,27 @@ export class Game {
     return event.pointerId == null || this.selectionDrag.pointerId == null || this.selectionDrag.pointerId === event.pointerId;
   }
 
-  beginCameraDrag(event) {
+  beginCameraDrag(event, options = {}) {
     if (this.cardSystem.drag || this.selectionDrag || isGameUiTarget(event.target)) return;
     event.preventDefault();
     event.stopPropagation();
     this.cameraDrag = {
+      mode: options.mode ?? 'mouse',
+      issueCommandOnTap: options.issueCommandOnTap === true,
       pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
       lastX: event.clientX,
       lastY: event.clientY,
       pendingX: 0,
-      pendingY: 0
+      pendingY: 0,
+      totalDistance: 0,
+      moved: false
     };
     this.edgePanActive = false;
     this.canvas.classList.add('is-camera-dragging');
     if (event.pointerId != null) {
-      this.canvas.setPointerCapture?.(event.pointerId);
+      safeSetPointerCapture(this.canvas, event.pointerId);
     }
   }
 
@@ -1404,6 +1541,8 @@ export class Game {
     if (dx !== 0 || dy !== 0) {
       this.cameraDrag.pendingX += dx;
       this.cameraDrag.pendingY += dy;
+      this.cameraDrag.totalDistance += Math.hypot(dx, dy);
+      this.cameraDrag.moved = this.cameraDrag.totalDistance > TOUCH_TAP_THRESHOLD;
     }
     return true;
   }
@@ -1412,11 +1551,16 @@ export class Game {
     if (!this.isCameraDragEndEvent(event)) return false;
     event.preventDefault?.();
     event.stopPropagation?.();
+    const drag = this.cameraDrag;
     const pointerId = event.pointerId ?? this.cameraDrag.pointerId;
     if (pointerId != null) {
-      this.canvas.releasePointerCapture?.(pointerId);
+      safeReleasePointerCapture(this.canvas, pointerId);
     }
+    this.applyCameraDragDelta();
     this.cancelCameraDrag();
+    if (drag.issueCommandOnTap && !drag.moved && event.type !== 'pointercancel') {
+      this.issueMoveCommand(event);
+    }
     return true;
   }
 
@@ -1436,6 +1580,43 @@ export class Game {
     if (!this.cameraDrag) return;
     this.cameraDrag = null;
     this.canvas.classList.remove('is-camera-dragging');
+  }
+
+  onMobileShiftDown(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    this.mobileShiftPointerId = event.pointerId;
+    this.setMobileShiftHeld(true);
+    safeSetPointerCapture(event.currentTarget, event.pointerId);
+  }
+
+  onMobileShiftUp(event) {
+    if (this.mobileShiftPointerId !== null && event.pointerId !== this.mobileShiftPointerId) return;
+    event.preventDefault?.();
+    event.stopPropagation?.();
+    safeReleasePointerCapture(event.currentTarget, event.pointerId);
+    this.mobileShiftPointerId = null;
+    this.setMobileShiftHeld(false);
+  }
+
+  onGlobalPointerRelease(event) {
+    if (this.mobileShiftPointerId === null || event.pointerId !== this.mobileShiftPointerId) return;
+    this.mobileShiftPointerId = null;
+    this.setMobileShiftHeld(false);
+  }
+
+  setMobileShiftHeld(held) {
+    this.mobileShiftHeld = Boolean(held);
+    this.dom.mobileShiftButton?.classList.toggle('is-held', this.mobileShiftHeld);
+  }
+
+  cancelSelectionDrag() {
+    if (!this.selectionDrag) return;
+    if (this.selectionDrag.pointerId != null) {
+      safeReleasePointerCapture(this.canvas, this.selectionDrag.pointerId);
+    }
+    this.selectionDrag = null;
+    this.hideSelectionBox();
   }
 
   updateSelectionBox() {
@@ -2009,7 +2190,9 @@ function createSelectionBoxElement() {
 }
 
 function isGameUiTarget(target) {
-  return Boolean(target?.closest?.('.hud, .card, .energy-panel, .card-pile-dock, .pile-viewer, .loot-confirm, .drag-ghost'));
+  return Boolean(target?.closest?.(
+    '.hud, .card, .energy-panel, .card-pile-dock, .pile-viewer, .loot-confirm, .drag-ghost, .game-settings-button, .mobile-shift-button, .mobile-action-dock, .pause-overlay'
+  ));
 }
 
 function isTextInputTarget(target) {
@@ -2019,6 +2202,11 @@ function isTextInputTarget(target) {
     tagName === 'textarea' ||
     tagName === 'select' ||
     target.isContentEditable;
+}
+
+function stopUiEvent(event) {
+  event.preventDefault();
+  event.stopPropagation();
 }
 
 function commandFormationOffset(index, total, radius) {
@@ -2335,6 +2523,22 @@ function disposeObject3D(object) {
       material?.dispose?.();
     }
   });
+}
+
+function safeSetPointerCapture(element, pointerId) {
+  try {
+    element?.setPointerCapture?.(pointerId);
+  } catch {
+    // Some touch browsers can reject capture during synthetic or interrupted gestures.
+  }
+}
+
+function safeReleasePointerCapture(element, pointerId) {
+  try {
+    element?.releasePointerCapture?.(pointerId);
+  } catch {
+    // The release path should never block drag cleanup.
+  }
 }
 
 function countBy(items, selector) {

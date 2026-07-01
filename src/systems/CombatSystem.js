@@ -14,6 +14,7 @@ import { clamp, direction2D, distance2D } from '../utils/math.js';
 const scratch = new THREE.Vector3();
 const projectileLaunchPosition = new THREE.Vector3();
 const projectileForward = new THREE.Vector3(0, 0, 1);
+const linearProjectileDirection = new THREE.Vector3();
 const NAV_DISTANCE_CACHE_CELL = 0.75;
 const NAV_DISTANCE_CACHE_LIMIT = 2048;
 const TARGET_RESCAN_INTERVAL = 0.24;
@@ -849,13 +850,16 @@ export class CombatSystem {
 
   spawnProjectile(source, target, override = {}) {
     const projectileType = override.projectileType ?? source.definition.projectileType ?? 'arrow';
-    const arrow = createProjectileModel(projectileType, {
+    const projectileObject = createProjectileModel(projectileType, {
       color: resolveProjectileColor(source, projectileType)
     });
-    arrow.position.copy(this.getProjectileLaunchPosition(source));
-    this.game.scene.add(arrow);
-    this.projectiles.push({
-      object: arrow,
+    const launchPosition = this.getProjectileLaunchPosition(source).clone();
+    projectileObject.position.copy(launchPosition);
+    this.game.scene.add(projectileObject);
+
+    const pierce = override.projectilePierce ?? source.definition.projectilePierce;
+    const projectile = {
+      object: projectileObject,
       source,
       target,
       speed: override.projectileSpeed ?? this.game.modifiers.getProjectileSpeed(source),
@@ -863,13 +867,36 @@ export class CombatSystem {
       knockback: override.knockback ?? this.game.modifiers.getKnockback(source),
       damageTypes: override.damageTypes,
       age: 0
-    });
+    };
+
+    if (pierce) {
+      linearProjectileDirection.copy(target.position).sub(launchPosition);
+      linearProjectileDirection.y = 0;
+      if (linearProjectileDirection.lengthSq() < 0.0001) {
+        linearProjectileDirection.set(Math.sin(source.mesh.rotation.y), 0, Math.cos(source.mesh.rotation.y));
+      }
+      linearProjectileDirection.normalize();
+      projectile.mode = 'linearPierce';
+      projectile.direction = linearProjectileDirection.clone();
+      projectile.origin = launchPosition;
+      projectile.radius = pierce.radius ?? 0.75;
+      projectile.maxDistance = pierce.maxDistance ?? this.game.modifiers.getAttackRange(source);
+      projectile.maxAge = pierce.maxAge ?? projectile.maxDistance / Math.max(0.1, projectile.speed) + 0.6;
+      projectile.hitIds = new Set();
+      projectile.object.quaternion.setFromUnitVectors(projectileForward, projectile.direction);
+    }
+
+    this.projectiles.push(projectile);
   }
 
   updateProjectiles(dt) {
     for (let i = this.projectiles.length - 1; i >= 0; i -= 1) {
       const projectile = this.projectiles[i];
       projectile.age += dt;
+      if (projectile.mode === 'linearPierce') {
+        this.updateLinearPiercingProjectile(projectile, i, dt);
+        continue;
+      }
       if (projectile.target?.alive === false || projectile.age > 2.5) {
         this.removeProjectileAt(i);
         continue;
@@ -891,6 +918,33 @@ export class CombatSystem {
       dir.normalize();
       projectile.object.position.addScaledVector(dir, projectile.speed * dt);
       projectile.object.quaternion.setFromUnitVectors(projectileForward, dir);
+    }
+  }
+
+  updateLinearPiercingProjectile(projectile, index, dt) {
+    projectile.object.position.addScaledVector(projectile.direction, projectile.speed * dt);
+    projectile.object.quaternion.setFromUnitVectors(projectileForward, projectile.direction);
+
+    const traveled = distance2D(projectile.origin, projectile.object.position);
+    if (traveled > projectile.maxDistance || projectile.age > projectile.maxAge) {
+      this.removeProjectileAt(index);
+      return;
+    }
+
+    const targets = projectile.source.team === TEAMS.PLAYER ? this.game.enemyUnits : this.game.friendlyUnits;
+    for (const target of targets) {
+      if (!target.alive) continue;
+      const hitKey = target.id ?? target;
+      if (projectile.hitIds.has(hitKey)) continue;
+      const hitRadius = projectile.radius + targetCombatRadius(target);
+      if (distance2D(projectile.object.position, target.position) > hitRadius) continue;
+      projectile.hitIds.add(hitKey);
+      this.applyAttack(projectile.source, target, {
+        damage: projectile.damage,
+        knockback: projectile.knockback,
+        damageTypes: projectile.damageTypes,
+        isProjectile: true
+      });
     }
   }
 
@@ -1033,6 +1087,9 @@ export class CombatSystem {
   }
 
   removeDeadUnit(unit) {
+    if (unit.team === 'player') {
+      this.game.abilities?.onFriendlyUnitDeath(unit);
+    }
     this.game.buffs.unitDeath(unit);
     this.game.effects.spawnDeathBurst(
       unit.position.clone(),
@@ -1124,6 +1181,7 @@ function resolveProjectileColor(source, projectileType) {
   if (source.definition?.projectileColor) return source.definition.projectileColor;
   if (projectileType === 'holyBolt') return '#e9fbff';
   if (projectileType === 'bolt') return '#d8dde0';
+  if (projectileType === 'waterOrb') return '#65d8ff';
   return '#e7ddc0';
 }
 

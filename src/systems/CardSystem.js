@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { basicMat, createReticle } from '../art/lowpoly.js';
 import { BALANCE, CARD_DEFINITIONS } from '../data/gameData.js';
 import { insideBattlefield } from '../utils/math.js';
+import { disposeObject3D } from '../utils/dispose.js';
 
 const HAND_SIZE = 5;
 const INITIAL_ENERGY = 5;
@@ -15,7 +16,9 @@ const CARD_KIND_COLORS = {
   summon: '#4f7d64',
   enchant: '#8a6fc4',
   spell: '#3f7fa7',
-  building: '#8b6840'
+  building: '#8b6840',
+  tactic: '#6f718a',
+  ability: '#5f8f9f'
 };
 
 export class CardSystem {
@@ -36,6 +39,10 @@ export class CardSystem {
     this.pointer = new THREE.Vector2();
     this.reticle = createReticle();
     this.game.scene.add(this.reticle);
+    this.deploymentRangeGroup = new THREE.Group();
+    this.deploymentRangeGroup.visible = false;
+    this.deploymentRangeSignature = '';
+    this.game.scene.add(this.deploymentRangeGroup);
     this.enchantTargetRing = createReticle();
     this.enchantTargetRing.scale.setScalar(0.78);
     this.game.scene.add(this.enchantTargetRing);
@@ -43,6 +50,7 @@ export class CardSystem {
     this.hand = document.querySelector('#card-hand');
     this.energyPanel = createEnergyPanel(this.hand);
     this.energyParts = collectEnergyPanel(this.energyPanel);
+    this.abilityIcons = this.energyParts.abilities;
     this.hintPanel = createGameHintPanel(this.energyPanel);
     this.hintOwner = null;
     this.activePileViewer = null;
@@ -222,7 +230,7 @@ export class CardSystem {
 
   startDrag(event, card) {
     if (event.button !== 0) return;
-    if (!this.canSpend(discardEnergyCost(card))) {
+    if (!this.canSpend(cardEnergyCost(card)) && !this.canSpend(discardEnergyCost(card))) {
       this.flashEnergyPanel();
       return;
     }
@@ -234,6 +242,7 @@ export class CardSystem {
       valid: false,
       point: null,
       targetUnit: null,
+      targetCard: null,
       mode: 'idle',
       startX: event.clientX,
       startY: event.clientY,
@@ -250,6 +259,7 @@ export class CardSystem {
     event.currentTarget.setPointerCapture?.(event.pointerId);
     document.addEventListener('pointermove', this.onPointerMove);
     document.addEventListener('pointerup', this.onPointerUp, { once: true });
+    this.updateDeploymentRangePreview(card, false);
     this.updateDrag(event);
   }
 
@@ -283,13 +293,16 @@ export class CardSystem {
     };
     this.drag.valid = false;
     this.drag.targetUnit = null;
+    this.drag.targetCard = null;
     this.drag.canPayPlay = this.canSpend(cardEnergyCost(this.drag.card));
     this.drag.canPayDiscard = this.canSpend(discardEnergyCost(this.drag.card));
     this.drag.mode = this.resolveDragMode(event);
+    this.clearHandCardTargetHighlights();
     this.drag.sourceElement?.classList.toggle(
       'is-discard-ready',
       this.drag.mode === 'discard' && this.drag.canPayDiscard
     );
+    this.updateDeploymentRangePreview(this.drag.card, this.drag.mode === 'play');
 
     if (this.drag.mode !== 'play') {
       this.drag.point = null;
@@ -297,6 +310,32 @@ export class CardSystem {
       this.enchantTargetRing.visible = false;
       this.ghost.hidden = true;
       this.ghost.classList.remove('is-valid');
+      this.clearHint('card-drag');
+      return;
+    }
+
+    if (this.drag.card.target === 'hand-card') {
+      this.moveGhost(event.clientX, event.clientY);
+      this.ghost.hidden = false;
+      this.drag.point = null;
+      this.reticle.visible = false;
+      this.enchantTargetRing.visible = false;
+      const target = this.pickHandCardTarget(event.clientX, event.clientY);
+      this.drag.targetCard = target?.card ?? null;
+      this.drag.valid = Boolean(target?.card) && this.drag.canPayPlay;
+      target?.element?.classList.toggle('is-hand-card-target', this.drag.valid);
+      this.ghost.classList.toggle('is-valid', this.drag.valid);
+      return;
+    }
+
+    if (this.drag.card.target === 'none' || this.drag.card.kind === 'tactic') {
+      this.moveGhost(event.clientX, event.clientY);
+      this.ghost.hidden = false;
+      this.drag.point = null;
+      this.reticle.visible = false;
+      this.enchantTargetRing.visible = false;
+      this.drag.valid = this.drag.canPayPlay;
+      this.ghost.classList.toggle('is-valid', this.drag.valid);
       return;
     }
 
@@ -320,6 +359,7 @@ export class CardSystem {
     if (!point) {
       this.reticle.visible = false;
       this.enchantTargetRing.visible = false;
+      this.updateGroundDragHint(this.drag.card, false);
       return;
     }
 
@@ -330,6 +370,9 @@ export class CardSystem {
     this.drag.valid = validGround && this.drag.canPayPlay;
     this.showGroundPreview(point, this.drag.card.radius, this.drag.valid, this.drag.card);
     this.enchantTargetRing.visible = false;
+    this.updateGroundDragHint(this.drag.card, this.drag.valid, {
+      canPay: this.drag.canPayPlay
+    });
   }
 
   pointerFromEvent(event) {
@@ -363,6 +406,21 @@ export class CardSystem {
     return best;
   }
 
+  pickHandCardTarget(x, y) {
+    const element = document.elementFromPoint(x, y)?.closest?.('.card[data-card-location="hand"]');
+    if (!element || element === this.drag?.sourceElement) return null;
+    const index = Number(element.dataset.handIndex);
+    const card = this.handCards[index];
+    if (!card || card === this.drag?.card) return null;
+    return { card, element, index };
+  }
+
+  clearHandCardTargetHighlights() {
+    this.hand?.querySelectorAll('.card.is-hand-card-target').forEach((element) => {
+      element.classList.remove('is-hand-card-target');
+    });
+  }
+
   showGroundPreview(point, radius, valid, card) {
     this.reticle.visible = true;
     this.reticle.position.set(point.x, point.y + 0.07, point.z);
@@ -380,6 +438,96 @@ export class CardSystem {
       side: THREE.DoubleSide,
       depthWrite: false
     });
+  }
+
+  updateDeploymentRangePreview(card, visible) {
+    const anchors = visible ? this.deploymentAnchorsForCard(card) : [];
+    if (!anchors.length) {
+      this.clearDeploymentRangePreview();
+      return;
+    }
+    const signature = anchors
+      .map((anchor) => `${anchor.kind}:${Math.round(anchor.position.x * 10)}:${Math.round(anchor.position.z * 10)}:${Math.round(anchor.radius * 10)}`)
+      .join('|');
+    if (signature === this.deploymentRangeSignature) {
+      this.deploymentRangeGroup.visible = true;
+      return;
+    }
+
+    this.clearDeploymentRangePreview();
+    anchors.forEach((anchor) => {
+      const range = createReticle();
+      range.visible = true;
+      range.position.set(anchor.position.x, anchor.position.y + 0.045, anchor.position.z);
+      range.scale.setScalar(anchor.radius);
+      range.userData.disc.material = basicMat(anchor.color, {
+        transparent: true,
+        opacity: 0.09,
+        side: THREE.DoubleSide,
+        depthTest: false,
+        depthWrite: false
+      }).clone();
+      range.userData.ring.material = basicMat(anchor.ringColor, {
+        transparent: true,
+        opacity: 0.72,
+        side: THREE.DoubleSide,
+        depthTest: false,
+        depthWrite: false
+      }).clone();
+      this.deploymentRangeGroup.add(range);
+    });
+    this.deploymentRangeSignature = signature;
+    this.deploymentRangeGroup.visible = true;
+  }
+
+  deploymentAnchorsForCard(card) {
+    if (card.kind === 'summon') {
+      return (this.game.getSummonDeploymentAnchors?.() ?? []).map((anchor) => ({
+        ...anchor,
+        kind: 'summon',
+        color: '#6adbb8',
+        ringColor: '#c6ffea'
+      }));
+    }
+    if (card.kind === 'building' && (card.unitType === 'beacon' || card.effect?.unitType === 'beacon')) {
+      return (this.game.getBeaconPlacementAnchors?.() ?? []).map((anchor) => ({
+        ...anchor,
+        kind: 'beacon',
+        color: '#f0c575',
+        ringColor: '#fff2c7'
+      }));
+    }
+    return [];
+  }
+
+  clearDeploymentRangePreview() {
+    if (!this.deploymentRangeGroup) return;
+    this.deploymentRangeGroup.children.forEach((child) => {
+      disposeObject3D(child, { materials: true });
+    });
+    this.deploymentRangeGroup.clear();
+    this.deploymentRangeGroup.visible = false;
+    this.deploymentRangeSignature = '';
+  }
+
+  updateGroundDragHint(card, valid, options = {}) {
+    if (options.canPay === false) {
+      this.setHint('能量不足，无法使用这张卡。', 'card-drag');
+      return;
+    }
+    if (card.kind === 'summon') {
+      this.setHint(
+        valid ? '可派遣：单位只能部署在基地或信标范围内。' : '只能在基地或信标范围内派遣单位。',
+        'card-drag'
+      );
+      return;
+    }
+    if (card.kind === 'building' && (card.unitType === 'beacon' || card.effect?.unitType === 'beacon')) {
+      this.setHint(
+        valid ? '可放置信标：之后可在信标周围派遣单位。' : '信标只能放在友方非建筑单位附近。',
+        'card-drag'
+      );
+    }
   }
 
   isValidGroundCardPoint(card, point) {
@@ -456,8 +604,11 @@ export class CardSystem {
     this.drag = null;
     this.reticle.visible = false;
     this.enchantTargetRing.visible = false;
+    this.clearDeploymentRangePreview();
     this.ghost.hidden = true;
     this.ghost.classList.remove('enchant-crosshair', 'is-valid');
+    this.clearHint('card-drag');
+    this.clearHandCardTargetHighlights();
     document.removeEventListener('pointermove', this.onPointerMove);
   }
 
@@ -469,6 +620,7 @@ export class CardSystem {
     }
     if (!this.resolveCard(drag)) return false;
     this.spendEnergy(cost);
+    this.game.abilities?.onCardPlayed(drag.card, drag);
     this.moveCardToDiscard(drag.card);
     return true;
   }
@@ -682,6 +834,9 @@ export class CardSystem {
   moveCardToDiscard(card) {
     if (card === this.temporaryCard) {
       this.temporaryCard = null;
+      if (card.exhaust) {
+        this.game.abilities?.onCardExhausted(card);
+      }
       this.renderHand();
       this.updatePileUi();
       return true;
@@ -689,7 +844,9 @@ export class CardSystem {
     const index = this.handCards.indexOf(card);
     if (index === -1) return false;
     this.handCards.splice(index, 1);
-    if (!card.exhaust) {
+    if (card.exhaust) {
+      this.game.abilities?.onCardExhausted(card);
+    } else {
       this.discardPile.push(card);
     }
     this.refillDrawPileFromDiscardIfNeeded();
@@ -702,6 +859,45 @@ export class CardSystem {
     this.renderHand();
     this.updatePileUi();
     return true;
+  }
+
+  upgradeHandCard(card, amount = 1) {
+    if (!card || !this.handCards.includes(card)) return false;
+    const levels = Math.max(1, Math.floor(amount));
+    card.level = Math.max(1, Math.floor(card.level ?? 1)) + levels;
+    this.pendingDrawAnimations.add(card);
+    this.renderHand();
+    this.updatePileUi();
+    return true;
+  }
+
+  exhaustHandCard(card, amount = 1, options = {}) {
+    if (!card || !this.handCards.includes(card)) return 0;
+    const targetCount = Math.max(1, Math.floor(amount));
+    const excluded = new Set(options.excludeCards ?? []);
+    const candidates = this.handCards.filter((candidate) => (
+      candidate && candidate !== card && !excluded.has(candidate)
+    ));
+    shuffleCards(candidates);
+    const targets = [card, ...candidates].slice(0, targetCount);
+    let consumed = 0;
+
+    targets.forEach((target) => {
+      const index = this.handCards.indexOf(target);
+      if (index === -1 || excluded.has(target)) return;
+      this.handCards.splice(index, 1);
+      this.game.abilities?.onCardExhausted(target);
+      consumed += 1;
+    });
+
+    if (consumed > 0 && options.drawReplacement !== false) {
+      this.drawToFullHand({ animate: true });
+    }
+    if (consumed > 0) {
+      this.renderHand();
+      this.updatePileUi();
+    }
+    return consumed;
   }
 
   addLootCard(cardDefinition) {
@@ -786,6 +982,23 @@ export class CardSystem {
     });
   }
 
+  updateAbilityIcons(abilities = []) {
+    if (!this.abilityIcons) return;
+    this.abilityIcons.innerHTML = '';
+    this.abilityIcons.hidden = abilities.length === 0;
+    abilities.forEach((ability) => {
+      const icon = document.createElement('div');
+      icon.className = 'ability-icon';
+      icon.style.setProperty('--ability-color', ability.color ?? '#9dd8ff');
+      icon.title = `${ability.name} x${ability.stacks} - ${ability.summary}`;
+      icon.innerHTML = `
+        <span>${ability.label ?? ability.name?.slice?.(0, 1) ?? '?'}</span>
+        <strong>${ability.stacks}</strong>
+      `;
+      this.abilityIcons.appendChild(icon);
+    });
+  }
+
   updateEnergyUi(force = false) {
     const progress = this.energy >= MAX_ENERGY ? 1 : this.energyTimer / ENERGY_REGEN_SECONDS;
     const progressStep = Math.round(progress * 100);
@@ -833,6 +1046,8 @@ export class CardSystem {
     document.removeEventListener('keydown', this.onPileViewerKeyDown);
     this.drag = null;
     this.reticle?.parent?.remove(this.reticle);
+    this.clearDeploymentRangePreview();
+    this.deploymentRangeGroup?.parent?.remove(this.deploymentRangeGroup);
     this.enchantTargetRing?.parent?.remove(this.enchantTargetRing);
     this.ghost.hidden = true;
     this.ghost.classList.remove('enchant-crosshair', 'is-valid');
@@ -865,6 +1080,8 @@ function kindLabel(kind) {
   if (kind === 'summon') return '单位卡';
   if (kind === 'spell') return '法术卡';
   if (kind === 'building') return '建筑卡';
+  if (kind === 'tactic') return '战术卡';
+  if (kind === 'ability') return '能力卡';
   return '附魔卡';
 }
 
@@ -965,6 +1182,25 @@ const CARD_ART_RENDERERS = {
     <polygon fill="#d8dde0" points="80,33 88,35 80,37" />
     <polygon fill="#8f9a9b" points="45,12 57,16 52,23 39,20" />
     <path fill="none" stroke="#fff2c7" stroke-width="2" opacity="0.55" d="M22 35 L80 35" />
+  `),
+  waterMage: () => artSvg(`
+    <polygon fill="#1f3440" points="0,51 18,42 42,44 69,38 96,49 96,64 0,64" />
+    <ellipse fill="#65d8ff" opacity="0.22" cx="62" cy="34" rx="29" ry="19" />
+    <polygon fill="#d9aa78" points="47,11 55,23 41,23" />
+    <polygon fill="#235f83" points="35,24 61,24 66,51 49,58 30,51" />
+    <polygon fill="#3e8fb3" points="40,28 58,28 61,48 49,54 37,48" />
+    <polygon fill="#dff8ff" points="35,36 62,36 61,40 36,40" />
+    <polygon fill="#17212a" points="40,50 49,50 47,59 39,59" />
+    <polygon fill="#17212a" points="51,50 60,50 61,59 53,59" />
+    <polygon fill="#d9aa78" points="28,30 36,31 44,42 39,46" />
+    <polygon fill="#d9aa78" points="64,30 71,32 60,43 55,40" />
+    <polygon fill="#6a4a30" points="72,10 78,10 70,59 65,59" />
+    <circle fill="#65d8ff" cx="76" cy="10" r="7" />
+    <circle fill="#dff8ff" opacity="0.74" cx="76" cy="10" r="3" />
+    <circle fill="#65d8ff" opacity="0.72" cx="64" cy="36" r="15" />
+    <circle fill="#dff8ff" opacity="0.34" cx="60" cy="31" r="7" />
+    <path fill="none" stroke="#dff8ff" stroke-width="2" opacity="0.8" d="M49 39 C58 26 73 26 83 37" />
+    <path fill="none" stroke="#8feaff" stroke-width="2" opacity="0.7" d="M43 45 C56 55 73 54 86 42" />
   `),
   rogue: () => artSvg(`
     <polygon fill="#1f2c35" points="0,51 18,42 42,44 68,38 96,49 96,64 0,64" />
@@ -1180,6 +1416,43 @@ const CARD_ART_RENDERERS = {
     <polygon fill="#f0b84d" points="73,30 60,27 65,36" />
     <polygon fill="#ffe69f" points="47,14 50,33 46,33" />
   `),
+  explosion: () => artSvg(`
+    <polygon fill="#3a2a24" points="0,51 19,40 44,43 68,38 96,48 96,64 0,64" />
+    <circle fill="#ff6b35" opacity="0.92" cx="49" cy="35" r="19" />
+    <circle fill="#ffb45c" opacity="0.86" cx="49" cy="35" r="12" />
+    <circle fill="#fff2c7" opacity="0.92" cx="49" cy="35" r="6" />
+    <polygon fill="#ffb45c" points="48,6 55,25 42,25" />
+    <polygon fill="#ffb45c" points="48,64 41,45 56,45" />
+    <polygon fill="#ff8c3a" points="18,21 38,28 29,39" />
+    <polygon fill="#ff8c3a" points="80,20 67,39 58,28" />
+    <polygon fill="#ffd166" points="15,47 35,41 34,54" />
+    <polygon fill="#ffd166" points="82,47 63,54 62,41" />
+    <circle fill="#fff2c7" opacity="0.7" cx="33" cy="20" r="3" />
+    <circle fill="#fff2c7" opacity="0.55" cx="69" cy="51" r="3" />
+  `),
+  critical: () => artSvg(`
+    <polygon fill="#342923" points="0,51 19,40 44,43 68,38 96,48 96,64 0,64" />
+    <polygon fill="#ffd166" opacity="0.28" points="48,4 58,25 82,26 63,40 70,61 48,49 26,61 33,40 14,26 38,25" />
+    <polygon fill="#e8eef0" points="45,11 53,11 52,42 46,42" />
+    <polygon fill="#ffd166" points="39,42 59,42 61,49 37,49" />
+    <polygon fill="#6a3f2b" points="45,49 52,49 53,61 44,61" />
+    <path fill="none" stroke="#fff2c7" stroke-width="4" stroke-linecap="round" d="M24 24 L72 52" />
+    <path fill="none" stroke="#ff9f43" stroke-width="3" stroke-linecap="round" d="M72 24 L24 52" />
+    <circle fill="#fff2c7" cx="72" cy="24" r="5" />
+    <circle fill="#ffd166" opacity="0.86" cx="24" cy="52" r="4" />
+  `),
+  focus: () => artSvg(`
+    <polygon fill="#22313e" points="0,51 19,42 43,44 70,38 96,48 96,64 0,64" />
+    <ellipse fill="#b7e8ff" opacity="0.18" cx="48" cy="38" rx="34" ry="21" />
+    <circle fill="#dff8ff" opacity="0.32" cx="48" cy="35" r="24" />
+    <circle fill="none" stroke="#b7e8ff" stroke-width="4" opacity="0.78" cx="48" cy="35" r="18" />
+    <circle fill="none" stroke="#fff2c7" stroke-width="3" opacity="0.7" cx="48" cy="35" r="8" />
+    <path fill="none" stroke="#dff8ff" stroke-width="3" stroke-linecap="round" d="M48 10 L48 22 M48 48 L48 60 M23 35 L35 35 M61 35 L74 35" />
+    <polygon fill="#e8eef0" points="45,17 52,17 51,54 46,54" />
+    <polygon fill="#8ac7e8" points="40,42 58,42 60,49 38,49" />
+    <circle fill="#fff2c7" cx="48" cy="35" r="4" />
+    <path fill="none" stroke="#b7e8ff" stroke-width="2" opacity="0.75" d="M28 54 C40 48 56 48 68 54" />
+  `),
   phoenix: () => artSvg(`
     <polygon fill="#3a2e26" points="0,51 19,40 44,43 68,38 96,48 96,64 0,64" />
     <path fill="#ff6b32" d="M48 59 C31 48 26 30 38 16 C39 30 50 31 52 10 C67 22 71 42 48 59 Z" />
@@ -1265,6 +1538,108 @@ const CARD_ART_RENDERERS = {
     <circle fill="#ffffff" opacity="0.72" cx="40" cy="24" r="3" />
     <path fill="none" stroke="#ffffff" stroke-width="2" opacity="0.78" d="M14 43 C29 31 43 48 56 35 C66 25 78 33 87 24" />
     <path fill="none" stroke="#dff8ff" stroke-width="2" opacity="0.55" d="M22 53 C40 43 56 56 75 43" />
+  `),
+  tacticEnergySmall: () => artSvg(`
+    <polygon fill="#2c3040" points="0,52 18,42 43,44 68,38 96,49 96,64 0,64" />
+    <ellipse fill="#7f8fc7" opacity="0.2" cx="48" cy="43" rx="35" ry="16" />
+    <polygon fill="#fff2c7" points="48,6 62,31 50,31 57,58 35,26 47,26" />
+    <polygon fill="#7f8fc7" points="47,13 57,29 48,29 52,47 39,28 48,28" />
+    <circle fill="#dff8ff" opacity="0.75" cx="28" cy="34" r="5" />
+    <circle fill="#dff8ff" opacity="0.58" cx="71" cy="25" r="4" />
+    <circle fill="#fff2c7" opacity="0.7" cx="68" cy="49" r="3" />
+    <path fill="none" stroke="#dff8ff" stroke-width="2" opacity="0.7" d="M21 50 C35 38 59 53 76 34" />
+  `),
+  tacticEnergyLarge: () => artSvg(`
+    <polygon fill="#252f46" points="0,52 18,42 43,44 68,38 96,49 96,64 0,64" />
+    <ellipse fill="#7f8fc7" opacity="0.26" cx="48" cy="42" rx="38" ry="18" />
+    <polygon fill="#fff2c7" points="47,3 66,31 52,31 60,62 31,25 45,25" />
+    <polygon fill="#ffd166" points="48,11 59,29 49,29 54,50 38,28 48,28" />
+    <path fill="none" stroke="#dff8ff" stroke-width="4" opacity="0.72" d="M18 42 C32 18 64 18 79 42" />
+    <circle fill="#dff8ff" cx="25" cy="43" r="4" />
+    <circle fill="#dff8ff" opacity="0.72" cx="73" cy="43" r="4" />
+    <circle fill="#fff2c7" opacity="0.72" cx="49" cy="20" r="4" />
+  `),
+  tacticUpgrade: () => artSvg(`
+    <polygon fill="#302638" points="0,52 18,42 43,44 68,38 96,49 96,64 0,64" />
+    <polygon fill="#8a6fc4" opacity="0.28" points="48,5 78,27 67,58 29,58 18,27" />
+    <polygon fill="#dff8ff" points="48,10 58,29 50,29 50,54 46,54 46,29 38,29" />
+    <polygon fill="#fff2c7" points="31,37 65,37 65,44 31,44" />
+    <polygon fill="#9f6bff" points="48,17 53,30 48,38 43,30" />
+    <circle fill="#fff2c7" opacity="0.76" cx="26" cy="28" r="4" />
+    <circle fill="#dff8ff" opacity="0.66" cx="70" cy="53" r="4" />
+    <path fill="none" stroke="#caa7ff" stroke-width="2" opacity="0.75" d="M22 51 C34 42 58 41 74 27" />
+  `),
+  tacticExhaust: () => artSvg(`
+    <polygon fill="#3a272c" points="0,52 18,42 43,44 68,38 96,49 96,64 0,64" />
+    <polygon fill="#f3e1c0" points="31,13 65,13 70,54 26,54" />
+    <polygon fill="#9f6b70" points="35,18 61,18 64,49 32,49" />
+    <path fill="none" stroke="#fff2c7" stroke-width="4" stroke-linecap="round" d="M29 24 L67 50 M67 24 L29 50" />
+    <polygon fill="#3a272c" opacity="0.72" points="24,54 72,54 67,61 29,61" />
+    <circle fill="#fff2c7" opacity="0.7" cx="25" cy="19" r="4" />
+    <circle fill="#ffb3b3" opacity="0.58" cx="72" cy="37" r="5" />
+    <path fill="none" stroke="#ffb3b3" stroke-width="2" opacity="0.72" d="M20 47 C35 58 60 58 76 45" />
+  `),
+  abilityExhaustEnergy: () => artSvg(`
+    <polygon fill="#203832" points="0,52 18,42 43,44 68,38 96,49 96,64 0,64" />
+    <polygon fill="#f3e1c0" points="28,15 62,12 69,50 35,56" />
+    <polygon fill="#7fd8b0" points="34,21 57,19 62,45 39,49" />
+    <path fill="none" stroke="#fff2c7" stroke-width="4" stroke-linecap="round" d="M31 30 L62 42 M63 25 L35 48" />
+    <polygon fill="#fff2c7" points="74,11 84,28 76,28 80,47 66,24 74,24" />
+    <circle fill="#b7f3dd" opacity="0.82" cx="73" cy="48" r="5" />
+  `),
+  abilityPeriodicEnergy: () => artSvg(`
+    <polygon fill="#252f46" points="0,52 18,42 43,44 68,38 96,49 96,64 0,64" />
+    <circle fill="#7f8fc7" opacity="0.3" cx="48" cy="35" r="25" />
+    <circle fill="none" stroke="#dff8ff" stroke-width="4" cx="48" cy="35" r="19" />
+    <path fill="none" stroke="#fff2c7" stroke-width="4" stroke-linecap="round" d="M48 35 L48 21 M48 35 L61 42" />
+    <polygon fill="#fff2c7" points="24,41 35,28 36,45" />
+    <polygon fill="#dff8ff" points="72,28 61,42 60,25" />
+    <circle fill="#fff2c7" cx="48" cy="35" r="5" />
+  `),
+  abilityEnchantEcho: () => artSvg(`
+    <polygon fill="#302638" points="0,52 18,42 43,44 68,38 96,49 96,64 0,64" />
+    <polygon fill="#b68cff" opacity="0.28" points="48,6 74,25 64,56 32,56 22,25" />
+    <polygon fill="#d8dde0" points="31,51 60,20 66,26 38,56" />
+    <polygon fill="#fff2c7" opacity="0.82" points="43,46 70,17 75,22 49,51" />
+    <path fill="none" stroke="#caa7ff" stroke-width="3" opacity="0.85" d="M21 42 C33 24 47 58 59 38 C68 23 75 35 82 25" />
+    <circle fill="#fff2c7" cx="75" cy="23" r="4" />
+  `),
+  abilityDeathExplosion: () => artSvg(`
+    <polygon fill="#3a2a24" points="0,52 18,42 43,44 68,38 96,49 96,64 0,64" />
+    <polygon fill="#d8dde0" points="47,13 57,24 39,24" />
+    <polygon fill="#6f718a" points="37,24 60,24 65,49 49,58 32,49" />
+    <circle fill="#ff6b35" opacity="0.95" cx="63" cy="38" r="15" />
+    <circle fill="#ffb45c" cx="63" cy="38" r="9" />
+    <circle fill="#fff2c7" cx="63" cy="38" r="4" />
+    <polygon fill="#ffd166" points="63,13 68,29 58,29" />
+    <polygon fill="#ffd166" points="84,38 69,43 69,33" />
+  `),
+  abilityBuildingDurability: () => artSvg(`
+    <polygon fill="#343128" points="0,52 18,42 43,44 68,38 96,49 96,64 0,64" />
+    <polygon fill="#777d78" points="21,55 75,55 68,63 28,63" />
+    <polygon fill="#8b6840" points="25,30 71,30 73,55 23,55" />
+    <polygon fill="#d8c58d" points="48,8 79,31 17,31" />
+    <path fill="none" stroke="#fff2c7" stroke-width="4" d="M24 51 C27 29 39 18 49 17 C61 19 71 30 73 51" />
+    <polygon fill="#d8dde0" points="48,22 63,29 60,45 48,53 36,45 33,29" />
+    <polygon fill="#6b9ab8" points="48,28 56,32 54,42 48,47 42,42 40,32" />
+  `),
+  abilityRandomHeal: () => artSvg(`
+    <polygon fill="#243a2b" points="0,52 18,42 43,44 68,38 96,49 96,64 0,64" />
+    <ellipse fill="#6edc8b" opacity="0.2" cx="49" cy="40" rx="36" ry="19" />
+    <path fill="#6edc8b" d="M48 56 C29 43 25 25 38 17 C45 13 49 20 49 20 C49 20 54 13 61 17 C74 25 68 44 48 56 Z" />
+    <polygon fill="#fff2c7" points="45,25 53,25 53,35 64,35 64,43 53,43 53,53 45,53 45,43 34,43 34,35 45,35" />
+    <circle fill="#bff2c4" cx="25" cy="30" r="5" />
+    <circle fill="#bff2c4" opacity="0.72" cx="74" cy="34" r="5" />
+    <path fill="none" stroke="#fff2c7" stroke-width="2" opacity="0.72" d="M20 50 C33 43 63 43 77 28" />
+  `),
+  abilityVictoryGold: () => artSvg(`
+    <polygon fill="#3a3426" points="0,52 18,42 43,44 68,38 96,49 96,64 0,64" />
+    <circle fill="#ffd166" cx="48" cy="34" r="24" />
+    <circle fill="#9a6b2f" opacity="0.35" cx="48" cy="34" r="18" />
+    <path fill="none" stroke="#fff2c7" stroke-width="5" stroke-linecap="round" d="M38 29 C42 20 60 20 59 31 C58 44 39 35 38 47 C37 56 57 55 62 47" />
+    <polygon fill="#fff2c7" points="48,4 56,17 40,17" />
+    <polygon fill="#fff2c7" points="48,64 40,51 56,51" />
+    <circle fill="#fff2c7" opacity="0.78" cx="75" cy="24" r="4" />
   `),
   bleed: () => artSvg(`
     <polygon fill="#3a2729" points="0,51 18,41 43,44 68,37 96,49 96,64 0,64" />
@@ -1416,13 +1791,20 @@ function collectEnergyPanel(panel) {
         <span>能量</span>
         <strong class="energy-value">0/${MAX_ENERGY}</strong>
       </div>
+      <div class="ability-icon-row" hidden></div>
       <div class="energy-cells">${cells}</div>
       <div class="energy-progress"><div class="energy-progress-fill"></div></div>
     `;
+  } else if (!panel.querySelector('.ability-icon-row')) {
+    const row = document.createElement('div');
+    row.className = 'ability-icon-row';
+    row.hidden = true;
+    panel.querySelector('.energy-cells')?.before(row);
   }
   return {
     value: panel.querySelector('.energy-value'),
-    cells: [...panel.querySelectorAll('.energy-cell')]
+    cells: [...panel.querySelectorAll('.energy-cell')],
+    abilities: panel.querySelector('.ability-icon-row')
   };
 }
 

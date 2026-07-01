@@ -2,16 +2,33 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#172016" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <title>Village War Prototype</title>
   </head>
   <body>
     <div id="app">
       <canvas id="game-canvas"></canvas>
       <div id="world-ui" class="world-ui" aria-hidden="true"></div>
+      <button id="game-settings-button" class="game-settings-button" type="button" aria-label="设置" title="设置" hidden>
+        ⚙
+      </button>
 
       <section class="hud hud-primary" aria-label="battle status">
         <div class="brand">村落战争</div>
+        <div class="control-hints">
+          <span class="desktop-hint">滚轮缩放</span>
+          <span class="desktop-hint">中键拖动视野</span>
+          <span class="desktop-hint">右键设置目的地</span>
+          <span class="desktop-hint">S 停止</span>
+          <span class="desktop-hint">Z 驻守</span>
+          <span class="mobile-hint">拖动移动视野</span>
+          <span class="mobile-hint">点击设置目的地</span>
+          <span class="mobile-hint">框选（按住）</span>
+        </div>
         <div class="meter">
           <span>基地</span>
           <strong id="base-health">100%</strong>
@@ -33,7 +50,28 @@
       </section>
 
       <section id="card-hand" class="card-hand" aria-label="card hand"></section>
+      <button id="mobile-shift-button" class="mobile-shift-button" type="button" aria-label="框选（按住）" title="框选（按住）" hidden>
+        框选
+      </button>
+      <div id="mobile-action-dock" class="mobile-action-dock" aria-label="移动端工具">
+        <button type="button" data-mobile-action="landscape" aria-label="横屏">横屏</button>
+        <button type="button" data-mobile-action="fullscreen" aria-label="全屏">全屏</button>
+        <button type="button" data-mobile-action="pwa" aria-label="安装 PWA">PWA</button>
+      </div>
+      <div id="mobile-action-feedback" class="mobile-action-feedback" role="status" aria-live="polite" hidden></div>
       <div id="drag-ghost" class="drag-ghost" hidden></div>
+      <section id="pause-overlay" class="pause-overlay" aria-label="暂停菜单" hidden>
+        <div class="pause-panel" role="dialog" aria-modal="true" aria-labelledby="pause-title">
+          <div class="pause-kicker" id="pause-reason">游戏已暂停</div>
+          <h2 id="pause-title">暂停</h2>
+          <div class="pause-actions">
+            <button class="pause-primary-button" type="button" data-pause-action="continue">继续</button>
+            <button class="pause-secondary-button" type="button" data-pause-action="fullscreen">全屏</button>
+            <button class="pause-secondary-button" type="button" data-pause-action="restart">重玩</button>
+            <button class="pause-secondary-button" type="button" data-pause-action="menu">回到主菜单</button>
+          </div>
+        </div>
+      </section>
       <pre id="debug-state" hidden></pre>
     </div>
     <script type="module" src="/src/main.js"></script>

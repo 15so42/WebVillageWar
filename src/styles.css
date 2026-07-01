@@ -1,4 +1,5 @@
 :root {
+  --mobile-ui-scale: 1;
   color: #f7f4e8;
   background: #172016;
   font-family:
@@ -34,6 +35,7 @@ body.is-meta-open .energy-panel,
 body.is-meta-open .game-hint-panel,
 body.is-meta-open .card-pile-dock,
 body.is-meta-open .pile-viewer,
+body.is-meta-open .mobile-shift-button,
 body.is-meta-open .selection-box {
   display: none;
 }
@@ -236,8 +238,39 @@ body.is-meta-open .selection-box {
   backdrop-filter: blur(16px);
 }
 
+.game-settings-button {
+  position: fixed;
+  top: 14px;
+  left: 14px;
+  z-index: 12;
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 8px;
+  color: #fff2c7;
+  background: rgba(18, 28, 29, 0.72);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(12px);
+  cursor: pointer;
+  font: inherit;
+  font-size: 21px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.game-settings-button:hover {
+  border-color: rgba(158, 238, 219, 0.58);
+  background: rgba(54, 91, 86, 0.82);
+}
+
+.game-settings-button[hidden] {
+  display: none;
+}
+
 .hud-primary {
-  top: 18px;
+  top: 66px;
   left: 18px;
   width: min(280px, calc(100vw - 36px));
   padding: 14px;
@@ -252,6 +285,28 @@ body.is-meta-open .selection-box {
   font-weight: 800;
   letter-spacing: 0;
   color: #fff2c7;
+}
+
+.control-hints {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  color: rgba(247, 244, 232, 0.72);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.control-hints span {
+  padding: 3px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.mobile-hint {
+  display: none;
 }
 
 .meter {
@@ -311,6 +366,110 @@ body.is-meta-open .selection-box {
   transform: translateX(-50%);
 }
 
+.mobile-shift-button {
+  position: fixed;
+  left: 16px;
+  bottom: 92px;
+  z-index: 11;
+  width: 62px;
+  height: 62px;
+  display: none;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 50%;
+  color: #fff2c7;
+  background:
+    radial-gradient(circle at 32% 24%, rgba(255, 255, 255, 0.24), transparent 36%),
+    rgba(18, 28, 29, 0.78);
+  box-shadow:
+    inset 0 -10px 14px rgba(0, 0, 0, 0.18),
+    0 14px 30px rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(12px);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 900;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-shift-button.is-held {
+  border-color: rgba(158, 238, 219, 0.78);
+  color: #102c28;
+  background: #9eeedb;
+}
+
+.mobile-shift-button[hidden] {
+  display: none;
+}
+
+.mobile-action-dock {
+  position: fixed;
+  right: 10px;
+  top: 50%;
+  z-index: 42;
+  display: none;
+  gap: 7px;
+  transform: translateY(-50%);
+  pointer-events: auto;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-action-dock button {
+  min-width: 50px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  color: #fff2c7;
+  background: rgba(18, 28, 29, 0.78);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(10px);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-action-dock button:active {
+  color: #102c28;
+  background: #9eeedb;
+}
+
+.mobile-action-feedback {
+  position: fixed;
+  right: 12px;
+  top: calc(50% + 70px);
+  z-index: 43;
+  max-width: min(260px, calc(100vw - 24px));
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 242, 199, 0.22);
+  border-radius: 8px;
+  color: #fff2c7;
+  background: rgba(18, 28, 29, 0.88);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.3);
+  font-size: 12px;
+  font-weight: 900;
+  pointer-events: none;
+  backdrop-filter: blur(10px);
+}
+
+.mobile-action-feedback[hidden] {
+  display: none;
+}
+
 .energy-panel {
   --energy-progress: 0%;
   position: fixed;
@@ -347,6 +506,56 @@ body.is-meta-open .selection-box {
   display: grid;
   grid-template-columns: repeat(10, minmax(0, 1fr));
   gap: 4px;
+}
+
+.ability-icon-row {
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: -1px 0 7px;
+  overflow: hidden;
+}
+
+.ability-icon-row[hidden] {
+  display: none;
+}
+
+.ability-icon {
+  --ability-color: #9dd8ff;
+  position: relative;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  border-radius: 7px;
+  color: #fff7db;
+  background:
+    radial-gradient(circle at 24% 16%, rgba(255, 255, 255, 0.36), transparent 38%),
+    color-mix(in srgb, var(--ability-color) 74%, #16201e);
+  box-shadow:
+    inset 0 -8px 12px rgba(0, 0, 0, 0.18),
+    0 0 14px color-mix(in srgb, var(--ability-color) 45%, transparent);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.ability-icon strong {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  min-width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  border-radius: 50%;
+  color: #1d241f;
+  background: #fff2c7;
+  font-size: 10px;
+  line-height: 1;
 }
 
 .energy-cell {
@@ -386,7 +595,7 @@ body.is-meta-open .selection-box {
   position: fixed;
   z-index: 6;
   left: 50%;
-  bottom: 254px;
+  bottom: 292px;
   min-height: 28px;
   width: min(520px, calc(100vw - 34px));
   display: grid;
@@ -1433,6 +1642,14 @@ body.is-meta-open .selection-box {
   filter: drop-shadow(0 4px 4px rgba(0, 0, 0, 0.22));
 }
 
+.card.is-hand-card-target {
+  transform: translateY(-10px) scale(1.04);
+  box-shadow:
+    0 0 0 2px rgba(255, 242, 199, 0.95),
+    0 18px 34px rgba(255, 242, 199, 0.18),
+    0 12px 28px rgba(0, 0, 0, 0.28);
+}
+
 .pile-card .card-art {
   min-height: 58px;
 }
@@ -1512,6 +1729,79 @@ body.is-meta-open .selection-box {
   box-shadow:
     inset 0 0 0 1px rgba(35, 71, 53, 0.45),
     0 0 18px rgba(255, 242, 199, 0.16);
+}
+
+.pause-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 32;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  color: #f7f4e8;
+  background: rgba(8, 13, 14, 0.42);
+  backdrop-filter: blur(4px);
+  pointer-events: auto;
+}
+
+.pause-overlay[hidden] {
+  display: none;
+}
+
+.pause-panel {
+  width: min(420px, calc(100vw - 32px));
+  display: grid;
+  gap: 14px;
+  padding: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(39, 57, 58, 0.94), rgba(18, 28, 29, 0.98)),
+    #1b2c2d;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.38);
+}
+
+.pause-kicker {
+  color: rgba(158, 238, 219, 0.84);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.pause-panel h2 {
+  margin: 0;
+  color: #fff2c7;
+  font-size: 30px;
+  line-height: 1;
+}
+
+.pause-actions {
+  display: grid;
+  gap: 9px;
+}
+
+.pause-primary-button,
+.pause-secondary-button {
+  min-height: 42px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  color: #f7f4e8;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 900;
+}
+
+.pause-primary-button {
+  color: #0f2c29;
+  background: #9eeedb;
+}
+
+.pause-secondary-button {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.pause-primary-button:hover,
+.pause-secondary-button:hover {
+  filter: brightness(1.08);
 }
 
 .meta-root {
@@ -1686,6 +1976,17 @@ body.is-meta-open .selection-box {
   margin: 0;
   color: rgba(247, 244, 232, 0.74);
   line-height: 1.55;
+}
+
+.meta-panel .meta-control-note {
+  width: max-content;
+  max-width: 100%;
+  padding: 5px 8px;
+  border: 1px solid rgba(255, 242, 199, 0.2);
+  border-radius: 6px;
+  color: #fff2c7;
+  background: rgba(255, 242, 199, 0.08);
+  font-weight: 900;
 }
 
 .meta-stat-row,
@@ -1985,9 +2286,324 @@ body.is-meta-open .selection-box {
   font-weight: 900;
 }
 
-@media (max-width: 760px) {
+@media (pointer: coarse) {
+  :root {
+    --mobile-ui-scale: 0.8;
+  }
+
+  .desktop-hint {
+    display: none;
+  }
+
+  .mobile-hint {
+    display: inline-block;
+  }
+
+  body.is-game-active .mobile-shift-button:not([hidden]) {
+    display: grid;
+  }
+
+  .mobile-action-dock {
+    display: grid;
+  }
+
+  .mobile-shift-button {
+    left: 82px;
+    bottom: 86px;
+  }
+
+  .meta-root {
+    display: block;
+    height: 100dvh;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+    place-items: unset;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .meta-shell {
+    width: min(1400px, calc((100vw - 20px) / var(--mobile-ui-scale)));
+    max-height: none;
+    min-height: calc((100dvh - 24px) / var(--mobile-ui-scale));
+    margin: 0 auto;
+    overflow: visible;
+    transform: scale(var(--mobile-ui-scale));
+    transform-origin: top left;
+  }
+
+  .meta-home,
+  .meta-layout,
+  .meta-deck {
+    overflow: visible;
+  }
+
+  .game-settings-button,
+  .hud-primary,
+  .hud-selected,
+  .pile-button,
+  .mobile-shift-button {
+    transform: scale(var(--mobile-ui-scale));
+  }
+
+  .game-settings-button,
+  .hud-primary,
+  .pile-button.is-draw,
+  .mobile-shift-button {
+    transform-origin: left bottom;
+  }
+
+  .game-settings-button,
   .hud-primary {
+    transform-origin: left top;
+  }
+
+  .hud-selected,
+  .pile-button.is-discard {
+    transform-origin: right top;
+  }
+
+  .energy-panel,
+  .game-hint-panel,
+  .card-hand {
+    transform: translateX(-50%) scale(var(--mobile-ui-scale));
+    transform-origin: bottom center;
+  }
+}
+
+@media (pointer: coarse) and (max-height: 430px) {
+  :root {
+    --mobile-ui-scale: 0.8;
+  }
+}
+
+@media (pointer: coarse) and (max-height: 370px) {
+  :root {
+    --mobile-ui-scale: 0.8;
+  }
+}
+
+@media (pointer: coarse) and (orientation: landscape) {
+  .meta-header {
+    align-items: center;
+    padding: 10px 12px 0;
+    gap: 10px;
+  }
+
+  .meta-title {
+    font-size: 20px;
+  }
+
+  .meta-subtitle {
+    margin-top: 3px;
+    font-size: 10px;
+  }
+
+  .meta-currency {
+    min-width: 86px;
+    padding: 6px 8px;
+  }
+
+  .meta-currency span {
+    font-size: 10px;
+  }
+
+  .meta-currency strong {
+    font-size: 18px;
+  }
+
+  .meta-tabs {
+    padding: 0 12px 2px;
+  }
+
+  .meta-tabs button {
+    min-width: 64px;
+    padding: 7px 8px;
+    font-size: 12px;
+  }
+
+  .meta-home,
+  .meta-layout,
+  .meta-deck {
+    padding: 3px 12px 12px;
+  }
+
+  .game-settings-button {
+    top: 8px;
+    left: 8px;
+    width: 34px;
+    height: 34px;
+    font-size: 17px;
+  }
+
+  .hud-primary {
+    top: 48px;
+    left: 8px;
+    width: min(188px, 27vw);
+    max-height: calc(100vh - 126px);
+    padding: 8px;
+    gap: 6px;
+    overflow: hidden;
+  }
+
+  .brand {
+    font-size: 14px;
+  }
+
+  .control-hints {
+    gap: 4px;
+    font-size: 10px;
+  }
+
+  .control-hints span {
+    padding: 2px 5px;
+  }
+
+  .meter {
+    min-height: 32px;
+    padding: 5px 6px;
+  }
+
+  .meter span {
+    font-size: 10px;
+  }
+
+  .meter strong {
+    margin-top: 1px;
+    font-size: 13px;
+  }
+
+  .hud-selected {
+    top: 8px;
+    right: 8px;
+    width: min(230px, 32vw);
+    padding: 8px;
+    gap: 4px;
+    font-size: 10px;
+  }
+
+  #selected-name {
+    font-size: 12px;
+  }
+
+  #selected-stats,
+  #selected-enchants {
+    line-height: 1.28;
+  }
+
+  .card-hand {
+    bottom: 8px;
+    max-width: calc(100vw - 146px);
+    gap: 8px;
+  }
+
+  .card,
+  .card-empty-slot,
+  .temporary-card-empty-slot {
+    width: clamp(122px, 15.5vw, 148px);
+    height: 170px;
+  }
+
+  .card-face {
+    padding: 10px 9px 9px;
+    gap: 6px;
+  }
+
+  .card-header {
+    min-height: 30px;
+    grid-template-columns: 30px minmax(0, 1fr);
+    gap: 7px;
+    padding-right: 30px;
+  }
+
+  .card-rune {
+    width: 30px;
+    height: 30px;
+    font-size: 16px;
+  }
+
+  .card-art {
+    min-height: 51px;
+  }
+
+  .card-name {
+    font-size: 15px;
+  }
+
+  .card-kind,
+  .card-text {
+    font-size: 11px;
+  }
+
+  .card-text {
+    min-height: 31px;
+    padding: 6px 7px;
+  }
+
+  .card-cost {
+    top: 7px;
+    right: 7px;
+    min-width: 27px;
+    height: 27px;
+    font-size: 14px;
+  }
+
+  .energy-panel {
+    bottom: 150px;
+    width: min(360px, calc(100vw - 160px));
+    padding: 5px 7px 6px;
+  }
+
+  .energy-title {
+    margin-bottom: 5px;
+    font-size: 11px;
+  }
+
+  .energy-cell {
+    height: 10px;
+  }
+
+  .game-hint-panel {
+    bottom: 190px;
+    width: min(360px, calc(100vw - 160px));
+    min-height: 22px;
+    padding: 3px 8px 4px;
+    font-size: 10px;
+  }
+
+  .pile-button {
+    bottom: 7px;
+    width: 42px;
+    height: 48px;
+  }
+
+  .pile-button.is-draw {
+    left: 12px;
+  }
+
+  .pile-button.is-discard {
+    right: 7px;
+  }
+
+  .mobile-shift-button {
+    left: 64px;
+    bottom: 64px;
+    width: 62px;
+    height: 62px;
+  }
+}
+
+@media (max-width: 760px) {
+  .game-settings-button {
     top: 10px;
+    left: 10px;
+    width: 38px;
+    height: 38px;
+    font-size: 19px;
+  }
+
+  .hud-primary {
+    top: 56px;
     left: 10px;
     width: 210px;
     padding: 10px;
@@ -2037,7 +2653,7 @@ body.is-meta-open .selection-box {
   }
 
   .game-hint-panel {
-    bottom: 224px;
+    bottom: 258px;
     width: min(420px, calc(100vw - 20px));
     min-height: 26px;
     padding: 4px 10px 5px;
@@ -2153,14 +2769,142 @@ body.is-meta-open .selection-box {
   }
 }
 
+@media (pointer: coarse) and (orientation: landscape) and (max-width: 760px) {
+  .game-settings-button {
+    top: 8px;
+    left: 8px;
+    width: 34px;
+    height: 34px;
+    font-size: 17px;
+  }
+
+  .hud-primary {
+    top: 48px;
+    left: 8px;
+    width: min(188px, 27vw);
+    max-height: calc(100vh - 126px);
+    padding: 8px;
+    gap: 6px;
+  }
+
+  .hud-selected {
+    top: 8px;
+    right: 8px;
+    width: min(230px, 32vw);
+    min-width: 150px;
+    padding: 8px;
+    font-size: 10px;
+  }
+
+  .meter {
+    min-height: 32px;
+    padding: 5px 6px;
+  }
+
+  .meter strong {
+    font-size: 13px;
+  }
+
+  .card-hand {
+    bottom: 8px;
+    max-width: calc(100vw - 146px);
+    gap: 8px;
+  }
+
+  .card,
+  .card-empty-slot,
+  .temporary-card-empty-slot {
+    width: clamp(122px, 15.5vw, 148px);
+    height: 170px;
+  }
+
+  .card-face {
+    padding: 10px 9px 9px;
+    gap: 6px;
+  }
+
+  .card-header {
+    min-height: 30px;
+    grid-template-columns: 30px minmax(0, 1fr);
+    gap: 7px;
+    padding-right: 30px;
+  }
+
+  .card-rune {
+    width: 30px;
+    height: 30px;
+    font-size: 16px;
+  }
+
+  .card-art {
+    min-height: 51px;
+  }
+
+  .card-name {
+    font-size: 15px;
+  }
+
+  .card-kind,
+  .card-text {
+    font-size: 11px;
+  }
+
+  .card-text {
+    min-height: 31px;
+    padding: 6px 7px;
+  }
+
+  .card-cost {
+    top: 7px;
+    right: 7px;
+    min-width: 27px;
+    height: 27px;
+    font-size: 14px;
+  }
+
+  .energy-panel {
+    bottom: 150px;
+    width: min(360px, calc(100vw - 160px));
+    padding: 5px 7px 6px;
+  }
+
+  .game-hint-panel {
+    bottom: 190px;
+    width: min(360px, calc(100vw - 160px));
+    font-size: 10px;
+  }
+
+  .pile-button {
+    bottom: 7px;
+    width: 42px;
+    height: 48px;
+  }
+
+  .pile-button.is-draw {
+    left: 12px;
+  }
+
+  .pile-button.is-discard {
+    right: 7px;
+  }
+
+  .mobile-shift-button {
+    left: 64px;
+    bottom: 64px;
+    width: 62px;
+    height: 62px;
+  }
+}
+
 @media (max-width: 760px) {
   .meta-root {
     padding: 10px;
   }
 
   .meta-shell {
-    width: calc(100vw - 20px);
-    max-height: calc(100vh - 20px);
+    width: min(1400px, calc((100vw - 20px) / var(--mobile-ui-scale)));
+    max-height: none;
+    min-height: calc((100dvh - 24px) / var(--mobile-ui-scale));
   }
 
   .meta-header {

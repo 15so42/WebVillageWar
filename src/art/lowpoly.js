@@ -1131,6 +1131,30 @@ export function createWarderModel(team) {
   });
 }
 
+export function createWaterMageModel(team) {
+  const group = createPriestModel(team, {
+    robeColor: team === 'player' ? '#3e8fb3' : '#476575',
+    hoodColor: team === 'player' ? '#235f83' : '#344a59',
+    trimColor: '#dff8ff',
+    focusColor: '#65d8ff',
+    focusEmissive: '#2fb6ff'
+  });
+  const { projectileSocket } = group.userData.parts ?? {};
+  if (projectileSocket) {
+    const halo = new THREE.Mesh(
+      new THREE.TorusGeometry(0.17, 0.012, 5, 18),
+      basicMat('#dff8ff', {
+        transparent: true,
+        opacity: 0.76,
+        depthWrite: false
+      })
+    );
+    halo.rotation.y = Math.PI / 2;
+    projectileSocket.add(halo);
+  }
+  return group;
+}
+
 export function createWizardModel() {
   const group = createPriestModel('enemy', {
     skinColor: '#8f6aa8',
@@ -1632,6 +1656,55 @@ export function createEnergyOrbModel(color = '#b46aff') {
   tail.position.z = -0.3;
   tail.rotation.x = -Math.PI / 2;
   group.add(core, outer, tail);
+  return enableShadows(group);
+}
+
+export function createWaterOrbModel(color = '#65d8ff') {
+  const group = new THREE.Group();
+  const core = new THREE.Mesh(
+    new THREE.DodecahedronGeometry(0.52, 1),
+    mat(color, {
+      emissive: '#2fb6ff',
+      emissiveIntensity: 0.72,
+      roughness: 0.32,
+      transparent: true,
+      opacity: 0.72,
+      depthWrite: false
+    })
+  );
+  const inner = new THREE.Mesh(
+    new THREE.DodecahedronGeometry(0.34, 0),
+    basicMat('#dff8ff', {
+      transparent: true,
+      opacity: 0.28,
+      depthWrite: false
+    })
+  );
+  const ringA = new THREE.Mesh(
+    new THREE.TorusGeometry(0.55, 0.018, 5, 24),
+    basicMat('#dff8ff', {
+      transparent: true,
+      opacity: 0.66,
+      depthWrite: false
+    })
+  );
+  ringA.rotation.y = Math.PI / 2;
+  const ringB = ringA.clone();
+  ringB.rotation.x = Math.PI / 2;
+  ringB.rotation.z = Math.PI / 4;
+  const wake = new THREE.Mesh(
+    new THREE.ConeGeometry(0.25, 0.72, 8),
+    mat('#8feaff', {
+      emissive: '#2fb6ff',
+      emissiveIntensity: 0.38,
+      transparent: true,
+      opacity: 0.34,
+      depthWrite: false
+    })
+  );
+  wake.position.z = -0.58;
+  wake.rotation.x = -Math.PI / 2;
+  group.add(core, inner, ringA, ringB, wake);
   return enableShadows(group);
 }
 

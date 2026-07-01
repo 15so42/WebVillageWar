@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { BUFF_DEFINITIONS, ENCHANTMENTS, TEAMS, UNIT_DEFINITIONS } from '../data/gameData.js';
-import { mat } from '../art/lowpoly.js';
+import { basicMat, mat } from '../art/lowpoly.js';
 import { createUnitModel, updateUnitAnimation } from '../art/visualRegistry.js';
 import { AttributeSet, bindAttributeGetter } from '../systems/AttributeSet.js';
 import { clamp } from '../utils/math.js';
@@ -66,6 +66,8 @@ export class UnitEntity {
     this.mesh = new THREE.Group();
     this.visualRoot = createUnitModel(type, team);
     this.mesh.add(this.visualRoot);
+    this.groundShadow = createUnitGroundShadow(this);
+    this.mesh.add(this.groundShadow);
     this.mesh.position.copy(position);
     this.mesh.userData.entity = this;
     this.mesh.traverse((node) => {
@@ -93,6 +95,7 @@ export class UnitEntity {
     const damagePerSecond = resolveStackingNumber('damagePerSecond', definition, existing, overrides);
     const healPerSecond = resolveStackingNumber('healPerSecond', definition, existing, overrides);
     this.attributes.removeModifiersBySource(buffModifierSource(id));
+    this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:focus-range`);
     const duration = overrides.duration ?? definition.duration ?? 0;
     const instance = {
       ...definition,
@@ -127,6 +130,7 @@ export class UnitEntity {
     this.buffs.delete(id);
     this.attributes.removeModifiersBySource(buffModifierSource(id));
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:soul-bonus`);
+    this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:focus-range`);
     this.clampToAttributeCaps();
     if (this.enchantments.has(id)) {
       this.enchantments.delete(id);
@@ -195,6 +199,7 @@ export class UnitEntity {
     refreshStatusElement(this, dt);
     this.enchantHalo.rotation.y += 0.035;
     this.enchantHalo.visible = this.enchantments.size > 0;
+    this.groundShadow.visible = this.alive;
   }
 
   takeRawDamage(amount, options = {}) {
@@ -304,6 +309,31 @@ function createEnchantHalo() {
   group.add(fire, thorns);
   group.visible = false;
   return group;
+}
+
+function createUnitGroundShadow(unit) {
+  const radius = Number.isFinite(unit.collisionRadius)
+    ? unit.collisionRadius
+    : unit.definition.role === 'ranged' ? 0.36 : 0.42;
+  const width = clamp(radius * (unit.isBuilding ? 2.5 : 1.9), 0.48, unit.isBuilding ? 2.4 : 1.55);
+  const depth = clamp(radius * (unit.isBuilding ? 1.8 : 1.25), 0.34, unit.isBuilding ? 1.65 : 1.05);
+  const shadow = new THREE.Mesh(
+    new THREE.CircleGeometry(1, 28),
+    basicMat('#050607', {
+      transparent: true,
+      opacity: unit.isBuilding ? 0.22 : 0.18,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1
+    }).clone()
+  );
+  shadow.name = 'GroundShadow';
+  shadow.rotation.x = -Math.PI / 2;
+  shadow.position.y = 0.018;
+  shadow.scale.set(width, depth, 1);
+  shadow.renderOrder = -10;
+  return shadow;
 }
 
 function disableDynamicUnitShadows(root) {

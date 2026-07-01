@@ -30,6 +30,8 @@ import {
   createSpiderModel,
   createSwordsmanModel,
   createWarderModel,
+  createWaterMageModel,
+  createWaterOrbModel,
   createWizardModel,
   createWolfModel
 } from './lowpoly.js';
@@ -40,6 +42,7 @@ const UNIT_FACTORIES = {
   berserker: ({ team }) => createBerserkerModel(team),
   archer: ({ team }) => createArcherModel(team),
   crossbowman: ({ team }) => createCrossbowmanModel(team),
+  waterMage: ({ team }) => createWaterMageModel(team),
   rogue: ({ team }) => createRogueModel(team),
   engineer: ({ team }) => createEngineerModel(team),
   physician: ({ team }) => createPhysicianModel(team),
@@ -69,7 +72,8 @@ const PROJECTILE_FACTORIES = {
   bolt: ({ color }) => createBoltModel(color),
   dagger: ({ color }) => createDaggerModel(color),
   holyBolt: ({ color }) => createHolyBoltModel(color),
-  energyOrb: ({ color }) => createEnergyOrbModel(color)
+  energyOrb: ({ color }) => createEnergyOrbModel(color),
+  waterOrb: ({ color }) => createWaterOrbModel(color)
 };
 
 const SPELL_FACTORIES = {
@@ -208,7 +212,13 @@ function applyAttackPose(unit, root, t, pulse) {
     applyRaiderAttack(root, t, pulse);
     return;
   }
-  if (unit.type === 'physician' || unit.type === 'purifier' || unit.type === 'warder' || unit.type === 'wizard') {
+  if (
+    unit.type === 'physician' ||
+    unit.type === 'purifier' ||
+    unit.type === 'warder' ||
+    unit.type === 'wizard' ||
+    unit.type === 'waterMage'
+  ) {
     applyCasterAttack(root, t, pulse);
     return;
   }
