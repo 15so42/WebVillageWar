@@ -169,8 +169,9 @@ export class AltarSystem {
       if (effect.op === 'restoreShield') {
         unit.restoreShield(effect.amountPerSecond * dt);
       } else if (effect.op === 'restoreHealthPercent') {
-        const healed = unit.restoreHealth(unit.maxHealth * effect.percentPerSecond * dt);
-        this.game.effects.queueHealNumber(unit, healed, dt, {
+        const amount = unit.maxHealth * effect.percentPerSecond * dt;
+        unit.restoreHealth(amount);
+        this.game.effects.queueHealNumber(unit, amount, dt, {
           key: '__altarHealFloat',
           minAmount: 0.7,
           minDisplay: 0.25,

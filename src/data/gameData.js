@@ -169,7 +169,7 @@ export const UNIT_DEFINITIONS = {
     damage: 4,
     knockback: 1.45,
     aggroRange: 10.5,
-    projectileSpeed: 13.5,
+    projectileSpeed: 20.25,
     weapon: {
       name: '短弓',
       maxDurability: 34,
@@ -552,21 +552,21 @@ export const UNIT_DEFINITIONS = {
         }
       }
     },
-    maxHealth: 999,
+    maxHealth: 125,
     maxShield: 0,
     speed: 0,
     attackRange: 9.2,
-    attackRate: 0.72,
+    attackRate: 1.08,
     damage: 5,
     knockback: 0.9,
     aggroRange: 10.2,
-    projectileSpeed: 15.5,
+    projectileSpeed: 23.25,
     projectileType: 'arrow',
     projectileHitHeight: 3.25,
     collisionRadius: 0.86,
     weapon: {
       name: '箭塔',
-      maxDurability: 999,
+      maxDurability: 63,
       durabilityCost: 0
     }
   },
@@ -586,7 +586,7 @@ export const UNIT_DEFINITIONS = {
         death: 'Death'
       }
     },
-    maxHealth: 650,
+    maxHealth: 163,
     maxShield: 0,
     speed: 0,
     attackRange: 0,
@@ -604,7 +604,7 @@ export const UNIT_DEFINITIONS = {
     },
     weapon: {
       name: '维修储备',
-      maxDurability: 1000,
+      maxDurability: 163,
       durabilityCost: 0
     }
   },
@@ -624,7 +624,7 @@ export const UNIT_DEFINITIONS = {
         death: 'Death'
       }
     },
-    maxHealth: 500,
+    maxHealth: 125,
     maxShield: 0,
     speed: 0,
     attackRange: 0,
@@ -642,7 +642,7 @@ export const UNIT_DEFINITIONS = {
     },
     weapon: {
       name: '食材储备',
-      maxDurability: 500,
+      maxDurability: 125,
       durabilityCost: 0
     }
   },
@@ -664,7 +664,7 @@ export const UNIT_DEFINITIONS = {
         death: 'Death'
       }
     },
-    maxHealth: 450,
+    maxHealth: 113,
     maxShield: 0,
     speed: 0,
     attackRange: 0,
@@ -676,7 +676,7 @@ export const UNIT_DEFINITIONS = {
     collisionRadius: 0.82,
     weapon: {
       name: '信标核心',
-      maxDurability: 600,
+      maxDurability: 113,
       durabilityCost: 0
     }
   },
@@ -881,7 +881,7 @@ export const UNIT_DEFINITIONS = {
     maxShield: 11,
     speed: 2.38,
     attackRange: 6.8,
-    attackRate: 0.58,
+    attackRate: 1 / 6,
     damage: 2.4,
     knockback: 0.55,
     aggroRange: 9.4,

@@ -33,7 +33,7 @@ export class SpellSystem {
         );
 
         const dir = unit.position.clone().sub(point).setY(0);
-        if (dir.lengthSq() > 0.001) {
+        if (dir.lengthSq() > 0.001 && !isStaticUnit(unit)) {
           dir.normalize();
           unit.knockbackVelocity.addScaledVector(dir, card.knockback * (0.45 + falloff));
           unit.hitStunTimer = Math.max(unit.hitStunTimer, 0.22);
@@ -41,4 +41,8 @@ export class SpellSystem {
       });
     });
   }
+}
+
+function isStaticUnit(unit) {
+  return unit.isBuilding || unit.definition?.canMove === false;
 }

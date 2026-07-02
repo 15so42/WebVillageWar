@@ -26,7 +26,10 @@ export class RecoverySystem {
       if (!unit.alive) return;
       if (distance2D(unit.position, this.center) > recoveryRadius) return;
       const healed = unit.restoreHealth(healthPerSecond);
-      this.game.effects.spawnHealNumber(unit.position, healed);
+      this.game.effects.spawnHealNumber(unit.position, healed, {
+        displayAmount: healthPerSecond,
+        height: unit.projectileHitHeight ?? 1.55
+      });
       unit.restoreDurability(durabilityPerSecond);
     });
   }

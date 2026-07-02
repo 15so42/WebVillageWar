@@ -168,6 +168,15 @@ function applyOneShot(unit, root, name, t) {
   root.rotation.y = 0;
   root.rotation.z = 0;
   root.scale.setScalar(1);
+  if (unit.isBuilding) {
+    root.position.y = pulse * (name === 'hit' ? 0.035 : 0.025);
+    if (name === 'hit') {
+      root.scale.set(1 - pulse * 0.025, 1 + pulse * 0.035, 1 - pulse * 0.025);
+    } else if (name === 'attack') {
+      root.scale.set(1 + pulse * 0.018, 1 - pulse * 0.012, 1 + pulse * 0.018);
+    }
+    return;
+  }
   if (name === 'attack') {
     if (unit.type === 'archer' || unit.type === 'goblinArcher' || unit.type === 'skeletonArcher') {
       root.position.y = pulse * 0.025;

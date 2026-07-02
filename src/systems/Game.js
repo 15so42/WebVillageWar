@@ -26,9 +26,15 @@ const STRUCTURE_PUSH_PADDING = 0.18;
 const ROUTE_REPATH_DISTANCE = 1.15;
 const ROUTE_REJOIN_DISTANCE = 2.2;
 const ROUTE_WAYPOINT_RADIUS = 0.38;
-const ROUTE_REPATH_COOLDOWN = 0.48;
-const ROUTE_BLOCKED_REPATH_COOLDOWN = 0.45;
-const ROUTE_REPATH_JITTER = 0.16;
+const ROUTE_REPATH_COOLDOWN = 1.35;
+const ROUTE_BLOCKED_REPATH_COOLDOWN = 1.2;
+const ROUTE_FAILED_REPATH_COOLDOWN = 2.4;
+const ROUTE_DEFERRED_REPATH_COOLDOWN = 0.22;
+const ROUTE_REPATH_JITTER = 0.9;
+const ROUTE_SEARCHES_PER_FRAME = 1;
+const ROUTE_MAX_SEARCH_CELLS = 6500;
+const ROUTE_WORKER_MAX_PENDING = 64;
+const ROUTE_WORKER_MAX_SEARCH_CELLS = 20000;
 const ROUTE_STEERING_LOOKAHEAD_DISTANCE = 1.6;
 const ROUTE_RECOVERY_LOOKAHEAD_DISTANCE = 0.55;
 const NAV_LINE_RECHECK_COOLDOWN = 0.12;
@@ -40,15 +46,18 @@ const UNIT_CLIMB_SPEED = 3.4;
 const UNIT_MAX_SMOOTH_CLIMB_HEIGHT = 0.58;
 const UNIT_GROUND_EPSILON = 0.006;
 const INITIAL_ATTACK_WAVE_DELAY = 18;
-const MIN_ENEMY_WAVE_DELAY = 12;
 const EARLY_ENEMY_WAVE_DELAY = 24;
-const ENEMY_WAVE_DELAY_DECAY = 0.65;
 const SUMMON_DEPLOY_RADIUS = 7.5;
 const BEACON_PLACEMENT_RADIUS = 5.5;
 const SPIDER_FIRST_EGG_SECONDS = 37;
 const SPIDER_EGG_INTERVAL_SECONDS = 60;
 const SPIDER_EGG_HATCH_SECONDS = 15;
 const TOUCH_TAP_THRESHOLD = 7;
+const MOBILE_DOUBLE_TAP_MS = 360;
+const MOBILE_DOUBLE_TAP_DISTANCE = 38;
+const PERF_HISTORY_LIMIT = 120;
+const PERF_CHART_UPDATE_INTERVAL = 0.25;
+const MAX_RENDER_PIXEL_RATIO = 1.5;
 
 export class Game {
   constructor({ canvas, session = null, onLevelComplete = null, onRestart = null, onExitToMenu = null } = {}) {
@@ -73,20 +82,20 @@ export class Game {
       alpha: false,
       preserveDrawingBuffer: false
     });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_RENDER_PIXEL_RATIO));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.worldUi = ensureWorldUiElement();
     this.cameraTarget = new THREE.Vector3(0, 4, 18);
     this.cameraOffsetDirection = new THREE.Vector3(0, 30, 37.2).normalize();
     this.cameraDistance = 28.7;
+    this.worldUiProjection = new THREE.Vector3();
     this.cameraMinDistance = 12;
     this.cameraMaxDistance = 78;
     this.pointerScreen = new THREE.Vector2(window.innerWidth * 0.5, window.innerHeight * 0.5);
     this.edgePanActive = false;
     this.cameraDrag = null;
-    this.mobileShiftHeld = false;
-    this.mobileShiftPointerId = null;
+    this.lastMobileTap = null;
     this.updateCamera(0);
 
     this.clock = new THREE.Clock();
@@ -98,6 +107,7 @@ export class Game {
     this.lastCardPlayed = null;
     this.selectedUnit = null;
     this.selectedUnits = [];
+    this.selectedUnitIds = new Set();
     this.selectionRings = [];
     this.guardVisuals = new Map();
     this.selectionDrag = null;
@@ -122,7 +132,12 @@ export class Game {
     this.world = createWorld(this.scene, this.worldConfig);
     this.navDebugEnabled = initialNavDebugEnabled();
     this.perfDebugEnabled = initialPerfDebugEnabled();
+    this.perfJsonEnabled = initialPerfJsonEnabled();
     this.perfTracker = this.perfDebugEnabled ? new PerfTracker() : null;
+    this.perfHistory = [];
+    this.lastPerfSampleId = 0;
+    this.perfChartUpdateTimer = 0;
+    this.perfChartVisible = this.perfDebugEnabled;
     this.navDebugGroup = new THREE.Group();
     this.navDebugGroup.name = 'NavDebug';
     this.navDebugGroup.visible = this.navDebugEnabled;
@@ -133,6 +148,14 @@ export class Game {
     this.navDebugMesh = null;
     this.navDebugTimer = 0;
     this.hudUpdateTimer = 0;
+    this.routeSearchBudget = ROUTE_SEARCHES_PER_FRAME;
+    this.pathWorker = null;
+    this.pathWorkerReady = false;
+    this.pathWorkerError = null;
+    this.nextPathRequestId = 1;
+    this.pendingPathRequests = new Map();
+    this.workerPathStats = createEmptyWorkerPathStats();
+    this.setupPathfindingWorker();
     this.scene.add(this.navDebugGroup);
     this.playerBase.position.y = this.groundHeightAt(this.playerBase.position);
     setupStructureBody(this.playerBase, this.world.playerBaseModel, {
@@ -184,15 +207,20 @@ export class Game {
     this.dom = {
       baseHealth: document.querySelector('#base-health'),
       waveLabel: document.querySelector('#wave-label'),
+      battleTime: document.querySelector('#battle-time'),
       unitCount: document.querySelector('#unit-count'),
       selectedName: document.querySelector('#selected-name'),
       selectedStats: document.querySelector('#selected-stats'),
       selectedEnchants: document.querySelector('#selected-enchants'),
       settingsButton: document.querySelector('#game-settings-button'),
-      mobileShiftButton: document.querySelector('#mobile-shift-button'),
+      commandDock: document.querySelector('#game-command-dock'),
       pauseOverlay: document.querySelector('#pause-overlay'),
       pauseReason: document.querySelector('#pause-reason'),
-      debug: document.querySelector('#debug-state')
+      debug: document.querySelector('#debug-state'),
+      perfPanel: document.querySelector('#perf-panel'),
+      perfCanvas: document.querySelector('#perf-chart'),
+      perfStatus: document.querySelector('#perf-panel-status'),
+      perfStats: document.querySelector('#perf-stats')
     };
 
     this.raycaster = new THREE.Raycaster();
@@ -219,19 +247,15 @@ export class Game {
       event.stopPropagation();
       this.setPaused(true, '设置');
     }, { signal });
-    this.dom.mobileShiftButton?.addEventListener('pointerdown', (event) => this.onMobileShiftDown(event), { signal });
-    this.dom.mobileShiftButton?.addEventListener('pointerup', (event) => this.onMobileShiftUp(event), { signal });
-    this.dom.mobileShiftButton?.addEventListener('pointercancel', (event) => this.onMobileShiftUp(event), { signal });
-    this.dom.mobileShiftButton?.addEventListener('lostpointercapture', () => this.setMobileShiftHeld(false), { signal });
-    window.addEventListener('pointerup', (event) => this.onGlobalPointerRelease(event), { signal });
-    window.addEventListener('pointercancel', (event) => this.onGlobalPointerRelease(event), { signal });
+    this.dom.commandDock?.addEventListener('click', (event) => this.onCommandDockClick(event), { signal });
+    this.dom.commandDock?.addEventListener('pointerdown', stopUiEvent, { signal });
+    this.dom.commandDock?.addEventListener('contextmenu', stopUiEvent, { signal });
     this.dom.pauseOverlay?.addEventListener('click', (event) => this.onPauseOverlayClick(event), { signal });
     this.dom.pauseOverlay?.addEventListener('pointerdown', stopUiEvent, { signal });
     this.dom.pauseOverlay?.addEventListener('contextmenu', stopUiEvent, { signal });
     this.resize();
     document.body.classList.add('is-game-active');
     if (this.dom.settingsButton) this.dom.settingsButton.hidden = false;
-    if (this.dom.mobileShiftButton) this.dom.mobileShiftButton.hidden = false;
     this.armReturnNavigationTrap();
 
     this.summonUnits('raider', 1, this.playerBase.position.clone().add(new THREE.Vector3(-1.4, 0, -2.2)), 0.7, {
@@ -270,13 +294,16 @@ export class Game {
     this.enemyCommander?.destroy?.();
     this.areaEffects?.destroy?.();
     this.levelMechanics?.destroy?.();
+    this.pathWorker?.terminate?.();
+    this.pathWorker = null;
+    this.pendingPathRequests.clear();
     this.disposeNavDebug();
     this.renderer.dispose();
     this.selectionBox?.remove();
     document.body.classList.remove('is-game-active', 'is-game-paused');
     if (this.dom.settingsButton) this.dom.settingsButton.hidden = true;
-    if (this.dom.mobileShiftButton) this.dom.mobileShiftButton.hidden = true;
     if (this.dom.pauseOverlay) this.dom.pauseOverlay.hidden = true;
+    if (this.dom.perfPanel) this.dom.perfPanel.hidden = true;
     this.guardVisuals.forEach((visuals) => {
       this.scene.remove(visuals.flag, visuals.rangeRing);
     });
@@ -297,6 +324,7 @@ export class Game {
       return;
     }
     this.elapsedTime += dt;
+    this.routeSearchBudget = ROUTE_SEARCHES_PER_FRAME;
     this.waveTimer -= dt;
     if (this.waveTimer <= 0 && this.playerBase.health > 0 && this.enemyCamp.alive) {
       this.wave += 1;
@@ -328,6 +356,8 @@ export class Game {
       this.measurePerf('hud', () => this.updateHud(dt));
       this.measurePerf('render', () => this.renderer.render(this.scene, this.camera));
       perf.endFrame(this.createPerfCounters({ takeNavStats: true }));
+      this.recordPerfSample();
+      this.updatePerfPanel(dt);
     } else {
       this.cardSystem.update(dt);
       this.abilities.update(dt);
@@ -364,6 +394,9 @@ export class Game {
   createPerfCounters({ takeNavStats = false } = {}) {
     const navGrid = this.world?.navGrid;
     const rendererInfo = this.renderer.info;
+    const navStats = takeNavStats
+      ? mergePathStats(navGrid?.takeStats?.() ?? null, this.takeWorkerPathStats())
+      : mergePathStats(navGrid?.stats ? { ...navGrid.stats } : null, this.workerPathStats);
     return {
       friendly: this.friendlyUnits.length,
       enemies: this.enemyUnits.length,
@@ -371,14 +404,15 @@ export class Game {
       projectiles: this.combat?.projectiles?.length ?? 0,
       pendingAttacks: this.combat?.pendingAttacks?.length ?? 0,
       navDistanceCache: this.combat?.navDistanceCache?.size ?? 0,
+      combatProfile: this.combat?.lastProfile ?? null,
       sceneChildren: this.scene.children.length,
       rendererGeometries: rendererInfo?.memory?.geometries ?? 0,
       rendererTextures: rendererInfo?.memory?.textures ?? 0,
       renderCalls: rendererInfo?.render?.calls ?? 0,
       triangles: rendererInfo?.render?.triangles ?? 0,
-      nav: takeNavStats
-        ? navGrid?.takeStats?.() ?? null
-        : navGrid?.stats ? { ...navGrid.stats } : null
+      pathWorkerReady: this.pathWorkerReady ? 1 : 0,
+      pendingPathRequests: this.pendingPathRequests?.size ?? 0,
+      nav: navStats
     };
   }
 
@@ -929,6 +963,113 @@ export class Game {
     return this.world?.isWalkable?.(point) ?? true;
   }
 
+  shouldUseNavigationPathing() {
+    return true;
+  }
+
+  shouldUseWorkerPathing() {
+    return this.pathWorkerReady;
+  }
+
+  setupPathfindingWorker() {
+    const workerData = this.world?.navGrid?.toWorkerData?.();
+    if (!workerData) return;
+    try {
+      this.pathWorker = new Worker(new URL('../workers/pathfindingWorker.js', import.meta.url), {
+        type: 'module'
+      });
+      this.pathWorker.onmessage = (event) => this.handlePathWorkerMessage(event.data);
+      this.pathWorker.onerror = (event) => {
+        this.pathWorkerError = event?.message ?? 'path worker error';
+        this.pathWorkerReady = false;
+        this.pathWorker?.terminate?.();
+        this.pathWorker = null;
+        this.pendingPathRequests.clear();
+      };
+      this.pathWorker.postMessage({
+        type: 'init',
+        grid: workerData
+      });
+      this.pathWorkerReady = true;
+    } catch (error) {
+      this.pathWorkerError = error?.message ?? String(error);
+      this.pathWorkerReady = false;
+      this.pathWorker = null;
+    }
+  }
+
+  handlePathWorkerMessage(message) {
+    if (message?.type !== 'pathResult') return;
+    const request = this.pendingPathRequests.get(message.id);
+    if (!request) return;
+    this.pendingPathRequests.delete(message.id);
+    this.addWorkerPathStats(message.stats);
+
+    const { unit } = request;
+    if (!unit?.alive || unit.pendingRouteRequestId !== message.id) return;
+    const target = message.target ?? request.target;
+    unit.pendingRouteRequestId = null;
+    unit.pendingRouteTarget = null;
+    unit.route = (message.route ?? []).map((point) => new THREE.Vector3(point.x, 0, point.z));
+    unit.routeIndex = 0;
+    unit.routeTarget = new THREE.Vector3(target.x, 0, target.z);
+    const cooldown = unit.route.length ? ROUTE_REPATH_COOLDOWN : ROUTE_FAILED_REPATH_COOLDOWN;
+    unit.nextRouteRepathAt = this.elapsedTime + routeRepathCooldown(unit, cooldown);
+  }
+
+  addWorkerPathStats(stats = {}) {
+    this.workerPathStats.findPath += stats.findPath ?? 0;
+    this.workerPathStats.nearestWalkableCell += stats.nearestWalkableCell ?? 0;
+    this.workerPathStats.hasLine += stats.hasLine ?? 0;
+    this.workerPathStats.expandedCells += stats.expandedCells ?? 0;
+  }
+
+  takeWorkerPathStats() {
+    const stats = { ...this.workerPathStats };
+    this.workerPathStats = createEmptyWorkerPathStats();
+    return stats;
+  }
+
+  requestWorkerRoute(unit, position, targetPosition, startsOnNavigation) {
+    if (!this.pathWorkerReady || !this.pathWorker || !unit) return false;
+    if (this.pendingPathRequests.size >= ROUTE_WORKER_MAX_PENDING) {
+      unit.nextRouteRepathAt = this.elapsedTime + routeRepathCooldown(unit, ROUTE_DEFERRED_REPATH_COOLDOWN);
+      return true;
+    }
+    if (
+      unit.pendingRouteRequestId &&
+      unit.pendingRouteTarget &&
+      flatDistance(unit.pendingRouteTarget, targetPosition) <= ROUTE_REPATH_DISTANCE
+    ) {
+      return true;
+    }
+
+    const id = this.nextPathRequestId;
+    this.nextPathRequestId += 1;
+    const target = new THREE.Vector3(targetPosition.x, 0, targetPosition.z);
+    unit.pendingRouteRequestId = id;
+    unit.pendingRouteTarget = target;
+    unit.nextRouteRepathAt = this.elapsedTime + routeRepathCooldown(unit, ROUTE_DEFERRED_REPATH_COOLDOWN);
+    this.pendingPathRequests.set(id, {
+      unit,
+      target
+    });
+    this.pathWorker.postMessage({
+      type: 'findPath',
+      id,
+      start: { x: position.x, z: position.z },
+      end: { x: targetPosition.x, z: targetPosition.z },
+      options: {
+        smooth: false,
+        startRequireLine: startsOnNavigation,
+        startAllowLooseFallback: true,
+        endRequireLine: false,
+        maxIterations: ROUTE_WORKER_MAX_SEARCH_CELLS
+      }
+    });
+    return true;
+  }
+
   hasSafeSurfaceLine(start, end) {
     if (!start || !end) return true;
     if (this.world?.hasNavigationLine) {
@@ -967,16 +1108,14 @@ export class Game {
       this.hasNavigationLineForUnit(unit, position, targetPosition);
     if (!unit) {
       if (hasDirectNavigationLine) {
-        return steeringFromRoute(position, targetPosition, [targetPosition], {
-          desiredDistance,
-          startsOnNavigation
-        });
+        return steeringFromDirectTarget(position, targetPosition, desiredDistance);
       }
       const path = this.world.findPath(position, targetPosition, {
         smooth: false,
         startRequireLine: startsOnNavigation,
         startAllowLooseFallback: true,
-        endRequireLine: false
+        endRequireLine: false,
+        maxIterations: ROUTE_MAX_SEARCH_CELLS
       });
       return steeringFromRoute(position, targetPosition, path, {
         desiredDistance,
@@ -999,26 +1138,45 @@ export class Game {
 
     if (hasDirectNavigationLine) {
       this.clearUnitRoute(unit);
-      const steering = steeringFromRoute(position, targetPosition, [targetPosition], {
-        desiredDistance,
-        startsOnNavigation
-      });
-      unit.navSteeringTarget = steering?.debugTarget?.clone?.() ?? null;
+      const steering = steeringFromDirectTarget(position, targetPosition, desiredDistance);
+      unit.navSteeringTarget = setReusableVector(unit.navSteeringTarget, steering?.debugTarget);
       return steering;
     }
 
     if (needsRoute) {
       const canRepath = (unit.nextRouteRepathAt ?? 0) <= this.elapsedTime;
       if (canRepath) {
-        unit.route = this.world.findPath(position, targetPosition, {
+        if (this.shouldUseWorkerPathing()) {
+          this.requestWorkerRoute(unit, position, targetPosition, startsOnNavigation);
+          return Array.isArray(unit.route) && unit.route.length
+            ? steeringFromRoute(position, targetPosition, unit.route, {
+                desiredDistance,
+                startsOnNavigation,
+                startIndex: unit.routeIndex ?? 0
+              })
+            : null;
+        }
+        if (!this.consumeRouteSearchBudget(unit)) {
+          return Array.isArray(unit.route) && unit.route.length
+            ? steeringFromRoute(position, targetPosition, unit.route, {
+                desiredDistance,
+                startsOnNavigation,
+                startIndex: unit.routeIndex ?? 0
+              })
+            : null;
+        }
+        const route = this.world.findPath(position, targetPosition, {
           smooth: false,
           startRequireLine: startsOnNavigation,
           startAllowLooseFallback: true,
-          endRequireLine: false
+          endRequireLine: false,
+          maxIterations: ROUTE_MAX_SEARCH_CELLS
         });
+        unit.route = route;
         unit.routeIndex = 0;
-        unit.routeTarget = new THREE.Vector3(targetPosition.x, 0, targetPosition.z);
-        unit.nextRouteRepathAt = this.elapsedTime + routeRepathCooldown(unit, ROUTE_REPATH_COOLDOWN);
+        unit.routeTarget = setReusableVector(unit.routeTarget, targetPosition);
+        const cooldown = route.length ? ROUTE_REPATH_COOLDOWN : ROUTE_FAILED_REPATH_COOLDOWN;
+        unit.nextRouteRepathAt = this.elapsedTime + routeRepathCooldown(unit, cooldown);
       }
     }
 
@@ -1039,18 +1197,33 @@ export class Game {
     const steering = steeringFromRoute(
       position,
       targetPosition,
-      unit.route.slice(index),
+      unit.route,
       {
         desiredDistance,
-        startsOnNavigation
+        startsOnNavigation,
+        startIndex: index
       }
     );
     if (steering?.debugTarget) {
-      unit.navSteeringTarget = steering.debugTarget.clone();
+      unit.navSteeringTarget = setReusableVector(unit.navSteeringTarget, steering.debugTarget);
     } else {
       unit.navSteeringTarget = null;
     }
     return steering;
+  }
+
+  consumeRouteSearchBudget(unit) {
+    if ((this.routeSearchBudget ?? ROUTE_SEARCHES_PER_FRAME) > 0) {
+      this.routeSearchBudget -= 1;
+      return true;
+    }
+    if (unit) {
+      unit.nextRouteRepathAt = Math.max(
+        unit.nextRouteRepathAt ?? 0,
+        this.elapsedTime + routeRepathCooldown(unit, ROUTE_DEFERRED_REPATH_COOLDOWN)
+      );
+    }
+    return false;
   }
 
   hasNavigationLineForUnit(unit, position, targetPosition) {
@@ -1068,8 +1241,8 @@ export class Game {
     if (shouldCheck) {
       unit.hasNavDirectLine = this.world.hasNavigationLine(position, targetPosition);
       unit.nextNavDirectLineCheckAt = this.elapsedTime + NAV_LINE_RECHECK_COOLDOWN;
-      unit.navDirectLineTarget = new THREE.Vector3(targetPosition.x, 0, targetPosition.z);
-      unit.navDirectLinePosition = new THREE.Vector3(position.x, 0, position.z);
+      unit.navDirectLineTarget = setReusableVector(unit.navDirectLineTarget, targetPosition);
+      unit.navDirectLinePosition = setReusableVector(unit.navDirectLinePosition, position);
     }
     return unit.hasNavDirectLine === true;
   }
@@ -1092,17 +1265,22 @@ export class Game {
     if (shouldCheck) {
       unit.isOffRoute = !this.world.hasNavigationLine?.(unit.position, waypoint);
       unit.nextOffRouteCheckAt = this.elapsedTime + OFF_ROUTE_RECHECK_COOLDOWN;
-      unit.offRouteCheckTarget = waypoint.clone?.() ?? new THREE.Vector3(waypoint.x, 0, waypoint.z);
-      unit.offRouteCheckPosition = new THREE.Vector3(unit.position.x, 0, unit.position.z);
+      unit.offRouteCheckTarget = setReusableVector(unit.offRouteCheckTarget, waypoint);
+      unit.offRouteCheckPosition = setReusableVector(unit.offRouteCheckPosition, unit.position);
     }
     return unit.isOffRoute === true;
   }
 
   clearUnitRoute(unit) {
     if (!unit) return;
+    if (unit.pendingRouteRequestId) {
+      this.pendingPathRequests.delete(unit.pendingRouteRequestId);
+    }
     unit.route = null;
     unit.routeIndex = null;
     unit.routeTarget = null;
+    unit.pendingRouteRequestId = null;
+    unit.pendingRouteTarget = null;
     unit.navSteeringTarget = null;
     unit.navMoveTarget = null;
     unit.nextRouteRepathAt = 0;
@@ -1110,9 +1288,14 @@ export class Game {
 
   requestUnitRouteRepath(unit, delay = ROUTE_BLOCKED_REPATH_COOLDOWN) {
     if (!unit) return;
+    if (unit.pendingRouteRequestId) {
+      this.pendingPathRequests.delete(unit.pendingRouteRequestId);
+    }
     unit.route = null;
     unit.routeIndex = null;
     unit.routeTarget = null;
+    unit.pendingRouteRequestId = null;
+    unit.pendingRouteTarget = null;
     unit.navSteeringTarget = null;
     unit.nextRouteRepathAt = this.elapsedTime + routeRepathCooldown(unit, delay);
   }
@@ -1360,10 +1543,17 @@ export class Game {
 
   selectUnits(units) {
     const unique = new Set();
+    this.selectedUnits.forEach((unit) => {
+      unit.statusUiDirty = true;
+    });
     this.selectedUnits = units.filter((unit) => {
       if (!unit?.alive || unit.team !== TEAMS.PLAYER || unique.has(unit.id)) return false;
       unique.add(unit.id);
       return true;
+    });
+    this.selectedUnitIds = new Set(this.selectedUnits.map((unit) => unit.id));
+    this.selectedUnits.forEach((unit) => {
+      unit.statusUiDirty = true;
     });
     this.selectedUnit = this.selectedUnits[0] ?? null;
   }
@@ -1374,7 +1564,8 @@ export class Game {
 
     if (event.pointerType === 'touch') {
       event.preventDefault();
-      if (this.mobileShiftHeld) {
+      if (this.isMobileSelectionDoubleTap(event)) {
+        this.lastMobileTap = null;
         this.beginSelectionDrag(event);
       } else {
         this.beginCameraDrag(event, {
@@ -1436,6 +1627,11 @@ export class Game {
   onKeyDown(event) {
     if (event.repeat || isTextInputTarget(event.target)) return;
     const key = event.key.toLowerCase();
+    if (key === 'f2') {
+      event.preventDefault();
+      this.togglePerfChart();
+      return;
+    }
     if (key === 'escape') {
       event.preventDefault();
       this.setPaused(!this.paused, '设置');
@@ -1547,6 +1743,20 @@ export class Game {
     return true;
   }
 
+  onCommandDockClick(event) {
+    const button = event.target?.closest?.('[data-command-action]');
+    if (!button) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (this.paused) return;
+    const action = button.dataset.commandAction;
+    if (action === 'stop') {
+      this.stopSelectedUnits();
+    } else if (action === 'guard') {
+      this.guardSelectedUnits();
+    }
+  }
+
   endCameraDrag(event) {
     if (!this.isCameraDragEndEvent(event)) return false;
     event.preventDefault?.();
@@ -1559,7 +1769,7 @@ export class Game {
     this.applyCameraDragDelta();
     this.cancelCameraDrag();
     if (drag.issueCommandOnTap && !drag.moved && event.type !== 'pointercancel') {
-      this.issueMoveCommand(event);
+      this.handleMobileTapCommand(event);
     }
     return true;
   }
@@ -1580,34 +1790,6 @@ export class Game {
     if (!this.cameraDrag) return;
     this.cameraDrag = null;
     this.canvas.classList.remove('is-camera-dragging');
-  }
-
-  onMobileShiftDown(event) {
-    event.preventDefault();
-    event.stopPropagation();
-    this.mobileShiftPointerId = event.pointerId;
-    this.setMobileShiftHeld(true);
-    safeSetPointerCapture(event.currentTarget, event.pointerId);
-  }
-
-  onMobileShiftUp(event) {
-    if (this.mobileShiftPointerId !== null && event.pointerId !== this.mobileShiftPointerId) return;
-    event.preventDefault?.();
-    event.stopPropagation?.();
-    safeReleasePointerCapture(event.currentTarget, event.pointerId);
-    this.mobileShiftPointerId = null;
-    this.setMobileShiftHeld(false);
-  }
-
-  onGlobalPointerRelease(event) {
-    if (this.mobileShiftPointerId === null || event.pointerId !== this.mobileShiftPointerId) return;
-    this.mobileShiftPointerId = null;
-    this.setMobileShiftHeld(false);
-  }
-
-  setMobileShiftHeld(held) {
-    this.mobileShiftHeld = Boolean(held);
-    this.dom.mobileShiftButton?.classList.toggle('is-held', this.mobileShiftHeld);
   }
 
   cancelSelectionDrag() {
@@ -1638,6 +1820,14 @@ export class Game {
     this.selectionBox.hidden = true;
   }
 
+  isMobileSelectionDoubleTap(event) {
+    const tap = this.lastMobileTap;
+    if (!tap) return false;
+    const elapsed = performance.now() - tap.time;
+    const distance = Math.hypot(event.clientX - tap.x, event.clientY - tap.y);
+    return elapsed <= MOBILE_DOUBLE_TAP_MS && distance <= MOBILE_DOUBLE_TAP_DISTANCE;
+  }
+
   pickFriendlyUnit(clientX, clientY) {
     this.setPointerFromClient(clientX, clientY);
     this.raycaster.setFromCamera(this.pointer, this.camera);
@@ -1661,6 +1851,21 @@ export class Game {
     return best;
   }
 
+  handleMobileTapCommand(event) {
+    if (this.lootDrops?.tryOpenPickup(event)) return;
+    const unit = this.pickFriendlyUnit(event.clientX, event.clientY);
+    if (unit) {
+      this.selectUnit(unit);
+    } else {
+      this.issueMoveCommand(event);
+    }
+    this.lastMobileTap = {
+      x: event.clientX,
+      y: event.clientY,
+      time: performance.now()
+    };
+  }
+
   unitsInScreenRect(drag) {
     const minX = Math.min(drag.startX, drag.currentX);
     const maxX = Math.max(drag.startX, drag.currentX);
@@ -1680,7 +1885,11 @@ export class Game {
   }
 
   commandSelectedUnits(point) {
-    const units = this.selectedUnits.filter((unit) => unit.alive);
+    const units = this.selectedUnits.filter((unit) => (
+      unit.alive &&
+      !unit.isBuilding &&
+      unit.definition?.canMove !== false
+    ));
     if (!units.length) return;
     const commandCenter = this.resolveWalkablePoint(point);
     const formationRadius = Math.min(2.4, 0.55 + Math.sqrt(units.length) * 0.42);
@@ -1774,7 +1983,11 @@ export class Game {
   }
 
   updateSelection() {
+    const previousCount = this.selectedUnits.length;
     this.selectedUnits = this.selectedUnits.filter((unit) => unit.alive);
+    if (this.selectedUnits.length !== previousCount) {
+      this.selectedUnitIds = new Set(this.selectedUnits.map((unit) => unit.id));
+    }
     this.selectedUnit = this.selectedUnits[0] ?? null;
     this.ensureSelectionRingCount(this.selectedUnits.length);
 
@@ -1939,13 +2152,20 @@ export class Game {
   }
 
   updateUnitVisuals(dt) {
-    [...this.friendlyUnits, ...this.enemyUnits].forEach((unit) => {
-      this.placeUnitOnGround(unit, dt);
-      unit.updateVisual(this.camera, dt);
-      this.updateUnitStatusElement(unit);
-    });
+    for (let i = 0; i < this.friendlyUnits.length; i += 1) {
+      this.updateUnitVisual(this.friendlyUnits[i], dt);
+    }
+    for (let i = 0; i < this.enemyUnits.length; i += 1) {
+      this.updateUnitVisual(this.enemyUnits[i], dt);
+    }
     this.updateStructureStatusElement(this.playerBase, dt);
     this.updateStructureStatusElement(this.enemyCamp, dt);
+  }
+
+  updateUnitVisual(unit, dt) {
+    this.placeUnitOnGround(unit, dt);
+    unit.updateVisual(this.camera, dt);
+    this.updateUnitStatusElement(unit, dt);
   }
 
   attachUnitStatus(unit) {
@@ -1954,13 +2174,23 @@ export class Game {
     }
   }
 
-  updateUnitStatusElement(unit) {
+  updateUnitStatusElement(unit, dt = 0, force = false) {
     const element = unit.statusElement;
     if (!element) return;
+    if (!unit.alive) {
+      element.hidden = true;
+      return;
+    }
     const screen = this.projectWorldUi(unit.position, unitStatusHeight(unit));
-    element.hidden = !unit.alive || !screen.visible;
-    if (element.hidden) return;
-    element.style.transform = `translate3d(${screen.x}px, ${screen.y}px, 0) translate(-50%, -100%)`;
+    element.hidden = !screen.visible;
+    if (!element.hidden) {
+      element.style.transform = `translate3d(${screen.x}px, ${screen.y}px, 0) translate(-50%, -100%)`;
+    }
+    if (force || unit.statusUiDirty) {
+      unit.updateStatusVisual(dt);
+    } else if (unit.statusLagActive) {
+      unit.updateStatusLagVisual(dt);
+    }
   }
 
   updateStructureStatusElement(structure, dt = 0) {
@@ -1971,6 +2201,7 @@ export class Game {
     element.parts.hp.style.transform = `scaleX(${hpRatio})`;
     element.parts.healthLoss.style.transform = `scaleX(${structure.healthLagRatio})`;
     element.parts.healthLoss.hidden = structure.healthLagRatio <= hpRatio + 0.006;
+    updateHealthTicks(element.parts.ticks, structure.maxHealth);
     const screen = this.projectWorldUi(structure.position, structure.statusHeight ?? 2.8);
     element.hidden = !structure.alive || !screen.visible;
     if (element.hidden) return;
@@ -1987,6 +2218,7 @@ export class Game {
     );
     this.dom.baseHealth.textContent = `${baseRatio}%`;
     this.dom.waveLabel.textContent = String(this.wave);
+    this.dom.battleTime.textContent = formatBattleTime(this.elapsedTime);
     this.dom.unitCount.textContent = String(this.friendlyUnits.length);
     if (this.selectedUnits.length > 1) {
       const totalHealth = Math.round(
@@ -2011,12 +2243,131 @@ export class Game {
       this.dom.selectedStats.textContent = 'HP - / 武器 -';
       this.dom.selectedEnchants.textContent = '附魔 -';
     }
-    if (this.perfDebugEnabled && this.dom.debug) {
+    if (this.perfJsonEnabled && this.dom.debug) {
       this.dom.debug.hidden = false;
       this.dom.debug.textContent = JSON.stringify(this.perfDebugSnapshot());
     } else if (this.dom.debug && !this.dom.debug.hidden) {
-      this.dom.debug.textContent = JSON.stringify(this.snapshot());
+      this.dom.debug.hidden = true;
+      this.dom.debug.textContent = '';
     }
+  }
+
+  togglePerfChart() {
+    this.perfDebugEnabled = true;
+    if (!this.perfTracker) {
+      this.perfTracker = new PerfTracker();
+      this.perfHistory = [];
+      this.lastPerfSampleId = 0;
+    }
+    this.perfChartVisible = !this.perfChartVisible;
+    this.updatePerfPanel(0, { force: true });
+  }
+
+  recordPerfSample() {
+    const sample = this.perfTracker?.snapshot?.();
+    if (!sample || sample.warmingUp || sample.sampleId === this.lastPerfSampleId) return;
+    this.lastPerfSampleId = sample.sampleId;
+    this.perfHistory.push({
+      sampleId: sample.sampleId,
+      elapsedTime: Number(this.elapsedTime.toFixed(1)),
+      wave: this.wave,
+      fps: sample.fps ?? 0,
+      sections: sample.sections ?? {},
+      counts: sample.counts ?? {}
+    });
+    if (this.perfHistory.length > PERF_HISTORY_LIMIT) {
+      this.perfHistory.splice(0, this.perfHistory.length - PERF_HISTORY_LIMIT);
+    }
+  }
+
+  updatePerfPanel(dt = 0, { force = false } = {}) {
+    const panel = this.dom.perfPanel;
+    if (!panel) return;
+    panel.hidden = !this.perfChartVisible;
+    if (panel.hidden) return;
+
+    this.perfChartUpdateTimer -= dt;
+    if (!force && this.perfChartUpdateTimer > 0) return;
+    this.perfChartUpdateTimer = PERF_CHART_UPDATE_INTERVAL;
+
+    const latest = this.perfHistory[this.perfHistory.length - 1] ?? null;
+    if (this.dom.perfStatus) {
+      this.dom.perfStatus.textContent = latest
+        ? `${formatPerfSeconds(latest.elapsedTime)} / W${latest.wave}`
+        : 'warming up';
+    }
+    if (this.dom.perfStats) {
+      this.dom.perfStats.innerHTML = latest
+        ? this.createPerfStatsMarkup(latest)
+        : '<span>waiting for first sample</span>';
+    }
+    this.drawPerfChart();
+  }
+
+  createPerfStatsMarkup(sample) {
+    const counts = sample.counts ?? {};
+    const nav = counts.nav ?? {};
+    const sections = sample.sections ?? {};
+    const frameMax = sections.frame?.maxMs ?? 0;
+    const combatMax = sections.combat?.maxMs ?? 0;
+    const renderMax = sections.render?.maxMs ?? 0;
+    const worldMax = sections.world?.maxMs ?? 0;
+    const effectTotal = (counts.effects ?? 0) + (counts.projectiles ?? 0);
+    const combatProfile = counts.combatProfile ?? {};
+    const workerText = counts.pathWorkerReady ? 'worker' : 'sync';
+    const workerError = this.pathWorkerError ? `<span class="is-bad">worker error</span>` : '';
+    return [
+      perfStat('FPS', sample.fps),
+      perfStat('Frame', `${frameMax}ms`),
+      perfStat('Combat', `${combatMax}ms`),
+      perfStat('UnitsMs', `${combatProfile.unitsMs ?? 0}ms`),
+      perfStat('TargetMs', `${combatProfile.targetingMs ?? 0}ms`),
+      perfStat('SteerMs', `${combatProfile.steeringMs ?? 0}ms`),
+      perfStat('SepMs', `${combatProfile.separationMs ?? 0}ms`),
+      perfStat('Render', `${renderMax}ms`),
+      perfStat('World', `${worldMax}ms`),
+      perfStat('Units', (counts.friendly ?? 0) + (counts.enemies ?? 0)),
+      perfStat('FX', effectTotal),
+      perfStat('Path', `${nav.findPath ?? 0}/${nav.expandedCells ?? 0}`),
+      perfStat('AI', `${combatProfile.targetSearches ?? 0}/${combatProfile.moveCalls ?? 0}`),
+      perfStat('Sep', `${combatProfile.separationChecks ?? 0}/${combatProfile.separationPushes ?? 0}`),
+      perfStat('Queue', counts.pendingPathRequests ?? 0),
+      perfStat('Mode', workerText),
+      workerError
+    ].filter(Boolean).join('');
+  }
+
+  drawPerfChart() {
+    const canvas = this.dom.perfCanvas;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const rect = canvas.getBoundingClientRect();
+    const width = Math.max(280, Math.floor(rect.width || canvas.width));
+    const height = Math.max(120, Math.floor(rect.height || canvas.height));
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    if (canvas.width !== Math.floor(width * dpr) || canvas.height !== Math.floor(height * dpr)) {
+      canvas.width = Math.floor(width * dpr);
+      canvas.height = Math.floor(height * dpr);
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, width, height);
+    drawPerfBackground(ctx, width, height);
+    if (this.perfHistory.length < 2) {
+      ctx.fillStyle = 'rgba(247, 244, 232, 0.64)';
+      ctx.font = '12px sans-serif';
+      ctx.fillText('collecting samples...', 14, 26);
+      return;
+    }
+
+    const framePeak = Math.max(33, historyMax(this.perfHistory, (sample) => sample.sections.frame?.maxMs ?? 0));
+    const navPeak = Math.max(200, historyMax(this.perfHistory, (sample) => sample.counts.nav?.expandedCells ?? 0));
+    drawPerfBars(ctx, this.perfHistory, width, height, (sample) => sample.counts.nav?.expandedCells ?? 0, navPeak, 'rgba(101, 209, 240, 0.22)');
+    drawPerfLine(ctx, this.perfHistory, width, height, (sample) => clamp(sample.fps ?? 0, 0, 60), 60, '#8ff0d2', 2);
+    drawPerfLine(ctx, this.perfHistory, width, height, (sample) => sample.sections.frame?.maxMs ?? 0, framePeak, '#ffd166', 2);
+    drawPerfLine(ctx, this.perfHistory, width, height, (sample) => sample.sections.combat?.maxMs ?? 0, framePeak, '#ef6f6c', 1.5);
+    drawPerfLine(ctx, this.perfHistory, width, height, (sample) => sample.sections.render?.maxMs ?? 0, framePeak, '#a9d6ff', 1.5);
+    drawPerfLegend(ctx, width, height, framePeak);
   }
 
   perfDebugSnapshot() {
@@ -2026,7 +2377,13 @@ export class Game {
       elapsedTime: Number(this.elapsedTime.toFixed(1)),
       wave: this.wave,
       counts: this.createPerfCounters(),
-      perf: this.perfTracker?.snapshot() ?? null
+      pathWorker: {
+        ready: this.pathWorkerReady,
+        pending: this.pendingPathRequests?.size ?? 0,
+        error: this.pathWorkerError
+      },
+      perf: this.perfTracker?.snapshot() ?? null,
+      perfHistory: this.perfHistory.slice(-8)
     };
   }
 
@@ -2120,8 +2477,8 @@ export class Game {
   }
 
   projectWorldUi(position, height = 1) {
-    const projected = position.clone();
-    projected.y += height;
+    const projected = this.worldUiProjection;
+    projected.set(position.x, position.y + height, position.z);
     projected.project(this.camera);
     const x = Math.round((projected.x * 0.5 + 0.5) * window.innerWidth);
     const y = Math.round((-projected.y * 0.5 + 0.5) * window.innerHeight);
@@ -2191,7 +2548,7 @@ function createSelectionBoxElement() {
 
 function isGameUiTarget(target) {
   return Boolean(target?.closest?.(
-    '.hud, .card, .energy-panel, .card-pile-dock, .pile-viewer, .loot-confirm, .drag-ghost, .game-settings-button, .mobile-shift-button, .mobile-action-dock, .pause-overlay'
+    '.hud, .card, .energy-panel, .card-pile-dock, .pile-viewer, .loot-confirm, .drag-ghost, .game-settings-button, .game-command-dock, .mobile-action-dock, .pause-overlay'
   ));
 }
 
@@ -2256,16 +2613,14 @@ function routeRepathCooldown(unit, baseDelay) {
   return Math.max(0, baseDelay) + jitter;
 }
 
-function nextEnemyWaveDelay(wave) {
-  return Math.max(
-    MIN_ENEMY_WAVE_DELAY,
-    EARLY_ENEMY_WAVE_DELAY - wave * ENEMY_WAVE_DELAY_DECAY
-  );
+function nextEnemyWaveDelay() {
+  return EARLY_ENEMY_WAVE_DELAY;
 }
 
 function steeringFromRoute(position, targetPosition, route, {
   desiredDistance = 0.22,
-  startsOnNavigation = true
+  startsOnNavigation = true,
+  startIndex = 0
 } = {}) {
   if (!Array.isArray(route) || route.length === 0) return null;
   if (flatDistance(position, targetPosition) <= desiredDistance) return null;
@@ -2273,7 +2628,7 @@ function steeringFromRoute(position, targetPosition, route, {
   const lookaheadDistance = startsOnNavigation
     ? ROUTE_STEERING_LOOKAHEAD_DISTANCE
     : ROUTE_RECOVERY_LOOKAHEAD_DISTANCE;
-  const debugTarget = routeLookaheadPoint(position, route, lookaheadDistance);
+  const debugTarget = routeLookaheadPoint(position, route, lookaheadDistance, startIndex);
   if (!debugTarget) return null;
 
   const dx = debugTarget.x - position.x;
@@ -2287,12 +2642,25 @@ function steeringFromRoute(position, targetPosition, route, {
   };
 }
 
-function routeLookaheadPoint(position, route, lookaheadDistance) {
+function steeringFromDirectTarget(position, targetPosition, desiredDistance = 0.22) {
+  if (flatDistance(position, targetPosition) <= desiredDistance) return null;
+  const dx = targetPosition.x - position.x;
+  const dz = targetPosition.z - position.z;
+  const length = Math.hypot(dx, dz);
+  if (length < 0.001) return null;
+  return {
+    direction: new THREE.Vector3(dx / length, 0, dz / length),
+    debugTarget: targetPosition
+  };
+}
+
+function routeLookaheadPoint(position, route, lookaheadDistance, startIndex = 0) {
   let anchor = position;
   let remaining = Math.max(0.05, lookaheadDistance);
   let last = null;
 
-  for (const point of route) {
+  for (let i = Math.max(0, startIndex); i < route.length; i += 1) {
+    const point = route[i];
     const distance = flatDistance(anchor, point);
     if (distance < 0.001) {
       anchor = point;
@@ -2314,7 +2682,14 @@ function routeLookaheadPoint(position, route, lookaheadDistance) {
     last = point;
   }
 
-  return last?.clone?.() ?? null;
+  return last ?? null;
+}
+
+function setReusableVector(current, point) {
+  if (!point) return null;
+  const vector = current ?? new THREE.Vector3();
+  vector.set(point.x, point.y ?? 0, point.z);
+  return vector;
 }
 
 function initialNavDebugEnabled() {
@@ -2337,10 +2712,111 @@ function initialPerfDebugEnabled() {
   }
 }
 
+function initialPerfJsonEnabled() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return params.has('perfjson') && params.get('perfjson') !== '0';
+  } catch {
+    return false;
+  }
+}
+
+function perfStat(label, value) {
+  return `<span><b>${label}</b>${value}</span>`;
+}
+
+function formatPerfSeconds(seconds) {
+  if (!Number.isFinite(seconds)) return '0s';
+  const minutes = Math.floor(seconds / 60);
+  const remainder = Math.floor(seconds % 60);
+  return minutes > 0 ? `${minutes}m ${remainder}s` : `${remainder}s`;
+}
+
+function historyMax(history, readValue) {
+  return history.reduce((max, sample) => Math.max(max, readValue(sample) || 0), 0);
+}
+
+function drawPerfBackground(ctx, width, height) {
+  ctx.fillStyle = 'rgba(9, 14, 15, 0.74)';
+  ctx.fillRect(0, 0, width, height);
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+  ctx.lineWidth = 1;
+  for (let i = 1; i < 4; i += 1) {
+    const y = (height * i) / 4;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(width, y);
+    ctx.stroke();
+  }
+  for (let i = 1; i < 6; i += 1) {
+    const x = (width * i) / 6;
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, height);
+    ctx.stroke();
+  }
+}
+
+function drawPerfLine(ctx, history, width, height, readValue, maxValue, color, lineWidth = 1.5) {
+  if (history.length < 2 || maxValue <= 0) return;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lineWidth;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  history.forEach((sample, index) => {
+    const x = (index / (history.length - 1)) * width;
+    const value = clamp(readValue(sample) || 0, 0, maxValue);
+    const y = height - (value / maxValue) * (height - 12) - 6;
+    if (index === 0) {
+      ctx.moveTo(x, y);
+    } else {
+      ctx.lineTo(x, y);
+    }
+  });
+  ctx.stroke();
+}
+
+function drawPerfBars(ctx, history, width, height, readValue, maxValue, color) {
+  if (history.length < 2 || maxValue <= 0) return;
+  const barWidth = Math.max(1, width / history.length);
+  ctx.fillStyle = color;
+  history.forEach((sample, index) => {
+    const value = clamp(readValue(sample) || 0, 0, maxValue);
+    const barHeight = (value / maxValue) * (height - 12);
+    ctx.fillRect(index * barWidth, height - barHeight, Math.ceil(barWidth), barHeight);
+  });
+}
+
+function drawPerfLegend(ctx, width, height, framePeak) {
+  ctx.font = '11px sans-serif';
+  ctx.textBaseline = 'top';
+  const items = [
+    ['FPS', '#8ff0d2'],
+    ['Frame', '#ffd166'],
+    ['Combat', '#ef6f6c'],
+    ['Render', '#a9d6ff'],
+    ['Nav cells', '#65d1f0']
+  ];
+  let x = 10;
+  items.forEach(([label, color]) => {
+    ctx.fillStyle = color;
+    ctx.fillRect(x, 9, 8, 8);
+    ctx.fillStyle = 'rgba(247, 244, 232, 0.78)';
+    ctx.fillText(label, x + 12, 6);
+    x += ctx.measureText(label).width + 30;
+  });
+  ctx.fillStyle = 'rgba(247, 244, 232, 0.62)';
+  ctx.textAlign = 'right';
+  ctx.fillText(`${Math.ceil(framePeak)}ms`, width - 10, height - 18);
+  ctx.textAlign = 'left';
+}
+
 class PerfTracker {
   constructor() {
     this.interval = 1;
     this.lastSnapshot = null;
+    this.sampleId = 0;
     this.resetWindow();
   }
 
@@ -2394,6 +2870,7 @@ class PerfTracker {
     if (this.elapsed < this.interval) return;
 
     this.lastSnapshot = {
+      sampleId: ++this.sampleId,
       fps: roundPerf(this.frames / Math.max(0.001, this.elapsed)),
       seconds: roundPerf(this.elapsed),
       sections: this.sectionSnapshot(),
@@ -2439,6 +2916,27 @@ class PerfTracker {
 
 function roundPerf(value) {
   return Number(value.toFixed(2));
+}
+
+function createEmptyWorkerPathStats() {
+  return {
+    findPath: 0,
+    pathDistance: 0,
+    hasLine: 0,
+    nearestWalkableCell: 0,
+    expandedCells: 0
+  };
+}
+
+function mergePathStats(primary = null, secondary = null) {
+  if (!primary && !secondary) return null;
+  return {
+    findPath: (primary?.findPath ?? 0) + (secondary?.findPath ?? 0),
+    pathDistance: (primary?.pathDistance ?? 0) + (secondary?.pathDistance ?? 0),
+    hasLine: (primary?.hasLine ?? 0) + (secondary?.hasLine ?? 0),
+    nearestWalkableCell: (primary?.nearestWalkableCell ?? 0) + (secondary?.nearestWalkableCell ?? 0),
+    expandedCells: (primary?.expandedCells ?? 0) + (secondary?.expandedCells ?? 0)
+  };
 }
 
 function createDebugLine(points, color, opacity = 0.8) {
@@ -2554,6 +3052,13 @@ function formatCounts(counts) {
   return [...counts.entries()].map(([name, count]) => `${name} x${count}`).join('、');
 }
 
+function formatBattleTime(seconds = 0) {
+  const total = Math.max(0, Math.floor(seconds));
+  const minutes = Math.floor(total / 60);
+  const remaining = total % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(remaining).padStart(2, '0')}`;
+}
+
 function formatEnchantmentList(unit) {
   return [...unit.enchantments.values()]
     .filter((enchantment) => !enchantment.hidden)
@@ -2587,7 +3092,8 @@ function createStructureStatusElement(team) {
   element.hidden = true;
   element.parts = {
     hp: element.querySelector('.world-health-fill'),
-    healthLoss: element.querySelector('.world-health-loss-fill')
+    healthLoss: element.querySelector('.world-health-loss-fill'),
+    ticks: element.querySelector('.world-health-ticks')
   };
   return element;
 }
@@ -2634,6 +3140,27 @@ function registerStructureHealthLoss(structure, previousHealth) {
   const previousRatio = clamp(previousHealth / structure.maxHealth, 0, 1);
   structure.healthLagRatio = Math.max(structure.healthLagRatio ?? previousRatio, previousRatio);
   structure.healthLagDelay = 0.4;
+}
+
+function updateHealthTicks(ticks, maxHealth) {
+  if (!ticks) return;
+  const scale = healthTickScale(maxHealth);
+  ticks.style.setProperty('--health-tick-step', `${scale.stepPercent}%`);
+  ticks.style.setProperty('--health-tick-color', scale.color);
+}
+
+function healthTickScale(maxHealth) {
+  const health = Math.max(1, maxHealth ?? 1);
+  if (health > 5000) {
+    return { color: '#62d56f', stepPercent: Math.min(100, 500 / health * 100) };
+  }
+  if (health >= 500) {
+    return { color: '#b56cff', stepPercent: Math.min(100, 100 / health * 100) };
+  }
+  if (health >= 50) {
+    return { color: '#ffd45f', stepPercent: Math.min(100, 25 / health * 100) };
+  }
+  return { color: '#120f0d', stepPercent: Math.min(100, 5 / health * 100) };
 }
 
 function updateStructureHealthLag(structure, hpRatio, dt) {

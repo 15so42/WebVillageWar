@@ -296,6 +296,19 @@ export class NavigationGrid {
     return stats;
   }
 
+  toWorkerData() {
+    return {
+      minX: this.minX,
+      maxX: this.maxX,
+      minZ: this.minZ,
+      maxZ: this.maxZ,
+      cellSize: this.cellSize,
+      cols: this.cols,
+      rows: this.rows,
+      walkable: new Uint8Array(this.walkable)
+    };
+  }
+
   canStep(cx, cz, nx, nz, neighbor) {
     if (!this.isCellWalkable(nx, nz)) return false;
     if (!this.isCellWalkable(cx + neighbor.dx, cz) || !this.isCellWalkable(cx, cz + neighbor.dz)) {

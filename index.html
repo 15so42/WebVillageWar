@@ -26,18 +26,22 @@
           <span class="desktop-hint">S 停止</span>
           <span class="desktop-hint">Z 驻守</span>
           <span class="mobile-hint">拖动移动视野</span>
-          <span class="mobile-hint">点击设置目的地</span>
-          <span class="mobile-hint">框选（按住）</span>
+          <span class="mobile-hint">点击选择 / 设置目的地</span>
+          <span class="mobile-hint">双击拖动框选</span>
         </div>
-        <div class="meter">
+        <div class="meter meter-base">
           <span>基地</span>
           <strong id="base-health">100%</strong>
         </div>
-        <div class="meter">
+        <div class="meter meter-wave">
           <span>波次</span>
           <strong id="wave-label">1</strong>
         </div>
-        <div class="meter">
+        <div class="meter meter-time">
+          <span>时间</span>
+          <strong id="battle-time">00:00</strong>
+        </div>
+        <div class="meter meter-units">
           <span>友军</span>
           <strong id="unit-count">0</strong>
         </div>
@@ -50,15 +54,25 @@
       </section>
 
       <section id="card-hand" class="card-hand" aria-label="card hand"></section>
-      <button id="mobile-shift-button" class="mobile-shift-button" type="button" aria-label="框选（按住）" title="框选（按住）" hidden>
-        框选
-      </button>
+      <div id="game-command-dock" class="game-command-dock" aria-label="单位命令">
+        <button type="button" data-command-action="stop" aria-label="停止">停</button>
+        <button type="button" data-command-action="guard" aria-label="驻守">守</button>
+      </div>
       <div id="mobile-action-dock" class="mobile-action-dock" aria-label="移动端工具">
         <button type="button" data-mobile-action="landscape" aria-label="横屏">横屏</button>
         <button type="button" data-mobile-action="fullscreen" aria-label="全屏">全屏</button>
+        <button type="button" data-mobile-action="ui-scale" aria-label="UI 缩放">UI</button>
         <button type="button" data-mobile-action="pwa" aria-label="安装 PWA">PWA</button>
       </div>
       <div id="mobile-action-feedback" class="mobile-action-feedback" role="status" aria-live="polite" hidden></div>
+      <section id="perf-panel" class="perf-panel" aria-label="performance chart" hidden>
+        <div class="perf-panel-header">
+          <strong>Perf</strong>
+          <span id="perf-panel-status">warming up</span>
+        </div>
+        <canvas id="perf-chart" width="420" height="150"></canvas>
+        <div id="perf-stats" class="perf-stats"></div>
+      </section>
       <div id="drag-ghost" class="drag-ghost" hidden></div>
       <section id="pause-overlay" class="pause-overlay" aria-label="暂停菜单" hidden>
         <div class="pause-panel" role="dialog" aria-modal="true" aria-labelledby="pause-title">

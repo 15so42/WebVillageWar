@@ -300,9 +300,10 @@ export class EffectsSystem {
   }
 
   spawnHealNumber(position, amount, options = {}) {
-    if (amount <= 0.01) return;
-    this.spawnDamageNumber(position, amount, {
-      text: `+${formatDamage(amount)}`,
+    const displayAmount = Math.max(0, options.displayAmount ?? amount);
+    if (displayAmount <= 0.01) return;
+    this.spawnDamageNumber(position, displayAmount, {
+      text: `+${formatDamage(displayAmount)}`,
       color: options.color ?? '#59ee73',
       stroke: options.stroke ?? '#102616',
       height: options.height ?? 1.52,
@@ -408,39 +409,92 @@ export class EffectsSystem {
     const materials = [];
     const height = target.projectileHitHeight ?? 1.2;
     for (let i = 0; i < count; i += 1) {
-      const color = Math.random() > 0.5 ? '#a7e86d' : '#5cc66a';
+      const color = Math.random() > 0.55 ? '#1f6f37' : (Math.random() > 0.45 ? '#2b8a44' : '#133d26');
       const material = mat(color, {
         transparent: true,
-        opacity: 0.82,
+        opacity: 0.78,
         emissive: color,
-        emissiveIntensity: 0.55,
+        emissiveIntensity: 0.68,
         depthWrite: false
       }).clone();
       materials.push(material);
       const bubble = new THREE.Mesh(
-        new THREE.DodecahedronGeometry(0.035 + Math.random() * 0.045, 0),
+        new THREE.DodecahedronGeometry(0.032 + Math.random() * 0.05, 0),
         material
       );
       const angle = Math.random() * Math.PI * 2;
-      const distance = Math.sqrt(Math.random()) * 0.38;
+      const distance = Math.sqrt(Math.random()) * 0.48;
       bubble.position.set(
         target.position.x + Math.cos(angle) * distance,
-        (target.position.y ?? 0) + 0.22 + Math.random() * height * 0.5,
+        (target.position.y ?? 0) + 0.12 + Math.random() * height * 0.46,
         target.position.z + Math.sin(angle) * distance
       );
       bubble.userData.velocity = new THREE.Vector3(
-        Math.cos(angle) * (0.08 + Math.random() * 0.28),
-        1.05 + Math.random() * 0.85,
-        Math.sin(angle) * (0.08 + Math.random() * 0.28)
+        Math.cos(angle) * (0.03 + Math.random() * 0.16),
+        0.95 + Math.random() * 0.95,
+        Math.sin(angle) * (0.03 + Math.random() * 0.16)
       );
       group.add(bubble);
     }
 
-    this.addEffect(group, 0.76, (dt, t) => {
+    this.addEffect(group, 0.86, (dt, t) => {
       group.children.forEach((bubble) => {
         bubble.position.addScaledVector(bubble.userData.velocity, dt);
-        bubble.scale.setScalar(1 - t * 0.46);
-        bubble.material.opacity = 0.82 * (1 - t);
+        bubble.scale.setScalar(1 - t * 0.42);
+        bubble.material.opacity = 0.78 * (1 - t);
+      });
+    }, () => {
+      materials.forEach((material) => material.dispose());
+    });
+  }
+
+  spawnDrainParticles(target, count = 2) {
+    if (!target?.position) return;
+    const group = new THREE.Group();
+    const materials = [];
+    const height = target.projectileHitHeight ?? 1.2;
+    for (let i = 0; i < count; i += 1) {
+      const color = Math.random() > 0.55 ? '#d4ff6a' : (Math.random() > 0.45 ? '#9be85c' : '#6fbf47');
+      const material = mat(color, {
+        transparent: true,
+        opacity: 0.86,
+        emissive: color,
+        emissiveIntensity: 0.82,
+        depthWrite: false
+      }).clone();
+      materials.push(material);
+      const mote = new THREE.Mesh(
+        new THREE.DodecahedronGeometry(0.04 + Math.random() * 0.052, 0),
+        material
+      );
+      const angle = Math.random() * Math.PI * 2;
+      const distance = Math.sqrt(Math.random()) * 0.24;
+      mote.position.set(
+        target.position.x + Math.cos(angle) * distance,
+        (target.position.y ?? 0) + 0.28 + Math.random() * height * 0.58,
+        target.position.z + Math.sin(angle) * distance
+      );
+      mote.userData.velocity = new THREE.Vector3(
+        Math.cos(angle) * (0.9 + Math.random() * 0.95),
+        0.18 + Math.random() * 0.42,
+        Math.sin(angle) * (0.9 + Math.random() * 0.95)
+      );
+      mote.userData.spin = new THREE.Vector3(
+        Math.random() * 4.5,
+        Math.random() * 4.5,
+        Math.random() * 4.5
+      );
+      group.add(mote);
+    }
+
+    this.addEffect(group, 0.68, (dt, t) => {
+      group.children.forEach((mote) => {
+        mote.position.addScaledVector(mote.userData.velocity, dt);
+        mote.rotation.x += mote.userData.spin.x * dt;
+        mote.rotation.y += mote.userData.spin.y * dt;
+        mote.rotation.z += mote.userData.spin.z * dt;
+        mote.scale.setScalar(1 - t * 0.58);
+        mote.material.opacity = 0.86 * (1 - t);
       });
     }, () => {
       materials.forEach((material) => material.dispose());

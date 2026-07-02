@@ -30,10 +30,12 @@ export class BuffSystem {
   }
 
   afterDamage(context) {
-    if (context.target?.alive !== false) {
+    if (context.source?.alive !== false && (context.damageDealt ?? context.damage ?? 0) > 0) {
       this.runBuffEffects(context.source, 'afterDamage', context);
     }
-    this.runBuffEffects(context.target, 'receiveDamage', context);
+    if (context.target?.alive !== false) {
+      this.runBuffEffects(context.target, 'receiveDamage', context);
+    }
   }
 
   unitDeath(deadUnit) {
@@ -67,6 +69,14 @@ export class BuffSystem {
         while (buff.vfxTimer <= 0 && unit.alive) {
           this.game.effects.spawnPoisonParticles(unit, 1);
           buff.vfxTimer += 0.18;
+        }
+      }
+
+      if (buff.id === 'drained') {
+        buff.vfxTimer = (buff.vfxTimer ?? 0) - dt;
+        while (buff.vfxTimer <= 0 && unit.alive) {
+          this.game.effects.spawnDrainParticles(unit, 1);
+          buff.vfxTimer += 0.16;
         }
       }
 
@@ -246,6 +256,9 @@ export class BuffSystem {
       if (applied && effect.vfx === 'poison') {
         this.game.effects.spawnPoisonParticles(context.target, 6);
       }
+      if (applied && effect.vfx === 'drain') {
+        this.game.effects.spawnDrainParticles(context.target, 6);
+      }
       if (applied && effect.vfx === 'bleed') {
         this.game.effects.spawnBleedParticles(context.target, 6);
       }
@@ -314,13 +327,12 @@ export class BuffSystem {
       if (Math.random() >= missingRatio) return;
       const amount = resolveEffectNumber(effect, 'amount', context, 0);
       const healed = context.target.restoreHealth?.(amount) ?? 0;
-      if (healed > 0.01) {
-        this.game.effects.spawnRing(context.target.position, effect.color ?? '#ffb66c', 0.62, 0.42);
-        this.game.effects.spawnHealNumber(context.target.position, healed, {
-          color: effect.color ?? '#ffb66c',
-          height: context.target.projectileHitHeight ?? 1.55
-        });
-      }
+      this.game.effects.spawnRing(context.target.position, effect.color ?? '#ffb66c', 0.62, 0.42);
+      this.game.effects.spawnHealNumber(context.target.position, healed, {
+        displayAmount: amount,
+        color: effect.color ?? '#ffb66c',
+        height: context.target.projectileHitHeight ?? 1.55
+      });
       return;
     }
 
@@ -344,16 +356,17 @@ export class BuffSystem {
     }
 
     if (effect.op === 'lifestealFromDamage') {
-      if (!context.source?.alive || !context.isAttack || context.damage <= 0) return;
+      const dealt = context.damageDealt ?? context.damage ?? 0;
+      if (!context.source?.alive || !context.isAttack || dealt <= 0) return;
       const percent = resolveEffectNumber(effect, 'percent', context, 0);
-      const healed = context.source.restoreHealth?.(context.damage * percent) ?? 0;
-      if (healed > 0.01) {
-        this.game.effects.spawnRing(context.source.position, effect.color ?? '#b54848', 0.54, 0.34);
-        this.game.effects.spawnHealNumber(context.source.position, healed, {
-          color: effect.color ?? '#ff9b9b',
-          height: context.source.projectileHitHeight ?? 1.55
-        });
-      }
+      const amount = dealt * percent;
+      const healed = context.source.restoreHealth?.(amount) ?? 0;
+      this.game.effects.spawnRing(context.source.position, effect.color ?? '#b54848', 0.54, 0.34);
+      this.game.effects.spawnHealNumber(context.source.position, healed, {
+        displayAmount: amount,
+        color: effect.color ?? '#ff9b9b',
+        height: context.source.projectileHitHeight ?? 1.55
+      });
       return;
     }
 
@@ -460,15 +473,14 @@ export class BuffSystem {
       });
       if (context.source?.alive && healedAmount > 0) {
         const healed = context.source.restoreHealth?.(healedAmount) ?? 0;
-        if (healed > 0.01) {
-          this.game.effects.spawnHealNumber(context.source.position, healed, {
-            color: effect.healColor ?? '#b7f3dd',
-            height: context.source.projectileHitHeight ?? 1.55
-          });
-        }
+        this.game.effects.spawnHealNumber(context.source.position, healed, {
+          displayAmount: healedAmount,
+          color: effect.healColor ?? '#b7f3dd',
+          height: context.source.projectileHitHeight ?? 1.55
+        });
       }
       if (effect.vfx === 'drain') {
-        this.game.effects.spawnCurseParticles(context.target, 2);
+        this.game.effects.spawnDrainParticles(context.target, 3);
         if (context.source?.alive) {
           this.game.effects.spawnRing(context.source.position, effect.healColor ?? '#b7f3dd', 0.42, 0.28);
         }
@@ -498,6 +510,7 @@ export class BuffSystem {
       const amount = resolveEffectNumber(effect, 'amount', context, 0);
       const healed = context.target.restoreHealth?.(amount) ?? 0;
       this.game.effects.spawnHealNumber(context.target.position, healed, {
+        displayAmount: amount,
         height: context.target.projectileHitHeight ?? 1.45
       });
       return;

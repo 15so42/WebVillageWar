@@ -155,11 +155,12 @@ export class AbilitySystem {
       const target = shuffled[i];
       const amount = target.maxHealth * RANDOM_HEAL_PERCENT;
       const healed = target.restoreHealth(amount);
+      this.game.effects.spawnHealNumber(target.position, healed, {
+        displayAmount: amount,
+        color: '#9dffb0',
+        height: target.projectileHitHeight ?? 1.52
+      });
       if (healed > 0.01) {
-        this.game.effects.spawnHealNumber(target.position, healed, {
-          color: '#9dffb0',
-          height: target.projectileHitHeight ?? 1.52
-        });
         this.game.effects.spawnRing(target.position, '#9dffb0', 0.5, 0.32);
       }
     }

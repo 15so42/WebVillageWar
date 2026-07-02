@@ -460,7 +460,7 @@ export function createArrowTowerModel(team = 'player') {
 
   const projectileSocket = new THREE.Group();
   projectileSocket.name = 'arrowTowerSocket';
-  projectileSocket.position.set(0, 3.28, 0.92);
+  projectileSocket.position.set(0, 3.94, 0.92);
   group.add(projectileSocket);
 
   group.userData.parts = {

@@ -9,6 +9,10 @@ const mobileActionFeedback = document.querySelector('#mobile-action-feedback');
 
 let deferredInstallPrompt = null;
 let feedbackTimer = 0;
+const UI_SCALE_STORAGE_KEY = 'village-war-ui-scale';
+const UI_SCALE_OPTIONS = [0.8, 0.9, 1];
+
+applyStoredUiScale();
 
 window.addEventListener('beforeinstallprompt', (event) => {
   event.preventDefault();
@@ -30,6 +34,8 @@ mobileActionDock?.addEventListener('click', (event) => {
     requestAppFullscreen();
   } else if (action === 'landscape') {
     requestLandscape();
+  } else if (action === 'ui-scale') {
+    cycleUiScale();
   } else if (action === 'pwa') {
     requestPwaInstall();
   }
@@ -150,4 +156,45 @@ function showMobileFeedback(message) {
   feedbackTimer = window.setTimeout(() => {
     mobileActionFeedback.hidden = true;
   }, 2600);
+}
+
+function applyStoredUiScale() {
+  const stored = Number(readStoredUiScale());
+  const scale = UI_SCALE_OPTIONS.includes(stored) ? stored : UI_SCALE_OPTIONS[0];
+  applyUiScale(scale);
+}
+
+function cycleUiScale() {
+  const current = currentUiScale();
+  const index = UI_SCALE_OPTIONS.findIndex((scale) => Math.abs(scale - current) < 0.01);
+  const next = UI_SCALE_OPTIONS[(index + 1) % UI_SCALE_OPTIONS.length];
+  writeStoredUiScale(next);
+  applyUiScale(next);
+  showMobileFeedback(`UI 缩放 ${Math.round(next * 100)}%`);
+}
+
+function currentUiScale() {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue('--mobile-ui-scale');
+  const value = Number(raw.trim());
+  return Number.isFinite(value) ? value : UI_SCALE_OPTIONS[0];
+}
+
+function applyUiScale(scale) {
+  document.documentElement.style.setProperty('--mobile-ui-scale', String(scale));
+}
+
+function readStoredUiScale() {
+  try {
+    return window.localStorage?.getItem(UI_SCALE_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredUiScale(scale) {
+  try {
+    window.localStorage?.setItem(UI_SCALE_STORAGE_KEY, String(scale));
+  } catch {
+    // Storage can be unavailable in private or embedded browsers.
+  }
 }

@@ -35,7 +35,8 @@ body.is-meta-open .energy-panel,
 body.is-meta-open .game-hint-panel,
 body.is-meta-open .card-pile-dock,
 body.is-meta-open .pile-viewer,
-body.is-meta-open .mobile-shift-button,
+body.is-meta-open .game-command-dock,
+body.is-meta-open .temporary-card-slot,
 body.is-meta-open .selection-box {
   display: none;
 }
@@ -198,11 +199,18 @@ body.is-meta-open .selection-box {
 }
 
 .world-health-ticks {
+  --health-tick-color: #120f0d;
+  --health-tick-step: 20%;
   position: absolute;
   inset: 0;
   z-index: 3;
-  background:
-    linear-gradient(90deg, transparent 19%, #120f0d 19% 22%, transparent 22% 39%, #120f0d 39% 42%, transparent 42% 59%, #120f0d 59% 62%, transparent 62% 79%, #120f0d 79% 82%, transparent 82%);
+  background: repeating-linear-gradient(
+    90deg,
+    transparent 0,
+    transparent calc(var(--health-tick-step) - 1px),
+    var(--health-tick-color) calc(var(--health-tick-step) - 1px),
+    var(--health-tick-color) var(--health-tick-step)
+  );
 }
 
 .unit-status.has-shield .world-health-ticks {
@@ -240,8 +248,8 @@ body.is-meta-open .selection-box {
 
 .game-settings-button {
   position: fixed;
-  top: 14px;
-  left: 14px;
+  top: 284px;
+  left: 18px;
   z-index: 12;
   width: 42px;
   height: 42px;
@@ -270,8 +278,8 @@ body.is-meta-open .selection-box {
 }
 
 .hud-primary {
-  top: 66px;
-  left: 18px;
+  top: 14px;
+  left: 14px;
   width: min(280px, calc(100vw - 36px));
   padding: 14px;
   display: grid;
@@ -366,43 +374,62 @@ body.is-meta-open .selection-box {
   transform: translateX(-50%);
 }
 
-.mobile-shift-button {
+.game-command-dock {
   position: fixed;
   left: 16px;
-  bottom: 92px;
-  z-index: 11;
-  width: 62px;
-  height: 62px;
+  bottom: 90px;
+  z-index: 7;
   display: none;
-  place-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  border-radius: 50%;
-  color: #fff2c7;
-  background:
-    radial-gradient(circle at 32% 24%, rgba(255, 255, 255, 0.24), transparent 36%),
-    rgba(18, 28, 29, 0.78);
-  box-shadow:
-    inset 0 -10px 14px rgba(0, 0, 0, 0.18),
-    0 14px 30px rgba(0, 0, 0, 0.32);
-  backdrop-filter: blur(12px);
-  cursor: pointer;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 900;
-  touch-action: none;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  pointer-events: auto;
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
   -webkit-tap-highlight-color: transparent;
 }
 
-.mobile-shift-button.is-held {
-  border-color: rgba(158, 238, 219, 0.78);
+.game-command-dock button {
+  width: 58px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  color: #fff2c7;
+  background:
+    radial-gradient(circle at 28% 16%, rgba(255, 255, 255, 0.26), transparent 34%),
+    linear-gradient(160deg, rgba(45, 58, 66, 0.9), rgba(18, 28, 29, 0.88));
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+  cursor: pointer;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 900;
+  touch-action: manipulation;
+}
+
+.game-command-dock button:active {
   color: #102c28;
   background: #9eeedb;
 }
 
-.mobile-shift-button[hidden] {
+.temporary-card-slot {
+  position: fixed;
+  z-index: 6;
+  left: 50%;
+  bottom: 292px;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  transform: translateX(-50%);
+  transform-origin: bottom center;
+}
+
+.temporary-card-slot .card {
+  pointer-events: auto;
+}
+
+.temporary-card-slot:not(.has-temporary-card) {
   display: none;
 }
 
@@ -468,6 +495,82 @@ body.is-meta-open .selection-box {
 
 .mobile-action-feedback[hidden] {
   display: none;
+}
+
+.perf-panel {
+  position: fixed;
+  right: 18px;
+  bottom: 116px;
+  z-index: 30;
+  width: min(420px, calc(100vw - 36px));
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  color: rgba(247, 244, 232, 0.9);
+  background: rgba(15, 22, 23, 0.82);
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(14px);
+  pointer-events: none;
+}
+
+.perf-panel[hidden] {
+  display: none;
+}
+
+.perf-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.perf-panel-header strong {
+  color: #fff2c7;
+  font-size: 13px;
+}
+
+.perf-panel-header span {
+  color: rgba(247, 244, 232, 0.64);
+}
+
+.perf-panel canvas {
+  width: 100%;
+  height: 150px;
+  display: block;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 6px;
+  background: rgba(9, 14, 15, 0.74);
+}
+
+.perf-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.perf-stats span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  padding: 5px 6px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.perf-stats b {
+  color: rgba(247, 244, 232, 0.54);
+  font-size: 9px;
+}
+
+.perf-stats .is-bad {
+  color: #ffb1a8;
 }
 
 .energy-panel {
@@ -1661,6 +1764,8 @@ body.is-meta-open .selection-box {
   line-height: 1.1;
   text-shadow: 0 2px 8px rgba(0, 0, 0, 0.26);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .card-kind {
@@ -1675,6 +1780,8 @@ body.is-meta-open .selection-box {
   line-height: 1.25;
   align-self: end;
   min-height: 31px;
+  max-height: 45px;
+  overflow: hidden;
   padding: 6px 7px;
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.13);
@@ -1880,6 +1987,29 @@ body.is-meta-open .selection-box {
   margin-top: 2px;
   color: #f0c575;
   font-size: 22px;
+}
+
+.meta-currency.is-pulse {
+  animation: meta-currency-pulse 720ms ease-out both;
+}
+
+.meta-toast {
+  position: sticky;
+  top: 10px;
+  z-index: 4;
+  width: max-content;
+  max-width: calc(100% - 32px);
+  margin: -4px auto 12px;
+  padding: 9px 14px;
+  border: 1px solid rgba(158, 238, 219, 0.42);
+  border-radius: 8px;
+  color: #102c28;
+  background: #9eeedb;
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.28);
+  font-size: 13px;
+  font-weight: 900;
+  pointer-events: none;
+  animation: meta-toast-pop 2600ms ease both;
 }
 
 .meta-tabs {
@@ -2286,6 +2416,36 @@ body.is-meta-open .selection-box {
   font-weight: 900;
 }
 
+@keyframes meta-toast-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.96);
+  }
+  12%,
+  78% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+}
+
+@keyframes meta-currency-pulse {
+  0% {
+    transform: scale(1);
+  }
+  38% {
+    transform: scale(1.08);
+    border-color: rgba(158, 238, 219, 0.62);
+    box-shadow: 0 0 26px rgba(158, 238, 219, 0.24);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
 @media (pointer: coarse) {
   :root {
     --mobile-ui-scale: 0.8;
@@ -2299,17 +2459,8 @@ body.is-meta-open .selection-box {
     display: inline-block;
   }
 
-  body.is-game-active .mobile-shift-button:not([hidden]) {
-    display: grid;
-  }
-
   .mobile-action-dock {
     display: grid;
-  }
-
-  .mobile-shift-button {
-    left: 82px;
-    bottom: 86px;
   }
 
   .meta-root {
@@ -2342,14 +2493,16 @@ body.is-meta-open .selection-box {
   .hud-primary,
   .hud-selected,
   .pile-button,
-  .mobile-shift-button {
+  .game-command-dock,
+  .temporary-card-slot,
+  .perf-panel {
     transform: scale(var(--mobile-ui-scale));
   }
 
   .game-settings-button,
   .hud-primary,
   .pile-button.is-draw,
-  .mobile-shift-button {
+  .game-command-dock {
     transform-origin: left bottom;
   }
 
@@ -2359,7 +2512,8 @@ body.is-meta-open .selection-box {
   }
 
   .hud-selected,
-  .pile-button.is-discard {
+  .pile-button.is-discard,
+  .perf-panel {
     transform-origin: right top;
   }
 
@@ -2429,7 +2583,8 @@ body.is-meta-open .selection-box {
   }
 
   .game-settings-button {
-    top: 8px;
+    top: auto;
+    bottom: 68px;
     left: 8px;
     width: 34px;
     height: 34px;
@@ -2437,10 +2592,10 @@ body.is-meta-open .selection-box {
   }
 
   .hud-primary {
-    top: 48px;
+    top: 8px;
     left: 8px;
     width: min(188px, 27vw);
-    max-height: calc(100vh - 126px);
+    max-height: calc(100vh - 116px);
     padding: 8px;
     gap: 6px;
     overflow: hidden;
@@ -2585,17 +2740,11 @@ body.is-meta-open .selection-box {
     right: 7px;
   }
 
-  .mobile-shift-button {
-    left: 64px;
-    bottom: 64px;
-    width: 62px;
-    height: 62px;
-  }
 }
 
 @media (max-width: 760px) {
   .game-settings-button {
-    top: 10px;
+    top: 238px;
     left: 10px;
     width: 38px;
     height: 38px;
@@ -2603,7 +2752,7 @@ body.is-meta-open .selection-box {
   }
 
   .hud-primary {
-    top: 56px;
+    top: 10px;
     left: 10px;
     width: 210px;
     padding: 10px;
@@ -2771,7 +2920,8 @@ body.is-meta-open .selection-box {
 
 @media (pointer: coarse) and (orientation: landscape) and (max-width: 760px) {
   .game-settings-button {
-    top: 8px;
+    top: auto;
+    bottom: 68px;
     left: 8px;
     width: 34px;
     height: 34px;
@@ -2779,10 +2929,10 @@ body.is-meta-open .selection-box {
   }
 
   .hud-primary {
-    top: 48px;
+    top: 8px;
     left: 8px;
     width: min(188px, 27vw);
-    max-height: calc(100vh - 126px);
+    max-height: calc(100vh - 116px);
     padding: 8px;
     gap: 6px;
   }
@@ -2888,12 +3038,6 @@ body.is-meta-open .selection-box {
     right: 7px;
   }
 
-  .mobile-shift-button {
-    left: 64px;
-    bottom: 64px;
-    width: 62px;
-    height: 62px;
-  }
 }
 
 @media (max-width: 760px) {
@@ -2981,5 +3125,242 @@ body.is-meta-open .selection-box {
 
   .meta-card-face strong {
     font-size: 14px;
+  }
+}
+
+@media (pointer: coarse) and (orientation: portrait) {
+  .game-settings-button {
+    top: 108px;
+    left: 8px;
+    width: 34px;
+    height: 34px;
+    font-size: 17px;
+  }
+
+  .hud-primary {
+    top: 8px;
+    left: 8px;
+    width: min(258px, calc((100vw - 106px) / var(--mobile-ui-scale)));
+    padding: 8px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .hud-primary .brand,
+  .hud-primary .meter-base,
+  .hud-primary .meter-units {
+    display: none;
+  }
+
+  .control-hints {
+    gap: 4px;
+    font-size: 10px;
+    line-height: 1.15;
+  }
+
+  .control-hints span {
+    padding: 2px 5px;
+  }
+
+  .meter {
+    min-height: 34px;
+    padding: 5px 6px;
+  }
+
+  .meter span {
+    font-size: 10px;
+  }
+
+  .meter strong {
+    margin-top: 1px;
+    font-size: 13px;
+  }
+
+  .hud-selected {
+    top: 8px;
+    right: 8px;
+    width: min(156px, calc((100vw - 230px) / var(--mobile-ui-scale)));
+    min-width: 126px;
+    padding: 7px 8px;
+    gap: 3px;
+    font-size: 10px;
+  }
+
+  #selected-name {
+    font-size: 12px;
+  }
+
+  #selected-stats,
+  #selected-enchants {
+    line-height: 1.22;
+  }
+
+  .card-hand {
+    bottom: calc(8px + env(safe-area-inset-bottom));
+    width: max-content;
+    max-width: none;
+    flex-wrap: nowrap;
+    justify-content: center;
+    align-items: flex-end;
+    gap: 6px;
+    transform: translateX(-50%) scale(0.64);
+    transform-origin: bottom center;
+  }
+
+  .card,
+  .card-empty-slot,
+  .temporary-card-empty-slot {
+    flex: 0 0 116px;
+    width: 116px;
+    height: 148px;
+  }
+
+  .card-face {
+    padding: 10px 8px 8px;
+    grid-template-rows: auto minmax(43px, 1fr) auto auto;
+    gap: 7px;
+  }
+
+  .card-header {
+    min-height: 28px;
+    grid-template-columns: 28px minmax(0, 1fr);
+    gap: 6px;
+    padding-right: 20px;
+  }
+
+  .card-rune {
+    width: 28px;
+    height: 28px;
+    font-size: 15px;
+  }
+
+  .card-art {
+    min-height: 43px;
+  }
+
+  .card-name {
+    font-size: 13px;
+    line-height: 1.1;
+  }
+
+  .card-kind,
+  .card-text {
+    font-size: 10px;
+  }
+
+  .card-text {
+    min-height: 27px;
+    max-height: 45px;
+    padding: 5px 6px;
+    line-height: 1.25;
+  }
+
+  .card-cost {
+    top: 5px;
+    right: 5px;
+    min-width: 23px;
+    height: 23px;
+    font-size: 12px;
+  }
+
+  .card-level {
+    top: 38px;
+    right: 5px;
+    min-width: 34px;
+    height: 18px;
+    font-size: 10px;
+  }
+
+  .card-keyword {
+    top: 60px;
+    right: 5px;
+    min-width: 34px;
+    height: 18px;
+    font-size: 10px;
+  }
+
+  .energy-panel {
+    bottom: calc(118px + env(safe-area-inset-bottom));
+    width: min(310px, calc((100vw - 112px) / var(--mobile-ui-scale)));
+    padding: 6px 8px 7px;
+  }
+
+  .energy-title {
+    margin-bottom: 5px;
+    font-size: 11px;
+  }
+
+  .energy-cell {
+    height: 10px;
+  }
+
+  .game-hint-panel {
+    bottom: calc(276px + env(safe-area-inset-bottom));
+    width: min(310px, calc((100vw - 112px) / var(--mobile-ui-scale)));
+    min-height: 24px;
+    padding: 4px 8px 5px;
+    font-size: 10px;
+  }
+
+  .pile-button {
+    width: 46px;
+    height: 52px;
+  }
+
+  .pile-button.is-draw {
+    left: 8px;
+    right: auto;
+    bottom: calc(174px + env(safe-area-inset-bottom));
+  }
+
+  .pile-button.is-discard {
+    left: 8px;
+    right: auto;
+    bottom: calc(118px + env(safe-area-inset-bottom));
+    transform-origin: left bottom;
+  }
+
+  .game-command-dock {
+    left: 8px;
+    bottom: calc(230px + env(safe-area-inset-bottom));
+    display: grid;
+    gap: 4px;
+    transform: scale(var(--mobile-ui-scale));
+    transform-origin: left bottom;
+  }
+
+  .game-command-dock button {
+    width: 46px;
+    height: 52px;
+    font-size: 13px;
+  }
+
+  .temporary-card-slot {
+    bottom: calc(174px + env(safe-area-inset-bottom));
+    transform: translateX(-50%) scale(0.62);
+    transform-origin: bottom center;
+  }
+
+  .temporary-card-slot .temporary-card-empty-slot,
+  .temporary-card-slot .card {
+    width: 116px;
+    height: 148px;
+  }
+
+  .temporary-card-slot:not(.has-temporary-card) {
+    display: grid;
+    opacity: 0.58;
+  }
+
+  .mobile-action-dock {
+    right: 8px;
+    top: 50%;
+    gap: 6px;
+  }
+
+  .mobile-action-dock button {
+    min-width: 46px;
+    height: 34px;
+    font-size: 11px;
   }
 }

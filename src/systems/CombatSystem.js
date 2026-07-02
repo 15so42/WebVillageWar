@@ -21,6 +21,9 @@ const TARGET_RESCAN_INTERVAL = 0.24;
 const TARGET_IDLE_RESCAN_INTERVAL = 0.42;
 const TARGET_RESCAN_JITTER = 0.14;
 const NAVIGATION_TARGET_EPSILON = 0.04;
+const SEPARATION_QUERY_RADIUS = 1.9;
+const SEPARATION_QUADTREE_CAPACITY = 8;
+const SEPARATION_QUADTREE_MAX_DEPTH = 7;
 
 export class CombatSystem {
   constructor(game) {
@@ -28,21 +31,48 @@ export class CombatSystem {
     this.projectiles = [];
     this.pendingAttacks = [];
     this.navDistanceCache = new Map();
+    this.lastProfile = null;
+    this.separationStats = createSeparationStats();
+    this.separationBounds = separationWorldBounds();
+    this.separationTrees = new Map();
+    this.separationCandidates = [];
   }
 
   update(dt) {
+    const profile = this.game.perfDebugEnabled ? createCombatProfile() : null;
+    this.frameProfile = profile;
+    let profileMark = profile ? performance.now() : 0;
     if (this.navDistanceCache.size > NAV_DISTANCE_CACHE_LIMIT) {
       this.navDistanceCache.clear();
     }
-    const activeUnits = [...this.game.friendlyUnits, ...this.game.enemyUnits].filter(
-      (unit) => unit.alive
-    );
+    const activeUnits = [];
+    this.game.friendlyUnits.forEach((unit) => {
+      if (unit.alive) activeUnits.push(unit);
+    });
+    this.game.enemyUnits.forEach((unit) => {
+      if (unit.alive) activeUnits.push(unit);
+    });
+    profileMark = recordCombatProfile(profile, 'collectMs', profileMark);
     this.game.buffs.update(dt, activeUnits);
+    profileMark = recordCombatProfile(profile, 'buffsMs', profileMark);
     activeUnits.forEach((unit) => this.updateUnit(unit, dt));
+    profileMark = recordCombatProfile(profile, 'unitsMs', profileMark);
     this.applyCrowdSeparation(activeUnits, dt);
+    profileMark = recordCombatProfile(profile, 'separationMs', profileMark);
     this.updatePendingAttacks(dt);
+    profileMark = recordCombatProfile(profile, 'pendingMs', profileMark);
     this.updateProjectiles(dt);
+    profileMark = recordCombatProfile(profile, 'projectilesMs', profileMark);
     this.cleanupDead();
+    recordCombatProfile(profile, 'cleanupMs', profileMark);
+    if (profile) {
+      profile.units = activeUnits.length;
+      profile.separationChecks = this.separationStats.checks;
+      profile.separationPushes = this.separationStats.pushes;
+      profile.separationBuckets = this.separationStats.buckets;
+      this.lastProfile = profile;
+    }
+    this.frameProfile = null;
   }
 
   updateUnit(unit, dt) {
@@ -145,6 +175,10 @@ export class CombatSystem {
   }
 
   applyMotion(unit, dt) {
+    if (unit.isBuilding || unit.definition.canMove === false) {
+      unit.knockbackVelocity.set(0, 0, 0);
+      return;
+    }
     const previousX = unit.position.x;
     const previousZ = unit.position.z;
     const knockbackBeforeMove = unit.knockbackVelocity.lengthSq();
@@ -172,60 +206,96 @@ export class CombatSystem {
 
   applyCrowdSeparation(units, dt) {
     const maxPush = 1.35 * dt;
+    const trees = this.separationTrees;
+    const stats = createSeparationStats();
+    trees.forEach((tree) => tree.clear(this.separationBounds));
+    units.forEach((unit) => {
+      if (!unit.alive) return;
+      let tree = trees.get(unit.team);
+      if (!tree) {
+        tree = new SeparationQuadtree(this.separationBounds);
+        trees.set(unit.team, tree);
+      }
+      tree.insert(unit);
+    });
+    trees.forEach((tree) => {
+      stats.buckets += tree.countNodes();
+    });
+
     for (let i = 0; i < units.length; i += 1) {
       const a = units[i];
       if (!a.alive) continue;
-      for (let j = i + 1; j < units.length; j += 1) {
-        const b = units[j];
-        if (!b.alive || a.team !== b.team) continue;
-
-        const minDistance = crowdRadius(a) + crowdRadius(b);
-        const dx = a.position.x - b.position.x;
-        const dz = a.position.z - b.position.z;
-        let distance = Math.hypot(dx, dz);
-        if (distance >= minDistance) continue;
-
-        let nx = dx;
-        let nz = dz;
-        if (distance < 0.001) {
-          const angle = deterministicPairAngle(a, b);
-          nx = Math.cos(angle);
-          nz = Math.sin(angle);
-          distance = 0.001;
-        } else {
-          nx /= distance;
-          nz /= distance;
-        }
-
-        const overlap = minDistance - distance;
-        const aStatic = a.isBuilding || a.definition.canMove === false || isImmobileUnit(a);
-        const bStatic = b.isBuilding || b.definition.canMove === false || isImmobileUnit(b);
-        if (aStatic && bStatic) continue;
-        const push = Math.min(overlap * (aStatic || bStatic ? 1 : 0.5), maxPush);
-        const ax = a.position.x;
-        const az = a.position.z;
-        const bx = b.position.x;
-        const bz = b.position.z;
-        if (!aStatic) {
-          a.position.x += nx * push;
-          a.position.z += nz * push;
-        }
-        if (!bStatic) {
-          b.position.x -= nx * push;
-          b.position.z -= nz * push;
-        }
-        this.clampToBattlefield(a);
-        this.clampToBattlefield(b);
-        if (!aStatic && !this.game.isPointWalkable(a.position)) {
-          a.position.x = ax;
-          a.position.z = az;
-        }
-        if (!bStatic && !this.game.isPointWalkable(b.position)) {
-          b.position.x = bx;
-          b.position.z = bz;
+      const tree = trees.get(a.team);
+      if (!tree) continue;
+      const candidates = this.separationCandidates;
+      candidates.length = 0;
+      tree.query(
+        a.position.x - SEPARATION_QUERY_RADIUS,
+        a.position.z - SEPARATION_QUERY_RADIUS,
+        SEPARATION_QUERY_RADIUS * 2,
+        SEPARATION_QUERY_RADIUS * 2,
+        candidates
+      );
+      for (let j = 0; j < candidates.length; j += 1) {
+        const b = candidates[j];
+        if (!b.alive || a.id >= b.id) continue;
+        stats.checks += 1;
+        if (this.separatePair(a, b, maxPush)) {
+          stats.pushes += 1;
         }
       }
     }
+    this.separationStats = stats;
+  }
+
+  separatePair(a, b, maxPush) {
+    const minDistance = crowdRadius(a) + crowdRadius(b);
+    const dx = a.position.x - b.position.x;
+    const dz = a.position.z - b.position.z;
+    let distanceSq = dx * dx + dz * dz;
+    if (distanceSq >= minDistance * minDistance) return false;
+
+    let distance = Math.sqrt(distanceSq);
+    let nx = dx;
+    let nz = dz;
+    if (distance < 0.001) {
+      const angle = deterministicPairAngle(a, b);
+      nx = Math.cos(angle);
+      nz = Math.sin(angle);
+      distance = 0.001;
+    } else {
+      nx /= distance;
+      nz /= distance;
+    }
+
+    const overlap = minDistance - distance;
+    const aStatic = a.isBuilding || a.definition.canMove === false || isImmobileUnit(a);
+    const bStatic = b.isBuilding || b.definition.canMove === false || isImmobileUnit(b);
+    if (aStatic && bStatic) return false;
+    const push = Math.min(overlap * (aStatic || bStatic ? 1 : 0.5), maxPush);
+    const ax = a.position.x;
+    const az = a.position.z;
+    const bx = b.position.x;
+    const bz = b.position.z;
+    if (!aStatic) {
+      a.position.x += nx * push;
+      a.position.z += nz * push;
+    }
+    if (!bStatic) {
+      b.position.x -= nx * push;
+      b.position.z -= nz * push;
+    }
+    this.clampToBattlefield(a);
+    this.clampToBattlefield(b);
+    if (!aStatic && !this.game.isPointWalkable(a.position)) {
+      a.position.x = ax;
+      a.position.z = az;
+    }
+    if (!bStatic && !this.game.isPointWalkable(b.position)) {
+      b.position.x = bx;
+      b.position.z = bz;
+    }
+    return true;
   }
 
   updateSupportAbilities(unit, dt) {
@@ -258,7 +328,7 @@ export class CombatSystem {
 
     const amount = Math.max(0, ability.amount ?? 0);
     const healed = target.restoreHealth?.(amount) ?? 0;
-    if (healed <= 0) {
+    if (amount <= 0) {
       unit.supportCooldowns.set(key, 0.25);
       return;
     }
@@ -266,6 +336,7 @@ export class CombatSystem {
     unit.supportCooldowns.set(key, cooldown);
     this.game.effects.spawnRing(target.position, '#9dffb0', 0.62, 0.5);
     this.game.effects.spawnHealNumber(target.position, healed, {
+      displayAmount: amount,
       height: target.projectileHitHeight ?? 1.55,
       duration: 0.72
     });
@@ -443,7 +514,7 @@ export class CombatSystem {
     return this.findSupportTarget(
       unit,
       ability,
-      (candidate) => candidate.health < candidate.maxHealth - 0.01,
+      (candidate) => candidate.alive && !candidate.isBuilding && !candidate.underConstruction,
       (candidate, distance) => {
         const missingRatio = 1 - candidate.health / Math.max(1, candidate.maxHealth);
         return missingRatio * 140 - distance;
@@ -542,7 +613,12 @@ export class CombatSystem {
       return current;
     }
 
+    const startedAt = this.frameProfile ? performance.now() : 0;
     const target = this.acquireTarget(unit);
+    if (this.frameProfile) {
+      this.frameProfile.targetSearches += 1;
+      this.frameProfile.targetingMs += roundCombatProfile(performance.now() - startedAt);
+    }
     unit.target = target;
     unit.targetSearchTimer = target
       ? targetSearchDelay(unit, TARGET_RESCAN_INTERVAL)
@@ -659,22 +735,29 @@ export class CombatSystem {
   moveToward(unit, targetPosition, dt, desiredDistance = 0.18) {
     if (!targetPosition) return;
     if (unit.isBuilding || unit.definition.canMove === false) return;
+    if (this.frameProfile) {
+      this.frameProfile.moveCalls += 1;
+    }
     const usesNavigationSteering = Boolean(this.game.world?.navGrid);
     const usesLooseNavigationMotion = usesNavigationSteering;
+    const steeringStartedAt = this.frameProfile && usesNavigationSteering ? performance.now() : 0;
     const safeSteering = usesNavigationSteering
       ? this.game.safeSurfaceSteeringToward(unit.position, targetPosition, unit, NAVIGATION_TARGET_EPSILON)
       : null;
+    if (this.frameProfile && usesNavigationSteering) {
+      this.frameProfile.steeringMs += roundCombatProfile(performance.now() - steeringStartedAt);
+    }
 
     if (usesNavigationSteering && !safeSteering) {
-      unit.navMoveTarget = targetPosition.clone?.() ?? null;
+      unit.navMoveTarget = setReusableVector(unit.navMoveTarget, targetPosition);
       unit.navSteeringTarget = null;
       return;
     }
 
     const movementTarget = safeSteering?.debugTarget ?? targetPosition;
     const movementDirection = safeSteering?.direction ?? direction2D(unit.position, targetPosition);
-    unit.navMoveTarget = targetPosition.clone?.() ?? null;
-    unit.navSteeringTarget = movementTarget.clone?.() ?? null;
+    unit.navMoveTarget = setReusableVector(unit.navMoveTarget, targetPosition);
+    unit.navSteeringTarget = setReusableVector(unit.navSteeringTarget, movementTarget);
     const targetDistance = distance2D(unit.position, targetPosition);
     if (targetDistance <= desiredDistance) return;
     const maxStep = this.game.modifiers.getMoveSpeed(unit) * dt;
@@ -748,6 +831,7 @@ export class CombatSystem {
   }
 
   face(unit, targetPosition, dt = 0) {
+    if (unit.isBuilding || unit.definition?.canMove === false) return;
     scratch.set(targetPosition.x - unit.position.x, 0, targetPosition.z - unit.position.z);
     if (scratch.lengthSq() < 0.0001) return;
     const desired = Math.atan2(scratch.x, scratch.z);
@@ -963,12 +1047,16 @@ export class CombatSystem {
 
     if (target === this.game.playerBase) {
       this.game.damagePlayerBase(context.damage);
-      this.game.effects.spawnHit(source.position.clone().add(new THREE.Vector3(0, 0.8, 0)));
+      scratch.copy(source.position);
+      scratch.y += 0.8;
+      this.game.effects.spawnHit(scratch);
       return;
     }
     if (target === this.game.enemyCamp) {
       this.game.damageEnemyCamp(context.damage);
-      this.game.effects.spawnHit(target.position.clone().add(new THREE.Vector3(0, 1.6, 0)));
+      scratch.copy(target.position);
+      scratch.y += 1.6;
+      this.game.effects.spawnHit(scratch);
       return;
     }
 
@@ -1010,7 +1098,9 @@ export class CombatSystem {
     });
 
     const finalKnockback = damageContext.knockback;
-    if (source && finalKnockback > 0) {
+    damageContext.damageDealt = finalDamage;
+
+    if (source && finalKnockback > 0 && !isStaticUnit(target)) {
       const dir = direction2D(source.position, target.position);
       target.knockbackVelocity.addScaledVector(dir, finalKnockback);
       target.knockbackVelocity.clampLength(0, maxKnockbackVelocity(target));
@@ -1020,8 +1110,10 @@ export class CombatSystem {
       playUnitAnimation(target, 'hit');
     }
     if (!damageContext.skipHitEffect) {
+      scratch.copy(target.position);
+      scratch.y += 0.9;
       this.game.effects.spawnHit(
-        target.position.clone().add(new THREE.Vector3(0, 0.9, 0)),
+        scratch,
         source?.hasEnchantment?.('fire') ? '#ff9a47' : '#f6e7a0'
       );
     }
@@ -1116,6 +1208,165 @@ function navigationDistanceCacheKey(a, b) {
   return first <= second ? `${first}|${second}` : `${second}|${first}`;
 }
 
+function separationWorldBounds() {
+  const padding = 4;
+  return {
+    x: -BALANCE.battlefield.halfWidth - padding,
+    z: BALANCE.battlefield.minZ - padding,
+    width: BALANCE.battlefield.halfWidth * 2 + padding * 2,
+    height: BALANCE.battlefield.maxZ - BALANCE.battlefield.minZ + padding * 2
+  };
+}
+
+class SeparationQuadtree {
+  constructor(bounds, depth = 0) {
+    this.bounds = bounds;
+    this.depth = depth;
+    this.items = [];
+    this.children = null;
+    this.nodeCount = 1;
+  }
+
+  clear(bounds = this.bounds) {
+    this.bounds = bounds;
+    this.items.length = 0;
+    if (!this.children) return;
+    for (let i = 0; i < this.children.length; i += 1) {
+      this.children[i].clear(this.children[i].bounds);
+    }
+  }
+
+  insert(unit) {
+    if (!rectContainsPoint(this.bounds, unit.position.x, unit.position.z)) return false;
+    if (this.children) {
+      const child = this.childForPoint(unit.position.x, unit.position.z);
+      if (child?.insert(unit)) return true;
+    }
+    this.items.push(unit);
+    if (
+      !this.children &&
+      this.items.length > SEPARATION_QUADTREE_CAPACITY &&
+      this.depth < SEPARATION_QUADTREE_MAX_DEPTH
+    ) {
+      this.subdivide();
+    }
+    return true;
+  }
+
+  query(x, z, width, height, output) {
+    if (!rectsOverlapValues(this.bounds, x, z, width, height)) return output;
+    for (let i = 0; i < this.items.length; i += 1) {
+      const unit = this.items[i];
+      if (rectContainsPointValues(x, z, width, height, unit.position.x, unit.position.z)) {
+        output.push(unit);
+      }
+    }
+    if (this.children) {
+      for (let i = 0; i < this.children.length; i += 1) {
+        this.children[i].query(x, z, width, height, output);
+      }
+    }
+    return output;
+  }
+
+  countNodes() {
+    if (!this.children) return 1;
+    let count = 1;
+    for (let i = 0; i < this.children.length; i += 1) {
+      count += this.children[i].countNodes();
+    }
+    return count;
+  }
+
+  childForPoint(x, z) {
+    if (!this.children) return null;
+    for (let i = 0; i < this.children.length; i += 1) {
+      const child = this.children[i];
+      if (rectContainsPoint(child.bounds, x, z)) return child;
+    }
+    return null;
+  }
+
+  subdivide() {
+    const { x, z, width, height } = this.bounds;
+    const halfWidth = width * 0.5;
+    const halfHeight = height * 0.5;
+    this.children = [
+      new SeparationQuadtree({ x, z, width: halfWidth, height: halfHeight }, this.depth + 1),
+      new SeparationQuadtree({ x: x + halfWidth, z, width: halfWidth, height: halfHeight }, this.depth + 1),
+      new SeparationQuadtree({ x, z: z + halfHeight, width: halfWidth, height: halfHeight }, this.depth + 1),
+      new SeparationQuadtree({ x: x + halfWidth, z: z + halfHeight, width: halfWidth, height: halfHeight }, this.depth + 1)
+    ];
+    const items = this.items;
+    this.items = [];
+    items.forEach((unit) => {
+      if (!this.childForPoint(unit.position.x, unit.position.z)?.insert(unit)) {
+        this.items.push(unit);
+      }
+    });
+  }
+}
+
+function rectContainsPoint(rect, x, z) {
+  return x >= rect.x &&
+    x <= rect.x + rect.width &&
+    z >= rect.z &&
+    z <= rect.z + rect.height;
+}
+
+function rectContainsPointValues(rectX, rectZ, width, height, x, z) {
+  return x >= rectX &&
+    x <= rectX + width &&
+    z >= rectZ &&
+    z <= rectZ + height;
+}
+
+function rectsOverlapValues(a, x, z, width, height) {
+  return a.x <= x + width &&
+    a.x + a.width >= x &&
+    a.z <= z + height &&
+    a.z + a.height >= z;
+}
+
+function createSeparationStats() {
+  return {
+    checks: 0,
+    pushes: 0,
+    buckets: 0
+  };
+}
+
+function createCombatProfile() {
+  return {
+    collectMs: 0,
+    buffsMs: 0,
+    unitsMs: 0,
+    separationMs: 0,
+    pendingMs: 0,
+    projectilesMs: 0,
+    cleanupMs: 0,
+    targetingMs: 0,
+    steeringMs: 0,
+    units: 0,
+    targetSearches: 0,
+    moveCalls: 0,
+    separationChecks: 0,
+    separationPushes: 0,
+    separationBuckets: 0
+  };
+}
+
+function recordCombatProfile(profile, key, mark) {
+  if (!profile) return mark;
+  const now = performance.now();
+  profile[key] = roundCombatProfile(now - mark);
+  return now;
+}
+
+function roundCombatProfile(value) {
+  return Number(value.toFixed(2));
+}
+
 function targetSearchDelay(unit, baseDelay) {
   const phase = ((unit.id * 47) % 100) / 100;
   return baseDelay + phase * TARGET_RESCAN_JITTER;
@@ -1150,6 +1401,17 @@ function crowdRadius(unit) {
 
 function isImmobileUnit(unit) {
   return unit.type === 'spiderEgg';
+}
+
+function isStaticUnit(unit) {
+  return unit.isBuilding || unit.definition?.canMove === false || isImmobileUnit(unit);
+}
+
+function setReusableVector(current, point) {
+  if (!point) return null;
+  const vector = current ?? new THREE.Vector3();
+  vector.set(point.x, point.y ?? 0, point.z);
+  return vector;
 }
 
 function deterministicPairAngle(a, b) {

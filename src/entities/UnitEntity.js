@@ -65,6 +65,7 @@ export class UnitEntity {
     };
     this.mesh = new THREE.Group();
     this.visualRoot = createUnitModel(type, team);
+    this.visualRoot.position.y = unitVisualGroundOffset(this.definition);
     this.mesh.add(this.visualRoot);
     this.groundShadow = createUnitGroundShadow(this);
     this.mesh.add(this.groundShadow);
@@ -74,6 +75,8 @@ export class UnitEntity {
       node.userData.entity = this;
     });
     this.statusElement = createUnitStatusElement(team);
+    this.statusUiDirty = true;
+    this.statusLagActive = false;
     this.enchantHalo = createEnchantHalo();
     this.mesh.add(this.enchantHalo);
     disableDynamicUnitShadows(this.mesh);
@@ -119,7 +122,7 @@ export class UnitEntity {
     if (isEnchantment) {
       this.enchantments.set(id, instance);
       refreshEnchantHalo(this);
-      refreshStatusElement(this);
+      this.statusUiDirty = true;
     }
     return instance;
   }
@@ -135,7 +138,7 @@ export class UnitEntity {
     if (this.enchantments.has(id)) {
       this.enchantments.delete(id);
       refreshEnchantHalo(this);
-      refreshStatusElement(this);
+      this.statusUiDirty = true;
     }
   }
 
@@ -156,12 +159,18 @@ export class UnitEntity {
   restoreHealth(amount) {
     const previousHealth = this.health;
     this.health = clamp(this.health + amount, 0, this.maxHealth);
+    if (this.health !== previousHealth) {
+      this.statusUiDirty = true;
+    }
     return this.health - previousHealth;
   }
 
   restoreShield(amount) {
     const previousShield = this.shield;
     this.shield = clamp(this.shield + amount, 0, this.maxShield);
+    if (this.shield !== previousShield) {
+      this.statusUiDirty = true;
+    }
     return this.shield - previousShield;
   }
 
@@ -172,11 +181,18 @@ export class UnitEntity {
       0,
       this.weapon.maxDurability
     );
+    if (this.weapon.durability !== previousDurability) {
+      this.statusUiDirty = true;
+    }
     return this.weapon.durability - previousDurability;
   }
 
   spendDurability(amount) {
+    const previousDurability = this.weapon.durability;
     this.weapon.durability = clamp(this.weapon.durability - amount, 0, this.weapon.maxDurability);
+    if (this.weapon.durability !== previousDurability) {
+      this.statusUiDirty = true;
+    }
   }
 
   clampToAttributeCaps() {
@@ -196,10 +212,18 @@ export class UnitEntity {
     if (!this.underConstruction) {
       updateUnitAnimation(this, dt);
     }
-    refreshStatusElement(this, dt);
     this.enchantHalo.rotation.y += 0.035;
     this.enchantHalo.visible = this.enchantments.size > 0;
     this.groundShadow.visible = this.alive;
+  }
+
+  updateStatusVisual(dt = 0) {
+    refreshStatusElement(this, dt);
+    this.statusUiDirty = false;
+  }
+
+  updateStatusLagVisual(dt = 0) {
+    refreshStatusLagElement(this, dt);
   }
 
   takeRawDamage(amount, options = {}) {
@@ -210,6 +234,7 @@ export class UnitEntity {
     this.health -= incoming - absorbed;
     if (this.health < previousHealth) {
       this.registerHealthLoss(previousHealth);
+      this.statusUiDirty = true;
     }
     if (this.health <= 0) {
       this.health = 0;
@@ -221,6 +246,7 @@ export class UnitEntity {
     const previousRatio = clamp(previousHealth / this.maxHealth, 0, 1);
     this.healthLagRatio = Math.max(this.healthLagRatio, previousRatio);
     this.healthLagDelay = 0.4;
+    this.statusLagActive = true;
   }
 }
 
@@ -315,13 +341,14 @@ function createUnitGroundShadow(unit) {
   const radius = Number.isFinite(unit.collisionRadius)
     ? unit.collisionRadius
     : unit.definition.role === 'ranged' ? 0.36 : 0.42;
-  const width = clamp(radius * (unit.isBuilding ? 2.5 : 1.9), 0.48, unit.isBuilding ? 2.4 : 1.55);
-  const depth = clamp(radius * (unit.isBuilding ? 1.8 : 1.25), 0.34, unit.isBuilding ? 1.65 : 1.05);
+  const width = clamp(radius * (unit.isBuilding ? 2.5 : 2.05), 0.56, unit.isBuilding ? 2.4 : 1.65);
+  const depth = clamp(radius * (unit.isBuilding ? 1.8 : 1.35), 0.4, unit.isBuilding ? 1.65 : 1.12);
   const shadow = new THREE.Mesh(
     new THREE.CircleGeometry(1, 28),
     basicMat('#050607', {
       transparent: true,
-      opacity: unit.isBuilding ? 0.22 : 0.18,
+      opacity: unit.isBuilding ? 0.24 : 0.22,
+      depthTest: false,
       depthWrite: false,
       polygonOffset: true,
       polygonOffsetFactor: -1,
@@ -330,10 +357,16 @@ function createUnitGroundShadow(unit) {
   );
   shadow.name = 'GroundShadow';
   shadow.rotation.x = -Math.PI / 2;
-  shadow.position.y = 0.018;
+  shadow.position.y = 0.055;
   shadow.scale.set(width, depth, 1);
-  shadow.renderOrder = -10;
+  shadow.renderOrder = 20;
   return shadow;
+}
+
+function unitVisualGroundOffset(definition) {
+  if (definition.isBuilding) return 0;
+  if (definition.art?.rig === 'humanoid') return 0.055;
+  return 0.025;
 }
 
 function disableDynamicUnitShadows(root) {
@@ -369,6 +402,7 @@ function createUnitStatusElement(team) {
   element.parts = {
     hp: element.querySelector('.world-health-fill'),
     healthLoss: element.querySelector('.world-health-loss-fill'),
+    ticks: element.querySelector('.world-health-ticks'),
     shield: element.querySelector('.world-shield-fill'),
     durability: element.querySelector('.world-durability-fill'),
     enchantments: element.querySelector('.world-enchantments')
@@ -383,10 +417,12 @@ function refreshStatusElement(unit, dt = 0) {
   const shieldRatio = unit.maxShield > 0 ? clamp(unit.shield / unit.maxShield, 0, 1) : 0;
   const durabilityRatio = clamp(unit.weapon.durability / unit.weapon.maxDurability, 0, 1);
   updateHealthLag(unit, hpRatio, dt);
+  unit.statusLagActive = unit.healthLagRatio > hpRatio + 0.006 || unit.healthLagDelay > 0;
   element.classList.toggle('has-shield', unit.maxShield > 0);
   element.parts.hp.style.transform = `scaleX(${hpRatio})`;
   element.parts.healthLoss.style.transform = `scaleX(${unit.healthLagRatio})`;
   element.parts.healthLoss.hidden = unit.healthLagRatio <= hpRatio + 0.006;
+  updateHealthTicks(element.parts.ticks, unit.maxHealth);
   element.parts.shield.style.transform = `scaleX(${shieldRatio})`;
   element.parts.shield.hidden = shieldRatio <= 0;
   element.parts.durability.style.transform = `scaleX(${durabilityRatio})`;
@@ -397,6 +433,16 @@ function refreshStatusElement(unit, dt = 0) {
   const enchantmentText = wrapEnchantmentStatuses(enchantmentStatuses);
   element.parts.enchantments.textContent = enchantmentText;
   element.parts.enchantments.hidden = enchantmentText.length === 0;
+}
+
+function refreshStatusLagElement(unit, dt = 0) {
+  const element = unit.statusElement;
+  if (!element?.parts) return;
+  const hpRatio = clamp(unit.health / unit.maxHealth, 0, 1);
+  updateHealthLag(unit, hpRatio, dt);
+  element.parts.healthLoss.style.transform = `scaleX(${unit.healthLagRatio})`;
+  element.parts.healthLoss.hidden = unit.healthLagRatio <= hpRatio + 0.006;
+  unit.statusLagActive = unit.healthLagRatio > hpRatio + 0.006 || unit.healthLagDelay > 0;
 }
 
 function updateHealthLag(unit, hpRatio, dt) {
@@ -412,6 +458,27 @@ function updateHealthLag(unit, hpRatio, dt) {
     hpRatio,
     unit.healthLagRatio - catchupSpeed * Math.max(0, dt)
   );
+}
+
+function updateHealthTicks(ticks, maxHealth) {
+  if (!ticks) return;
+  const scale = healthTickScale(maxHealth);
+  ticks.style.setProperty('--health-tick-step', `${scale.stepPercent}%`);
+  ticks.style.setProperty('--health-tick-color', scale.color);
+}
+
+function healthTickScale(maxHealth) {
+  const health = Math.max(1, maxHealth ?? 1);
+  if (health > 5000) {
+    return { color: '#62d56f', stepPercent: Math.min(100, 500 / health * 100) };
+  }
+  if (health >= 500) {
+    return { color: '#b56cff', stepPercent: Math.min(100, 100 / health * 100) };
+  }
+  if (health >= 50) {
+    return { color: '#ffd45f', stepPercent: Math.min(100, 25 / health * 100) };
+  }
+  return { color: '#120f0d', stepPercent: Math.min(100, 5 / health * 100) };
 }
 
 function formatEnchantmentStatus(enchantment) {

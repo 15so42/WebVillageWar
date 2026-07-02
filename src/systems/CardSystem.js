@@ -20,6 +20,8 @@ const CARD_KIND_COLORS = {
   tactic: '#6f718a',
   ability: '#5f8f9f'
 };
+const CARD_RANGE_DISC_RENDER_ORDER = 62;
+const CARD_RANGE_RING_RENDER_ORDER = 63;
 
 export class CardSystem {
   constructor(game, options = {}) {
@@ -43,12 +45,15 @@ export class CardSystem {
     this.deploymentRangeGroup.visible = false;
     this.deploymentRangeSignature = '';
     this.game.scene.add(this.deploymentRangeGroup);
+    this.deploymentDimPlane = createDeploymentDimPlane();
+    this.game.scene.add(this.deploymentDimPlane);
     this.enchantTargetRing = createReticle();
     this.enchantTargetRing.scale.setScalar(0.78);
     this.game.scene.add(this.enchantTargetRing);
     this.ghost = document.querySelector('#drag-ghost');
     this.hand = document.querySelector('#card-hand');
     this.energyPanel = createEnergyPanel(this.hand);
+    this.temporarySlot = createTemporaryCardSlot(this.energyPanel);
     this.energyParts = collectEnergyPanel(this.energyPanel);
     this.abilityIcons = this.energyParts.abilities;
     this.hintPanel = createGameHintPanel(this.energyPanel);
@@ -59,6 +64,7 @@ export class CardSystem {
     this.drawToFullHand();
     this.updateEnergyUi(true);
     this.renderHand();
+    this.renderTemporaryCard();
     this.updatePileUi();
   }
 
@@ -81,9 +87,6 @@ export class CardSystem {
 
   renderHand() {
     this.hand.innerHTML = '';
-    if (this.temporaryCard) {
-      this.hand.appendChild(this.createTemporaryCardElement());
-    }
     for (let index = 0; index < HAND_SIZE; index += 1) {
       const card = this.handCards[index];
       if (!card) {
@@ -99,6 +102,23 @@ export class CardSystem {
       );
     }
     this.pendingDrawAnimations.clear();
+    this.updateCardAffordability();
+  }
+
+  renderTemporaryCard() {
+    if (!this.temporarySlot) return;
+    this.temporarySlot.innerHTML = '';
+    if (this.temporaryCard) {
+      this.temporarySlot.classList.add('has-temporary-card');
+      this.temporarySlot.appendChild(this.createTemporaryCardElement());
+      this.pendingDrawAnimations.delete(this.temporaryCard);
+    } else {
+      this.temporarySlot.classList.remove('has-temporary-card');
+      const empty = document.createElement('div');
+      empty.className = 'temporary-card-empty-slot';
+      empty.innerHTML = '<span>临时</span>';
+      this.temporarySlot.appendChild(empty);
+    }
     this.updateCardAffordability();
   }
 
@@ -126,6 +146,7 @@ export class CardSystem {
         <div class="card-text">${card.summary}</div>
       </div>
     `;
+    fitCardElementText(element);
     element.addEventListener('pointerenter', () => this.setHint(CARD_USAGE_HINT, 'card-hover'));
     element.addEventListener('pointerleave', () => this.clearHint('card-hover'));
     element.addEventListener('pointerdown', (event) => this.startDrag(event, card));
@@ -146,7 +167,7 @@ export class CardSystem {
   }
 
   replaceHandSlot(index, element) {
-    const current = this.hand.children[index + (this.temporaryCard ? 1 : 0)];
+    const current = this.hand.children[index];
     if (!current) return false;
     current.replaceWith(element);
     return true;
@@ -423,21 +444,25 @@ export class CardSystem {
 
   showGroundPreview(point, radius, valid, card) {
     this.reticle.visible = true;
-    this.reticle.position.set(point.x, point.y + 0.07, point.z);
+    this.reticle.position.set(point.x, point.y + 0.1, point.z);
     this.reticle.scale.setScalar(radius);
     const color = valid ? card.color : '#b8b8b8';
     this.reticle.userData.disc.material = basicMat(color, {
       transparent: true,
       opacity: valid ? 0.2 : 0.1,
       side: THREE.DoubleSide,
+      depthTest: false,
       depthWrite: false
     });
     this.reticle.userData.ring.material = basicMat(valid ? '#fff2c7' : '#c9c9c9', {
       transparent: true,
       opacity: valid ? 0.9 : 0.42,
       side: THREE.DoubleSide,
+      depthTest: false,
       depthWrite: false
     });
+    this.reticle.userData.disc.renderOrder = CARD_RANGE_DISC_RENDER_ORDER;
+    this.reticle.userData.ring.renderOrder = CARD_RANGE_RING_RENDER_ORDER;
   }
 
   updateDeploymentRangePreview(card, visible) {
@@ -462,22 +487,25 @@ export class CardSystem {
       range.scale.setScalar(anchor.radius);
       range.userData.disc.material = basicMat(anchor.color, {
         transparent: true,
-        opacity: 0.09,
+        opacity: 0.16,
         side: THREE.DoubleSide,
         depthTest: false,
         depthWrite: false
       }).clone();
       range.userData.ring.material = basicMat(anchor.ringColor, {
         transparent: true,
-        opacity: 0.72,
+        opacity: 0.96,
         side: THREE.DoubleSide,
         depthTest: false,
         depthWrite: false
       }).clone();
+      range.userData.disc.renderOrder = CARD_RANGE_DISC_RENDER_ORDER;
+      range.userData.ring.renderOrder = CARD_RANGE_RING_RENDER_ORDER;
       this.deploymentRangeGroup.add(range);
     });
     this.deploymentRangeSignature = signature;
     this.deploymentRangeGroup.visible = true;
+    this.deploymentDimPlane.visible = true;
   }
 
   deploymentAnchorsForCard(card) {
@@ -508,6 +536,7 @@ export class CardSystem {
     this.deploymentRangeGroup.clear();
     this.deploymentRangeGroup.visible = false;
     this.deploymentRangeSignature = '';
+    if (this.deploymentDimPlane) this.deploymentDimPlane.visible = false;
   }
 
   updateGroundDragHint(card, valid, options = {}) {
@@ -553,14 +582,18 @@ export class CardSystem {
       transparent: true,
       opacity: 0.18,
       side: THREE.DoubleSide,
+      depthTest: false,
       depthWrite: false
     });
     this.enchantTargetRing.userData.ring.material = basicMat('#fff2c7', {
       transparent: true,
       opacity: 0.95,
       side: THREE.DoubleSide,
+      depthTest: false,
       depthWrite: false
     });
+    this.enchantTargetRing.userData.disc.renderOrder = CARD_RANGE_DISC_RENDER_ORDER;
+    this.enchantTargetRing.userData.ring.renderOrder = CARD_RANGE_RING_RENDER_ORDER;
   }
 
   resolveCard(drag) {
@@ -649,7 +682,7 @@ export class CardSystem {
       ? this.createDiscardFallingElement(sourceElement)
       : null;
     this.temporaryCard = null;
-    this.renderHand();
+    this.renderTemporaryCard();
 
     let fallingAnimation = null;
     if (fallingElement) {
@@ -837,7 +870,7 @@ export class CardSystem {
       if (card.exhaust) {
         this.game.abilities?.onCardExhausted(card);
       }
-      this.renderHand();
+      this.renderTemporaryCard();
       this.updatePileUi();
       return true;
     }
@@ -906,7 +939,7 @@ export class CardSystem {
     if (!this.temporaryCard) {
       this.temporaryCard = card;
       this.pendingDrawAnimations.add(card);
-      this.renderHand();
+      this.renderTemporaryCard();
       this.updatePileUi();
       return { added: true, location: 'temporary', card };
     }
@@ -969,7 +1002,7 @@ export class CardSystem {
   }
 
   updateCardAffordability() {
-    this.hand.querySelectorAll('.card').forEach((element) => {
+    document.querySelectorAll('#card-hand .card, #temporary-card-slot .card').forEach((element) => {
       const card = element.dataset.cardLocation === 'temporary'
         ? this.temporaryCard
         : this.handCards[Number(element.dataset.handIndex)];
@@ -1048,10 +1081,13 @@ export class CardSystem {
     this.reticle?.parent?.remove(this.reticle);
     this.clearDeploymentRangePreview();
     this.deploymentRangeGroup?.parent?.remove(this.deploymentRangeGroup);
+    disposeObject3D(this.deploymentDimPlane, { materials: true });
+    this.deploymentDimPlane?.parent?.remove(this.deploymentDimPlane);
     this.enchantTargetRing?.parent?.remove(this.enchantTargetRing);
     this.ghost.hidden = true;
     this.ghost.classList.remove('enchant-crosshair', 'is-valid');
     this.hand.innerHTML = '';
+    this.temporarySlot?.remove();
     this.energyPanel?.remove();
     this.hintPanel?.remove();
     this.pileUi?.root?.remove();
@@ -1783,6 +1819,17 @@ function createEnergyPanel(hand) {
   return panel;
 }
 
+function createTemporaryCardSlot(anchor) {
+  const existing = document.querySelector('#temporary-card-slot');
+  if (existing) return existing;
+  const slot = document.createElement('section');
+  slot.id = 'temporary-card-slot';
+  slot.className = 'temporary-card-slot';
+  slot.setAttribute('aria-label', 'temporary card slot');
+  anchor.before(slot);
+  return slot;
+}
+
 function collectEnergyPanel(panel) {
   if (!panel.querySelector('.energy-value')) {
     const cells = Array.from({ length: MAX_ENERGY }, () => '<span class="energy-cell"></span>').join('');
@@ -1818,6 +1865,46 @@ function createGameHintPanel(anchor) {
   panel.hidden = true;
   anchor.before(panel);
   return panel;
+}
+
+function fitCardElementText(element) {
+  window.requestAnimationFrame(() => {
+    fitTextBlock(element.querySelector('.card-name'), 15, 11);
+    fitTextBlock(element.querySelector('.card-text'), 11, 8);
+  });
+}
+
+function fitTextBlock(node, maxSize, minSize) {
+  if (!node) return;
+  node.style.fontSize = '';
+  node.style.lineHeight = '';
+  let size = maxSize;
+  while (size > minSize && (node.scrollHeight > node.clientHeight || node.scrollWidth > node.clientWidth)) {
+    size -= 0.5;
+    node.style.fontSize = `${size}px`;
+    node.style.lineHeight = size <= 9 ? '1.14' : '1.2';
+  }
+}
+
+function createDeploymentDimPlane() {
+  const width = BALANCE.battlefield.halfWidth * 2 + 18;
+  const depth = BALANCE.battlefield.maxZ - BALANCE.battlefield.minZ + 18;
+  const plane = new THREE.Mesh(
+    new THREE.PlaneGeometry(width, depth),
+    basicMat('#020506', {
+      transparent: true,
+      opacity: 0.46,
+      side: THREE.DoubleSide,
+      depthTest: false,
+      depthWrite: false
+    }).clone()
+  );
+  plane.name = 'DeploymentDimPlane';
+  plane.rotation.x = -Math.PI / 2;
+  plane.position.set(0, 0.035, (BALANCE.battlefield.minZ + BALANCE.battlefield.maxZ) / 2);
+  plane.renderOrder = 40;
+  plane.visible = false;
+  return plane;
 }
 
 function createPileUi() {

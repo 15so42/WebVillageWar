@@ -20,6 +20,7 @@ export class MetaGameSystem {
     this.selectedDifficulty = 1;
     this.deckSelection = this.progress.ownedCards.slice(0, DECK_SIZE);
     this.lastResult = null;
+    this.notice = null;
     this.root = createMetaRoot();
     this.onDebugKeyDown = (event) => this.handleDebugKeyDown(event);
     this.root.addEventListener('click', (event) => this.onClick(event));
@@ -29,11 +30,11 @@ export class MetaGameSystem {
     this.show('levels');
   }
 
-  show(view = this.view) {
+  show(view = this.view, options = {}) {
     this.view = view;
     this.root.hidden = false;
     document.body.classList.add('is-meta-open');
-    this.render();
+    this.render(options);
   }
 
   hide() {
@@ -144,13 +145,30 @@ export class MetaGameSystem {
     this.render();
   }
 
-  render() {
+  render(options = {}) {
+    const scrollTop = options.preserveScroll ? this.root.scrollTop : 0;
+    const viewScrollTop = options.preserveScroll
+      ? this.root.querySelector('.meta-deck, .meta-layout, .meta-home')?.scrollTop ?? 0
+      : 0;
     this.root.innerHTML = `
       <div class="meta-shell" role="dialog" aria-modal="true" aria-label="局外菜单">
         ${this.renderHeader()}
+        ${this.renderNotice()}
         ${this.renderView()}
       </div>
     `;
+    if (options.preserveScroll) {
+      this.root.scrollTop = scrollTop;
+      const restoreViewScroll = () => {
+        const viewScroller = this.root.querySelector('.meta-deck, .meta-layout, .meta-home');
+        if (viewScroller) viewScroller.scrollTop = viewScrollTop;
+      };
+      restoreViewScroll();
+      window.requestAnimationFrame(() => {
+        this.root.scrollTop = scrollTop;
+        restoreViewScroll();
+      });
+    }
   }
 
   renderHeader() {
@@ -159,13 +177,14 @@ export class MetaGameSystem {
       ['shop', '商店'],
       ['upgrades', '升级']
     ];
+    const currencyClass = `meta-currency${this.notice ? ' is-pulse' : ''}`;
     return `
       <header class="meta-header">
         <div>
           <div class="meta-title">村落战争</div>
           <div class="meta-subtitle">卡牌构筑 / 关卡推进 / 局外养成</div>
         </div>
-        <div class="meta-currency">
+        <div class="${currencyClass}">
           <span>金币</span>
           <strong>${this.progress.coins}</strong>
         </div>
@@ -177,6 +196,15 @@ export class MetaGameSystem {
           </button>
         `).join('')}
       </nav>
+    `;
+  }
+
+  renderNotice() {
+    if (!this.notice) return '';
+    return `
+      <div class="meta-toast" role="status" aria-live="polite" data-notice-id="${this.notice.id}">
+        ${this.notice.text}
+      </div>
     `;
   }
 
@@ -411,13 +439,18 @@ export class MetaGameSystem {
 
   buyCard(id) {
     if (this.progress.ownedCards.includes(id)) return;
+    const card = CARD_DEFINITIONS.find((definition) => definition.id === id);
     const cost = CARD_META[id]?.buyCost ?? 80;
     if (this.progress.coins < cost) return;
     this.progress.coins -= cost;
     this.progress.ownedCards.push(id);
     this.progress.cardLevels[id] = Math.max(1, this.progress.cardLevels[id] ?? 1);
+    this.notice = {
+      id: `${id}-${Date.now()}`,
+      text: `已购买 ${card?.name ?? '卡牌'}`
+    };
     saveProgress(this.progress);
-    this.show('shop');
+    this.show('shop', { preserveScroll: true });
   }
 
   upgradeCard(id) {
