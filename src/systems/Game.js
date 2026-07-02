@@ -119,8 +119,16 @@ const COMBAT_PROFILE_LABELS = {
   targetingMs: '寻敌',
   unitsMs: '单位循环总计'
 };
-const MAX_RENDER_PIXEL_RATIO = 1.5;
+const DESKTOP_RENDER_PIXEL_RATIO = 1.5;
+const MOBILE_RENDER_PIXEL_RATIO = 1;
 const ENABLE_REALTIME_SHADOWS = true;
+const DEFAULT_FPS_LIMIT = 60;
+const MIN_FPS_LIMIT = 30;
+const MAX_FPS_LIMIT = 90;
+const DEFAULT_DPR = 1;
+const MIN_DPR = 1;
+const MAX_DPR = 2;
+const SETTINGS_STORAGE_KEY = 'village-war-render-settings-v1';
 
 export class Game {
   constructor({ canvas, session = null, onLevelComplete = null, onRestart = null, onExitToMenu = null } = {}) {
@@ -134,6 +142,10 @@ export class Game {
     this.paused = false;
     this.destroyed = false;
     this.eventController = new AbortController();
+    this.renderSettings = loadRenderSettings();
+    this.renderQuality = createRenderQualityProfile(this.renderSettings);
+    this.frameLimitMs = 1000 / this.renderSettings.fpsLimit;
+    this.lastAnimationFrameTime = null;
     this.worldConfig = this.levelSession.level.world ?? BALANCE.world;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(48, 1, 0.1, 240);
@@ -141,11 +153,11 @@ export class Game {
     this.camera.lookAt(0, 4, 10);
     this.renderer = new THREE.WebGLRenderer({
       canvas,
-      antialias: true,
+      antialias: this.renderQuality.antialias,
       alpha: false,
       preserveDrawingBuffer: false
     });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_RENDER_PIXEL_RATIO));
+    this.renderer.setPixelRatio(this.renderQuality.pixelRatio);
     this.renderer.shadowMap.enabled = ENABLE_REALTIME_SHADOWS;
     this.renderer.shadowMap.autoUpdate = ENABLE_REALTIME_SHADOWS;
     if (ENABLE_REALTIME_SHADOWS) {
@@ -205,6 +217,8 @@ export class Game {
     this.lastPerfSampleId = 0;
     this.perfChartUpdateTimer = 0;
     this.perfChartVisible = this.perfDebugEnabled;
+    this.fpsMeterFrames = 0;
+    this.fpsMeterElapsed = 0;
     this.navDebugGroup = new THREE.Group();
     this.navDebugGroup.name = 'NavDebug';
     this.navDebugGroup.visible = this.navDebugEnabled;
@@ -288,12 +302,19 @@ export class Game {
       commandDock: document.querySelector('#game-command-dock'),
       pauseOverlay: document.querySelector('#pause-overlay'),
       pauseReason: document.querySelector('#pause-reason'),
+      fpsMeter: document.querySelector('#fps-meter'),
+      fpsLimitSlider: document.querySelector('#fps-limit-slider'),
+      fpsLimitValue: document.querySelector('#fps-limit-value'),
+      dprSlider: document.querySelector('#dpr-slider'),
+      dprValue: document.querySelector('#dpr-value'),
       debug: document.querySelector('#debug-state'),
       perfPanel: document.querySelector('#perf-panel'),
       perfCanvas: document.querySelector('#perf-chart'),
       perfStatus: document.querySelector('#perf-panel-status'),
       perfStats: document.querySelector('#perf-stats')
     };
+    if (this.dom.fpsMeter) this.dom.fpsMeter.hidden = false;
+    this.syncSettingsControls();
 
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
@@ -325,6 +346,10 @@ export class Game {
     this.dom.pauseOverlay?.addEventListener('click', (event) => this.onPauseOverlayClick(event), { signal });
     this.dom.pauseOverlay?.addEventListener('pointerdown', stopUiEvent, { signal });
     this.dom.pauseOverlay?.addEventListener('contextmenu', stopUiEvent, { signal });
+    this.dom.fpsLimitSlider?.addEventListener('input', (event) => this.onRenderSettingInput(event), { signal });
+    this.dom.dprSlider?.addEventListener('input', (event) => this.onRenderSettingInput(event), { signal });
+    this.dom.fpsLimitSlider?.addEventListener('pointerdown', stopUiPropagation, { signal });
+    this.dom.dprSlider?.addEventListener('pointerdown', stopUiPropagation, { signal });
     this.resize();
     document.body.classList.add('is-game-active');
     if (this.dom.settingsButton) this.dom.settingsButton.hidden = false;
@@ -349,7 +374,8 @@ export class Game {
 
   start() {
     if (this.destroyed) return;
-    this.renderer.setAnimationLoop(() => this.tick());
+    this.lastAnimationFrameTime = null;
+    this.renderer.setAnimationLoop((time) => this.animationFrame(time));
   }
 
   stop() {
@@ -378,6 +404,7 @@ export class Game {
     this.selectionBox?.remove();
     document.body.classList.remove('is-game-active', 'is-game-paused');
     if (this.dom.settingsButton) this.dom.settingsButton.hidden = true;
+    if (this.dom.fpsMeter) this.dom.fpsMeter.hidden = true;
     if (this.dom.pauseOverlay) this.dom.pauseOverlay.hidden = true;
     if (this.dom.perfPanel) this.dom.perfPanel.hidden = true;
     this.guardVisuals.forEach((visuals) => {
@@ -392,7 +419,9 @@ export class Game {
 
   tick() {
     if (this.destroyed) return;
-    const dt = Math.min(this.clock.getDelta(), 0.05);
+    const rawDt = this.clock.getDelta();
+    const dt = Math.min(rawDt, 0.05);
+    this.updateFpsMeter(rawDt);
     if (this.paused) {
       this.updateCamera(0);
       this.updateHud(0);
@@ -471,6 +500,77 @@ export class Game {
     const result = action();
     this.perfTracker?.add(name, performance.now() - startedAt);
     return result;
+  }
+
+  animationFrame(time = performance.now()) {
+    if (this.destroyed) return;
+    if (this.shouldSkipFrame(time)) return;
+    this.tick();
+  }
+
+  shouldSkipFrame(time) {
+    if (this.lastAnimationFrameTime == null) {
+      this.lastAnimationFrameTime = time;
+      return false;
+    }
+    const elapsed = time - this.lastAnimationFrameTime;
+    if (elapsed + 0.25 < this.frameLimitMs) return true;
+    if (elapsed > this.frameLimitMs * 4) {
+      this.lastAnimationFrameTime = time;
+    } else {
+      this.lastAnimationFrameTime += this.frameLimitMs;
+    }
+    return false;
+  }
+
+  updateFpsMeter(dt) {
+    if (!this.dom.fpsMeter || dt <= 0) return;
+    this.fpsMeterFrames += 1;
+    this.fpsMeterElapsed += dt;
+    if (this.fpsMeterElapsed < 0.5) return;
+    const fps = Math.round(this.fpsMeterFrames / this.fpsMeterElapsed);
+    this.dom.fpsMeter.textContent = `FPS ${fps}`;
+    this.fpsMeterFrames = 0;
+    this.fpsMeterElapsed = 0;
+  }
+
+  onRenderSettingInput(event) {
+    const target = event.target;
+    if (target === this.dom.fpsLimitSlider) {
+      this.renderSettings.fpsLimit = clamp(
+        Number(target.value) || DEFAULT_FPS_LIMIT,
+        MIN_FPS_LIMIT,
+        MAX_FPS_LIMIT
+      );
+      this.frameLimitMs = 1000 / this.renderSettings.fpsLimit;
+      this.lastAnimationFrameTime = null;
+    } else if (target === this.dom.dprSlider) {
+      this.renderSettings.dpr = clamp(
+        Number(target.value) || DEFAULT_DPR,
+        MIN_DPR,
+        MAX_DPR
+      );
+      this.renderQuality = createRenderQualityProfile(this.renderSettings);
+      this.renderer.setPixelRatio(this.renderQuality.pixelRatio);
+      this.resize();
+    }
+    saveRenderSettings(this.renderSettings);
+    this.syncSettingsControls();
+  }
+
+  syncSettingsControls() {
+    if (this.dom.fpsLimitSlider) {
+      this.dom.fpsLimitSlider.value = String(this.renderSettings.fpsLimit);
+    }
+    if (this.dom.fpsLimitValue) {
+      this.dom.fpsLimitValue.textContent = `${Math.round(this.renderSettings.fpsLimit)}`;
+    }
+    if (this.dom.dprSlider) {
+      this.dom.dprSlider.value = String(this.renderSettings.dpr);
+    }
+    if (this.dom.dprValue) {
+      this.dom.dprValue.textContent = this.renderSettings.dpr.toFixed(1);
+    }
   }
 
   createPerfCounters({ takeNavStats = false } = {}) {
@@ -2581,6 +2681,10 @@ function stopUiEvent(event) {
   event.stopPropagation();
 }
 
+function stopUiPropagation(event) {
+  event.stopPropagation();
+}
+
 function commandFormationOffset(index, total, radius) {
   if (total <= 1) return new THREE.Vector3();
   if (index === 0) return new THREE.Vector3();
@@ -2774,6 +2878,65 @@ function initialPerfJsonEnabled() {
   } catch {
     return false;
   }
+}
+
+function createRenderQualityProfile(settings = loadRenderSettings()) {
+  const override = readRenderQualityOverride();
+  const mobile = override === 'low' || (override !== 'high' && isProbablyMobileDevice());
+  const rawPixelRatio = window.devicePixelRatio || 1;
+  const pixelRatio = settings.dpr ?? (mobile ? MOBILE_RENDER_PIXEL_RATIO : DESKTOP_RENDER_PIXEL_RATIO);
+  return {
+    mode: mobile ? 'mobile' : 'desktop',
+    pixelRatio: clamp(pixelRatio, MIN_DPR, MAX_DPR),
+    nativePixelRatio: rawPixelRatio,
+    antialias: true
+  };
+}
+
+function loadRenderSettings() {
+  let saved = null;
+  try {
+    saved = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || 'null');
+  } catch {
+    saved = null;
+  }
+  const defaultDpr = isProbablyMobileDevice() ? MOBILE_RENDER_PIXEL_RATIO : DESKTOP_RENDER_PIXEL_RATIO;
+  return {
+    fpsLimit: clamp(Number(saved?.fpsLimit) || DEFAULT_FPS_LIMIT, MIN_FPS_LIMIT, MAX_FPS_LIMIT),
+    dpr: clamp(Number(saved?.dpr) || defaultDpr || DEFAULT_DPR, MIN_DPR, MAX_DPR)
+  };
+}
+
+function saveRenderSettings(settings) {
+  try {
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({
+      fpsLimit: Math.round(settings.fpsLimit),
+      dpr: Number(settings.dpr.toFixed(2))
+    }));
+  } catch {
+    // Storage can be unavailable in private or embedded browsers.
+  }
+}
+
+function readRenderQualityOverride() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const value = (params.get('quality') ?? params.get('renderQuality') ?? '').toLowerCase();
+    if (['low', 'mobile', 'performance'].includes(value)) return 'low';
+    if (['high', 'desktop', 'quality'].includes(value)) return 'high';
+  } catch {
+    // Keep the default auto mode when URLSearchParams is unavailable.
+  }
+  return 'auto';
+}
+
+function isProbablyMobileDevice() {
+  const ua = navigator.userAgent || '';
+  if (/Android|iPhone|iPad|iPod|Mobile|Windows Phone/i.test(ua)) return true;
+  const hasTouch = navigator.maxTouchPoints > 0;
+  const coarsePointer = window.matchMedia?.('(pointer: coarse)')?.matches ?? false;
+  const narrowSide = Math.min(window.innerWidth || 0, window.innerHeight || 0);
+  return hasTouch && (coarsePointer || narrowSide <= 900);
 }
 
 function perfStat(label, value) {

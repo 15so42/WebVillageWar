@@ -249,7 +249,7 @@ body.is-meta-open .selection-box {
 .game-settings-button {
   position: fixed;
   top: 14px;
-  right: 14px;
+  right: 104px;
   z-index: 12;
   width: 42px;
   height: 42px;
@@ -274,6 +274,34 @@ body.is-meta-open .selection-box {
 }
 
 .game-settings-button[hidden] {
+  display: none;
+}
+
+.fps-meter {
+  position: fixed;
+  top: 44px;
+  right: 14px;
+  z-index: 12;
+  min-width: 74px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  color: #fff2c7;
+  background: rgba(18, 28, 29, 0.72);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(12px);
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0;
+  pointer-events: none;
+  user-select: none;
+}
+
+.fps-meter[hidden] {
   display: none;
 }
 
@@ -1997,6 +2025,40 @@ body.is-meta-open .selection-box {
   line-height: 1;
 }
 
+.pause-settings {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.pause-slider-row {
+  display: grid;
+  gap: 8px;
+  color: rgba(247, 244, 232, 0.8);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.pause-slider-row span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pause-slider-row strong {
+  color: #fff2c7;
+  font-size: 14px;
+}
+
+.pause-slider-row input[type="range"] {
+  width: 100%;
+  accent-color: #9eeedb;
+}
+
 .pause-actions {
   display: grid;
   gap: 9px;
@@ -2609,6 +2671,7 @@ body.is-meta-open .selection-box {
   }
 
   .game-settings-button,
+  .fps-meter,
   .hud-primary,
   .hud-selected,
   .pile-button,
@@ -2630,7 +2693,9 @@ body.is-meta-open .selection-box {
     transform-origin: left top;
   }
 
+  .game-settings-button,
   .hud-selected,
+  .fps-meter,
   .pile-button.is-discard,
   .perf-panel {
     transform-origin: right top;

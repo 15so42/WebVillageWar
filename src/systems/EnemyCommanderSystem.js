@@ -11,13 +11,18 @@ const DEFAULT_STRATEGY = {
   holdWeight: 0.75,
   attackWeight: 1,
   minAttackSquads: 2,
+  captureSquadRatio: 0.25,
+  maxCaptureSquads: 1,
+  minSquadsBeforeCapture: 3,
   rallyPathIndices: [2, 4, 6],
   chokePathIndices: [3, 5],
-  openingOrders: ['capture', 'rally', 'attack']
+  openingOrders: ['attack', 'attack', 'attack', 'capture']
 };
 
 const ORDER_REEVALUATE_SECONDS = 5.5;
 const ARRIVAL_DISTANCE = 1.4;
+const ORDER_DESTINATION_EPSILON = 0.75;
+const ENGAGED_AI_STATES = new Set(['attacking', 'chasing', 'stunned']);
 
 export class EnemyCommanderSystem {
   constructor(game) {
@@ -67,6 +72,7 @@ export class EnemyCommanderSystem {
         id: squad.id,
         role: squad.role,
         unitCount: this.aliveUnits(squad).length,
+        engaged: this.aliveUnits(squad).filter((unit) => this.isEngaged(unit)).length,
         target: squad.target
           ? {
               x: Number(squad.target.x.toFixed(1)),
@@ -138,6 +144,7 @@ export class EnemyCommanderSystem {
 
   rethink() {
     this.squads.forEach((squad) => {
+      if (!this.commandableUnits(squad).length) return;
       if (squad.reevaluateTimer > 0 && squad.role !== 'unassigned') return;
       const order = this.chooseOrder(squad);
       this.issueOrder(squad, order);
@@ -146,22 +153,14 @@ export class EnemyCommanderSystem {
   }
 
   assignOpeningOrder(squad) {
-    const opening = this.strategy.openingOrders ?? DEFAULT_STRATEGY.openingOrders;
-    const role = opening[this.orderCursor % opening.length] ?? 'attack';
     this.orderCursor += 1;
-    const order = this.orderForRole(squad, role) ?? this.chooseOrder(squad);
-    this.issueOrder(squad, order);
+    this.issueOrder(squad, this.chooseOrder(squad));
   }
 
   chooseOrder(squad) {
-    const candidates = [
-      this.captureOrder(squad),
-      this.rallyOrder(squad),
-      this.holdOrder(squad),
-      this.attackOrder(squad)
-    ].filter(Boolean);
-    candidates.sort((a, b) => b.score - a.score);
-    return candidates[0] ?? this.attackOrder(squad);
+    const capture = this.captureOrder(squad);
+    if (capture && this.shouldUseCaptureOrder(squad)) return capture;
+    return this.attackOrder(squad);
   }
 
   orderForRole(squad, role) {
@@ -197,6 +196,35 @@ export class EnemyCommanderSystem {
       guardRadius: best.captureRadius + 1.4,
       score: bestScore
     };
+  }
+
+  shouldUseCaptureOrder(squad) {
+    const quota = this.captureSquadQuota();
+    if (quota <= 0) return false;
+    const currentCaptureSquads = this.countSquadsWithRole('capture', squad);
+    if (squad.role === 'capture') {
+      return currentCaptureSquads < quota;
+    }
+    return currentCaptureSquads < quota && this.isCaptureTurn();
+  }
+
+  captureSquadQuota() {
+    const total = this.activeSquadCount();
+    const minBeforeCapture = Math.max(1, Math.floor(
+      this.strategy.minSquadsBeforeCapture ?? DEFAULT_STRATEGY.minSquadsBeforeCapture
+    ));
+    if (total < minBeforeCapture) return 0;
+    const ratio = Math.max(0, this.strategy.captureSquadRatio ?? DEFAULT_STRATEGY.captureSquadRatio);
+    const maxCapture = Math.max(0, Math.floor(
+      this.strategy.maxCaptureSquads ?? DEFAULT_STRATEGY.maxCaptureSquads
+    ));
+    const byRatio = Math.max(1, Math.floor(total * ratio));
+    return maxCapture > 0 ? Math.min(maxCapture, byRatio) : byRatio;
+  }
+
+  isCaptureTurn() {
+    const interval = Math.max(2, Math.round(1 / Math.max(0.05, this.strategy.captureSquadRatio ?? DEFAULT_STRATEGY.captureSquadRatio)));
+    return this.orderCursor % interval === 0;
   }
 
   rallyOrder(squad) {
@@ -247,7 +275,7 @@ export class EnemyCommanderSystem {
 
   issueOrder(squad, order) {
     if (!order?.target) return;
-    const units = this.aliveUnits(squad);
+    const units = this.commandableUnits(squad);
     if (!units.length) return;
     squad.role = order.role;
     squad.target = order.target.clone?.() ?? new THREE.Vector3(order.target.x, 0, order.target.z);
@@ -257,6 +285,7 @@ export class EnemyCommanderSystem {
       const offset = polarOffset(index, units.length, order.radius ?? 1);
       const destination = this.game.resolveWalkablePoint(squad.target.clone().setY(0).add(offset));
       destination.y = this.game.groundHeightAt(destination);
+      if (this.isSameUnitOrder(unit, order, destination)) return;
       unit.enemyCommanderRole = order.role;
       unit.enemyCommanderTargetId = order.targetId;
       unit.target = null;
@@ -309,10 +338,39 @@ export class EnemyCommanderSystem {
     return squad.units.filter((unit) => this.isControllable(unit));
   }
 
-  countSquadsWithRole(role) {
+  commandableUnits(squad) {
+    return this.aliveUnits(squad).filter((unit) => !this.isEngaged(unit));
+  }
+
+  isEngaged(unit) {
+    if (!this.isControllable(unit)) return false;
+    if (unit.target?.alive !== false && unit.target) return true;
+    if (unit.hitStunTimer > 0) return true;
+    if (ENGAGED_AI_STATES.has(unit.aiState)) return true;
+    return Boolean(this.game.attacks?.getActiveAttackFor?.(unit));
+  }
+
+  isSameUnitOrder(unit, order, destination) {
+    if (unit.enemyCommanderRole !== order.role) return false;
+    if (unit.enemyCommanderTargetId !== order.targetId) return false;
+    const currentGoal = unit.moveGoal ?? unit.guardPoint;
+    if (!currentGoal) return false;
+    return distance2D(currentGoal, destination) <= ORDER_DESTINATION_EPSILON;
+  }
+
+  countSquadsWithRole(role, excludeSquad = null) {
     let count = 0;
     this.squads.forEach((squad) => {
+      if (squad === excludeSquad) return;
       if (squad.role === role && this.aliveUnits(squad).length) count += 1;
+    });
+    return count;
+  }
+
+  activeSquadCount() {
+    let count = 0;
+    this.squads.forEach((squad) => {
+      if (this.aliveUnits(squad).length) count += 1;
     });
     return count;
   }
