@@ -3247,12 +3247,12 @@ body.is-meta-open .selection-box {
   .temporary-card-empty-slot {
     flex: 0 0 116px;
     width: 116px;
-    height: 194px;
+    height: 179px;
   }
 
   .card-face {
     padding: 10px 8px 8px;
-    grid-template-rows: auto minmax(43px, 1fr) minmax(15px, auto) 64px;
+    grid-template-rows: auto minmax(43px, 1fr) minmax(15px, auto) 49px;
     gap: 7px;
   }
 
@@ -3284,9 +3284,9 @@ body.is-meta-open .selection-box {
   }
 
   .card-text {
-    height: 64px;
-    min-height: 64px;
-    max-height: 64px;
+    height: 49px;
+    min-height: 49px;
+    max-height: 49px;
     padding: 5px 6px;
     line-height: 1.25;
   }
@@ -3316,7 +3316,7 @@ body.is-meta-open .selection-box {
   }
 
   .energy-panel {
-    bottom: calc(150px + env(safe-area-inset-bottom));
+    bottom: calc(135px + env(safe-area-inset-bottom));
     width: min(310px, calc((100vw - 112px) / var(--mobile-ui-scale)));
     padding: 6px 8px 7px;
   }
@@ -3331,7 +3331,7 @@ body.is-meta-open .selection-box {
   }
 
   .game-hint-panel {
-    bottom: calc(340px + env(safe-area-inset-bottom));
+    bottom: calc(325px + env(safe-area-inset-bottom));
     width: min(310px, calc((100vw - 112px) / var(--mobile-ui-scale)));
     min-height: 24px;
     padding: 4px 8px 5px;
@@ -3346,19 +3346,19 @@ body.is-meta-open .selection-box {
   .pile-button.is-draw {
     left: 8px;
     right: auto;
-    bottom: calc(206px + env(safe-area-inset-bottom));
+    bottom: calc(191px + env(safe-area-inset-bottom));
   }
 
   .pile-button.is-discard {
     left: 8px;
     right: auto;
-    bottom: calc(150px + env(safe-area-inset-bottom));
+    bottom: calc(135px + env(safe-area-inset-bottom));
     transform-origin: left bottom;
   }
 
   .game-command-dock {
     left: 8px;
-    bottom: calc(262px + env(safe-area-inset-bottom));
+    bottom: calc(247px + env(safe-area-inset-bottom));
     display: grid;
     gap: 4px;
     transform: scale(var(--mobile-ui-scale));
@@ -3372,7 +3372,7 @@ body.is-meta-open .selection-box {
   }
 
   .temporary-card-slot {
-    bottom: calc(206px + env(safe-area-inset-bottom));
+    bottom: calc(191px + env(safe-area-inset-bottom));
     transform: translateX(-50%) scale(0.62);
     transform-origin: bottom center;
   }
@@ -3380,7 +3380,7 @@ body.is-meta-open .selection-box {
   .temporary-card-slot .temporary-card-empty-slot,
   .temporary-card-slot .card {
     width: 116px;
-    height: 194px;
+    height: 179px;
   }
 
   .mobile-action-dock {

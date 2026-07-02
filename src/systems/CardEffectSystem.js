@@ -78,10 +78,11 @@ export class CardEffectSystem {
     if (!targetUnit) return false;
     const buffId = effect.buffId ?? card.enchantmentId;
     const cardLevel = Math.max(1, Math.floor(card.level ?? 1));
+    const applyLevel = card.kind === 'enchant' ? cardLevel + 1 : cardLevel;
     const buff = this.game.buffs.applyBuff(targetUnit, buffId, null, {
       sourceCard: card.id,
-      level: cardLevel,
-      levelIncrement: cardLevel + 1
+      level: applyLevel,
+      levelIncrement: applyLevel
     });
     const definition = buff ?? BUFF_DEFINITIONS[buffId];
     this.game.effects.spawnRing(targetUnit.position, definition?.color ?? card.color, 0.85, 0.6);
