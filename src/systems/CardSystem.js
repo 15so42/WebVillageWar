@@ -8,6 +8,7 @@ const HAND_SIZE = 5;
 const INITIAL_ENERGY = 5;
 const MAX_ENERGY = 10;
 const ENERGY_REGEN_SECONDS = 5;
+const TEMPORARY_CARD_LIMIT = 3;
 const PLAY_DRAG_RATIO = 0.5;
 const DISCARD_DRAG_RATIO = 0.3;
 const DISCARD_FALL_DELAY_MS = 2000;
@@ -34,7 +35,7 @@ export class CardSystem {
     this.drawPile = shuffleCards([...this.cards]);
     this.discardPile = [];
     this.handCards = [];
-    this.temporaryCard = null;
+    this.temporaryCards = [];
     this.pendingDrawAnimations = new Set();
     this.drag = null;
     this.raycaster = new THREE.Raycaster();
@@ -64,7 +65,7 @@ export class CardSystem {
     this.drawToFullHand();
     this.updateEnergyUi(true);
     this.renderHand();
-    this.renderTemporaryCard();
+    this.renderTemporaryCards();
     this.updatePileUi();
   }
 
@@ -105,19 +106,17 @@ export class CardSystem {
     this.updateCardAffordability();
   }
 
-  renderTemporaryCard() {
+  renderTemporaryCards() {
     if (!this.temporarySlot) return;
     this.temporarySlot.innerHTML = '';
-    if (this.temporaryCard) {
+    if (this.temporaryCards.length > 0) {
       this.temporarySlot.classList.add('has-temporary-card');
-      this.temporarySlot.appendChild(this.createTemporaryCardElement());
-      this.pendingDrawAnimations.delete(this.temporaryCard);
+      this.temporaryCards.forEach((card, index) => {
+        this.temporarySlot.appendChild(this.createTemporaryCardElement(card, index));
+        this.pendingDrawAnimations.delete(card);
+      });
     } else {
       this.temporarySlot.classList.remove('has-temporary-card');
-      const empty = document.createElement('div');
-      empty.className = 'temporary-card-empty-slot';
-      empty.innerHTML = '<span>临时</span>';
-      this.temporarySlot.appendChild(empty);
     }
     this.updateCardAffordability();
   }
@@ -147,17 +146,23 @@ export class CardSystem {
       </div>
     `;
     fitCardElementText(element);
+    bindScrollableCardText(element);
+    if (isDrawn) {
+      scheduleDrawnClassCleanup(element);
+    }
     element.addEventListener('pointerenter', () => this.setHint(CARD_USAGE_HINT, 'card-hover'));
     element.addEventListener('pointerleave', () => this.clearHint('card-hover'));
     element.addEventListener('pointerdown', (event) => this.startDrag(event, card));
     return element;
   }
 
-  createTemporaryCardElement() {
-    return this.createCardElement(this.temporaryCard, -1, {
-      isDrawn: this.pendingDrawAnimations.has(this.temporaryCard),
+  createTemporaryCardElement(card, index) {
+    const element = this.createCardElement(card, -1, {
+      isDrawn: this.pendingDrawAnimations.has(card),
       location: 'temporary'
     });
+    element.dataset.temporaryIndex = String(index);
+    return element;
   }
 
   createEmptySlot() {
@@ -664,9 +669,11 @@ export class CardSystem {
       this.flashEnergyPanel();
       return false;
     }
-    if (drag.sourceLocation === 'temporary' && drag.card === this.temporaryCard) {
+    if (drag.sourceLocation === 'temporary') {
+      const index = this.temporaryCards.indexOf(drag.card);
+      if (index === -1) return false;
       this.spendEnergy(cost);
-      this.startTemporaryDiscardFall(drag);
+      this.startTemporaryDiscardFall(drag, index);
       return true;
     }
     const index = this.handCards.indexOf(drag.card);
@@ -676,13 +683,13 @@ export class CardSystem {
     return true;
   }
 
-  startTemporaryDiscardFall(drag) {
+  startTemporaryDiscardFall(drag, index) {
     const sourceElement = drag.sourceElement;
     const fallingElement = sourceElement
       ? this.createDiscardFallingElement(sourceElement)
       : null;
-    this.temporaryCard = null;
-    this.renderTemporaryCard();
+    this.temporaryCards.splice(index, 1);
+    this.renderTemporaryCards();
 
     let fallingAnimation = null;
     if (fallingElement) {
@@ -865,12 +872,13 @@ export class CardSystem {
   }
 
   moveCardToDiscard(card) {
-    if (card === this.temporaryCard) {
-      this.temporaryCard = null;
+    const temporaryIndex = this.temporaryCards.indexOf(card);
+    if (temporaryIndex !== -1) {
+      this.temporaryCards.splice(temporaryIndex, 1);
       if (card.exhaust) {
         this.game.abilities?.onCardExhausted(card);
       }
-      this.renderTemporaryCard();
+      this.renderTemporaryCards();
       this.updatePileUi();
       return true;
     }
@@ -936,10 +944,10 @@ export class CardSystem {
   addLootCard(cardDefinition) {
     if (!cardDefinition) return { added: false, location: 'none' };
     const card = createCardInstance(cardDefinition, `loot-${Date.now()}`);
-    if (!this.temporaryCard) {
-      this.temporaryCard = card;
+    if (this.temporaryCards.length < TEMPORARY_CARD_LIMIT) {
+      this.temporaryCards.push(card);
       this.pendingDrawAnimations.add(card);
-      this.renderTemporaryCard();
+      this.renderTemporaryCards();
       this.updatePileUi();
       return { added: true, location: 'temporary', card };
     }
@@ -1004,7 +1012,7 @@ export class CardSystem {
   updateCardAffordability() {
     document.querySelectorAll('#card-hand .card, #temporary-card-slot .card').forEach((element) => {
       const card = element.dataset.cardLocation === 'temporary'
-        ? this.temporaryCard
+        ? this.temporaryCards[Number(element.dataset.temporaryIndex)]
         : this.handCards[Number(element.dataset.handIndex)];
       if (!card) return;
       const canPlay = this.canSpend(cardEnergyCost(card));
@@ -1870,8 +1878,35 @@ function createGameHintPanel(anchor) {
 function fitCardElementText(element) {
   window.requestAnimationFrame(() => {
     fitTextBlock(element.querySelector('.card-name'), 15, 11);
-    fitTextBlock(element.querySelector('.card-text'), 11, 8);
+    const text = element.querySelector('.card-text');
+    fitTextBlock(text, 11, 8);
+    element.classList.toggle(
+      'has-scrollable-text',
+      Boolean(text && text.scrollHeight > text.clientHeight + 1)
+    );
   });
+}
+
+function bindScrollableCardText(element) {
+  const text = element.querySelector('.card-text');
+  if (!text) return;
+  const shouldScrollText = () => (
+    text.scrollHeight > text.clientHeight + 1 || text.scrollWidth > text.clientWidth + 1
+  );
+  text.addEventListener('pointerdown', (event) => {
+    if (!shouldScrollText()) return;
+    event.stopPropagation();
+  });
+  text.addEventListener('wheel', (event) => {
+    if (!shouldScrollText()) return;
+    event.stopPropagation();
+  }, { passive: true });
+}
+
+function scheduleDrawnClassCleanup(element) {
+  const cleanup = () => element.classList.remove('is-drawn');
+  element.addEventListener('animationend', cleanup, { once: true });
+  window.setTimeout(cleanup, 900);
 }
 
 function fitTextBlock(node, maxSize, minSize) {

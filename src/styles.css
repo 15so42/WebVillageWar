@@ -248,8 +248,8 @@ body.is-meta-open .selection-box {
 
 .game-settings-button {
   position: fixed;
-  top: 284px;
-  left: 18px;
+  top: 14px;
+  right: 14px;
   z-index: 12;
   width: 42px;
   height: 42px;
@@ -337,7 +337,7 @@ body.is-meta-open .selection-box {
 }
 
 .hud-selected {
-  top: 18px;
+  top: 70px;
   right: 18px;
   width: min(300px, calc(100vw - 36px));
   padding: 14px;
@@ -419,7 +419,11 @@ body.is-meta-open .selection-box {
   left: 50%;
   bottom: 292px;
   display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: max-content;
   place-items: center;
+  align-items: end;
+  gap: 8px;
   pointer-events: none;
   transform: translateX(-50%);
   transform-origin: bottom center;
@@ -578,7 +582,7 @@ body.is-meta-open .selection-box {
   position: fixed;
   z-index: 6;
   left: 50%;
-  bottom: 196px;
+  bottom: 222px;
   width: min(520px, calc(100vw - 34px));
   padding: 8px 10px 9px;
   border: 1px solid rgba(255, 255, 255, 0.16);
@@ -1327,7 +1331,7 @@ body.is-meta-open .selection-box {
 .card {
   position: relative;
   width: clamp(122px, 15.5vw, 148px);
-  height: 170px;
+  height: 196px;
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 8px;
   overflow: hidden;
@@ -1348,6 +1352,10 @@ body.is-meta-open .selection-box {
     transform 140ms ease,
     box-shadow 140ms ease,
     filter 140ms ease;
+}
+
+.card.has-scrollable-text {
+  touch-action: pan-y;
 }
 
 .card::before,
@@ -1484,7 +1492,7 @@ body.is-meta-open .selection-box {
 
 .card-empty-slot {
   width: clamp(122px, 15.5vw, 148px);
-  height: 170px;
+  height: 196px;
   border: 1px dashed rgba(255, 255, 255, 0.12);
   border-radius: 8px;
   pointer-events: none;
@@ -1494,7 +1502,7 @@ body.is-meta-open .selection-box {
 .temporary-card-empty-slot {
   position: relative;
   width: clamp(122px, 15.5vw, 148px);
-  height: 170px;
+  height: 196px;
   display: grid;
   place-items: center;
   border: 1px dashed rgba(255, 242, 199, 0.42);
@@ -1680,8 +1688,8 @@ body.is-meta-open .selection-box {
   height: 100%;
   padding: 10px 9px 9px;
   display: grid;
-  grid-template-rows: auto minmax(50px, 1fr) auto auto;
-  gap: 6px;
+  grid-template-rows: auto minmax(54px, 1fr) minmax(17px, auto) 50px;
+  gap: 7px;
 }
 
 .card-header {
@@ -1762,6 +1770,7 @@ body.is-meta-open .selection-box {
   font-size: 15px;
   font-weight: 900;
   line-height: 1.1;
+  min-height: 17px;
   text-shadow: 0 2px 8px rgba(0, 0, 0, 0.26);
   white-space: nowrap;
   overflow: hidden;
@@ -1779,12 +1788,26 @@ body.is-meta-open .selection-box {
   font-size: 11px;
   line-height: 1.25;
   align-self: end;
-  min-height: 31px;
-  max-height: 45px;
-  overflow: hidden;
+  height: 50px;
+  min-height: 50px;
+  max-height: 50px;
+  margin-top: 2px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
   padding: 6px 7px;
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.13);
+}
+
+.card-text::-webkit-scrollbar {
+  width: 3px;
+}
+
+.card-text::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.25);
 }
 
 .drag-ghost {
@@ -2656,7 +2679,7 @@ body.is-meta-open .selection-box {
   .card-empty-slot,
   .temporary-card-empty-slot {
     width: clamp(122px, 15.5vw, 148px);
-    height: 170px;
+    height: 196px;
   }
 
   .card-face {
@@ -2691,7 +2714,7 @@ body.is-meta-open .selection-box {
   }
 
   .card-text {
-    min-height: 31px;
+    min-height: 50px;
     padding: 6px 7px;
   }
 
@@ -2744,8 +2767,9 @@ body.is-meta-open .selection-box {
 
 @media (max-width: 760px) {
   .game-settings-button {
-    top: 238px;
-    left: 10px;
+    top: 10px;
+    right: 10px;
+    left: auto;
     width: 38px;
     height: 38px;
     font-size: 19px;
@@ -2760,7 +2784,7 @@ body.is-meta-open .selection-box {
   }
 
   .hud-selected {
-    top: 10px;
+    top: 58px;
     right: 10px;
     width: calc(100vw - 240px);
     min-width: 128px;
@@ -2792,7 +2816,7 @@ body.is-meta-open .selection-box {
   .card-empty-slot,
   .temporary-card-empty-slot {
     width: clamp(96px, 15.2vw, 122px);
-    height: 150px;
+    height: 176px;
   }
 
   .energy-panel {
@@ -2861,12 +2885,12 @@ body.is-meta-open .selection-box {
 
   .card {
     width: 116px;
-    height: 148px;
+    height: 176px;
   }
 
   .card-empty-slot {
     width: 116px;
-    height: 148px;
+    height: 176px;
   }
 
   .card-face {
@@ -2905,7 +2929,7 @@ body.is-meta-open .selection-box {
   }
 
   .card-text {
-    min-height: 27px;
+    min-height: 50px;
     padding: 5px 6px;
   }
 
@@ -2965,7 +2989,7 @@ body.is-meta-open .selection-box {
   .card-empty-slot,
   .temporary-card-empty-slot {
     width: clamp(122px, 15.5vw, 148px);
-    height: 170px;
+    height: 196px;
   }
 
   .card-face {
@@ -3000,7 +3024,7 @@ body.is-meta-open .selection-box {
   }
 
   .card-text {
-    min-height: 31px;
+    min-height: 50px;
     padding: 6px 7px;
   }
 
@@ -3212,12 +3236,12 @@ body.is-meta-open .selection-box {
   .temporary-card-empty-slot {
     flex: 0 0 116px;
     width: 116px;
-    height: 148px;
+    height: 194px;
   }
 
   .card-face {
     padding: 10px 8px 8px;
-    grid-template-rows: auto minmax(43px, 1fr) auto auto;
+    grid-template-rows: auto minmax(43px, 1fr) minmax(15px, auto) 64px;
     gap: 7px;
   }
 
@@ -3249,8 +3273,9 @@ body.is-meta-open .selection-box {
   }
 
   .card-text {
-    min-height: 27px;
-    max-height: 45px;
+    height: 64px;
+    min-height: 64px;
+    max-height: 64px;
     padding: 5px 6px;
     line-height: 1.25;
   }
@@ -3280,7 +3305,7 @@ body.is-meta-open .selection-box {
   }
 
   .energy-panel {
-    bottom: calc(118px + env(safe-area-inset-bottom));
+    bottom: calc(150px + env(safe-area-inset-bottom));
     width: min(310px, calc((100vw - 112px) / var(--mobile-ui-scale)));
     padding: 6px 8px 7px;
   }
@@ -3295,7 +3320,7 @@ body.is-meta-open .selection-box {
   }
 
   .game-hint-panel {
-    bottom: calc(276px + env(safe-area-inset-bottom));
+    bottom: calc(340px + env(safe-area-inset-bottom));
     width: min(310px, calc((100vw - 112px) / var(--mobile-ui-scale)));
     min-height: 24px;
     padding: 4px 8px 5px;
@@ -3310,19 +3335,19 @@ body.is-meta-open .selection-box {
   .pile-button.is-draw {
     left: 8px;
     right: auto;
-    bottom: calc(174px + env(safe-area-inset-bottom));
+    bottom: calc(206px + env(safe-area-inset-bottom));
   }
 
   .pile-button.is-discard {
     left: 8px;
     right: auto;
-    bottom: calc(118px + env(safe-area-inset-bottom));
+    bottom: calc(150px + env(safe-area-inset-bottom));
     transform-origin: left bottom;
   }
 
   .game-command-dock {
     left: 8px;
-    bottom: calc(230px + env(safe-area-inset-bottom));
+    bottom: calc(262px + env(safe-area-inset-bottom));
     display: grid;
     gap: 4px;
     transform: scale(var(--mobile-ui-scale));
@@ -3336,7 +3361,7 @@ body.is-meta-open .selection-box {
   }
 
   .temporary-card-slot {
-    bottom: calc(174px + env(safe-area-inset-bottom));
+    bottom: calc(206px + env(safe-area-inset-bottom));
     transform: translateX(-50%) scale(0.62);
     transform-origin: bottom center;
   }
@@ -3344,12 +3369,7 @@ body.is-meta-open .selection-box {
   .temporary-card-slot .temporary-card-empty-slot,
   .temporary-card-slot .card {
     width: 116px;
-    height: 148px;
-  }
-
-  .temporary-card-slot:not(.has-temporary-card) {
-    display: grid;
-    opacity: 0.58;
+    height: 194px;
   }
 
   .mobile-action-dock {
