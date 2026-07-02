@@ -45,6 +45,7 @@ const UNIT_MAX_FALL_SPEED = 18;
 const UNIT_CLIMB_SPEED = 3.4;
 const UNIT_MAX_SMOOTH_CLIMB_HEIGHT = 0.58;
 const UNIT_GROUND_EPSILON = 0.006;
+const MAX_ACTIVE_WAVE_SPAWNS = 4;
 const INITIAL_ATTACK_WAVE_DELAY = 18;
 const EARLY_ENEMY_WAVE_DELAY = 24;
 const SUMMON_DEPLOY_RADIUS = 7.5;
@@ -604,7 +605,10 @@ export class Game {
 
   spawnEnemyWave(wave, { orders = 'attack' } = {}) {
     const difficulty = this.effectiveDifficulty();
-    const count = Math.min(12, 2 + Math.floor(wave * 0.72) + Math.floor((difficulty - 1) * 0.45));
+    const count = Math.min(
+      MAX_ACTIVE_WAVE_SPAWNS,
+      2 + Math.floor(wave * 0.72) + Math.floor((difficulty - 1) * 0.45)
+    );
     const spawnedUnits = [];
     for (let i = 0; i < count; i += 1) {
       const offset = polarOffset(i, count, 1.2 + (i % 3) * 0.45);

@@ -77,10 +77,11 @@ export class CardEffectSystem {
   applyBuff({ card, effect, targetUnit }) {
     if (!targetUnit) return false;
     const buffId = effect.buffId ?? card.enchantmentId;
+    const cardLevel = Math.max(1, Math.floor(card.level ?? 1));
     const buff = this.game.buffs.applyBuff(targetUnit, buffId, null, {
       sourceCard: card.id,
-      level: card.level ?? 1,
-      levelIncrement: card.level ?? 1
+      level: cardLevel,
+      levelIncrement: cardLevel + 1
     });
     const definition = buff ?? BUFF_DEFINITIONS[buffId];
     this.game.effects.spawnRing(targetUnit.position, definition?.color ?? card.color, 0.85, 0.6);

@@ -38,10 +38,10 @@ export const UNIT_DEFINITIONS = {
     attackRate: 1.05,
     damage: 5,
     knockback: 4.8,
-    aggroRange: 8,
+    aggroRange: 11.2,
     weapon: {
       name: '铁剑',
-      maxDurability: 38,
+      maxDurability: 40,
       durabilityCost: 1.35
     },
     traits: [
@@ -84,10 +84,10 @@ export const UNIT_DEFINITIONS = {
     attackRate: 1.12,
     damage: 5,
     knockback: 4.2,
-    aggroRange: 8,
+    aggroRange: 11.2,
     weapon: {
       name: '铁剑',
-      maxDurability: 34,
+      maxDurability: 35,
       durabilityCost: 1.15
     }
   },
@@ -123,10 +123,10 @@ export const UNIT_DEFINITIONS = {
     attackRate: 0.96,
     damage: 5,
     knockback: 4.4,
-    aggroRange: 8,
+    aggroRange: 11.2,
     weapon: {
       name: '战斧',
-      maxDurability: 36,
+      maxDurability: 37,
       durabilityCost: 1.35
     },
     traits: [
@@ -168,11 +168,11 @@ export const UNIT_DEFINITIONS = {
     attackRate: 0.72,
     damage: 4,
     knockback: 1.45,
-    aggroRange: 10.5,
+    aggroRange: 14.7,
     projectileSpeed: 20.25,
     weapon: {
       name: '短弓',
-      maxDurability: 34,
+      maxDurability: 27,
       durabilityCost: 1
     }
   },
@@ -208,12 +208,12 @@ export const UNIT_DEFINITIONS = {
     attackRate: 1 / 3,
     damage: 12,
     knockback: 6.3,
-    aggroRange: 10.8,
+    aggroRange: 15.1,
     projectileSpeed: 16.5,
     projectileType: 'bolt',
     weapon: {
       name: '十字弩',
-      maxDurability: 38,
+      maxDurability: 29,
       durabilityCost: 1.4
     }
   },
@@ -249,7 +249,7 @@ export const UNIT_DEFINITIONS = {
     attackRate: 1 / 3,
     damage: 12,
     knockback: 2.6,
-    aggroRange: 10.6,
+    aggroRange: 14.8,
     projectileSpeed: 5.8,
     projectileType: 'waterOrb',
     projectileColor: '#65d8ff',
@@ -260,7 +260,7 @@ export const UNIT_DEFINITIONS = {
     },
     weapon: {
       name: '潮汐杖',
-      maxDurability: 40,
+      maxDurability: 22,
       durabilityCost: 1.5
     }
   },
@@ -297,7 +297,7 @@ export const UNIT_DEFINITIONS = {
     attackRate: 1.28,
     damage: 4,
     knockback: 2.4,
-    aggroRange: 9.4,
+    aggroRange: 13.2,
     dodgeChance: 0.2,
     weaponAbility: {
       rangedProjectile: {
@@ -315,7 +315,7 @@ export const UNIT_DEFINITIONS = {
     },
     weapon: {
       name: '匕首',
-      maxDurability: 32,
+      maxDurability: 28,
       durabilityCost: 0.75
     }
   },
@@ -351,7 +351,7 @@ export const UNIT_DEFINITIONS = {
     attackRate: 0.75,
     damage: 2,
     knockback: 1.8,
-    aggroRange: 6.5,
+    aggroRange: 9.1,
     support: {
       repairAura: {
         tickInterval: 7,
@@ -363,7 +363,7 @@ export const UNIT_DEFINITIONS = {
     },
     weapon: {
       name: '铁匠锤',
-      maxDurability: 40,
+      maxDurability: 32,
       durabilityCost: 0.65
     }
   },
@@ -399,7 +399,7 @@ export const UNIT_DEFINITIONS = {
     attackRate: 0.5,
     damage: 1.6,
     knockback: 0.55,
-    aggroRange: 8.8,
+    aggroRange: 12.3,
     projectileSpeed: 10.2,
     projectileType: 'holyBolt',
     projectileColor: '#bff6c7',
@@ -413,7 +413,7 @@ export const UNIT_DEFINITIONS = {
     },
     weapon: {
       name: '治疗杖',
-      maxDurability: 42,
+      maxDurability: 21,
       durabilityCost: 0.7
     },
     traits: [
@@ -456,7 +456,7 @@ export const UNIT_DEFINITIONS = {
     attackRate: 0.55,
     damage: 2.2,
     knockback: 0.85,
-    aggroRange: 9,
+    aggroRange: 12.6,
     projectileSpeed: 10.5,
     projectileType: 'holyBolt',
     projectileColor: '#e9fbff',
@@ -470,7 +470,7 @@ export const UNIT_DEFINITIONS = {
     },
     weapon: {
       name: '净化杖',
-      maxDurability: 42,
+      maxDurability: 20,
       durabilityCost: 0.7
     }
   },
@@ -506,7 +506,7 @@ export const UNIT_DEFINITIONS = {
     attackRate: 0.5,
     damage: 1.8,
     knockback: 0.7,
-    aggroRange: 8.8,
+    aggroRange: 12.3,
     projectileSpeed: 10,
     projectileType: 'holyBolt',
     projectileColor: '#b7eaff',
@@ -520,7 +520,7 @@ export const UNIT_DEFINITIONS = {
     },
     weapon: {
       name: '结界杖',
-      maxDurability: 42,
+      maxDurability: 21,
       durabilityCost: 0.7
     }
   },
@@ -559,7 +559,7 @@ export const UNIT_DEFINITIONS = {
     attackRate: 1.08,
     damage: 5,
     knockback: 0.9,
-    aggroRange: 10.2,
+    aggroRange: 14.3,
     projectileSpeed: 23.25,
     projectileType: 'arrow',
     projectileHitHeight: 3.25,
@@ -712,10 +712,10 @@ export const UNIT_DEFINITIONS = {
     attackRate: 0.82,
     damage: 4,
     knockback: 2.6,
-    aggroRange: 7,
+    aggroRange: 9.8,
     weapon: {
       name: '木棒',
-      maxDurability: 999,
+      maxDurability: 32,
       durabilityCost: 0
     }
   },
@@ -751,10 +751,10 @@ export const UNIT_DEFINITIONS = {
     attackRate: 0.42,
     damage: 12,
     knockback: 6.6,
-    aggroRange: 8.2,
+    aggroRange: 11.5,
     weapon: {
       name: '巨棒',
-      maxDurability: 999,
+      maxDurability: 42,
       durabilityCost: 0
     }
   },
@@ -791,10 +791,10 @@ export const UNIT_DEFINITIONS = {
     attackRate: 1.02,
     damage: 4,
     knockback: 1.9,
-    aggroRange: 7.5,
+    aggroRange: 10.5,
     weapon: {
       name: '锈剑',
-      maxDurability: 999,
+      maxDurability: 30,
       durabilityCost: 0
     },
     traits: [
@@ -837,12 +837,12 @@ export const UNIT_DEFINITIONS = {
     attackRate: 0.7,
     damage: 3.5,
     knockback: 0.95,
-    aggroRange: 9.5,
+    aggroRange: 13.3,
     projectileSpeed: 12.4,
     projectileColor: '#d9d0b8',
     weapon: {
       name: '骨弓',
-      maxDurability: 999,
+      maxDurability: 24,
       durabilityCost: 0
     },
     traits: [
@@ -884,7 +884,7 @@ export const UNIT_DEFINITIONS = {
     attackRate: 1 / 6,
     damage: 2.4,
     knockback: 0.55,
-    aggroRange: 9.4,
+    aggroRange: 13.2,
     projectileSpeed: 9.8,
     projectileType: 'energyOrb',
     projectileColor: '#b46aff',
@@ -897,7 +897,7 @@ export const UNIT_DEFINITIONS = {
     ],
     weapon: {
       name: '诅咒杖',
-      maxDurability: 999,
+      maxDurability: 20,
       durabilityCost: 0
     }
   },
@@ -933,10 +933,10 @@ export const UNIT_DEFINITIONS = {
     attackRate: 0.92,
     damage: 3.5,
     knockback: 2.1,
-    aggroRange: 7,
+    aggroRange: 9.8,
     weapon: {
       name: '木棒',
-      maxDurability: 999,
+      maxDurability: 28,
       durabilityCost: 0
     }
   },
@@ -972,11 +972,11 @@ export const UNIT_DEFINITIONS = {
     attackRate: 0.62,
     damage: 3.1,
     knockback: 1.05,
-    aggroRange: 9.2,
+    aggroRange: 12.9,
     projectileSpeed: 12,
     weapon: {
       name: '短弓',
-      maxDurability: 999,
+      maxDurability: 23,
       durabilityCost: 0
     }
   },
@@ -1012,10 +1012,10 @@ export const UNIT_DEFINITIONS = {
     attackRate: 0.58,
     damage: 7.2,
     knockback: 4.6,
-    aggroRange: 7.8,
+    aggroRange: 10.9,
     weapon: {
       name: '巨木棒',
-      maxDurability: 999,
+      maxDurability: 38,
       durabilityCost: 0
     }
   },
@@ -1051,10 +1051,10 @@ export const UNIT_DEFINITIONS = {
     attackRate: 1.15,
     damage: 3.8,
     knockback: 1.8,
-    aggroRange: 6.8,
+    aggroRange: 9.5,
     weapon: {
       name: '利爪',
-      maxDurability: 999,
+      maxDurability: 26,
       durabilityCost: 0
     },
     wildlife: {
@@ -1103,10 +1103,10 @@ export const UNIT_DEFINITIONS = {
     attackRate: 0.55,
     damage: 8.5,
     knockback: 5.2,
-    aggroRange: 7.5,
+    aggroRange: 10.5,
     weapon: {
       name: '巨掌',
-      maxDurability: 999,
+      maxDurability: 40,
       durabilityCost: 0
     },
     wildlife: {
@@ -1155,7 +1155,7 @@ export const UNIT_DEFINITIONS = {
     attackRate: 0.86,
     damage: 3.4,
     knockback: 1.65,
-    aggroRange: 8.1,
+    aggroRange: 11.3,
     startingBuffs: [
       {
         buffId: 'poison',
@@ -1165,7 +1165,7 @@ export const UNIT_DEFINITIONS = {
     ],
     weapon: {
       name: '毒刺',
-      maxDurability: 999,
+      maxDurability: 27,
       durabilityCost: 0
     }
   },
@@ -1201,10 +1201,10 @@ export const UNIT_DEFINITIONS = {
     attackRate: 1.05,
     damage: 3.2,
     knockback: 1.25,
-    aggroRange: 7.6,
+    aggroRange: 10.6,
     weapon: {
       name: '毒牙',
-      maxDurability: 999,
+      maxDurability: 22,
       durabilityCost: 0
     }
   },
@@ -1243,7 +1243,7 @@ export const UNIT_DEFINITIONS = {
     aggroRange: 0,
     weapon: {
       name: '卵壳',
-      maxDurability: 999,
+      maxDurability: 15,
       durabilityCost: 0
     }
   }
