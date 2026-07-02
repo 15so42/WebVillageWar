@@ -5,11 +5,14 @@ import { disposeObject3D } from '../utils/dispose.js';
 import { clamp, lerp } from '../utils/math.js';
 
 const MAX_ACTIVE_EFFECTS = 260;
+const MAX_POOLED_EFFECTS_PER_KEY = 56;
 
 export class EffectsSystem {
   constructor(scene) {
     this.scene = scene;
     this.effects = [];
+    this.effectPools = new Map();
+    this.damageNumberTextureCache = new Map();
     this.recoveryTimer = 0;
   }
 
@@ -42,23 +45,77 @@ export class EffectsSystem {
   removeEffectAt(index) {
     const effect = this.effects[index];
     if (!effect) return;
-    effect.dispose?.();
+    const shouldDispose = effect.dispose?.() !== false;
     this.scene.remove(effect.object);
-    disposeObject3D(effect.object);
+    if (shouldDispose) {
+      disposeObject3D(effect.object);
+    }
     this.effects.splice(index, 1);
   }
 
+  acquirePooledEffect(key, factory) {
+    const pool = this.effectPools.get(key);
+    const object = pool?.pop() ?? factory();
+    object.visible = true;
+    object.position.set(0, 0, 0);
+    object.rotation.set(0, 0, 0);
+    object.quaternion.identity();
+    object.scale.set(1, 1, 1);
+    object.traverse?.((child) => {
+      child.visible = true;
+    });
+    return object;
+  }
+
+  releasePooledEffect(key, object) {
+    object.visible = false;
+    object.parent?.remove(object);
+    const pool = this.effectPools.get(key) ?? [];
+    if (pool.length < MAX_POOLED_EFFECTS_PER_KEY) {
+      pool.push(object);
+      this.effectPools.set(key, pool);
+    } else {
+      disposeObject3D(object);
+    }
+    return false;
+  }
+
+  acquireParticleGroup(key, count, factory) {
+    return this.acquirePooledEffect(key, () => {
+      const group = new THREE.Group();
+      for (let i = 0; i < count; i += 1) {
+        group.add(factory());
+      }
+      return group;
+    });
+  }
+
+  destroy() {
+    while (this.effects.length > 0) {
+      this.removeEffectAt(this.effects.length - 1);
+    }
+    this.effectPools.forEach((pool) => {
+      pool.forEach((object) => disposeObject3D(object));
+    });
+    this.effectPools.clear();
+    this.damageNumberTextureCache.forEach((entry) => entry.texture.dispose());
+    this.damageNumberTextureCache.clear();
+  }
+
   spawnRing(position, color = '#ffffff', radius = 1, duration = 0.55) {
-    const ring = new THREE.Mesh(
+    const poolKey = 'ring';
+    const ring = this.acquirePooledEffect(poolKey, () => new THREE.Mesh(
       new THREE.RingGeometry(0.86, 1, 42),
-      basicMat(color, {
+      basicMat('#ffffff', {
         transparent: true,
         opacity: 0.76,
         side: THREE.DoubleSide,
         depthWrite: false,
         depthTest: false
       }).clone()
-    );
+    ));
+    ring.material.color.set(color);
+    ring.material.opacity = 0.76;
     ring.rotation.x = -Math.PI / 2;
     ring.position.set(position.x, (position.y ?? 0) + 0.08, position.z);
     ring.renderOrder = 1500;
@@ -66,7 +123,7 @@ export class EffectsSystem {
     this.addEffect(ring, duration, (_, t) => {
       ring.scale.setScalar(radius * (1 + t * 0.45));
       ring.material.opacity = 0.76 * (1 - t);
-    }, () => disposeObject3D(ring, { materials: true }));
+    }, () => this.releasePooledEffect(poolKey, ring));
   }
 
   spawnMoveDestination(position, radius = 1) {
@@ -137,27 +194,40 @@ export class EffectsSystem {
   }
 
   spawnHit(position, color = '#f6e7a0') {
-    const group = new THREE.Group();
-    for (let i = 0; i < 5; i += 1) {
-      const spark = new THREE.Mesh(
-        new THREE.DodecahedronGeometry(0.07, 0),
-        mat(color, { emissive: color, emissiveIntensity: 0.45 })
-      );
+    const poolKey = 'hit:5';
+    const group = this.acquirePooledEffect(poolKey, () => {
+      const pooledGroup = new THREE.Group();
+      for (let i = 0; i < 5; i += 1) {
+        const spark = new THREE.Mesh(
+          new THREE.DodecahedronGeometry(0.07, 0),
+          mat('#f6e7a0', { emissive: '#f6e7a0', emissiveIntensity: 0.45 })
+        );
+        spark.userData.velocity = new THREE.Vector3();
+        pooledGroup.add(spark);
+      }
+      return pooledGroup;
+    });
+    group.children.forEach((spark) => {
+      setEffectMaterialColor(spark.material, color, {
+        emissive: color,
+        emissiveIntensity: 0.45
+      });
       spark.position.copy(position);
-      spark.userData.velocity = new THREE.Vector3(
+      spark.rotation.set(0, 0, 0);
+      spark.scale.setScalar(1);
+      spark.userData.velocity.set(
         (Math.random() - 0.5) * 3,
         1 + Math.random() * 2,
         (Math.random() - 0.5) * 3
       );
-      group.add(spark);
-    }
+    });
     this.addEffect(group, 0.48, (dt, t) => {
       group.children.forEach((spark) => {
         spark.userData.velocity.y -= 5 * dt;
         spark.position.addScaledVector(spark.userData.velocity, dt);
         spark.scale.setScalar(1 - t * 0.7);
       });
-    });
+    }, () => this.releasePooledEffect(poolKey, group));
   }
 
   spawnDeathBurst(position, radius = 0.8) {
@@ -241,34 +311,15 @@ export class EffectsSystem {
     const damageType = options.damageType ?? 'normal';
     const color = options.color ?? (damageType === 'true' ? '#ffffff' : '#ff9b35');
     const stroke = options.stroke ?? '#000000';
-    const canvas = document.createElement('canvas');
-    canvas.width = options.text ? 768 : 512;
-    canvas.height = 256;
-    const context = canvas.getContext('2d');
-    context.imageSmoothingEnabled = false;
-    let fontSize = options.fontSize ?? 116;
-    context.font = `900 ${fontSize}px Arial, sans-serif`;
-    while (context.measureText(text).width > canvas.width - 72 && fontSize > 54) {
-      fontSize -= 6;
-      context.font = `900 ${fontSize}px Arial, sans-serif`;
-    }
-    context.textAlign = 'center';
-    context.textBaseline = 'middle';
-    context.lineWidth = options.strokeWidth ?? Math.max(14, Math.round(fontSize * 0.22));
-    context.lineJoin = 'round';
-    context.miterLimit = 2;
-    context.strokeStyle = stroke;
-    context.fillStyle = color;
-    context.strokeText(text, canvas.width * 0.5, 126);
-    context.fillText(text, canvas.width * 0.5, 126);
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    texture.generateMipmaps = false;
-    texture.minFilter = THREE.LinearFilter;
-    texture.magFilter = THREE.LinearFilter;
+    const textureEntry = this.getDamageNumberTexture(text, {
+      color,
+      stroke,
+      fontSize: options.fontSize ?? 116,
+      strokeWidth: options.strokeWidth,
+      wide: Boolean(options.text)
+    });
     const material = new THREE.SpriteMaterial({
-      map: texture,
+      map: textureEntry.texture,
       transparent: true,
       opacity: 1,
       depthTest: false,
@@ -282,7 +333,7 @@ export class EffectsSystem {
       position.z + (Math.random() - 0.5) * 0.28
     );
     const baseHeight = options.baseHeight ?? 0.66;
-    const baseWidth = baseHeight * (canvas.width / canvas.height);
+    const baseWidth = baseHeight * textureEntry.aspect;
     sprite.scale.set(baseWidth, baseHeight, 1);
     sprite.renderOrder = 1900;
     this.addEffect(sprite, options.duration ?? 0.82, (dt, t) => {
@@ -294,9 +345,61 @@ export class EffectsSystem {
       const fadeT = clamp((t - fadeStart) / Math.max(0.01, 1 - fadeStart), 0, 1);
       material.opacity = clamp(1 - fadeT ** 3, 0, 1);
     }, () => {
-      texture.dispose();
       material.dispose();
     });
+  }
+
+  getDamageNumberTexture(text, options) {
+    const key = [
+      text,
+      options.color,
+      options.stroke,
+      options.fontSize,
+      options.strokeWidth ?? '',
+      options.wide ? 'wide' : 'normal'
+    ].join('|');
+    const cached = this.damageNumberTextureCache.get(key);
+    if (cached) return cached;
+
+    if (this.damageNumberTextureCache.size > 96) {
+      const oldestKey = this.damageNumberTextureCache.keys().next().value;
+      const oldest = this.damageNumberTextureCache.get(oldestKey);
+      oldest?.texture.dispose();
+      this.damageNumberTextureCache.delete(oldestKey);
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = options.wide ? 768 : 512;
+    canvas.height = 256;
+    const context = canvas.getContext('2d');
+    context.imageSmoothingEnabled = false;
+    let fontSize = options.fontSize;
+    context.font = `900 ${fontSize}px Arial, sans-serif`;
+    while (context.measureText(text).width > canvas.width - 72 && fontSize > 54) {
+      fontSize -= 6;
+      context.font = `900 ${fontSize}px Arial, sans-serif`;
+    }
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.lineWidth = options.strokeWidth ?? Math.max(14, Math.round(fontSize * 0.22));
+    context.lineJoin = 'round';
+    context.miterLimit = 2;
+    context.strokeStyle = options.stroke;
+    context.fillStyle = options.color;
+    context.strokeText(text, canvas.width * 0.5, 126);
+    context.fillText(text, canvas.width * 0.5, 126);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.generateMipmaps = false;
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    const entry = {
+      texture,
+      aspect: canvas.width / canvas.height
+    };
+    this.damageNumberTextureCache.set(key, entry);
+    return entry;
   }
 
   spawnHealNumber(position, amount, options = {}) {
@@ -405,87 +508,87 @@ export class EffectsSystem {
 
   spawnPoisonParticles(target, count = 2) {
     if (!target?.position) return;
-    const group = new THREE.Group();
-    const materials = [];
+    const poolKey = `poison:${count}`;
+    const group = this.acquireParticleGroup(poolKey, count, () => createPooledParticle('#1f6f37', {
+      transparent: true,
+      opacity: 0.78,
+      emissive: '#1f6f37',
+      emissiveIntensity: 0.68,
+      depthWrite: false
+    }));
     const height = target.projectileHitHeight ?? 1.2;
-    for (let i = 0; i < count; i += 1) {
+    group.children.forEach((bubble) => {
       const color = Math.random() > 0.55 ? '#1f6f37' : (Math.random() > 0.45 ? '#2b8a44' : '#133d26');
-      const material = mat(color, {
-        transparent: true,
+      setEffectMaterialColor(bubble.material, color, {
         opacity: 0.78,
         emissive: color,
-        emissiveIntensity: 0.68,
-        depthWrite: false
-      }).clone();
-      materials.push(material);
-      const bubble = new THREE.Mesh(
-        new THREE.DodecahedronGeometry(0.032 + Math.random() * 0.05, 0),
-        material
-      );
+        emissiveIntensity: 0.68
+      });
       const angle = Math.random() * Math.PI * 2;
       const distance = Math.sqrt(Math.random()) * 0.48;
+      bubble.userData.baseScale = 0.032 + Math.random() * 0.05;
       bubble.position.set(
         target.position.x + Math.cos(angle) * distance,
         (target.position.y ?? 0) + 0.12 + Math.random() * height * 0.46,
         target.position.z + Math.sin(angle) * distance
       );
-      bubble.userData.velocity = new THREE.Vector3(
+      bubble.rotation.set(0, 0, 0);
+      bubble.scale.setScalar(bubble.userData.baseScale);
+      bubble.userData.velocity.set(
         Math.cos(angle) * (0.03 + Math.random() * 0.16),
         0.95 + Math.random() * 0.95,
         Math.sin(angle) * (0.03 + Math.random() * 0.16)
       );
-      group.add(bubble);
-    }
+    });
 
     this.addEffect(group, 0.86, (dt, t) => {
       group.children.forEach((bubble) => {
         bubble.position.addScaledVector(bubble.userData.velocity, dt);
-        bubble.scale.setScalar(1 - t * 0.42);
+        bubble.scale.setScalar(bubble.userData.baseScale * (1 - t * 0.42));
         bubble.material.opacity = 0.78 * (1 - t);
       });
-    }, () => {
-      materials.forEach((material) => material.dispose());
-    });
+    }, () => this.releasePooledEffect(poolKey, group));
   }
 
   spawnDrainParticles(target, count = 2) {
     if (!target?.position) return;
-    const group = new THREE.Group();
-    const materials = [];
+    const poolKey = `drain:${count}`;
+    const group = this.acquireParticleGroup(poolKey, count, () => createPooledParticle('#9be85c', {
+      transparent: true,
+      opacity: 0.86,
+      emissive: '#9be85c',
+      emissiveIntensity: 0.82,
+      depthWrite: false
+    }));
     const height = target.projectileHitHeight ?? 1.2;
-    for (let i = 0; i < count; i += 1) {
+    group.children.forEach((mote) => {
       const color = Math.random() > 0.55 ? '#d4ff6a' : (Math.random() > 0.45 ? '#9be85c' : '#6fbf47');
-      const material = mat(color, {
-        transparent: true,
+      setEffectMaterialColor(mote.material, color, {
         opacity: 0.86,
         emissive: color,
-        emissiveIntensity: 0.82,
-        depthWrite: false
-      }).clone();
-      materials.push(material);
-      const mote = new THREE.Mesh(
-        new THREE.DodecahedronGeometry(0.04 + Math.random() * 0.052, 0),
-        material
-      );
+        emissiveIntensity: 0.82
+      });
       const angle = Math.random() * Math.PI * 2;
       const distance = Math.sqrt(Math.random()) * 0.24;
+      mote.userData.baseScale = 0.04 + Math.random() * 0.052;
       mote.position.set(
         target.position.x + Math.cos(angle) * distance,
         (target.position.y ?? 0) + 0.28 + Math.random() * height * 0.58,
         target.position.z + Math.sin(angle) * distance
       );
-      mote.userData.velocity = new THREE.Vector3(
+      mote.rotation.set(0, 0, 0);
+      mote.scale.setScalar(mote.userData.baseScale);
+      mote.userData.velocity.set(
         Math.cos(angle) * (0.9 + Math.random() * 0.95),
         0.18 + Math.random() * 0.42,
         Math.sin(angle) * (0.9 + Math.random() * 0.95)
       );
-      mote.userData.spin = new THREE.Vector3(
+      mote.userData.spin.set(
         Math.random() * 4.5,
         Math.random() * 4.5,
         Math.random() * 4.5
       );
-      group.add(mote);
-    }
+    });
 
     this.addEffect(group, 0.68, (dt, t) => {
       group.children.forEach((mote) => {
@@ -493,12 +596,10 @@ export class EffectsSystem {
         mote.rotation.x += mote.userData.spin.x * dt;
         mote.rotation.y += mote.userData.spin.y * dt;
         mote.rotation.z += mote.userData.spin.z * dt;
-        mote.scale.setScalar(1 - t * 0.58);
+        mote.scale.setScalar(mote.userData.baseScale * (1 - t * 0.58));
         mote.material.opacity = 0.86 * (1 - t);
       });
-    }, () => {
-      materials.forEach((material) => material.dispose());
-    });
+    }, () => this.releasePooledEffect(poolKey, group));
   }
 
   spawnBleedParticles(target, count = 2) {
@@ -601,42 +702,43 @@ export class EffectsSystem {
   }
 
   spawnFireParticlesAt(position, count = 3, duration = 0.48, radius = 0.35, height = 1.1) {
-    const group = new THREE.Group();
-    const materials = [];
-    for (let i = 0; i < count; i += 1) {
+    const poolKey = `fire:${count}`;
+    const group = this.acquireParticleGroup(poolKey, count, () => createPooledParticle('#ff5d2d', {
+      transparent: true,
+      opacity: 0.92,
+      emissive: '#ff5d2d',
+      emissiveIntensity: 0.9,
+      depthWrite: false
+    }));
+    group.children.forEach((particle) => {
       const warm = Math.random();
       const color = warm > 0.48 ? '#ffd35a' : '#ff5d2d';
-      const material = mat(color, {
-        transparent: true,
+      setEffectMaterialColor(particle.material, color, {
         opacity: 0.92,
         emissive: color,
-        emissiveIntensity: 0.9,
-        depthWrite: false
-      }).clone();
-      materials.push(material);
-      const particle = new THREE.Mesh(
-        new THREE.DodecahedronGeometry(0.045 + Math.random() * 0.045, 0),
-        material
-      );
+        emissiveIntensity: 0.9
+      });
       const angle = Math.random() * Math.PI * 2;
       const distance = Math.sqrt(Math.random()) * radius;
+      particle.userData.baseScale = 0.045 + Math.random() * 0.045;
       particle.position.set(
         position.x + Math.cos(angle) * distance,
         (position.y ?? 0) + 0.28 + Math.random() * Math.max(0.3, height * 0.45),
         position.z + Math.sin(angle) * distance
       );
-      particle.userData.velocity = new THREE.Vector3(
+      particle.rotation.set(0, 0, 0);
+      particle.scale.setScalar(particle.userData.baseScale);
+      particle.userData.velocity.set(
         Math.cos(angle) * (0.16 + Math.random() * 0.42),
         2.2 + Math.random() * 1.45,
         Math.sin(angle) * (0.16 + Math.random() * 0.42)
       );
-      particle.userData.spin = new THREE.Vector3(
+      particle.userData.spin.set(
         Math.random() * 8,
         Math.random() * 8,
         Math.random() * 8
       );
-      group.add(particle);
-    }
+    });
 
     this.addEffect(group, duration, (dt, t) => {
       group.children.forEach((particle) => {
@@ -644,12 +746,10 @@ export class EffectsSystem {
         particle.rotation.x += particle.userData.spin.x * dt;
         particle.rotation.y += particle.userData.spin.y * dt;
         particle.rotation.z += particle.userData.spin.z * dt;
-        particle.scale.setScalar(1 - t * 0.72);
+        particle.scale.setScalar(particle.userData.baseScale * (1 - t * 0.72));
         particle.material.opacity = 0.92 * (1 - t);
       });
-    }, () => {
-      materials.forEach((material) => material.dispose());
-    });
+    }, () => this.releasePooledEffect(poolKey, group));
   }
 
   spawnThorns(position) {
@@ -770,4 +870,28 @@ function formatDamage(value) {
 function formatResourceAmount(value) {
   if (value >= 1) return value.toFixed(1).replace(/\.0$/, '');
   return value.toFixed(2).replace(/0$/, '').replace(/\.0$/, '');
+}
+
+function createPooledParticle(color, materialOptions = {}) {
+  const particle = new THREE.Mesh(
+    new THREE.DodecahedronGeometry(1, 0),
+    mat(color, materialOptions).clone()
+  );
+  particle.userData.velocity = new THREE.Vector3();
+  particle.userData.spin = new THREE.Vector3();
+  particle.userData.baseScale = 1;
+  return particle;
+}
+
+function setEffectMaterialColor(material, color, options = {}) {
+  material.color?.set(color);
+  if (material.emissive) {
+    material.emissive.set(options.emissive ?? color);
+  }
+  if (typeof options.emissiveIntensity === 'number') {
+    material.emissiveIntensity = options.emissiveIntensity;
+  }
+  if (typeof options.opacity === 'number') {
+    material.opacity = options.opacity;
+  }
 }

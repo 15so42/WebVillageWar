@@ -262,6 +262,7 @@ export class EnemyCommanderSystem {
       unit.target = null;
       unit.commandMoveGoal = null;
       unit.moveGoal = destination;
+      this.game.pathfinding?.clear?.(unit);
       if (order.role === 'capture' || order.role === 'hold') {
         unit.controlMode = 'guard';
         unit.guardPoint = destination.clone();

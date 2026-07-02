@@ -198,7 +198,7 @@ export class NavigationGrid {
     const endIndex = this.index(endCell.x, endCell.z);
     if (startIndex === endIndex) {
       const target = this.isWalkablePoint(end) ? cloneFlat(end) : this.cellCenter(endCell.x, endCell.z);
-      return this.hasLine(start, target) ? [target] : [this.cellCenter(startCell.x, startCell.z), target];
+      return [target];
     }
 
     const cameFrom = this.cameFrom;
@@ -258,10 +258,7 @@ export class NavigationGrid {
     ));
     if (rawPoints.length) {
       const exactEnd = cloneFlat(end);
-      const previous = rawPoints.length > 1
-        ? rawPoints[rawPoints.length - 2]
-        : cloneFlat(start);
-      rawPoints[rawPoints.length - 1] = this.isWalkablePoint(end) && this.hasLine(previous, exactEnd)
+      rawPoints[rawPoints.length - 1] = this.isWalkablePoint(end)
         ? exactEnd
         : this.cellCenter(endCell.x, endCell.z);
     }

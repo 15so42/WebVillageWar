@@ -1,25 +1,25 @@
 # 下一会话交接
 
-更新日期：2026-07-01  
+更新日期：2026-07-02  
 当前分支：`main`  
-最近提交：`ec2027d 将初始金币调整为一万`
+项目目录：`C:\Users\yangkun'\Documents\VillageWarTest`
 
 ## 项目定位
 
-这是一个 Vite + Three.js 的长期 RTS / 卡牌战斗原型。当前目标不是静态演示，而是继续扩成真实可玩的策略游戏。
+这是一个 Vite + Three.js 的长期 RTS / 卡牌战斗原型。目标是继续扩成真实可玩的策略游戏，不是静态演示。
 
 玩家在地图上通过卡牌：
 
-- 派遣单位
-- 给单位施加附魔
-- 释放区域法术
-- 建造建筑
-- 操控单位移动、停止、驻守、占领祭坛
-- 推进并摧毁敌方营地
+- 派遣单位。
+- 给单位施加附魔。
+- 释放区域法术。
+- 建造建筑。
+- 操控单位移动、停止、驻守、占领祭坛。
+- 推进并摧毁敌方营地。
 
 所有中文文件必须保持 UTF-8 编码。
 
-## 当前运行方式
+## 运行方式
 
 开发：
 
@@ -40,113 +40,117 @@ npm run build
 npm run preview
 ```
 
-Windows 后台启动 npm 时，使用 `npm.cmd`，不要直接 `Start-Process npm`。
+Windows 后台启动 npm 时，使用 `npm.cmd`。
 
-当前临时公网预览曾使用 Cloudflare Tunnel 指向本地 `dist` 静态预览，地址可能会随会话失效。新的会话如果要给用户访问，先 `npm run build`，再确认当前预览/隧道是否还在服务最新 `dist`。
+临时公网预览曾使用 Cloudflare Tunnel 指向本地静态预览，地址会随会话失效。新会话如果要给用户访问，先 `npm run build`，再确认预览/隧道是否服务最新 `dist`。
+
+## 当前架构状态
+
+最近完成了一轮战斗与寻路性能重构。核心变化：
+
+- `CombatSystem` 已缩小为伤害结算系统。
+- 单位出生/死亡通过 `UnitRegistry` 主动注册/注销。
+- 单位状态机在 `UnitLogicSystem`。
+- 单位移动由 `MovementAgent` + `MovementSystem` 处理。
+- 寻路入口是 `PathfindingSystem`，支持 worker。
+- 索敌由 `TargetingSystem` 空间网格处理。
+- 攻击延迟、攻击队列、投射物和弹体池由 `AttackSystem` 处理。
+- 导航阻挡写入 `NavigationGrid`，不要用运行时物理碰撞模拟普通移动。
+
+重点文档：
+
+- `docs/ARCHITECTURE.md`
+- `docs/WORLD_NAVIGATION.md`
+- `docs/PERFORMANCE_OPTIMIZATION.md`
 
 ## 重要入口文件
 
-- `src/data/gameData.js`：最重要的数据入口。单位、卡牌、Buff、附魔、祭坛、关卡、基础平衡数值都在这里优先扩展。
+- `src/data/gameData.js`：单位、卡牌、Buff、附魔、祭坛、关卡、基础平衡数值。
 - `src/systems/Game.js`：主循环、相机、单位生成、关卡流程、HUD、暂停、移动指令、调试快照。
 - `src/systems/CardSystem.js`：手牌、卡牌拖拽、目标选择、卡面 SVG、能量 UI、牌堆 UI。
-- `src/systems/CardEffectSystem.js`：把卡牌 effect 分发到单位、附魔、法术、建筑、战术、能力等系统。
+- `src/systems/CardEffectSystem.js`：卡牌 effect 分发。
 - `src/systems/BuffSystem.js`：附魔/Buff/DoT/吸血/格挡/爆炸/暴击/凝神等事件处理。
-- `src/systems/CombatSystem.js`：索敌、移动、普通攻击、投射物、近战、击退、支援能力。
-- `src/systems/AbilitySystem.js`：能力牌获得后的全局持续效果。
-- `src/systems/BuildingSystem.js`：建筑建造、箭塔、维修站、食堂等建筑逻辑。
+- `src/systems/CombatSystem.js`：伤害、闪避、护盾/生命、击退、死亡触发。
+- `src/systems/AttackSystem.js`：攻击事件、投射物、弹体池、命中检测。
+- `src/systems/UnitLogicSystem.js`：单位 AI 状态机。
+- `src/systems/TargetingSystem.js`：空间网格索敌。
+- `src/systems/PathfindingSystem.js`：A* 寻路和 worker 入口。
+- `src/entities/MovementAgent.js`：单位自己的移动代理。
+- `src/systems/BuildingSystem.js`：建筑建造、箭塔、维修站、食堂、信标。
 - `src/systems/AreaEffectSystem.js`：毒雾、白烟等区域持续效果。
+- `src/systems/MetaGameSystem.js`：主菜单、商店、升级、牌组、金币和局外存档。
 - `src/art/lowpoly.js`：程序化低多边形模型。
 - `src/art/visualRegistry.js`：模型、弹体、法术视觉的注册和分发。
-- `src/systems/MetaGameSystem.js`：主菜单、商店、升级、牌组、金币和局外存档。
 
-## 最近已经完成的主要内容
+## 玩法现状摘要
 
-### 策略和卡牌
+已接入的主要系统：
 
-- 新增多张战术牌：获得能量、消耗手牌、升级手牌等。
-- 新增能力牌系统，能力图标显示在能量条上方。
-- 能力效果支持叠加，包括消耗回能、周期回能、附魔重复释放、友军死亡爆炸、建筑耐久加成、随机治疗、胜利金币加成。
-- 卡牌背景颜色按卡牌类型区分，而不是按效果类型区分。
-- 法术改为敌我双方都会受到伤害或效果。
+- 单位：剑士、骑士、弓兵、弩手、盗贼、水法师、牧师、矮人工匠等。
+- 建筑：箭塔、维修站、食堂、信标。
+- 附魔：火焰、毒、恢复、灵盾、格挡、不死鸟、灵武、噬魂、吸血、汲取、爆炸、暴击、凝神等。
+- 法术：范围法术会影响敌我双方。
+- 能力牌：消耗回能、周期回能、附魔重复释放、友军死亡爆炸、建筑耐久加成、随机治疗、胜利金币加成。
+- 关卡：雪原、沙漠、地牢等关卡有不同阻挡和战术逻辑。
+- 初始金币：`10000`。
 
-### 单位
+## 性能注意事项
 
-- 盗贼：首次远程飞刀，之后近战，普通攻击伤害有闪避判定。
-- 弩手：较慢攻击速度、高伤害、较强击退。
-- 水法师：发射穿透水球，同一水球只伤害同单位一次。
-- 医师已改名为牧师，并对亡灵普通攻击伤害翻倍。
-- 矮人工匠：每 7 秒为周围一个单位恢复 5 耐久。
+不要重新引入这些模式：
 
-### 建筑
+- 每帧全局扫描所有单位做死亡清理、索敌或建筑影响。
+- 在索敌阶段跑 A*。
+- 目的地没变仍然反复寻路。
+- 普通移动时用基地/建筑碰撞推开来模拟可行走。
+- 每次命中创建新的 canvas、texture、geometry、material 或 DOM。
+- 把投射物、移动、索敌和伤害都塞回 `CombatSystem`。
 
-- 箭塔：30 秒建造，骨架显现式建造表现，建成后自动攻击。
-- 维修站：消耗自身耐久恢复周围单位武器耐久。
-- 食堂：消耗自身耐久恢复周围单位生命。
-- 信标：派遣单位只能在基地或信标附近释放；信标只能放在友方单位附近。
-- 建筑耐久消耗完会自毁。
+当前 profiler 需要区分父级和子级：
 
-### 附魔和 Buff
+- `单位循环总计` 是父级汇总。
+- 投射物拆分为飞行、位置应用、查询、命中、回收。
+- combat 行应只代表伤害流程。
 
-- 格挡：先于保护触发，根据当前格挡耐久百分比抵消普通攻击伤害。
-- 不死鸟、灵武、噬魂、吸血、汲取、爆炸、暴击、凝神等附魔已接入。
-- 闪避只作用于普通攻击，不闪避 Buff/DoT/法术等非普通攻击伤害。
-- 恢复和灵盾效果已减半：
-  - 恢复每级回血 `0.5 -> 0.25`
-  - 灵盾每级最大护盾 `1 -> 0.5`
-  - 灵盾每级回盾 `0.3 -> 0.15`
+## Codex Skill
 
-### 地图和 AI
+已创建本机全局 skill：
 
-- 敌方指挥 AI 已不是只冲玩家，会根据关卡尝试占领祭坛、要道集结、推进。
-- 每关战术不同；沙漠敌人不需要抢阴影，因为敌人不受阳光灼烧。
-- 沙漠阳光对玩家单位的伤害已降低 80%。
-- 沙漠柱子、雪原树木是不可行走区域。
-- 所有关卡可按 `N` 显示可行走区域。
+```txt
+C:\Users\yangkun'\.codex\skills\village-war-browser-rts
+```
 
-### 手机和 PWA
+用途：做 Village War 风格的 Three.js RTS / 卡牌游戏时，复用架构、性能排查、导航和玩法扩展规则。
 
-- 手机端默认拖动移动视角，点击等同右键设置目的地。
-- 左下角“框选”按钮：按住后拖动就是框选单位。
-- 框选按钮不可选中文字。
-- 手机端和主菜单整体按 80% 缩放。
-- 横屏 UI 已适配：手牌、能量条、HUD、牌堆、框选按钮不再挤在一起。
-- 右侧移动端工具按钮：
-  - `横屏`
-  - `全屏`
-  - `PWA`
-- 已补 PWA 基础文件：
-  - `public/manifest.webmanifest`
-  - `public/pwa-icon.svg`
-  - `public/sw.js`
+重要文件：
 
-注意：手机浏览器不能被网页无条件强制全屏或强制横屏。全屏/横屏需要用户手势，且部分浏览器不支持。PWA 最稳的方式是用户通过浏览器菜单“添加到主屏幕”。
+- `SKILL.md`
+- `references/performance-playbook.md`
 
-### 局外进度
-
-- 初始金币已调整为 `10000`。
-- 旧存档会一次性补到至少 `10000`，之后玩家花掉金币不会每次刷新自动回满。
-- 迁移字段在 `MetaGameSystem` 里：`startingCoinsVersion`。
+注意：`quick_validate.py` 依赖 `PyYAML`，当前系统 Python 环境没有安装该包；如果需要跑官方校验，先安装或换有 PyYAML 的 Python 环境。
 
 ## 当前验证方式
 
 推荐每次改动后至少跑：
 
 ```powershell
-node --check src\systems\Game.js
+node --check <changed-js-file>
 npm run build
 ```
 
 如果只改某个 JS 文件，先对该文件跑 `node --check`。
 
-当前 `npm run build` 会通过，但 Vite 会提示大 chunk 警告。这是已知问题，暂时不是阻塞错误。
+当前 `npm run build` 可能提示 Vite 大 chunk warning，这是已知警告，不等于构建失败。
 
 浏览器验证优先看：
 
-- 主菜单是否显示金币、商店、升级、牌组。
-- 战斗界面是否能进入关卡。
-- 手机横屏下 HUD、能量条、手牌、框选按钮是否不重叠。
-- 拖动视角、点击设置目的地、按住框选按钮拖动框选是否可用。
-- PWA manifest 是否能从 `/manifest.webmanifest` 访问。
+- 主菜单、商店、牌组、金币是否正常。
+- 战斗界面能否进入关卡。
+- 单位模型是否可见。
+- 单位能否移动、索敌、攻击。
+- 近战、远程、水球穿透、盗贼飞刀是否仍正常。
+- 击退后单位能否恢复移动。
+- `N` 可行走调试是否显示树、柱子、墙、基地、敌营、小屋等阻挡。
+- 手机端 UI 是否不重叠，卡牌是否能看清。
 
 ## 设计约定
 
@@ -160,59 +164,9 @@ npm run build
 - 建筑单位不可移动、不可被附魔、免疫效果施加。
 - 卡牌背景颜色按 `kind` 类型决定。
 
-## 可能的下一步开发
+## 新会话建议
 
-### 1. 继续平衡策略深度
-
-可优先观察：
-
-- 恢复/灵盾减半后是否仍然拖节奏。
-- 建筑是否过强，尤其箭塔、维修站、食堂、信标组合。
-- 能力牌叠加是否导致滚雪球太快。
-- PVP 前是否需要先调整费用、冷却、召唤限制。
-
-### 2. 更完整的 PVP 原型
-
-用户讨论过 PVP，但暂时不想维护官方服务器。推荐路线：
-
-第一阶段：本地 Host + WebSocket + 局域网/内网穿透。
-
-- Steam/Electron/Tauri 版里，开房玩家本机启动 WebSocket 服务。
-- 加入玩家输入局域网 IP 或内网穿透地址。
-- Host 负责房间和战斗模拟。
-- 客户端发送出牌、目标、移动等指令。
-- 缺点：Host 可以作弊，Host 断线房间结束。但适合朋友测试和早期 Steam 联机。
-
-不要第一步就做官方服务器或完整 Steamworks P2P。等 PVP 玩法验证有趣后，再考虑服务器权威模拟或 Steam Networking。
-
-### 3. Steam 上架准备
-
-当前仍是 Web 原型。若要上 Steam，建议先调研并选择：
-
-- Electron：接入简单，体积大。
-- Tauri：体积小，Rust 工具链和 WebView 兼容性要考虑。
-- 仍保留 Web/Vite 作为主开发环境，再打包桌面版。
-
-Steam 早期版本可以先不用 Steamworks 联机，只做房间码/IP 加入。
-
-## 常见坑
-
-- PowerShell 输出中文可能显示乱码，不要立刻判断文件坏了；文件要求 UTF-8。
-- 工作区可能有用户认可的未提交改动，不要随意清理或回滚。
-- `npm run build` 的 chunk warning 不是失败。
-- 手机浏览器地址栏不是游戏 UI，网页无法强行永久隐藏。
-- PWA 安装提示不是所有浏览器都会弹，尤其 iOS/部分国产浏览器。
-- Cloudflare 临时链接只适合测试访问，不等于正式部署。
-
-## 当前干净状态
-
-上一轮用户要求已完成并推送：
-
-- 初始金币调整为一万。
-- 公网临时预览已更新到当时最新构建。
-- Git 已推送到 `origin/main`。
-
-如果新会话开始时要继续开发，先运行：
+开始继续开发前先运行：
 
 ```powershell
 git status --short

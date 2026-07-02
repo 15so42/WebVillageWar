@@ -3,6 +3,7 @@ import { BUFF_DEFINITIONS } from '../data/gameData.js';
 export class BuffSystem {
   constructor(game) {
     this.game = game;
+    this.expiredBuffIds = [];
   }
 
   update(dt, units = this.getActiveUnits()) {
@@ -50,8 +51,9 @@ export class BuffSystem {
 
   updateUnitBuffs(unit, dt) {
     if (!unit?.buffs || !unit.alive) return;
-    [...unit.buffs.values()].forEach((buff) => {
-      if (!unit.buffs.has(buff.id)) return;
+    const expired = this.expiredBuffIds;
+    expired.length = 0;
+    for (const buff of unit.buffs.values()) {
       if (Number.isFinite(buff.remaining)) {
         buff.remaining -= dt;
       }
@@ -112,13 +114,15 @@ export class BuffSystem {
           buff.tickTimer = buff.tickInterval;
         }
       }
-    });
 
-    [...unit.buffs.entries()].forEach(([id, buff]) => {
       if (Number.isFinite(buff.remaining) && buff.remaining <= 0) {
-        unit.removeBuff(id);
+        expired.push(buff.id);
       }
-    });
+    }
+
+    for (let i = 0; i < expired.length; i += 1) {
+      unit.removeBuff(expired[i]);
+    }
   }
 
   runBuffEffects(owner, eventName, context) {

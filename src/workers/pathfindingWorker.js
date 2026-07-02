@@ -85,10 +85,7 @@ function findPath(message) {
     const exactEnd = isWalkablePoint(message.end)
       ? cloneFlat(message.end)
       : cellCenter(endCell.x, endCell.z);
-    const route = hasLine(message.start, exactEnd, stats)
-      ? [exactEnd]
-      : [cellCenter(startCell.x, startCell.z), exactEnd];
-    return { route, stats };
+    return { route: [exactEnd], stats };
   }
 
   cameFrom.fill(-1);
@@ -144,10 +141,7 @@ function findPath(message) {
   ));
   if (route.length) {
     const exactEnd = cloneFlat(message.end);
-    const previous = route.length > 1
-      ? route[route.length - 2]
-      : cloneFlat(message.start);
-    route[route.length - 1] = isWalkablePoint(message.end) && hasLine(previous, exactEnd, stats)
+    route[route.length - 1] = isWalkablePoint(message.end)
       ? exactEnd
       : cellCenter(endCell.x, endCell.z);
   }

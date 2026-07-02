@@ -81,10 +81,22 @@ const SPELL_FACTORIES = {
 };
 
 export function createUnitModel(type, team) {
-  const factory = UNIT_FACTORIES[type] ?? UNIT_FACTORIES.raider;
-  const root = factory({ team });
+  const root = createUnitModelRoot(type, team);
   root.userData.visualType = type;
   root.userData.animation = null;
+  return root;
+}
+
+export function prewarmUnitModelTemplates(entries = []) {
+  // Kept as a stable API for Game startup. Unit models contain nested
+  // userData object references for animation sockets, so cloning full
+  // templates is unsafe; model pooling should happen at a lower level.
+  void entries;
+}
+
+function createUnitModelRoot(type, team) {
+  const factory = UNIT_FACTORIES[type] ?? UNIT_FACTORIES.raider;
+  const root = factory({ team });
   captureAnimatedDefaults(root);
   return root;
 }

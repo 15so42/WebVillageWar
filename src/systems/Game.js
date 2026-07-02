@@ -1,13 +1,15 @@
 import * as THREE from 'three';
 import { createAttackRangeRing, createGuardFlag, createSelectionRing } from '../art/lowpoly.js';
-import { BALANCE, CARD_DEFINITIONS, LEVEL_DEFINITIONS, TEAMS } from '../data/gameData.js';
+import { BALANCE, CARD_DEFINITIONS, LEVEL_DEFINITIONS, TEAMS, UNIT_DEFINITIONS } from '../data/gameData.js';
 import { UnitEntity } from '../entities/UnitEntity.js';
+import { prewarmUnitModelTemplates } from '../art/visualRegistry.js';
 import { createWorld } from '../world/createWorld.js';
 import { BuffSystem } from './BuffSystem.js';
 import { BuildingSystem } from './BuildingSystem.js';
 import { CardEffectSystem } from './CardEffectSystem.js';
 import { CardSystem } from './CardSystem.js';
 import { CombatSystem } from './CombatSystem.js';
+import { AttackSystem } from './AttackSystem.js';
 import { EffectsSystem } from './EffectsSystem.js';
 import { AltarSystem } from './AltarSystem.js';
 import { EnemyCommanderSystem } from './EnemyCommanderSystem.js';
@@ -19,10 +21,13 @@ import { AbilitySystem } from './AbilitySystem.js';
 import { ModifierSystem } from './ModifierSystem.js';
 import { RecoverySystem } from './RecoverySystem.js';
 import { SpellSystem } from './SpellSystem.js';
+import { MovementSystem } from './MovementSystem.js';
+import { PathfindingSystem } from './PathfindingSystem.js';
+import { TargetingSystem } from './TargetingSystem.js';
+import { UnitLogicSystem } from './UnitLogicSystem.js';
+import { UnitRegistry } from './UnitRegistry.js';
 import { clamp, polarOffset } from '../utils/math.js';
-import { disposeObject3D as disposeUnitObject3D } from '../utils/dispose.js';
 
-const STRUCTURE_PUSH_PADDING = 0.18;
 const ROUTE_REPATH_DISTANCE = 1.15;
 const ROUTE_REJOIN_DISTANCE = 2.2;
 const ROUTE_WAYPOINT_RADIUS = 0.38;
@@ -37,9 +42,11 @@ const ROUTE_WORKER_MAX_PENDING = 64;
 const ROUTE_WORKER_MAX_SEARCH_CELLS = 20000;
 const ROUTE_STEERING_LOOKAHEAD_DISTANCE = 1.6;
 const ROUTE_RECOVERY_LOOKAHEAD_DISTANCE = 0.55;
-const NAV_LINE_RECHECK_COOLDOWN = 0.12;
-const NAV_LINE_RECHECK_DISTANCE = 0.55;
-const OFF_ROUTE_RECHECK_COOLDOWN = 0.18;
+const NAV_LINE_RECHECK_DISTANCE = 1.15;
+const OFF_ROUTE_RECHECK_COOLDOWN = 0.32;
+const NAV_STEERING_CACHE_SECONDS = 0.14;
+const NAV_STEERING_CACHE_POSITION_DISTANCE = 0.72;
+const NAV_STEERING_CACHE_TARGET_DISTANCE = 0.95;
 const UNIT_GRAVITY = 28;
 const UNIT_MAX_FALL_SPEED = 18;
 const UNIT_CLIMB_SPEED = 3.4;
@@ -58,7 +65,62 @@ const MOBILE_DOUBLE_TAP_MS = 360;
 const MOBILE_DOUBLE_TAP_DISTANCE = 38;
 const PERF_HISTORY_LIMIT = 120;
 const PERF_CHART_UPDATE_INTERVAL = 0.25;
+const PERF_TOP_SECTION_LIMIT = 9;
+const PERF_COMBAT_DETAIL_LIMIT = 14;
+const PERF_LABELS = {
+  abilities: '能力',
+  altars: '祭坛',
+  areaEffects: '范围效果',
+  buildings: '建筑',
+  camera: '相机',
+  card: '卡牌',
+  combat: '战斗',
+  effects: '特效',
+  enemyCommander: '敌方指挥',
+  frame: '整帧',
+  guardVisuals: '驻守标记',
+  hud: 'HUD',
+  loot: '掉落',
+  mechanics: '关卡机制',
+  navDebug: '寻路显示',
+  recovery: '恢复',
+  render: '渲染',
+  selection: '选择',
+  spiders: '蜘蛛生命周期',
+  structure: '基地/营地反馈',
+  unitVisuals: '单位视觉',
+  waveSpawn: '刷怪/生成',
+  world: '世界'
+};
+const COMBAT_PROFILE_LABELS = {
+  activeAttackMs: '当前攻击查询',
+  attackDecisionMs: '攻击/追击决策',
+  attackIndexMs: '攻击索引',
+  commandMs: '指令移动',
+  guardMs: '驻守状态',
+  immobileMs: '静止单位',
+  motionMs: '最终位移',
+  supportMs: '支援能力',
+  targetIndexMs: '索敌索引',
+  targetDecisionMs: '目标决策',
+  unitBookkeepingMs: '单位基础状态',
+  buffsMs: 'Buff 更新',
+  cleanupMs: '清理死亡',
+  collectMs: '收集单位',
+  pendingMs: '攻击队列',
+  projectilesMs: '投射物',
+  projectileFlightMs: '投射物飞行',
+  projectileMoveApplyMs: '投射物位移',
+  projectileQueryMs: '投射物查询',
+  projectileHitMs: '投射物命中',
+  projectileRecycleMs: '投射物回收',
+  separationMs: '单位分离',
+  steeringMs: '移动/寻路',
+  targetingMs: '寻敌',
+  unitsMs: '单位循环总计'
+};
 const MAX_RENDER_PIXEL_RATIO = 1.5;
+const ENABLE_REALTIME_SHADOWS = true;
 
 export class Game {
   constructor({ canvas, session = null, onLevelComplete = null, onRestart = null, onExitToMenu = null } = {}) {
@@ -84,8 +146,11 @@ export class Game {
       preserveDrawingBuffer: false
     });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_RENDER_PIXEL_RATIO));
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.enabled = ENABLE_REALTIME_SHADOWS;
+    this.renderer.shadowMap.autoUpdate = ENABLE_REALTIME_SHADOWS;
+    if (ENABLE_REALTIME_SHADOWS) {
+      this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    }
     this.worldUi = ensureWorldUiElement();
     this.cameraTarget = new THREE.Vector3(0, 4, 18);
     this.cameraOffsetDirection = new THREE.Vector3(0, 30, 37.2).normalize();
@@ -100,8 +165,9 @@ export class Game {
     this.updateCamera(0);
 
     this.clock = new THREE.Clock();
-    this.friendlyUnits = [];
-    this.enemyUnits = [];
+    this.unitRegistry = new UnitRegistry(this);
+    this.friendlyUnits = this.unitRegistry.friendlyUnits;
+    this.enemyUnits = this.unitRegistry.enemyUnits;
     this.score = 0;
     this.wave = 1;
     this.waveTimer = INITIAL_ATTACK_WAVE_DELAY;
@@ -190,8 +256,13 @@ export class Game {
     this.areaEffects = new AreaEffectSystem(this);
     this.modifiers = new ModifierSystem(this);
     this.buffs = new BuffSystem(this);
+    this.movement = new MovementSystem(this);
+    this.pathfinding = new PathfindingSystem(this);
+    this.targeting = new TargetingSystem(this);
     this.buildings = new BuildingSystem(this);
     this.combat = new CombatSystem(this);
+    this.attacks = new AttackSystem(this);
+    this.unitLogic = new UnitLogicSystem(this);
     this.spells = new SpellSystem(this);
     this.cardEffects = new CardEffectSystem(this);
     this.recovery = new RecoverySystem(this);
@@ -258,6 +329,7 @@ export class Game {
     document.body.classList.add('is-game-active');
     if (this.dom.settingsButton) this.dom.settingsButton.hidden = false;
     this.armReturnNavigationTrap();
+    prewarmUnitModelTemplates(unitModelPrewarmEntries());
 
     this.summonUnits('raider', 1, this.playerBase.position.clone().add(new THREE.Vector3(-1.4, 0, -2.2)), 0.7, {
       select: false
@@ -295,6 +367,9 @@ export class Game {
     this.enemyCommander?.destroy?.();
     this.areaEffects?.destroy?.();
     this.levelMechanics?.destroy?.();
+    this.attacks?.destroy?.();
+    this.combat?.destroy?.();
+    this.effects?.destroy?.();
     this.pathWorker?.terminate?.();
     this.pathWorker = null;
     this.pendingPathRequests.clear();
@@ -324,22 +399,27 @@ export class Game {
       this.renderer.render(this.scene, this.camera);
       return;
     }
-    this.elapsedTime += dt;
-    this.routeSearchBudget = ROUTE_SEARCHES_PER_FRAME;
-    this.waveTimer -= dt;
-    if (this.waveTimer <= 0 && this.playerBase.health > 0 && this.enemyCamp.alive) {
-      this.wave += 1;
-      this.spawnEnemyWave(this.wave, { orders: 'attack' });
-      this.waveTimer = nextEnemyWaveDelay(this.wave);
-    }
     const perf = this.perfTracker;
     if (perf) {
       perf.beginFrame(dt);
+    }
+    this.elapsedTime += dt;
+    this.routeSearchBudget = ROUTE_SEARCHES_PER_FRAME;
+    const updateWaveSpawn = () => {
+      this.waveTimer -= dt;
+      if (this.waveTimer <= 0 && this.playerBase.health > 0 && this.enemyCamp.alive) {
+        this.wave += 1;
+        this.spawnEnemyWave(this.wave, { orders: 'attack' });
+        this.waveTimer = nextEnemyWaveDelay(this.wave);
+      }
+    };
+    if (perf) {
+      this.measurePerf('waveSpawn', updateWaveSpawn);
       this.measurePerf('card', () => this.cardSystem.update(dt));
       this.measurePerf('abilities', () => this.abilities.update(dt));
       this.measurePerf('enemyCommander', () => this.enemyCommander.update(dt));
       this.measurePerf('spiders', () => this.updateSpiderLifecycle(dt));
-      this.measurePerf('combat', () => this.combat.update(dt));
+      this.measurePerf('combat', () => this.unitLogic.update(dt));
       this.measurePerf('buildings', () => this.buildings.update(dt));
       this.measurePerf('recovery', () => this.recovery.update(dt));
       this.measurePerf('altars', () => this.altars.update(dt));
@@ -360,11 +440,12 @@ export class Game {
       this.recordPerfSample();
       this.updatePerfPanel(dt);
     } else {
+      updateWaveSpawn();
       this.cardSystem.update(dt);
       this.abilities.update(dt);
       this.enemyCommander.update(dt);
       this.updateSpiderLifecycle(dt);
-      this.combat.update(dt);
+      this.unitLogic.update(dt);
       this.buildings.update(dt);
       this.recovery.update(dt);
       this.altars.update(dt);
@@ -402,10 +483,10 @@ export class Game {
       friendly: this.friendlyUnits.length,
       enemies: this.enemyUnits.length,
       effects: this.effects?.effects?.length ?? 0,
-      projectiles: this.combat?.projectiles?.length ?? 0,
-      pendingAttacks: this.combat?.pendingAttacks?.length ?? 0,
+      projectiles: this.attacks?.projectiles?.length ?? 0,
+      pendingAttacks: this.attacks?.pendingAttacks?.length ?? 0,
       navDistanceCache: this.combat?.navDistanceCache?.size ?? 0,
-      combatProfile: this.combat?.lastProfile ?? null,
+      combatProfile: this.unitLogic?.lastProfile ?? this.combat?.lastProfile ?? null,
       sceneChildren: this.scene.children.length,
       rendererGeometries: rendererInfo?.memory?.geometries ?? 0,
       rendererTextures: rendererInfo?.memory?.textures ?? 0,
@@ -484,6 +565,14 @@ export class Game {
     event.stopPropagation();
   }
 
+  registerUnit(unit) {
+    return this.unitRegistry.register(unit);
+  }
+
+  handleUnitDeath(unit, source = null) {
+    return this.unitRegistry.handleDeath(unit, source);
+  }
+
   summonUnits(type, count, point, radius = 1, options = {}) {
     const selectSpawned = options.select ?? true;
     for (let i = 0; i < count; i += 1) {
@@ -497,8 +586,7 @@ export class Game {
       });
       this.applySummonCardLevel(unit, options.sourceCard);
       this.attachUnitStatus(unit);
-      this.friendlyUnits.push(unit);
-      this.scene.add(unit.mesh);
+      this.registerUnit(unit);
       this.effects.spawnRing(unit.position, '#9dd8ff', 0.82, 0.52);
       if (selectSpawned) {
         this.selectUnit(unit);
@@ -517,8 +605,7 @@ export class Game {
     this.applySummonCardLevel(unit, options.sourceCard);
     this.abilities?.applyNewBuildingDurability(unit);
     this.attachUnitStatus(unit);
-    this.friendlyUnits.push(unit);
-    this.scene.add(unit.mesh);
+    this.registerUnit(unit);
     this.buildings.startConstruction(unit, options.buildSeconds ?? options.sourceCard?.buildSeconds ?? 30);
     this.effects.spawnRing(unit.position, '#dff8ff', 1.1, 0.62);
     this.selectUnit(unit);
@@ -623,9 +710,8 @@ export class Game {
       this.applySpiderSpawnTraits(unit, wave, difficulty, i);
       this.initializeSpiderLifecycle(unit);
       this.attachUnitStatus(unit);
-      this.enemyUnits.push(unit);
+      this.registerUnit(unit);
       spawnedUnits.push(unit);
-      this.scene.add(unit.mesh);
       if (orders === 'attack' && !this.enemyCommander) {
         this.orderEnemyAttack(unit, i, count);
       }
@@ -756,8 +842,7 @@ export class Game {
     egg.hatchTimer = SPIDER_EGG_HATCH_SECONDS;
     egg.parentSpiderId = parent.id;
     this.attachUnitStatus(egg);
-    this.enemyUnits.push(egg);
-    this.scene.add(egg.mesh);
+    this.registerUnit(egg);
     this.effects.spawnRing(egg.position, '#b6d48d', 0.56, 0.45);
   }
 
@@ -800,22 +885,15 @@ export class Game {
     this.applyEnemyDifficulty(spider, wave, difficulty);
     this.initializeSpiderLifecycle(spider);
     this.attachUnitStatus(spider);
-    this.enemyUnits.push(spider);
-    this.scene.add(spider.mesh);
+    this.registerUnit(spider);
     this.orderEnemyAttack(spider, 0, 1);
     this.effects.spawnRing(spider.position, '#78b85a', 0.72, 0.48);
   }
 
   removeEnemyUnitSilently(unit) {
     unit.alive = false;
-    const index = this.enemyUnits.indexOf(unit);
-    if (index >= 0) {
-      this.enemyUnits.splice(index, 1);
-    }
-    this.combat?.cancelPendingAttacksFor?.([unit]);
-    this.scene.remove(unit.mesh);
-    disposeUnitObject3D(unit.mesh);
-    unit.statusElement?.remove();
+    unit.isSilentRemoval = true;
+    this.unitRegistry.unregister(unit);
   }
 
   orderEnemyAttack(unit, index, total) {
@@ -848,8 +926,7 @@ export class Game {
       unit.wanderGoal = unit.spawnPoint.clone();
       unit.wanderTimer = 0;
       unit.attackTimer += index * 0.08;
-      this.enemyUnits.push(unit);
-      this.scene.add(unit.mesh);
+      this.registerUnit(unit);
       this.effects.spawnRing(unit.position, spawn.type === 'bear' ? '#9b6b45' : '#8aa0a8', 0.66, 0.5);
     });
   }
@@ -943,20 +1020,11 @@ export class Game {
       return false;
     }
 
-    if (!options.allowUnsafeSurface && !this.isPointOnSafeSurface(point)) {
+    if (!options.allowOffNavigation && this.world?.isWalkable && !this.world.isWalkable(point)) {
       return false;
     }
 
-    if (
-      !options.allowUnsafeSurface &&
-      !options.allowOffNavigation &&
-      this.world?.isWalkable &&
-      !this.world.isWalkable(point)
-    ) {
-      return false;
-    }
-
-    return !this.getStructureCollision(point);
+    return true;
   }
 
   isPointOnSafeSurface(point) {
@@ -1034,7 +1102,7 @@ export class Game {
     return stats;
   }
 
-  requestWorkerRoute(unit, position, targetPosition, startsOnNavigation) {
+  requestWorkerRoute(unit, position, targetPosition) {
     if (!this.pathWorkerReady || !this.pathWorker || !unit) return false;
     if (this.pendingPathRequests.size >= ROUTE_WORKER_MAX_PENDING) {
       unit.nextRouteRepathAt = this.elapsedTime + routeRepathCooldown(unit, ROUTE_DEFERRED_REPATH_COOLDOWN);
@@ -1065,7 +1133,7 @@ export class Game {
       end: { x: targetPosition.x, z: targetPosition.z },
       options: {
         smooth: false,
-        startRequireLine: startsOnNavigation,
+        startRequireLine: false,
         startAllowLooseFallback: true,
         endRequireLine: false,
         maxIterations: ROUTE_WORKER_MAX_SEARCH_CELLS
@@ -1107,16 +1175,21 @@ export class Game {
 
   navGridSteeringToward(position, targetPosition, unit = null, desiredDistance = 0.22) {
     if (!this.world?.findPath || !position || !targetPosition) return null;
+    if (unit) {
+      const cachedSteering = readCachedNavSteering(
+        unit,
+        position,
+        targetPosition,
+        desiredDistance,
+        this.elapsedTime
+      );
+      if (cachedSteering.hit) return cachedSteering.steering;
+    }
     const startsOnNavigation = this.isPointOnNavigationSurface(position);
-    const hasDirectNavigationLine = startsOnNavigation &&
-      this.hasNavigationLineForUnit(unit, position, targetPosition);
     if (!unit) {
-      if (hasDirectNavigationLine) {
-        return steeringFromDirectTarget(position, targetPosition, desiredDistance);
-      }
       const path = this.world.findPath(position, targetPosition, {
         smooth: false,
-        startRequireLine: startsOnNavigation,
+        startRequireLine: false,
         startAllowLooseFallback: true,
         endRequireLine: false,
         maxIterations: ROUTE_MAX_SEARCH_CELLS
@@ -1133,25 +1206,18 @@ export class Game {
       ? unit.route[unit.routeIndex ?? 0]
       : null;
     const offRoute = currentWaypoint && this.isUnitOffRoute(unit, currentWaypoint);
-    const needsRoute = !hasDirectNavigationLine && (
+    const needsRoute = (
       targetChanged ||
       !Array.isArray(unit.route) ||
       unit.route.length === 0 ||
       offRoute
     );
 
-    if (hasDirectNavigationLine) {
-      this.clearUnitRoute(unit);
-      const steering = steeringFromDirectTarget(position, targetPosition, desiredDistance);
-      unit.navSteeringTarget = setReusableVector(unit.navSteeringTarget, steering?.debugTarget);
-      return steering;
-    }
-
     if (needsRoute) {
       const canRepath = (unit.nextRouteRepathAt ?? 0) <= this.elapsedTime;
       if (canRepath) {
         if (this.shouldUseWorkerPathing()) {
-          this.requestWorkerRoute(unit, position, targetPosition, startsOnNavigation);
+          this.requestWorkerRoute(unit, position, targetPosition);
           return Array.isArray(unit.route) && unit.route.length
             ? steeringFromRoute(position, targetPosition, unit.route, {
                 desiredDistance,
@@ -1171,7 +1237,7 @@ export class Game {
         }
         const route = this.world.findPath(position, targetPosition, {
           smooth: false,
-          startRequireLine: startsOnNavigation,
+          startRequireLine: false,
           startAllowLooseFallback: true,
           endRequireLine: false,
           maxIterations: ROUTE_MAX_SEARCH_CELLS
@@ -1213,7 +1279,7 @@ export class Game {
     } else {
       unit.navSteeringTarget = null;
     }
-    return steering;
+    return writeCachedNavSteering(unit, position, targetPosition, desiredDistance, steering, this.elapsedTime);
   }
 
   consumeRouteSearchBudget(unit) {
@@ -1228,27 +1294,6 @@ export class Game {
       );
     }
     return false;
-  }
-
-  hasNavigationLineForUnit(unit, position, targetPosition) {
-    if (!this.world?.hasNavigationLine) return false;
-    if (!unit) return this.world.hasNavigationLine(position, targetPosition);
-
-    const targetChanged = !unit.navDirectLineTarget ||
-      flatDistance(unit.navDirectLineTarget, targetPosition) > NAV_LINE_RECHECK_DISTANCE;
-    const positionChanged = !unit.navDirectLinePosition ||
-      flatDistance(unit.navDirectLinePosition, position) > NAV_LINE_RECHECK_DISTANCE;
-    const shouldCheck = targetChanged ||
-      positionChanged ||
-      (unit.nextNavDirectLineCheckAt ?? 0) <= this.elapsedTime;
-
-    if (shouldCheck) {
-      unit.hasNavDirectLine = this.world.hasNavigationLine(position, targetPosition);
-      unit.nextNavDirectLineCheckAt = this.elapsedTime + NAV_LINE_RECHECK_COOLDOWN;
-      unit.navDirectLineTarget = setReusableVector(unit.navDirectLineTarget, targetPosition);
-      unit.navDirectLinePosition = setReusableVector(unit.navDirectLinePosition, position);
-    }
-    return unit.hasNavDirectLine === true;
   }
 
   isUnitOffRoute(unit, waypoint) {
@@ -1287,6 +1332,7 @@ export class Game {
     unit.pendingRouteTarget = null;
     unit.navSteeringTarget = null;
     unit.navMoveTarget = null;
+    unit.navSteeringCache = null;
     unit.nextRouteRepathAt = 0;
   }
 
@@ -1304,47 +1350,9 @@ export class Game {
     unit.nextRouteRepathAt = this.elapsedTime + routeRepathCooldown(unit, delay);
   }
 
-  getBlockingStructures() {
-    return [this.playerBase, this.enemyCamp].filter((structure) => (
-      structure?.alive !== false && structure.collisionRadius > 0
-    ));
-  }
-
-  getStructureCollision(point, padding = 0) {
-    return this.getBlockingStructures().find((structure) => {
-      const dx = point.x - structure.position.x;
-      const dz = point.z - structure.position.z;
-      return Math.hypot(dx, dz) < structure.collisionRadius + padding;
-    }) ?? null;
-  }
-
-  resolveWalkablePoint(point, padding = STRUCTURE_PUSH_PADDING) {
+  resolveWalkablePoint(point, padding = 0) {
     const resolved = point.clone();
-    for (let iteration = 0; iteration < 3; iteration += 1) {
-      let adjusted = false;
-      this.getBlockingStructures().forEach((structure) => {
-        const radius = structure.collisionRadius + padding;
-        const dx = resolved.x - structure.position.x;
-        const dz = resolved.z - structure.position.z;
-        let distance = Math.hypot(dx, dz);
-        if (distance >= radius) return;
-
-        let nx = dx;
-        let nz = dz;
-        if (distance < 0.001) {
-          nx = 0;
-          nz = structure === this.playerBase ? -1 : 1;
-          distance = 1;
-        } else {
-          nx /= distance;
-          nz /= distance;
-        }
-        resolved.x = structure.position.x + nx * radius;
-        resolved.z = structure.position.z + nz * radius;
-        adjusted = true;
-      });
-      if (!adjusted) break;
-    }
+    void padding;
     resolved.x = clamp(resolved.x, -BALANCE.battlefield.halfWidth, BALANCE.battlefield.halfWidth);
     resolved.z = clamp(resolved.z, BALANCE.battlefield.minZ, BALANCE.battlefield.maxZ);
     resolved.y = this.groundHeightAt(resolved);
@@ -1359,13 +1367,13 @@ export class Game {
     if (this.isPointWalkable(point)) return point;
     return this.resolveNearestNavigationPoint(point, {
       maxRings: 14,
-      requireSafeSurface: true
+      requireSafeSurface: false
     });
   }
 
   resolveNearestNavigationPoint(point, {
     maxRings = 12,
-    requireSafeSurface = true
+    requireSafeSurface = false
   } = {}) {
     if (!this.world?.navGrid?.nearestWalkableCell || !this.world?.navGrid?.cellCenter) return null;
     if (requireSafeSurface && !this.isPointOnSafeSurface(point)) return null;
@@ -1913,13 +1921,13 @@ export class Game {
       unit.guardRadius = null;
       if (forceMove) forceMoveUnits.push(unit);
     });
-    this.combat.cancelPendingAttacksFor(forceMoveUnits);
+    this.attacks.cancelPendingAttacksFor(forceMoveUnits);
     this.effects.spawnMoveDestination(commandCenter, formationRadius);
   }
 
   isUnitEngaged(unit) {
     return Boolean(unit.target?.alive !== false && unit.target) ||
-      Boolean(this.combat.getActiveAttackFor(unit));
+      Boolean(this.attacks.getActiveAttackFor(unit));
   }
 
   stopSelectedUnits() {
@@ -1935,7 +1943,7 @@ export class Game {
       unit.guardRadius = null;
       unit.knockbackVelocity.set(0, 0, 0);
     });
-    this.combat.cancelPendingAttacksFor(units);
+    this.attacks.cancelPendingAttacksFor(units);
   }
 
   guardSelectedUnits() {
@@ -1951,7 +1959,7 @@ export class Game {
       unit.target = null;
       this.clearUnitRoute(unit);
     });
-    this.combat.cancelPendingAttacksFor(units);
+    this.attacks.cancelPendingAttacksFor(units);
     this.effects.spawnRing(units[0].position, '#78e3ff', 0.8, 0.52);
   }
 
@@ -2297,7 +2305,7 @@ export class Game {
     const latest = this.perfHistory[this.perfHistory.length - 1] ?? null;
     if (this.dom.perfStatus) {
       this.dom.perfStatus.textContent = latest
-        ? `${formatPerfSeconds(latest.elapsedTime)} / W${latest.wave}`
+        ? `${formatPerfSeconds(latest.elapsedTime)} / W${latest.wave} / peak ${this.perfHistory.length}s`
         : 'warming up';
     }
     if (this.dom.perfStats) {
@@ -2313,31 +2321,34 @@ export class Game {
     const nav = counts.nav ?? {};
     const sections = sample.sections ?? {};
     const frameMax = sections.frame?.maxMs ?? 0;
-    const combatMax = sections.combat?.maxMs ?? 0;
-    const renderMax = sections.render?.maxMs ?? 0;
-    const worldMax = sections.world?.maxMs ?? 0;
     const effectTotal = (counts.effects ?? 0) + (counts.projectiles ?? 0);
     const combatProfile = counts.combatProfile ?? {};
     const workerText = counts.pathWorkerReady ? 'worker' : 'sync';
     const workerError = this.pathWorkerError ? `<span class="is-bad">worker error</span>` : '';
+    const topSections = profilerRowsFromSections(sections, PERF_TOP_SECTION_LIMIT, sectionPeakMap(this.perfHistory));
+    const combatRows = profilerRowsFromCombatProfile(combatProfile, PERF_COMBAT_DETAIL_LIMIT, combatPeakMap(this.perfHistory));
+    const targetSearches = profilerCounterTotal(combatProfile.targetSearches);
+    const targetQueries = profilerCounterTotal(combatProfile.targetQueries);
+    const targetCandidates = profilerCounterTotal(combatProfile.targetCandidates);
+    const moveCalls = profilerCounterTotal(combatProfile.moveCalls);
+    const separationChecks = profilerCounterTotal(combatProfile.separationChecks);
+    const separationPushes = profilerCounterTotal(combatProfile.separationPushes);
     return [
-      perfStat('FPS', sample.fps),
-      perfStat('Frame', `${frameMax}ms`),
-      perfStat('Combat', `${combatMax}ms`),
-      perfStat('UnitsMs', `${combatProfile.unitsMs ?? 0}ms`),
-      perfStat('TargetMs', `${combatProfile.targetingMs ?? 0}ms`),
-      perfStat('SteerMs', `${combatProfile.steeringMs ?? 0}ms`),
-      perfStat('SepMs', `${combatProfile.separationMs ?? 0}ms`),
-      perfStat('Render', `${renderMax}ms`),
-      perfStat('World', `${worldMax}ms`),
-      perfStat('Units', (counts.friendly ?? 0) + (counts.enemies ?? 0)),
-      perfStat('FX', effectTotal),
-      perfStat('Path', `${nav.findPath ?? 0}/${nav.expandedCells ?? 0}`),
-      perfStat('AI', `${combatProfile.targetSearches ?? 0}/${combatProfile.moveCalls ?? 0}`),
-      perfStat('Sep', `${combatProfile.separationChecks ?? 0}/${combatProfile.separationPushes ?? 0}`),
-      perfStat('Queue', counts.pendingPathRequests ?? 0),
-      perfStat('Mode', workerText),
-      workerError
+      `<div class="perf-summary">${[
+        perfStat('FPS', sample.fps),
+        perfStat('Frame Max', `${frameMax}ms`),
+        perfStat('Units', (counts.friendly ?? 0) + (counts.enemies ?? 0)),
+        perfStat('FX', effectTotal),
+        perfStat('Path', `${nav.findPath ?? 0}/${nav.expandedCells ?? 0}`),
+        perfStat('AI', `${targetSearches}/${moveCalls}`),
+        perfStat('Tgt', `${targetQueries}/${targetCandidates}`),
+        perfStat('Sep', `${separationChecks}/${separationPushes}`),
+        perfStat('Queue', counts.pendingPathRequests ?? 0),
+        perfStat('Mode', workerText),
+        workerError
+      ].filter(Boolean).join('')}</div>`,
+      profilerTableMarkup('Top Systems', topSections),
+      profilerTableMarkup('Combat Details', combatRows)
     ].filter(Boolean).join('');
   }
 
@@ -2658,6 +2669,46 @@ function steeringFromDirectTarget(position, targetPosition, desiredDistance = 0.
   };
 }
 
+function readCachedNavSteering(unit, position, targetPosition, desiredDistance, now) {
+  const cache = unit?.navSteeringCache;
+  if (!cache || cache.expiresAt <= now) return { hit: false, steering: null };
+  if (Math.abs((cache.desiredDistance ?? 0) - desiredDistance) > 0.001) {
+    return { hit: false, steering: null };
+  }
+  if (
+    flatDistance(cache.position, position) > NAV_STEERING_CACHE_POSITION_DISTANCE ||
+    flatDistance(cache.target, targetPosition) > NAV_STEERING_CACHE_TARGET_DISTANCE
+  ) {
+    return { hit: false, steering: null };
+  }
+  if (!cache.hasSteering) return { hit: true, steering: null };
+  return {
+    hit: true,
+    steering: {
+      direction: cache.direction.clone(),
+      debugTarget: cache.debugTarget.clone()
+    }
+  };
+}
+
+function writeCachedNavSteering(unit, position, targetPosition, desiredDistance, steering, now) {
+  if (!unit) return steering;
+  unit.navSteeringCache = {
+    expiresAt: now + NAV_STEERING_CACHE_SECONDS,
+    desiredDistance,
+    position: setReusableVector(unit.navSteeringCache?.position, position),
+    target: setReusableVector(unit.navSteeringCache?.target, targetPosition),
+    hasSteering: Boolean(steering),
+    direction: steering?.direction
+      ? setReusableVector(unit.navSteeringCache?.direction, steering.direction)
+      : null,
+    debugTarget: steering?.debugTarget
+      ? setReusableVector(unit.navSteeringCache?.debugTarget, steering.debugTarget)
+      : null
+  };
+  return steering;
+}
+
 function routeLookaheadPoint(position, route, lookaheadDistance, startIndex = 0) {
   let anchor = position;
   let remaining = Math.max(0.05, lookaheadDistance);
@@ -2727,6 +2778,130 @@ function initialPerfJsonEnabled() {
 
 function perfStat(label, value) {
   return `<span><b>${label}</b>${value}</span>`;
+}
+
+function unitModelPrewarmEntries() {
+  return Object.keys(UNIT_DEFINITIONS).flatMap((type) => ([
+    { type, team: TEAMS.PLAYER },
+    { type, team: TEAMS.ENEMY }
+  ]));
+}
+
+function profilerRowsFromSections(sections = {}, limit = 8, peaks = {}) {
+  return Object.entries(sections)
+    .filter(([name]) => name !== 'frame')
+    .map(([name, stat]) => ({
+      name,
+      label: PERF_LABELS[name] ?? name,
+      lastMs: stat.lastMs ?? stat.avgMs ?? 0,
+      avgMs: stat.avgMs ?? 0,
+      maxMs: stat.maxMs ?? 0,
+      peakMs: Math.max(stat.maxMs ?? 0, peaks[name] ?? 0)
+    }))
+    .sort((a, b) => (b.peakMs - a.peakMs) || (b.maxMs - a.maxMs) || (b.avgMs - a.avgMs))
+    .slice(0, limit);
+}
+
+function profilerRowsFromCombatProfile(profile = {}, limit = 8, peaks = {}) {
+  return Object.entries(COMBAT_PROFILE_LABELS)
+    .map(([key, label]) => profilerTimingRow(key, label, profile[key], peaks[key] ?? 0))
+    .filter((row) => row.maxMs > 0 || row.peakMs > 0)
+    .sort((a, b) => (b.peakMs - a.peakMs) || (b.maxMs - a.maxMs))
+    .slice(0, limit);
+}
+
+function profilerTimingRow(name, label, value, peakMs = 0) {
+  if (value && typeof value === 'object') {
+    const maxMs = Number(value.maxMs ?? value.max ?? 0);
+    return {
+      name,
+      label,
+      lastMs: Number(value.lastMs ?? value.last ?? 0),
+      avgMs: Number(value.avgMs ?? value.avg ?? 0),
+      maxMs,
+      peakMs: Math.max(maxMs, Number(peakMs) || 0)
+    };
+  }
+  const ms = Number(value ?? 0);
+  return {
+    name,
+    label,
+    lastMs: ms,
+    avgMs: ms,
+    maxMs: ms,
+    peakMs: Math.max(ms, Number(peakMs) || 0)
+  };
+}
+
+function sectionPeakMap(history = []) {
+  const peaks = {};
+  history.forEach((sample) => {
+    Object.entries(sample.sections ?? {}).forEach(([name, stat]) => {
+      peaks[name] = Math.max(peaks[name] ?? 0, stat?.maxMs ?? 0);
+    });
+  });
+  return peaks;
+}
+
+function combatPeakMap(history = []) {
+  const peaks = {};
+  history.forEach((sample) => {
+    Object.entries(sample.counts?.combatProfile ?? {}).forEach(([name, stat]) => {
+      const maxMs = stat && typeof stat === 'object' ? stat.maxMs ?? stat.max ?? 0 : Number(stat ?? 0);
+      peaks[name] = Math.max(peaks[name] ?? 0, maxMs);
+    });
+  });
+  return peaks;
+}
+
+function profilerCounterTotal(value) {
+  if (value && typeof value === 'object') {
+    return Math.round(Number(value.total ?? value.last ?? value.max ?? 0));
+  }
+  return Math.round(Number(value ?? 0));
+}
+
+function profilerTableMarkup(title, rows) {
+  if (!rows?.length) {
+    return `
+      <div class="profiler-block">
+        <div class="profiler-title">${title}</div>
+        <div class="profiler-empty">collecting...</div>
+      </div>
+    `;
+  }
+  const maxMs = Math.max(1, ...rows.map((row) => row.peakMs ?? row.maxMs));
+  return `
+    <div class="profiler-block">
+      <div class="profiler-title">${title}</div>
+      <div class="profiler-table">
+        <div class="profiler-row profiler-head">
+          <span>代码块</span><span>now</span><span>avg</span><span>max</span><span>peak</span>
+        </div>
+        ${rows.map((row) => profilerRowMarkup(row, maxMs)).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function profilerRowMarkup(row, maxMs) {
+  const peakMs = row.peakMs ?? row.maxMs;
+  const ratio = clamp(peakMs / Math.max(0.001, maxMs), 0, 1);
+  const warningClass = peakMs >= 8 ? ' is-hot' : peakMs >= 4 ? ' is-warm' : '';
+  return `
+    <div class="profiler-row${warningClass}" style="--profiler-load:${ratio}">
+      <span>${row.label}</span>
+      <span>${formatPerfMs(row.lastMs)}</span>
+      <span>${formatPerfMs(row.avgMs)}</span>
+      <span>${formatPerfMs(row.maxMs)}</span>
+      <span>${formatPerfMs(peakMs)}</span>
+    </div>
+  `;
+}
+
+function formatPerfMs(value) {
+  const number = Number(value) || 0;
+  return `${number.toFixed(number >= 10 ? 1 : 2)}ms`;
 }
 
 function formatPerfSeconds(seconds) {
@@ -2835,6 +3010,7 @@ class PerfTracker {
       nearestWalkableCell: 0,
       expandedCells: 0
     };
+    this.combatProfile = new Map();
     this.counts = null;
     this.frameStartedAt = 0;
   }
@@ -2849,11 +3025,13 @@ class PerfTracker {
     const stat = this.sections.get(name) ?? {
       total: 0,
       max: 0,
-      count: 0
+      count: 0,
+      last: 0
     };
     stat.total += ms;
     stat.max = Math.max(stat.max, ms);
     stat.count += 1;
+    stat.last = ms;
     this.sections.set(name, stat);
   }
 
@@ -2867,8 +3045,10 @@ class PerfTracker {
         this.nav[key] += counters.nav[key] ?? 0;
       });
     }
+    this.addCombatProfile(counters.combatProfile);
     this.counts = {
       ...counters,
+      combatProfile: undefined,
       nav: undefined
     };
     if (this.elapsed < this.interval) return;
@@ -2880,6 +3060,7 @@ class PerfTracker {
       sections: this.sectionSnapshot(),
       counts: {
         ...this.counts,
+        combatProfile: this.combatProfileSnapshot(),
         nav: this.navSnapshot()
       }
     };
@@ -2891,10 +3072,52 @@ class PerfTracker {
     this.sections.forEach((stat, name) => {
       sections[name] = {
         avgMs: roundPerf(stat.total / Math.max(1, stat.count)),
-        maxMs: roundPerf(stat.max)
+        maxMs: roundPerf(stat.max),
+        lastMs: roundPerf(stat.last)
       };
     });
     return sections;
+  }
+
+  addCombatProfile(profile = null) {
+    if (!profile) return;
+    Object.entries(profile).forEach(([key, value]) => {
+      if (!Number.isFinite(value)) return;
+      const stat = this.combatProfile.get(key) ?? {
+        total: 0,
+        max: 0,
+        count: 0,
+        last: 0
+      };
+      stat.total += value;
+      stat.max = Math.max(stat.max, value);
+      stat.count += 1;
+      stat.last = value;
+      this.combatProfile.set(key, stat);
+    });
+  }
+
+  combatProfileSnapshot() {
+    const profile = {};
+    this.combatProfile.forEach((stat, key) => {
+      const isTiming = key.endsWith('Ms');
+      if (isTiming) {
+        profile[key] = {
+          lastMs: roundPerf(stat.last),
+          avgMs: roundPerf(stat.total / Math.max(1, stat.count)),
+          maxMs: roundPerf(stat.max),
+          totalMs: roundPerf(stat.total)
+        };
+      } else {
+        profile[key] = {
+          last: roundPerf(stat.last),
+          avg: roundPerf(stat.total / Math.max(1, stat.count)),
+          max: roundPerf(stat.max),
+          total: roundPerf(stat.total)
+        };
+      }
+    });
+    return profile;
   }
 
   navSnapshot() {

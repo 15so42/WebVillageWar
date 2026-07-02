@@ -223,6 +223,7 @@ export class BuildingSystem {
     this.finishConstructionVisual(unit, { removeOnly: true });
     this.game.effects.spawnRing(unit.position, '#ff8c66', 1.05, 0.42);
     this.game.effects.spawnStructureDust(unit.position, Math.max(1, unit.collisionRadius ?? 1), '#d8c8a8');
+    this.game.handleUnitDeath?.(unit, null);
   }
 
   refreshBuildingSet(dt) {

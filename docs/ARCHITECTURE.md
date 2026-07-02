@@ -1,40 +1,111 @@
 # 村落战争 3D 原型架构
 
-本项目使用 Vite + Three.js，源码和文档均使用 UTF-8 编码。当前目标是把玩法原型做成可长期扩展的“卡牌驱动战斗沙盘”，后续新增卡牌、单位、附魔、法术时尽量走数据注册表，而不是把逻辑写死在输入层。
+本项目是 Vite + Three.js 的长期 RTS / 卡牌战斗原型。源码和文档必须保持 UTF-8 编码。
+
+当前架构目标是：卡牌、单位、Buff、建筑和 AI 可以继续扩展，同时战斗帧不再依赖全局扫描和“大管家式”系统。单位生命周期、索敌、移动、攻击队列、伤害结算各自独立。
 
 ## 目录职责
 
-- `src/data/gameData.js`：玩法注册表。单位、卡牌、Buff、附魔和基础数值都集中在这里。
-- `src/entities/UnitEntity.js`：单位运行时状态。包括生命、武器耐久、击退速度、Buff、附魔列表和可选中模型引用。
+- `src/data/gameData.js`：玩法注册表。单位、卡牌、Buff、附魔、关卡和基础数值优先从这里扩展。
+- `src/entities/UnitEntity.js`：单位运行时对象。持有生命、耐久、Buff、附魔、状态、目标、模型引用和移动代理。
+- `src/entities/MovementAgent.js`：单位自己的移动代理。保存目的地、路径、路径索引、击退速度和移动状态。
+- `src/systems/UnitRegistry.js`：单位生命周期注册表。单位出生主动注册，死亡主动注销。
+- `src/systems/UnitLogicSystem.js`：单位状态机更新入口。只迭代活动单位，让每个单位处理自己的决策和计时器。
+- `src/systems/TargetingSystem.js`：索敌空间网格。周期性构建局部索引，给单位和穿透弹体查询附近目标。
+- `src/systems/PathfindingSystem.js`：寻路入口。接收起点终点并返回路径，支持 worker。
+- `src/systems/MovementSystem.js`：移动批处理。负责沿路径移动、击退落点、分离和贴地。
+- `src/systems/AttackSystem.js`：攻击事件和投射物。负责攻击释放点、延迟命中、弹体池、弹体移动和命中检测。
+- `src/systems/CombatSystem.js`：伤害结算。只处理攻击上下文、闪避、格挡/保护/护盾/生命扣除、击退、受击反馈和死亡触发。
+- `src/systems/BuffSystem.js`：Buff、附魔和持续状态生命周期。负责 `modifyAttack`、`beforeDamage`、`afterDamage`、`receiveDamage`、`tick` 等事件钩子。
+- `src/systems/AttributeSet.js`：属性容器。每个属性由基础值、加法修改器列表、乘法修改器列表计算最终值。
+- `src/systems/ModifierSystem.js`：最终数值读取入口。单位和基地属性都从这里读。
 - `src/systems/CardSystem.js`：卡牌手牌 UI、拖拽、目标预览、落点合法性和卡牌释放入口。
 - `src/systems/CardEffectSystem.js`：卡牌效果分发。把 `spawn-units`、`cast-spell`、`apply-buff` 等数据效果转成系统调用。
-- `src/systems/BuffSystem.js`：Buff、附魔和持续状态生命周期。负责 `modifyAttack`、`afterDamage`、`receiveDamage`、`tick` 等事件钩子。
-- `src/systems/AttributeSet.js`：属性容器。每个属性由基础值、加法修改器列表、乘法修改器列表计算最终值。
-- `src/systems/ModifierSystem.js`：最终数值读取入口。单位和基地属性都从这里读，方便以后接减速、狂暴、光环、建筑升级。
-- `src/systems/SpellSystem.js`：法术效果入口。当前承接陨石，后续冰环、治疗雨、地刺等法术放这里。
-- `src/systems/CombatSystem.js`：索敌、移动、普通攻击、远程弹体、击退和死亡清理。具体附魔效果不写死在这里。
-- `src/systems/RecoverySystem.js`：玩家基地回复范围。单位进入范围后回复生命和武器耐久。
-- `src/systems/EffectsSystem.js`：视觉效果。陨石、命中特效、火焰、荆棘、回复粒子和范围环都在这里。
+- `src/systems/SpellSystem.js`：法术效果入口。
+- `src/systems/BuildingSystem.js`：建筑建造、箭塔、维修站、食堂、信标和建筑 tick。
+- `src/systems/RecoverySystem.js`：玩家基地回复范围。
+- `src/systems/EffectsSystem.js`：视觉效果。粒子、命中特效、伤害飘字、范围环和缓存资源都在这里。
 - `src/systems/Game.js`：组合各系统、主循环、RTS 相机与选中/指挥输入、波次、HUD 和调试状态。
-- `src/art/visualRegistry.js`：视觉资源入口。单位模型、弹体、法术模型和动画语义都通过这里转发，后续替换正式 GLB 时优先改这个文件。
-- `src/art/lowpoly.js`：低多边形程序化美术。剑士、弓兵、入侵者、基地、营地、树、石头、箭矢、选择环等模型都在这里。
-- `src/world/createWorld.js`：场景搭建。地形、道路、玩家基地、敌方营地、装饰物和灯光。
-- `docs/ASSET_PIPELINE.md`：正式模型、角色动画、特效替换的资源管线说明。
-- `docs/VFX_GUIDE.md`：浏览器内 Three.js 特效、sprite、粒子、shader 和 DOM UI 特效的制作说明。
-- `docs/CODEX_ART_WORKFLOW.md`：Codex 托管美术生产流程，明确用户不需要手动导入资源。
-- `docs/GAMEPLAY_EFFECTS.md`：卡牌、Buff、附魔、数值修正和法术的长期扩展约定。
+- `src/art/visualRegistry.js`：视觉资源入口。单位模型、弹体、法术模型和动画语义都通过这里转发。
+- `src/art/lowpoly.js`：低多边形程序化美术。
+- `src/world/createWorld.js`：场景搭建和世界导航阻挡物注册。
+- `src/world/NavigationGrid.js`：导航网格和可行走区域。
+- `docs/PERFORMANCE_OPTIMIZATION.md`：性能优化思路和排查手册。
 
 ## 核心数据流
 
-1. `CardSystem` 接收拖拽输入，使用射线检测得到地面落点或友军单位目标。
-2. 卡牌释放后交给 `CardEffectSystem`，根据 `card.effect.type` 分发到召唤、法术或 Buff。
-3. 召唤卡创建 `UnitEntity`，并把单位加入 `friendlyUnits`。
-4. 法术卡进入 `SpellSystem`，表现交给 `EffectsSystem`，伤害结算回调到 `CombatSystem`。
-5. 附魔卡通过 `BuffSystem.applyBuff()` 写入单位的 `buffs`，附魔只是 `category: 'enchantment'` 的 Buff。
-6. 普通攻击创建攻击上下文，`ModifierSystem` 从单位 `AttributeSet` 读取最终攻击力、攻速、射程、击退等数值。
-7. 附魔或 Buff 如果声明 `modifiers`，会写入目标属性的加法/乘法列表；如果声明 `effects`，则在攻击前、扣血前、攻击后、受击后或 tick 时触发加伤、减伤、点燃、反伤等非纯数值效果。
-8. 同名附魔再次施加会提升等级，单位血条下方会显示 `【附魔名等级】` 状态标签，方便后续大量附魔内容调试和识别。
-9. 每帧 `Game.tick()` 依次更新卡牌、战斗、回复、特效、HUD 和渲染。
+1. `CardSystem` 接收拖拽输入，解析地面落点、友军单位目标或区域目标。
+2. 卡牌释放后交给 `CardEffectSystem`，根据 `card.effect.type` 分发到召唤、法术、Buff、建筑、战术或能力。
+3. 召唤卡创建 `UnitEntity`，再通过 `UnitRegistry.register()` 进入生命周期集合。
+4. 新单位获得 `MovementAgent`，并进入 `UnitLogicSystem` 的单位状态机。
+5. 指挥系统或玩家输入给单位设置目的地。单位请求一次路径，之后由 `MovementAgent` 沿路径移动。
+6. `TargetingSystem` 周期性重建空间网格。单位 AI 到索敌 tick 时只查询附近候选，不扫描全场。
+7. 单位进入攻击状态后由 `AttackSystem` 创建攻击事件或投射物。
+8. 攻击命中时调用 `CombatSystem.applyAttack()` 或对应伤害入口结算。
+9. `CombatSystem` 触发 Buff 钩子、扣除护盾/耐久/生命、生成反馈，并在生命归零时触发死亡。
+10. 单位死亡通过 `UnitRegistry.handleDeath()` 注销，再通知相关系统清理目标、攻击事件、UI 和特效引用。
+
+## 单位状态机
+
+单位建议保持少量稳定状态：
+
+- `idle`：无目的地或等待下一次决策。
+- `moving`：沿当前路径去目的地，周期性索敌。
+- `chasing`：追踪当前目标。目标位置明显变化后才重新寻路。
+- `attacking`：在攻击距离内等待冷却或释放攻击事件。
+- `stunned` / `knockback`：暂停普通寻路，用击退速度移动；结束后重新进入移动或索敌。
+- `dead`：已注销，不再参与逻辑。
+
+指挥系统只设置战术目的地或目标，不直接替单位完成移动、寻路和攻击。单位自己的状态机决定何时索敌、追击、攻击或回到命令目的地。
+
+## 移动和寻路
+
+移动层只认导航网格，不模拟 Unity 物理碰撞：
+
+- 树、地牢墙、沙漠柱子、基地、敌营、小屋和类似阻挡物应注册到 `NavigationGrid` 或世界导航阻挡物。
+- `PathfindingSystem` 只负责返回路径。
+- `MovementAgent` 只沿路径移动。
+- 目的地不变、路径未阻断时，不重复寻路。
+- 被击退时清掉旧路径；击退结束后由单位 AI 请求新路径。
+- 普通移动不要重新做基地/小屋碰撞推开，也不要用运行时物理碰撞模拟可行走性。
+
+## 索敌
+
+索敌系统必须避免 O(N2)：
+
+- `TargetingSystem` 每隔一段时间重建空间网格。
+- 单位索敌时按自身索敌半径查询附近格子。
+- 候选只做简单规则排序：阵营、距离、是否可攻击、守卫半径。
+- 索敌阶段不跑 A*，不判断路径距离。
+- 穿透投射物命中也使用局部查询，不扫描所有单位。
+
+## 伤害与 Buff
+
+`CombatSystem` 只做伤害流程，不做 AI、移动、索敌和攻击队列。
+
+普通攻击契约：
+
+- 近战攻击在释放点结算。
+- 远程攻击由 `AttackSystem` 创建弹体，命中后结算。
+- 武器耐久不足时单位不会普通攻击。
+- 闪避只作用于普通攻击。
+- Buff、DoT、法术和建筑效果按自己的伤害类型进入伤害流程。
+
+Buff 实现使用事件钩子：
+
+- `modifyAttack`：攻击结算前修改伤害、击退或伤害类型。
+- `beforeDamage`：实际扣血前修改最终伤害，例如格挡、坚韧、保护。
+- `afterDamage`：成功造成伤害后触发，例如火焰、吸血、汲取。
+- `receiveDamage`：目标受到攻击后触发，例如荆棘反伤。
+- `tick`：持续状态按计时器触发，例如燃烧、中毒、治疗。
+
+属性数值使用 `AttributeSet`：
+
+```txt
+final = (base + sum(add modifiers)) * product(multiply modifiers)
+```
+
+火焰、毒、汲取、爆炸等事件效果不要硬塞成属性修改器。
 
 ## 新增卡牌
 
@@ -49,139 +120,33 @@
   summary: '范围减速',
   target: 'ground',
   radius: 3,
-  cooldown: 7,
-  damage: 8,
+  cost: 4,
   effect: {
     type: 'cast-spell',
     spellId: 'ice-nova'
   },
-  color: '#62b7d9'
+  artKey: 'spell-ice'
 }
 ```
 
 如果是已有类型：
 
-- `kind: 'summon'`：补 `effect: { type: 'spawn-units', unitType, count }`。
+- `kind: 'unit'`：补 `effect: { type: 'spawn-units', unitType, count }`。
 - `kind: 'enchant'`：补 `effect: { type: 'apply-buff', buffId }`，并在 `BUFF_DEFINITIONS` 中注册。
-- `kind: 'spell'`：补 `effect: { type: 'cast-spell', spellId }`，并在 `SpellSystem` 中注册法术处理器。
+- `kind: 'spell'`：补 `effect: { type: 'cast-spell', spellId }`，并在 `SpellSystem` 中注册处理器。
+- `kind: 'building'`：补 `effect: { type: 'build-structure', buildingType }`，并在 `BuildingSystem` 中注册。
 
-`CardSystem` 只负责输入和目标选择，不写任何具体卡牌效果。
+`CardSystem` 只负责输入、预览和目标选择，不写具体卡牌效果。
 
 ## 新增单位
 
 1. 在 `UNIT_DEFINITIONS` 增加单位数值。
 2. 在 `src/art/lowpoly.js` 增加模型工厂。
-3. 在 `src/art/visualRegistry.js` 的分发表中接入模型。
-4. 如需特殊 AI，给单位定义增加能力标签，再由 `CombatSystem` 或未来的 `AbilitySystem` 读取。
+3. 在 `src/art/visualRegistry.js` 接入模型和动画语义。
+4. 如需特殊攻击，优先接入 `AttackSystem` 或单位能力字段。
+5. 如需持续效果，优先接入 `BuffSystem` 事件。
 
-当前普通攻击契约：
-
-- 近战攻击立即结算，击退强。
-- 远程攻击生成箭矢，命中后结算，击退弱。
-- 武器耐久不足时单位不会普通攻击。
-- 基地回复范围会恢复生命和耐久。
-
-## 替换正式美术
-
-当前程序化低多边形模型是 fallback。后续换正式资源时优先走 `docs/ASSET_PIPELINE.md` 的规则：
-
-- 运行时 GLB/贴图放在 `public/assets/`。
-- 玩法代码只引用 `unit.swordsman`、`vfx.meteor` 这类稳定 key。
-- `visualRegistry` 负责把 key 变成 Three.js 模型、弹体、法术模型或动画。
-- `CombatSystem` 只调用 `playUnitAnimation(unit, 'attack')` 这类语义动画，不直接依赖 GLB clip 名。
-- 正式资源加载失败时保留 `lowpoly.js` fallback，方便长期开发中美术资源逐步替换。
-
-## 新增附魔
-
-附魔数据在 `BUFF_DEFINITIONS`，`ENCHANTMENTS` 只是兼容旧 UI 和语义的子集。当前已有：
-
-- `fire`：普通攻击命中后让目标燃烧，燃烧伤害取决于火焰附魔等级。
-- `thorns`：受到普通攻击后对攻击者反弹伤害。
-- `toughness` / `protection`：扣血前修改最终伤害。
-- `power`：通过属性修改器提高基础攻击力。
-- `poison`：命中后施加中毒，中毒 tick 造成真实伤害。
-- `recovery`：按 tick 回复生命值，回复量随恢复等级提升。
-- `spiritShield`：通过属性修改器提高最大护盾，并按 tick 获得护盾。
-
-附魔实现使用事件钩子：
-
-- `modifyAttack`：攻击结算前修改伤害、击退或伤害类型。
-- `beforeDamage`：实际扣血前修改最终伤害，例如坚韧、保护。
-- `afterDamage`：成功造成伤害后触发，例如火焰附加点燃目标、吸血回血。
-- `receiveDamage`：目标受到攻击后触发，例如荆棘反伤、护盾吸收。
-- `tick`：持续状态每隔一段时间触发，例如燃烧、中毒、治疗。
-
-当前火焰和荆棘已经迁移到 `BuffSystem`，`CombatSystem.applyAttack()` 只负责创建攻击上下文和执行伤害入口。
-
-## 属性与修改器
-
-单位和基地都拥有 `attributes`。每个属性按同一条公式得到最终值：
-
-```txt
-final = (base + sum(add modifiers)) * product(multiply modifiers)
-```
-
-常见单位属性：
-
-- `maxHealth`
-- `maxShield`
-- `moveSpeed`
-- `attackRange`
-- `attackRate`
-- `attackDamage`
-- `knockback`
-- `aggroRange`
-- `projectileSpeed`
-- `maxDurability`
-- `durabilityCost`
-
-常见基地属性：
-
-- `maxHealth`
-- `collisionRadius`
-- `attackRadius`
-- `recoveryRadius`
-- `healthPerSecond`
-- `durabilityPerSecond`
-
-Buff 或附魔增加属性时优先写 `modifiers`：
-
-```js
-{
-  stat: 'attackDamage',
-  type: 'add',
-  amountPerLevel: 2
-}
-```
-
-百分比类属性使用乘法修改器。它适合“力量祝福”“战歌”之类真的提高属性的效果，不用于火焰附魔本身：
-
-```js
-{
-  stat: 'attackDamage',
-  type: 'multiply',
-  percentPerLevel: 0.12
-}
-```
-
-`effects` 只处理非纯数值事件，例如点燃目标、反弹伤害、触发吸血或生成特殊效果。
-
-## 目标选择模式
-
-卡牌通过 `target` 控制拖拽目标：
-
-- `ground`：射线投到地面，显示圆形选取点或范围框。
-- `friendly-unit`：射线检测友军单位，显示单位高亮环。
-
-如果以后需要“框选多个单位”“路径释放”“墙体放置”，建议新增目标解析器：
-
-- `GroundPointTarget`
-- `AreaTarget`
-- `UnitTarget`
-- `BoxTarget`
-- `PathTarget`
-
-这样卡牌只声明目标类型，不关心输入细节。
+不要为了一个单位把目标选择、移动和伤害流程写回 `Game.js` 或 `CombatSystem.js`。
 
 ## 调试与验证
 
@@ -190,4 +155,11 @@ Buff 或附魔增加属性时优先写 `modifiers`：
 - `snapshot()`：返回友军、敌军、波次、基地血量、选中单位和最后释放卡牌。
 - `samplePixels()`：读取 WebGL 像素样本，用于确认画面不是空白。
 
-浏览器验证时优先使用真实本地服务器 URL，并检查 DOM/HUD、调试状态和 WebGL 像素样本。
+常用验证：
+
+```powershell
+node --check src\systems\Game.js
+npm run build
+```
+
+只改某个 JS 文件时，先对该文件跑 `node --check`。浏览器截图不稳定时，用 DOM、调试快照和像素样本替代。

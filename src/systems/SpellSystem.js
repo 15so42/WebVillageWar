@@ -37,6 +37,7 @@ export class SpellSystem {
           dir.normalize();
           unit.knockbackVelocity.addScaledVector(dir, card.knockback * (0.45 + falloff));
           unit.hitStunTimer = Math.max(unit.hitStunTimer, 0.22);
+          this.game.pathfinding?.clear?.(unit);
         }
       });
     });

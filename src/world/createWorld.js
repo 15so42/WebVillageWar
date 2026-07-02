@@ -80,11 +80,13 @@ const DUNGEON_BRIDGE_HEIGHT_BLEND_START = DUNGEON_BRIDGE_OVERHANG + DUNGEON_SAFE
 const DUNGEON_BRIDGE_HEIGHT_BLEND_DEPTH = 2.8;
 const WORLD_NAV_MESH_STEP = 0.8;
 const WORLD_NAV_EDGE_MARGIN = 0.35;
-const WORLD_NAV_PLAYER_BASE_RADIUS = 2.35;
-const WORLD_NAV_ENEMY_CAMP_RADIUS = 3.05;
+const WORLD_NAV_PLAYER_BASE_RADIUS = 2.25;
+const WORLD_NAV_ENEMY_CAMP_RADIUS = 2.65;
+const WORLD_NAV_COTTAGE_RADIUS = 1.35;
 const DESERT_SHADOW_X_PER_HEIGHT = 0.34;
 const DESERT_SHADOW_Z_PER_HEIGHT = -0.36;
 const SNOWFALL_CENTER = new THREE.Vector3();
+let activeBakedShadowBatch = null;
 
 const DEFAULT_TERRAIN_PROFILE = {
   baseHeight: 0.25,
@@ -632,18 +634,21 @@ export function createWorld(scene, worldOptions = {}) {
 
   const sun = new THREE.DirectionalLight(config.sky.sun, config.sky.sunIntensity ?? 3.55);
   sun.position.set(-44, 82, 46);
-  sun.castShadow = true;
-  const shadowMapSize = config.sky.shadowMapSize ?? 1024;
-  sun.shadow.mapSize.set(shadowMapSize, shadowMapSize);
-  sun.shadow.camera.left = -86;
-  sun.shadow.camera.right = 86;
-  sun.shadow.camera.top = 86;
-  sun.shadow.camera.bottom = -86;
+  sun.castShadow = config.sky.realtimeShadows !== false;
+  if (sun.castShadow) {
+    const shadowMapSize = config.sky.shadowMapSize ?? 1024;
+    sun.shadow.mapSize.set(shadowMapSize, shadowMapSize);
+    sun.shadow.camera.left = -86;
+    sun.shadow.camera.right = 86;
+    sun.shadow.camera.top = 86;
+    sun.shadow.camera.bottom = -86;
+  }
   scene.add(sun);
   scene.add(new THREE.HemisphereLight(config.sky.hemiSky, config.sky.hemiGround, config.sky.hemiIntensity ?? 1.85));
 
   const ground = createGroundMesh();
   scene.add(ground);
+  beginBakedGroundShadows(scene);
 
   const pathPoints = pathVectors();
   const pathGraph = config.theme === 'dungeon' ? createDungeonNavigationGraph() : null;
@@ -668,11 +673,23 @@ export function createWorld(scene, worldOptions = {}) {
   const base = createBaseModel();
   placeOnTerrain(base, basePosition.x, basePosition.z);
   base.userData.aura.scale.setScalar(BALANCE.playerBase.recoveryRadius / 5.75);
+  createBakedGroundShadow(scene, basePosition.x, basePosition.z, {
+    rx: 2.9,
+    rz: 1.75,
+    opacity: 0.2,
+    yaw: 0.08
+  });
   scene.add(base);
 
   const enemyCamp = createEnemyCampModel();
   placeOnTerrain(enemyCamp, enemyCampPosition.x, enemyCampPosition.z);
   enemyCamp.scale.setScalar(1.35);
+  createBakedGroundShadow(scene, enemyCampPosition.x, enemyCampPosition.z, {
+    rx: 3.1,
+    rz: 1.95,
+    opacity: 0.22,
+    yaw: -0.28
+  });
   scene.add(enemyCamp);
 
   if (theme === 'dungeon') {
@@ -683,6 +700,7 @@ export function createWorld(scene, worldOptions = {}) {
     decorate(scene, pathPoints);
   }
   createSnowMonsterCamp(scene);
+  flushBakedGroundShadows();
   const navGrid = createNavigationGrid();
 
   return {
@@ -2525,6 +2543,12 @@ function placeDesertLandmarkBoulders(scene, pathPoints) {
     rock.scale.set(item.sx, item.sy, item.sz);
     placeOnTerrain(rock, item.x, item.z, 0.02);
     rock.rotation.y = item.rot;
+    createBakedGroundShadow(scene, item.x, item.z, {
+      rx: 1.15 + item.size * 0.38 * (item.sx ?? 1),
+      rz: 0.62 + item.size * 0.24 * (item.sz ?? 1),
+      opacity: 0.18,
+      yaw: item.rot
+    });
     scene.add(rock);
   });
 }
@@ -2544,6 +2568,12 @@ function placeDesertBoulderClusters(scene, pathPoints, random) {
       rock.scale.z *= 0.8 + random() * 0.56;
       placeOnTerrain(rock, x, z, 0.02);
       rock.rotation.y = random() * Math.PI * 2;
+      createBakedGroundShadow(scene, x, z, {
+        rx: 0.75 + size * 0.35 * rock.scale.x,
+        rz: 0.42 + size * 0.24 * rock.scale.z,
+        opacity: 0.15,
+        yaw: rock.rotation.y
+      });
       scene.add(rock);
     }
   });
@@ -2568,6 +2598,14 @@ function placeDesertSandstoneLandmarks(scene, pathPoints, random) {
     landmark.rotation.y = item.rot ?? 0;
     landmark.scale.x *= item.sx ?? 1;
     landmark.scale.z *= item.sz ?? 1;
+    createBakedGroundShadow(scene, item.x, item.z, {
+      rx: item.kind === 'arch' ? (item.span ?? 4.8) * 0.62 : (item.radius ?? 1.3) * 1.5,
+      rz: item.kind === 'mesa' ? (item.radius ?? 2.8) * 0.72 : (item.radius ?? 1.3) * 0.82,
+      opacity: 0.22,
+      yaw: item.rot ?? 0,
+      offsetX: 0.52,
+      offsetZ: -0.42
+    });
     scene.add(landmark);
     registerDesertSandstoneNavigationBlockers(item);
   });
@@ -2800,6 +2838,14 @@ function placeCacti(scene, pathPoints, random) {
       const cactus = createCactusModel(0.75 + random() * 0.95);
       placeOnTerrain(cactus, x, z);
       cactus.rotation.y = random() * Math.PI * 2;
+      createBakedGroundShadow(scene, x, z, {
+        rx: 0.48,
+        rz: 0.28,
+        opacity: 0.14,
+        yaw: cactus.rotation.y,
+        offsetX: 0.42,
+        offsetZ: -0.42
+      });
       scene.add(cactus);
     }
   });
@@ -2837,6 +2883,12 @@ function placeForests(scene, pathPoints, random) {
       const tree = createSnowPine(height);
       placeOnTerrain(tree, x, z);
       tree.rotation.y = random() * Math.PI * 2;
+      createBakedGroundShadow(scene, x, z, {
+        rx: 0.72 + height * 0.42,
+        rz: 0.42 + height * 0.24,
+        opacity: 0.18,
+        yaw: tree.rotation.y + 0.2
+      });
       scene.add(tree);
       registerWorldNavigationBlocker(x, z, 0.42 + height * 0.24, 'snow-tree');
     }
@@ -2867,6 +2919,12 @@ function placeRocks(scene, pathPoints, random) {
     if (z < -24) {
       rock.scale.y *= 1.2;
     }
+    createBakedGroundShadow(scene, x, z, {
+      rx: 0.52 + rock.scale.x * 0.36,
+      rz: 0.34 + rock.scale.z * 0.28,
+      opacity: 0.13,
+      yaw: rock.rotation.y
+    });
     scene.add(rock);
   }
 }
@@ -2892,6 +2950,12 @@ function placeBoulderClusters(scene, pathPoints, random) {
         random() * Math.PI * 2,
         (random() - 0.5) * 0.1
       );
+      createBakedGroundShadow(scene, x, z, {
+        rx: 0.78 + size * 0.36 * rock.scale.x,
+        rz: 0.45 + size * 0.24 * rock.scale.z,
+        opacity: 0.16,
+        yaw: rock.rotation.y
+      });
       scene.add(rock);
     }
   });
@@ -2908,6 +2972,12 @@ function placeLandmarkBoulders(scene, pathPoints) {
     rock.scale.set(item.sx, item.sy, item.sz);
     placeOnTerrain(rock, item.x, item.z, 0.02);
     rock.rotation.y = item.rot;
+    createBakedGroundShadow(scene, item.x, item.z, {
+      rx: 1.05 + item.size * 0.34 * (item.sx ?? 1),
+      rz: 0.62 + item.size * 0.22 * (item.sz ?? 1),
+      opacity: 0.18,
+      yaw: item.rot
+    });
     scene.add(rock);
   });
 }
@@ -2998,6 +3068,18 @@ function placeCottages(scene) {
     placeOnTerrain(cottage, item.x, item.z);
     cottage.rotation.y = item.rot;
     cottage.scale.setScalar(item.scale);
+    registerWorldNavigationBlocker(
+      item.x,
+      item.z,
+      (item.navRadius ?? WORLD_NAV_COTTAGE_RADIUS) * (item.scale ?? 1),
+      'cottage'
+    );
+    createBakedGroundShadow(scene, item.x, item.z, {
+      rx: 1.75 * item.scale,
+      rz: 1.16 * item.scale,
+      opacity: 0.19,
+      yaw: item.rot
+    });
     scene.add(cottage);
   });
 }
@@ -3012,6 +3094,12 @@ function createSnowMonsterCamp(scene) {
   placeOnTerrain(camp, config.x, config.z, config.offset ?? 0.28);
   camp.rotation.y = config.rot ?? -0.34;
   camp.scale.setScalar(config.scale ?? 1.18);
+  createBakedGroundShadow(scene, config.x, config.z, {
+    rx: 2.4 * (config.scale ?? 1.18),
+    rz: 1.45 * (config.scale ?? 1.18),
+    opacity: 0.2,
+    yaw: config.rot ?? -0.34
+  });
   scene.add(camp);
 }
 
@@ -3432,6 +3520,93 @@ function enableDecorationShadows(root) {
     node.receiveShadow = true;
   });
   return root;
+}
+
+function beginBakedGroundShadows(scene) {
+  activeBakedShadowBatch = {
+    scene,
+    enabled: worldConfig().sky?.bakedShadows === true,
+    positions: [],
+    indices: []
+  };
+}
+
+function addBakedShadowEllipse(zone, offset = 0.058, segments = 18) {
+  const batch = activeBakedShadowBatch;
+  if (!batch?.enabled) return;
+  const baseIndex = batch.positions.length / 3;
+  batch.positions.push(
+    zone.x,
+    terrainHeightAt(zone.x, zone.z) + offset,
+    zone.z
+  );
+
+  for (let i = 0; i <= segments; i += 1) {
+    const angle = (i / segments) * Math.PI * 2;
+    const point = ellipseBoundaryPoint(zone, angle);
+    batch.positions.push(
+      point.x,
+      terrainHeightAt(point.x, point.z) + offset,
+      point.z
+    );
+  }
+
+  for (let i = 1; i <= segments; i += 1) {
+    batch.indices.push(baseIndex, baseIndex + i, baseIndex + i + 1);
+  }
+}
+
+function flushBakedGroundShadows() {
+  const batch = activeBakedShadowBatch;
+  activeBakedShadowBatch = null;
+  if (!batch?.enabled || batch.positions.length === 0) return null;
+  const theme = worldConfig().theme ?? 'snow';
+  const color = theme === 'red-desert'
+    ? '#2a1412'
+    : theme === 'dungeon'
+      ? '#050407'
+      : '#263233';
+  const opacity = theme === 'dungeon' ? 0.24 : theme === 'red-desert' ? 0.2 : 0.17;
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(batch.positions, 3));
+  geometry.setIndex(batch.indices);
+  const material = basicMat(color, {
+    transparent: true,
+    opacity,
+    side: THREE.DoubleSide,
+    depthWrite: false
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.name = 'BakedGroundShadows';
+  mesh.renderOrder = 1;
+  batch.scene.add(mesh);
+  return mesh;
+}
+
+function createBakedGroundShadow(scene, x, z, {
+  rx = 1,
+  rz = 0.55,
+  opacity = 0.16,
+  yaw = 0,
+  offsetX = null,
+  offsetZ = null
+} = {}) {
+  if (!activeBakedShadowBatch?.enabled) return null;
+  const sunOffsetX = offsetX ?? 0.28;
+  const sunOffsetZ = offsetZ ?? -0.32;
+  addBakedShadowEllipse(
+    {
+      x: x + sunOffsetX * rx,
+      z: z + sunOffsetZ * rz,
+      rx,
+      rz,
+      rot: yaw - 0.2,
+      opacity
+    },
+    0.058,
+    18
+  );
+  return activeBakedShadowBatch;
 }
 
 function cylinderBetween(start, end, radiusStart, radiusEnd, material) {
