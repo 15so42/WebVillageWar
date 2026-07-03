@@ -147,6 +147,12 @@ export class MetaGameSystem {
 
   handleDebugKeyDown(event) {
     if (event.repeat || isTextInputTarget(event.target)) return;
+    if (event.code === 'F3' || event.key === 'F3') {
+      event.preventDefault();
+      event.stopPropagation();
+      this.enterDebugScene();
+      return;
+    }
     const isDebugGoldKey = event.shiftKey && (
       event.code === 'KeyB' ||
       event.key?.toLowerCase() === 'b'
@@ -199,9 +205,7 @@ export class MetaGameSystem {
     const tabs = [
       ['levels', '选关'],
       ['shop', '商店'],
-      ['upgrades', '升级'],
-      ['animation-preview', '动画预览'],
-      ['debug-scene', 'Debug']
+      ['upgrades', '升级']
     ];
     const currencyClass = `meta-currency${this.notice ? ' is-pulse' : ''}`;
     return `

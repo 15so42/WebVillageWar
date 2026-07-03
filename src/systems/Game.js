@@ -1972,14 +1972,10 @@ export class Game {
 
   handleMobileTapCommand(event) {
     if (this.lootDrops?.tryOpenPickup(event)) return;
-    const shouldCancelBoxSelection = this.selectionMode === 'box' && this.selectedUnits.length > 0;
-    if (shouldCancelBoxSelection) {
-      this.selectUnit(null);
-    }
     const unit = this.pickFriendlyUnit(event.clientX, event.clientY);
     if (unit) {
       this.selectUnit(unit);
-    } else if (!shouldCancelBoxSelection) {
+    } else {
       this.issueMoveCommand(event);
     }
     this.lastMobileTap = {
