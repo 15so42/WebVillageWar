@@ -23,6 +23,7 @@ export class MetaGameSystem {
     this.deckSelection = this.progress.ownedCards.slice(0, DECK_SIZE);
     this.lastResult = null;
     this.notice = null;
+    this.noticeTimer = null;
     this.root = createMetaRoot();
     this.onDebugKeyDown = (event) => this.handleDebugKeyDown(event);
     this.root.addEventListener('click', (event) => this.onClick(event));
@@ -33,6 +34,9 @@ export class MetaGameSystem {
   }
 
   show(view = this.view, options = {}) {
+    if (!options.keepNotice && view !== this.view) {
+      this.clearNotice();
+    }
     this.view = view;
     this.root.hidden = false;
     document.body.classList.add('is-meta-open');
@@ -230,6 +234,29 @@ export class MetaGameSystem {
     `;
   }
 
+  setNotice(text) {
+    this.clearNotice({ render: false });
+    this.notice = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      text
+    };
+    this.noticeTimer = window.setTimeout(() => {
+      this.clearNotice();
+    }, 2600);
+  }
+
+  clearNotice({ render = true } = {}) {
+    if (this.noticeTimer) {
+      window.clearTimeout(this.noticeTimer);
+      this.noticeTimer = null;
+    }
+    if (!this.notice) return;
+    this.notice = null;
+    if (render && !this.root.hidden) {
+      this.render({ preserveScroll: true });
+    }
+  }
+
   renderView() {
     if (this.view === 'levels') return this.renderLevels();
     if (this.view === 'deck') return this.renderDeckBuilder();
@@ -299,9 +326,11 @@ export class MetaGameSystem {
         <section class="meta-panel meta-deck-summary">
           <div>
             <div class="meta-section-title">出战牌组</div>
-            <p>已选择 ${selectedCount}/${DECK_SIZE}。不足 ${DECK_SIZE} 张时，进入关卡后会从已选牌中随机复制补满。</p>
+            <p>已选择 ${selectedCount}/${DECK_SIZE}。必须选择 ${DECK_SIZE} 张卡牌才能进入关卡。</p>
           </div>
-          <button class="meta-primary-button" type="button" data-action="start-level">开始关卡</button>
+          <button class="meta-primary-button" type="button" data-action="start-level" ${selectedCount === DECK_SIZE ? '' : 'disabled'}>
+            开始关卡
+          </button>
         </section>
         <section class="meta-card-grid">
           ${this.progress.ownedCards.map((id) => {
@@ -467,12 +496,9 @@ export class MetaGameSystem {
     this.progress.coins -= cost;
     this.progress.ownedCards.push(id);
     this.progress.cardLevels[id] = Math.max(1, this.progress.cardLevels[id] ?? 1);
-    this.notice = {
-      id: `${id}-${Date.now()}`,
-      text: `已购买 ${card?.name ?? '卡牌'}`
-    };
+    this.setNotice(`已购买 ${card?.name ?? '卡牌'}`);
     saveProgress(this.progress);
-    this.show('shop', { preserveScroll: true });
+    this.show('shop', { preserveScroll: true, keepNotice: true });
   }
 
   upgradeCard(id) {
@@ -483,12 +509,17 @@ export class MetaGameSystem {
     this.progress.coins -= cost;
     this.progress.cardLevels[id] = level + 1;
     saveProgress(this.progress);
-    this.show('upgrades');
+    this.show('upgrades', { preserveScroll: true });
   }
 
   startLevel() {
     this.ensureDeckSelection();
-    const deckIds = fillDeckIds(this.deckSelection, this.progress.ownedCards);
+    if (this.deckSelection.length !== DECK_SIZE) {
+      this.setNotice(`请选择 ${DECK_SIZE} 张卡牌后开始关卡`);
+      this.show('deck', { preserveScroll: true, keepNotice: true });
+      return;
+    }
+    const deckIds = this.deckSelection.slice(0, DECK_SIZE);
     const deck = deckIds.map((id, index) => {
       const card = this.cardWithLevel(id);
       return {
@@ -567,15 +598,6 @@ function normalizeOwnedCards(rawOwnedCards) {
     result.push(id);
   });
   return result;
-}
-
-function fillDeckIds(selection, ownedCards) {
-  const seed = (selection.length ? selection : ownedCards).slice(0, DECK_SIZE);
-  const deck = seed.slice();
-  while (deck.length < DECK_SIZE && seed.length) {
-    deck.push(seed[Math.floor(Math.random() * seed.length)]);
-  }
-  return deck.slice(0, DECK_SIZE);
 }
 
 function upgradeCost(id, level) {

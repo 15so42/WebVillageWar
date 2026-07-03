@@ -348,7 +348,7 @@ function createUnitGroundShadow(unit) {
     basicMat('#050607', {
       transparent: true,
       opacity: unit.isBuilding ? 0.24 : 0.22,
-      depthTest: false,
+      depthTest: true,
       depthWrite: false,
       polygonOffset: true,
       polygonOffsetFactor: -1,
@@ -359,7 +359,7 @@ function createUnitGroundShadow(unit) {
   shadow.rotation.x = -Math.PI / 2;
   shadow.position.y = 0.055;
   shadow.scale.set(width, depth, 1);
-  shadow.renderOrder = 20;
+  shadow.renderOrder = -20;
   return shadow;
 }
 

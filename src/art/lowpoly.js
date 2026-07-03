@@ -1822,7 +1822,7 @@ export function createGoblinTrollModel() {
     eyeColor: '#1b2415',
     weaponColor: '#54351f',
     legColor: '#253024',
-    scale: 1.22
+    scale: 2.07
   });
   const brow = mesh(
     new THREE.BoxGeometry(0.36, 0.07, 0.075),

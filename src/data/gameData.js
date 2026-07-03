@@ -246,7 +246,7 @@ export const UNIT_DEFINITIONS = {
     maxShield: 9,
     speed: 2.65,
     attackRange: 8.2,
-    attackRate: 1 / 3,
+    attackRate: 1 / 6,
     damage: 12,
     knockback: 2.6,
     aggroRange: 14.8,
@@ -254,8 +254,8 @@ export const UNIT_DEFINITIONS = {
     projectileType: 'waterOrb',
     projectileColor: '#65d8ff',
     projectilePierce: {
-      radius: 0.86,
-      maxDistance: 9.2,
+      radius: 1.03,
+      maxDistance: 11.04,
       hitInterval: 0.08
     },
     weapon: {
@@ -2186,15 +2186,15 @@ export const CARD_DEFINITIONS = [
     kind: 'tactic',
     label: '能',
     artKey: 'tacticEnergySmall',
-    summary: '获得 3 点能量；升级后每级额外 +1',
+    summary: '获得 2 点能量；升级后每级额外 +25%',
     target: 'none',
     radius: 1,
     cooldown: 0,
     energyCost: 0,
     effect: {
       type: 'gain-energy',
-      amountBase: 3,
-      amountPerLevel: 1
+      amountBase: 2,
+      amountPerLevel: 0.5
     },
     color: '#6f718a'
   },
@@ -2204,7 +2204,7 @@ export const CARD_DEFINITIONS = [
     kind: 'tactic',
     label: '涌',
     artKey: 'tacticEnergyLarge',
-    summary: '消耗。获得 6 点能量；升级后每级额外 +1',
+    summary: '消耗。获得 4 点能量；升级后每级额外 +25%',
     target: 'none',
     radius: 1,
     cooldown: 0,
@@ -2212,7 +2212,7 @@ export const CARD_DEFINITIONS = [
     exhaust: true,
     effect: {
       type: 'gain-energy',
-      amountBase: 6,
+      amountBase: 4,
       amountPerLevel: 1
     },
     color: '#7f8fc7'
@@ -2756,9 +2756,19 @@ export const CARD_DEFINITIONS = [
 export const STARTER_CARD_IDS = [
   'barbarians',
   'archers',
+  'swordsmen',
+  'water-mages',
+  'engineers',
+  'physicians',
+  'arrow-tower',
+  'repair-station',
+  'meteor',
+  'poison-fog',
+  'focus-energy',
+  'field-exhaust',
+  'exhaust-energy-ability',
   'fire-enchant',
-  'recovery-enchant',
-  'spirit-shield-enchant'
+  'recovery-enchant'
 ];
 
 export const CARD_META = {
@@ -3074,8 +3084,8 @@ export const ALTAR_DEFINITIONS = {
     effects: [
       {
         op: 'restoreEnergy',
-        amount: 1,
-        intervalSeconds: 10
+        amount: 0.5,
+        intervalSeconds: 5
       }
     ]
   },
@@ -3101,11 +3111,13 @@ export const ALTAR_DEFINITIONS = {
     effects: [
       {
         op: 'restoreHealthPercent',
-        percentPerSecond: 0.005
+        percent: 0.05,
+        intervalSeconds: 5
       },
       {
         op: 'restoreDurabilityPercent',
-        percentPerSecond: 0.005
+        percent: 0.05,
+        intervalSeconds: 5
       }
     ]
   }

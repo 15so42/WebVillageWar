@@ -169,16 +169,14 @@ export class AltarSystem {
       if (effect.op === 'restoreShield') {
         unit.restoreShield(effect.amountPerSecond * dt);
       } else if (effect.op === 'restoreHealthPercent') {
-        const amount = unit.maxHealth * effect.percentPerSecond * dt;
-        unit.restoreHealth(amount);
-        this.game.effects.queueHealNumber(unit, amount, dt, {
-          key: '__altarHealFloat',
-          minAmount: 0.7,
-          minDisplay: 0.25,
-          interval: 0.85
+        const percent = effect.percent ?? (effect.percentPerSecond ?? 0) * dt;
+        const healed = unit.restoreHealth(unit.maxHealth * percent);
+        this.game.effects.spawnHealNumber(unit.position, healed, {
+          height: unit.projectileHitHeight ?? 1.55
         });
       } else if (effect.op === 'restoreDurabilityPercent') {
-        unit.restoreDurability(unit.weapon.maxDurability * effect.percentPerSecond * dt);
+        const percent = effect.percent ?? (effect.percentPerSecond ?? 0) * dt;
+        unit.restoreDurability(unit.weapon.maxDurability * percent);
       }
     });
   }

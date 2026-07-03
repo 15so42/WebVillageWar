@@ -8,11 +8,12 @@ const HAND_SIZE = 5;
 const INITIAL_ENERGY = 5;
 const MAX_ENERGY = 10;
 const ENERGY_REGEN_SECONDS = 5;
+const ENERGY_REGEN_PER_SECOND = 1 / ENERGY_REGEN_SECONDS;
 const TEMPORARY_CARD_LIMIT = 3;
 const PLAY_DRAG_RATIO = 0.5;
 const DISCARD_DRAG_RATIO = 0.3;
 const PLAY_DRAG_MIN_DISTANCE = 24;
-const DISCARD_FALL_DELAY_MS = 2000;
+const DISCARD_FALL_DELAY_MS = 500;
 const CARD_USAGE_HINT = '上滑使用 / 下滑丢弃';
 const CARD_KIND_COLORS = {
   summon: '#4f7d64',
@@ -72,13 +73,13 @@ export class CardSystem {
 
   update(dt) {
     const previousEnergy = this.energy;
-    this.energyTimer += dt;
-    while (this.energy < MAX_ENERGY && this.energyTimer >= ENERGY_REGEN_SECONDS) {
-      this.energy = Math.min(MAX_ENERGY, this.energy + 1);
-      this.energyTimer -= ENERGY_REGEN_SECONDS;
+    if (this.energy < MAX_ENERGY) {
+      this.energy = Math.min(MAX_ENERGY, this.energy + Math.max(0, dt) * ENERGY_REGEN_PER_SECOND);
     }
     if (this.energy >= MAX_ENERGY) {
       this.energyTimer = 0;
+    } else {
+      this.energyTimer = (this.energy % 1) * ENERGY_REGEN_SECONDS;
     }
 
     this.updateEnergyUi();
@@ -135,7 +136,7 @@ export class CardSystem {
     element.innerHTML = `
       <div class="card-cost">${cardEnergyCost(card)}</div>
       <div class="card-level">Lv.${card.level ?? 1}</div>
-      ${card.exhaust ? '<div class="card-keyword">消耗</div>' : ''}
+      ${shouldExhaustAfterPlay(card) ? '<div class="card-keyword">消耗</div>' : ''}
       <div class="card-face">
         <div class="card-header">
           <div class="card-rune">${card.label}</div>
@@ -915,7 +916,7 @@ export class CardSystem {
     const temporaryIndex = this.temporaryCards.indexOf(card);
     if (temporaryIndex !== -1) {
       this.temporaryCards.splice(temporaryIndex, 1);
-      if (card.exhaust) {
+      if (shouldExhaustAfterPlay(card)) {
         this.game.abilities?.onCardExhausted(card);
       }
       this.renderTemporaryCards();
@@ -925,7 +926,7 @@ export class CardSystem {
     const index = this.handCards.indexOf(card);
     if (index === -1) return false;
     this.handCards.splice(index, 1);
-    if (card.exhaust) {
+    if (shouldExhaustAfterPlay(card)) {
       this.game.abilities?.onCardExhausted(card);
     } else {
       this.discardPile.push(card);
@@ -1192,6 +1193,10 @@ function kindLabel(kind) {
 
 function shouldUseCardFaceGhost(card) {
   return card?.kind === 'ability';
+}
+
+function shouldExhaustAfterPlay(card) {
+  return Boolean(card?.exhaust || card?.kind === 'ability');
 }
 
 export function cardThemeColor(cardOrKind) {
@@ -2076,7 +2081,7 @@ function createPileCardElement(card, index) {
   element.innerHTML = `
     <div class="pile-card-cost">${cardEnergyCost(card)}</div>
     <div class="pile-card-level">Lv.${card.level ?? 1}</div>
-    ${card.exhaust ? '<div class="pile-card-keyword">消耗</div>' : ''}
+    ${shouldExhaustAfterPlay(card) ? '<div class="pile-card-keyword">消耗</div>' : ''}
     <div class="pile-card-header">
       <span class="pile-card-rune">${card.label}</span>
       <span class="pile-card-kind">${kindLabel(card.kind)}</span>
