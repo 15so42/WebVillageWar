@@ -1,4 +1,8 @@
 import * as THREE from 'three';
+import {
+  getAnimationDuration,
+  playUnitAnimation
+} from '../art/visualRegistry.js';
 import { TEAMS } from '../data/gameData.js';
 import { distance2D } from '../utils/math.js';
 import {
@@ -18,6 +22,7 @@ export class UnitLogicSystem {
     this.game = game;
     this.lastProfile = null;
     this.frameProfile = null;
+    this.pendingSupportEffects = [];
   }
 
   update(dt) {
@@ -39,6 +44,7 @@ export class UnitLogicSystem {
     mark = recordStep(profile, 'separationMs', mark);
     this.game.attacks.updatePendingAttacks(dt);
     mark = recordStep(profile, 'pendingMs', mark);
+    this.updatePendingSupportEffects(dt);
     this.game.attacks.updateProjectiles(dt, profile);
     mark = recordStep(profile, 'projectilesMs', mark);
     if (profile) {
@@ -105,18 +111,28 @@ export class UnitLogicSystem {
 
     this.updateSupportAbilities(unit, dt);
     mark = recordUnitStep(profile, 'supportMs', mark);
+    if (unit.visualRoot?.userData.animation?.name === 'support') {
+      unit.aiState = 'supporting';
+      unit.movement?.applyMotion(dt);
+      recordUnitStep(profile, 'motionMs', mark);
+      return;
+    }
 
     if (unit.commandMoveGoal) {
       if (distance2D(unit.position, unit.commandMoveGoal) > 0.65) {
         unit.target = null;
         unit.aiState = 'moving';
-        unit.movement?.moveToward(unit.commandMoveGoal, dt, 0.48);
+        const moved = unit.movement?.moveToward(unit.commandMoveGoal, dt, 0.48);
+        if (!moved && distance2D(unit.position, unit.commandMoveGoal) <= 0.82) {
+          completeMoveGoal(this.game, unit);
+        }
         mark = recordUnitStep(profile, 'commandMs', mark);
         unit.movement?.applyMotion(dt);
         recordUnitStep(profile, 'motionMs', mark);
         return;
       }
       unit.commandMoveGoal = null;
+      completeMoveGoal(this.game, unit);
     }
     mark = recordUnitStep(profile, 'commandMs', mark);
 
@@ -177,8 +193,17 @@ export class UnitLogicSystem {
       unit.aiState = 'moving';
       this.returnToGuardPoint(unit, dt);
     } else if (unit.moveGoal) {
-      unit.aiState = 'moving';
-      unit.movement?.moveToward(unit.moveGoal, dt);
+      if (distance2D(unit.position, unit.moveGoal) <= 0.34) {
+        completeMoveGoal(this.game, unit);
+        unit.aiState = 'idle';
+      } else {
+        unit.aiState = 'moving';
+        const moved = unit.movement?.moveToward(unit.moveGoal, dt);
+        if (!moved && distance2D(unit.position, unit.moveGoal) <= 0.48) {
+          completeMoveGoal(this.game, unit);
+          unit.aiState = 'idle';
+        }
+      }
     } else {
       unit.aiState = 'idle';
     }
@@ -214,17 +239,21 @@ export class UnitLogicSystem {
       return;
     }
     const amount = Math.max(0, ability.amount ?? 0);
-    const healed = target.restoreHealth?.(amount) ?? 0;
     if (amount <= 0) {
       unit.supportCooldowns.set(key, 0.25);
       return;
     }
     unit.supportCooldowns.set(key, cooldown);
-    this.game.effects.spawnRing(target.position, '#9dffb0', 0.62, 0.5);
-    this.game.effects.spawnHealNumber(target.position, healed, {
-      displayAmount: amount,
-      height: target.projectileHitHeight ?? 1.55,
-      duration: 0.72
+    this.queueSupportEffect(unit, target, 'heal', () => {
+      if (!target.alive) return;
+      const releasedHeal = target.restoreHealth?.(amount) ?? 0;
+      if (releasedHeal <= 0.01) return;
+      this.game.effects.spawnRing(target.position, '#9dffb0', 0.62, 0.5);
+      this.game.effects.spawnHealNumber(target.position, releasedHeal, {
+        displayAmount: amount,
+        height: target.projectileHitHeight ?? 1.55,
+        duration: 0.72
+      });
     });
   }
 
@@ -239,29 +268,30 @@ export class UnitLogicSystem {
       return;
     }
     const count = Math.max(1, Math.floor(ability.count ?? 1));
-    let removed = 0;
-    for (const buff of [...target.buffs.values()]) {
-      if (!isNegativeBuff(buff)) continue;
-      target.removeBuff(buff.id);
-      removed += 1;
-      if (removed >= count) break;
-    }
-    if (removed > 0) {
-      unit.supportCooldowns.set(key, cooldown);
-      this.game.effects.spawnRing(target.position, '#dcefff', 0.7, 0.58);
-      this.game.effects.spawnDamageNumber(target.position, 1, {
-        text: '净化',
-        color: '#e9fbff',
-        stroke: '#16435a',
-        height: target.projectileHitHeight ?? 1.55,
-        duration: 0.78,
-        fontSize: 88,
-        baseHeight: 0.5,
-        fadeStart: 0.62
-      });
-    } else {
-      unit.supportCooldowns.set(key, 0.25);
-    }
+    unit.supportCooldowns.set(key, cooldown);
+    this.queueSupportEffect(unit, target, 'cleanse', () => {
+      if (!target.alive) return;
+      let removed = 0;
+      for (const buff of [...target.buffs.values()]) {
+        if (!isNegativeBuff(buff)) continue;
+        target.removeBuff(buff.id);
+        removed += 1;
+        if (removed >= count) break;
+      }
+      if (removed > 0) {
+        this.game.effects.spawnRing(target.position, '#dcefff', 0.7, 0.58);
+        this.game.effects.spawnDamageNumber(target.position, 1, {
+          text: '净化',
+          color: '#e9fbff',
+          stroke: '#16435a',
+          height: target.projectileHitHeight ?? 1.55,
+          duration: 0.78,
+          fontSize: 88,
+          baseHeight: 0.5,
+          fadeStart: 0.62
+        });
+      }
+    });
   }
 
   updateShieldAbility(unit, ability, dt) {
@@ -275,22 +305,26 @@ export class UnitLogicSystem {
       return;
     }
     const amount = Math.max(0, ability.amount ?? 0);
-    const restored = target.restoreShield?.(amount) ?? 0;
-    if (restored <= 0) {
+    if (amount <= 0) {
       unit.supportCooldowns.set(key, 0.25);
       return;
     }
     unit.supportCooldowns.set(key, cooldown);
-    this.game.effects.spawnRing(target.position, '#b7eaff', 0.66, 0.5);
-    this.game.effects.spawnDamageNumber(target.position, restored, {
-      text: `护盾+${formatSupportAmount(restored)}`,
-      color: '#dff8ff',
-      stroke: '#12303a',
-      height: target.projectileHitHeight ?? 1.55,
-      duration: 0.74,
-      fontSize: 82,
-      baseHeight: 0.5,
-      fadeStart: 0.62
+    this.queueSupportEffect(unit, target, 'shield', () => {
+      if (!target.alive) return;
+      const releasedRestored = target.restoreShield?.(amount) ?? 0;
+      if (releasedRestored <= 0) return;
+      this.game.effects.spawnRing(target.position, '#ffb347', 0.74, 0.54);
+      this.game.effects.spawnDamageNumber(target.position, releasedRestored, {
+        text: `护盾+${formatSupportAmount(releasedRestored)}`,
+        color: '#ffe0a3',
+        stroke: '#4a2506',
+        height: target.projectileHitHeight ?? 1.55,
+        duration: 0.74,
+        fontSize: 82,
+        baseHeight: 0.5,
+        fadeStart: 0.62
+      });
     });
   }
 
@@ -305,29 +339,68 @@ export class UnitLogicSystem {
       return;
     }
     const amount = Math.max(0, ability.amount ?? 0);
-    let restoredTotal = 0;
-    targets.forEach((target) => {
-      const restored = target.restoreDurability?.(amount) ?? 0;
-      restoredTotal += restored;
-      if (restored > 0.01) {
-        this.game.effects.spawnRing(target.position, '#9dd8ff', 0.42, 0.28);
-      }
-    });
-    if (restoredTotal > 0.01) {
+    if (amount > 0) {
       unit.supportCooldowns.set(key, cooldown);
-      this.game.effects.spawnRing(unit.position, '#9dd8ff', 0.66, 0.44);
-      this.game.effects.spawnDamageNumber(unit.position, 1, {
-        text: `修缮+${formatSupportAmount(restoredTotal)}`,
-        color: '#dff8ff',
-        stroke: '#12303a',
-        height: unit.projectileHitHeight ?? 1.55,
-        duration: 0.72,
-        fontSize: 78,
-        baseHeight: 0.48,
-        fadeStart: 0.62
+      this.queueSupportEffect(unit, targets[0], 'repair', () => {
+        let releasedTotal = 0;
+        targets.forEach((target) => {
+          if (!target.alive || target.underConstruction) return;
+          const restored = target.restoreDurability?.(amount) ?? 0;
+          releasedTotal += restored;
+          if (restored > 0.01) {
+            this.game.effects.spawnRing(target.position, '#9dd8ff', 0.42, 0.28);
+          }
+        });
+        if (releasedTotal <= 0.01) return;
+        this.game.effects.spawnRing(unit.position, '#9dd8ff', 0.66, 0.44);
+        this.game.effects.spawnDamageNumber(unit.position, 1, {
+          text: `修缮+${formatSupportAmount(releasedTotal)}`,
+          color: '#dff8ff',
+          stroke: '#12303a',
+          height: unit.projectileHitHeight ?? 1.55,
+          duration: 0.72,
+          fontSize: 78,
+          baseHeight: 0.48,
+          fadeStart: 0.62
+        });
       });
     } else {
       unit.supportCooldowns.set(key, 0.25);
+    }
+  }
+
+  queueSupportEffect(unit, target, type, apply) {
+    const targetPosition = target?.position ?? unit.position;
+    unit.movement?.face(targetPosition, 0);
+    unit.visualState = 'idle';
+    const duration = getAnimationDuration(unit, 'support');
+    const releaseAt = Math.min(duration * 0.82, 0.38);
+    unit.attackTimer = Math.max(unit.attackTimer, duration * 0.72);
+    playUnitAnimation(unit, 'support', duration, { variant: type });
+    this.pendingSupportEffects.push({
+      source: unit,
+      target,
+      elapsed: 0,
+      releaseAt,
+      fired: false,
+      duration,
+      apply
+    });
+  }
+
+  updatePendingSupportEffects(dt) {
+    for (let i = this.pendingSupportEffects.length - 1; i >= 0; i -= 1) {
+      const effect = this.pendingSupportEffects[i];
+      effect.elapsed += dt;
+      if (!effect.fired && effect.elapsed >= effect.releaseAt) {
+        effect.fired = true;
+        if (effect.source?.alive !== false) {
+          effect.apply?.();
+        }
+      }
+      if (effect.elapsed >= effect.duration) {
+        this.pendingSupportEffects.splice(i, 1);
+      }
     }
   }
 
@@ -488,6 +561,14 @@ function insertRepairTarget(selected, selectedMissing, unit, missing, maxTargets
     selected.length = maxTargets;
     selectedMissing.length = maxTargets;
   }
+}
+
+function completeMoveGoal(game, unit) {
+  unit.moveGoal = null;
+  unit.commandMoveGoal = null;
+  unit.navMoveTarget = null;
+  unit.navSteeringTarget = null;
+  game.clearUnitRoute?.(unit);
 }
 
 function createUnitProfile() {

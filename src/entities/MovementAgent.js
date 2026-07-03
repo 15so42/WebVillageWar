@@ -43,7 +43,10 @@ export class MovementAgent {
     if (!targetPosition) return false;
     if (unit.isBuilding || unit.definition.canMove === false || isImmobileUnit(unit)) return false;
     const targetDistance = distance2D(unit.position, targetPosition);
-    if (targetDistance <= desiredDistance) return false;
+    if (targetDistance <= desiredDistance) {
+      unit.navSteeringTarget = null;
+      return false;
+    }
 
     const usesNavigationSteering = Boolean(this.game.world?.navGrid);
     const safeSteering = usesNavigationSteering
@@ -56,12 +59,21 @@ export class MovementAgent {
       return false;
     }
 
-    const movementTarget = safeSteering?.debugTarget ?? targetPosition;
-    const movementDirection = safeSteering?.direction ?? direction2D(unit.position, targetPosition);
+    let movementTarget = safeSteering?.debugTarget ?? targetPosition;
+    let movementDirection = safeSteering?.direction ?? direction2D(unit.position, targetPosition);
     unit.navMoveTarget = setReusableVector(unit.navMoveTarget, targetPosition);
     unit.navSteeringTarget = setReusableVector(unit.navSteeringTarget, movementTarget);
     const maxStep = this.game.modifiers.getMoveSpeed(unit) * dt;
-    const step = usesNavigationSteering ? maxStep : Math.min(maxStep, targetDistance - desiredDistance);
+    let step = usesNavigationSteering ? maxStep : Math.min(maxStep, targetDistance - desiredDistance);
+    if (usesNavigationSteering && targetDistance <= desiredDistance + maxStep) {
+      movementTarget = targetPosition;
+      movementDirection = direction2D(unit.position, targetPosition);
+      step = Math.min(maxStep, Math.max(0, targetDistance - desiredDistance));
+    }
+    if (usesNavigationSteering) {
+      const waypointDistance = distance2D(unit.position, movementTarget);
+      step = Math.min(step, waypointDistance);
+    }
     if (step <= 0) return false;
     stopUnitAnimation(unit, 'attack');
 

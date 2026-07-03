@@ -272,6 +272,7 @@ export function createRogueModel(team) {
   const cloakColor = team === 'player' ? '#29384a' : '#4b2d36';
   const leather = mat('#3a2a24');
   const steel = mat('#d8dce2', { metalness: 0.24 });
+  const skin = team === 'player' ? '#d7a071' : '#b46f5c';
 
   const hood = mesh(
     new THREE.ConeGeometry(0.34, 0.34, 6),
@@ -286,33 +287,93 @@ export function createRogueModel(team) {
     new THREE.Vector3(0.86, 1, 0.58)
   );
   cloak.rotation.y = Math.PI / 5;
-  const offhandDagger = boxBetween(
-    new THREE.Vector3(0.34, 0.65, 0.36),
-    new THREE.Vector3(0.52, 0.88, 0.62),
+  const shoulder = parts.weaponPivot ?? parts.offhandPivot;
+  const elbowLocal = new THREE.Vector3(-0.22, -0.03, 0.18);
+  const handLocal = new THREE.Vector3(0.02, -0.11, 0.36);
+  const wristLocal = handLocal.clone().sub(elbowLocal);
+  const upperArm = limb(
+    new THREE.Vector3(0, 0, 0),
+    elbowLocal,
     0.055,
-    0.06,
+    mat(skin)
+  );
+  const forearm = limb(
+    new THREE.Vector3(0, 0, 0),
+    wristLocal,
+    0.052,
+    mat(skin)
+  );
+  const rightHand = mesh(
+    new THREE.DodecahedronGeometry(0.085, 0),
+    mat(skin),
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const elbowPivot = new THREE.Group();
+  elbowPivot.name = 'rogueRightElbowPivot';
+  elbowPivot.position.copy(elbowLocal);
+  const wristPivot = new THREE.Group();
+  wristPivot.name = 'rogueRightWristPivot';
+  wristPivot.position.copy(wristLocal);
+
+  const daggerRoot = new THREE.Group();
+  daggerRoot.name = 'rogueReverseGripDagger';
+  const gripBase = new THREE.Vector3(0.1, -0.012, 0.02);
+  const gripTip = new THREE.Vector3(-0.08, 0.006, 0.02);
+  const bladeTip = new THREE.Vector3(-0.5, 0.028, 0);
+  const mainBlade = boxBetween(
+    gripTip,
+    bladeTip,
+    0.068,
+    0.052,
     steel
   );
-  const offhandGrip = boxBetween(
-    new THREE.Vector3(0.27, 0.62, 0.28),
-    new THREE.Vector3(0.38, 0.72, 0.4),
+  const mainGrip = boxBetween(
+    gripBase,
+    gripTip,
     0.055,
     0.065,
     leather
   );
+  const mainGuard = mesh(
+    new THREE.BoxGeometry(0.22, 0.055, 0.075),
+    mat('#7b5a38'),
+    gripTip.clone().add(new THREE.Vector3(0, -0.015, 0)),
+    new THREE.Vector3(1, 1, 1)
+  );
   const projectileSocket = new THREE.Group();
   projectileSocket.name = 'rogueDaggerSocket';
-  projectileSocket.position.set(-0.28, 1.05, 0.56);
+  projectileSocket.position.copy(bladeTip);
+  [mainBlade, mainGrip, mainGuard, projectileSocket].forEach((object) => {
+    daggerRoot.add(object);
+  });
 
-  if (parts.offhandPivot) {
-    parts.offhandPivot.add(offhandDagger, offhandGrip);
+  wristPivot.add(rightHand, daggerRoot);
+  elbowPivot.add(forearm, wristPivot);
+  if (shoulder) {
+    shoulder.clear?.();
+    shoulder.add(upperArm, elbowPivot);
   } else {
-    group.add(offhandDagger, offhandGrip);
+    group.add(upperArm, elbowPivot);
   }
-  group.add(cloak, hood, projectileSocket);
+  group.add(cloak, hood);
+  const upperBodyPivot = createPivot(
+    'rogueUpperBodyPivot',
+    new THREE.Vector3(0, 0.84, 0),
+    [...group.children].filter((child) => child.position.y > 0.55)
+  );
+  group.add(upperBodyPivot);
   group.scale.set(0.92, 0.96, 0.92);
   group.userData.parts = {
     ...parts,
+    upperBodyPivot,
+    weaponPivot: shoulder ?? parts.weaponPivot,
+    offhandPivot: parts.offhandPivot,
+    rogueElbowPivot: elbowPivot,
+    rogueWristPivot: wristPivot,
+    rogueRightHand: rightHand,
+    weaponSwingPivot: wristPivot,
+    rogueDaggerPivot: daggerRoot,
     projectileSocket
   };
   return enableShadows(group);
@@ -358,18 +419,17 @@ export function createEngineerModel(team) {
     new THREE.Vector3(1, 1, 1)
   );
   const hammerHandle = boxBetween(
-    new THREE.Vector3(-0.22, 0.68, 0.42),
-    new THREE.Vector3(-0.13, 0.99, 0.6),
+    new THREE.Vector3(0.02, -0.26, 0.08),
+    new THREE.Vector3(0.02, 0.34, 0.08),
     0.055,
     0.06,
     leather
   );
-  const hammerHead = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.12, 0.16), metal);
-  hammerHead.position.set(-0.1, 1.05, 0.63);
-  hammerHead.rotation.z = -0.26;
+  const hammerHead = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.12, 0.32), metal);
+  hammerHead.position.set(0.02, 0.42, 0.08);
   const chisel = boxBetween(
-    new THREE.Vector3(0.42, 0.66, 0.32),
-    new THREE.Vector3(0.54, 0.96, 0.48),
+    new THREE.Vector3(0.08, -0.48, 0.18),
+    new THREE.Vector3(0.24, -0.22, 0.36),
     0.05,
     0.055,
     metal
@@ -994,12 +1054,19 @@ export function createPriestModel(team, options = {}) {
   const focusColor = options.focusColor ?? '#dff8ff';
   const focusEmissive = options.focusEmissive ?? '#8feaff';
 
-  const robe = mesh(
-    new THREE.CylinderGeometry(0.42, 0.56, 1.18, 6),
-    mat(robeColor),
-    new THREE.Vector3(0, 0.78, 0),
-    new THREE.Vector3(1, 1, 1)
-  );
+  const robe = options.bodyStyle === 'tunic'
+    ? mesh(
+      new THREE.DodecahedronGeometry(0.5, 0),
+      mat(robeColor),
+      new THREE.Vector3(0, 0.9, 0),
+      new THREE.Vector3(0.86, 1.02, 0.66)
+    )
+    : mesh(
+      new THREE.CylinderGeometry(0.42, 0.56, 1.18, 6),
+      mat(robeColor),
+      new THREE.Vector3(0, 0.78, 0),
+      new THREE.Vector3(1, 1, 1)
+    );
   const sash = mesh(
     new THREE.BoxGeometry(0.58, 0.08, 0.08),
     mat(trimColor),
@@ -1045,16 +1112,21 @@ export function createPriestModel(team, options = {}) {
     0.042,
     mat('#6a4a30')
   );
+  const projectileSocket = new THREE.Group();
+  projectileSocket.name = 'supportProjectileSocket';
+  projectileSocket.position.set(-0.31, 1.9, 0.53);
   const focusGem = mesh(
     new THREE.DodecahedronGeometry(0.13, 0),
     mat(focusColor, { emissive: focusEmissive, emissiveIntensity: 0.6 }),
-    new THREE.Vector3(-0.31, 1.9, 0.53),
+    new THREE.Vector3(0, 0, 0),
     new THREE.Vector3(1, 1, 1)
   );
+  focusGem.visible = options.hideFocusGem !== true;
+  projectileSocket.add(focusGem);
   const weaponSwingPivot = createPivot(
     'supportStaffPivot',
     new THREE.Vector3(-0.36, 0.78, 0.36),
-    [staff, focusGem]
+    [staff, projectileSocket]
   );
   const leftArm = limb(
     new THREE.Vector3(0.32, 1.13, 0.05),
@@ -1070,7 +1142,7 @@ export function createPriestModel(team, options = {}) {
   );
   const leg = mesh(
     new THREE.BoxGeometry(0.15, 0.42, 0.15),
-    mat('#2a2b36'),
+    mat(options.legColor ?? '#2a2b36'),
     new THREE.Vector3(-0.12, 0.2, 0),
     new THREE.Vector3(1, 1, 1)
   );
@@ -1087,12 +1159,24 @@ export function createPriestModel(team, options = {}) {
     [leftArm, leftHand]
   );
 
-  group.add(robe, sash, head, hood, eyeLeft, eyeRight, weaponPivot, offhandPivot, leg, leg2);
+  group.add(
+    robe,
+    sash,
+    head,
+    ...(options.hideHood ? [] : [hood]),
+    eyeLeft,
+    eyeRight,
+    weaponPivot,
+    offhandPivot,
+    leg,
+    leg2
+  );
   group.userData.parts = {
     weaponPivot,
     weaponSwingPivot,
     offhandPivot,
-    projectileSocket: focusGem,
+    projectileSocket,
+    focusGem,
     rightHand
   };
   if (Number.isFinite(options.scale)) {
@@ -1102,33 +1186,418 @@ export function createPriestModel(team, options = {}) {
 }
 
 export function createPhysicianModel(team) {
-  return createPriestModel(team, {
-    robeColor: team === 'player' ? '#5f9f73' : '#7a6a55',
-    hoodColor: team === 'player' ? '#3f7258' : '#5f4c3d',
-    trimColor: '#f5e5b2',
-    focusColor: '#c7ffd1',
-    focusEmissive: '#7dff9e'
+  const group = createPriestModel(team, {
+    hideHood: true,
+    robeColor: team === 'player' ? '#efe6d2' : '#d8c8b2',
+    trimColor: team === 'player' ? '#d9b66b' : '#b78958',
+    legColor: team === 'player' ? '#4a3c35' : '#443832',
+    hideFocusGem: true,
+    focusColor: '#f9ffe8',
+    focusEmissive: '#e7ff9a'
   });
+  const { projectileSocket } = group.userData.parts ?? {};
+  const cloth = mat('#f4f0e6');
+  const cream = mat('#efe6d2');
+  const blue = mat(team === 'player' ? '#486a84' : '#5d526d');
+  const gold = mat('#d7b75a');
+  const headWrap = mesh(
+    new THREE.BoxGeometry(0.48, 0.09, 0.08),
+    cloth,
+    new THREE.Vector3(0, 1.62, 0.24),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const cap = mesh(
+    new THREE.ConeGeometry(0.3, 0.22, 6),
+    cloth,
+    new THREE.Vector3(0, 1.75, -0.01),
+    new THREE.Vector3(1, 0.86, 0.86)
+  );
+  const mantle = mesh(
+    new THREE.CylinderGeometry(0.5, 0.36, 0.28, 6),
+    cream,
+    new THREE.Vector3(0, 1.18, 0.04),
+    new THREE.Vector3(1, 0.9, 1)
+  );
+  const veilLeft = mesh(
+    new THREE.BoxGeometry(0.1, 0.58, 0.06),
+    cloth,
+    new THREE.Vector3(-0.23, 1.34, -0.06),
+    new THREE.Vector3(1, 1, 1)
+  );
+  veilLeft.rotation.z = -0.12;
+  const veilRight = veilLeft.clone();
+  veilRight.position.x = 0.21;
+  veilRight.rotation.z = 0.12;
+  const veilBack = mesh(
+    new THREE.BoxGeometry(0.42, 0.62, 0.065),
+    cloth,
+    new THREE.Vector3(0, 1.27, -0.2),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const innerDress = mesh(
+    new THREE.BoxGeometry(0.22, 0.92, 0.055),
+    blue,
+    new THREE.Vector3(0, 0.82, 0.42),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const frontApron = mesh(
+    new THREE.BoxGeometry(0.32, 0.82, 0.045),
+    cloth,
+    new THREE.Vector3(0, 0.64, 0.46),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const stoleLeft = boxBetween(
+    new THREE.Vector3(-0.14, 1.18, 0.45),
+    new THREE.Vector3(-0.08, 0.42, 0.48),
+    0.07,
+    0.045,
+    gold
+  );
+  const stoleRight = boxBetween(
+    new THREE.Vector3(0.14, 1.18, 0.45),
+    new THREE.Vector3(0.08, 0.42, 0.48),
+    0.07,
+    0.045,
+    gold
+  );
+  const emblemVertical = mesh(
+    new THREE.BoxGeometry(0.045, 0.18, 0.035),
+    gold,
+    new THREE.Vector3(0, 1.04, 0.5),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const emblemHorizontal = mesh(
+    new THREE.BoxGeometry(0.16, 0.04, 0.035),
+    gold,
+    new THREE.Vector3(0, 1.06, 0.51),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const hoodCrossVertical = mesh(
+    new THREE.BoxGeometry(0.035, 0.12, 0.035),
+    gold,
+    new THREE.Vector3(0, 1.65, 0.29),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const hoodCrossHorizontal = mesh(
+    new THREE.BoxGeometry(0.11, 0.03, 0.035),
+    gold,
+    new THREE.Vector3(0, 1.66, 0.3),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const sleeveLeft = mesh(
+    new THREE.CylinderGeometry(0.15, 0.24, 0.42, 6),
+    cream,
+    new THREE.Vector3(0.35, 0.98, 0.33),
+    new THREE.Vector3(1, 1, 1)
+  );
+  sleeveLeft.rotation.z = 0.34;
+  sleeveLeft.rotation.x = -0.32;
+  const sleeveRight = sleeveLeft.clone();
+  sleeveRight.position.x = -0.35;
+  sleeveRight.rotation.z = -0.34;
+  const holyBook = mesh(
+    new THREE.BoxGeometry(0.28, 0.32, 0.08),
+    blue,
+    new THREE.Vector3(0.42, 0.92, 0.48),
+    new THREE.Vector3(1, 1, 1)
+  );
+  holyBook.rotation.set(-0.18, -0.36, 0.12);
+  const bookPages = mesh(
+    new THREE.BoxGeometry(0.24, 0.26, 0.025),
+    cloth,
+    new THREE.Vector3(0.41, 0.92, 0.53),
+    new THREE.Vector3(1, 1, 1)
+  );
+  bookPages.rotation.copy(holyBook.rotation);
+  const bookCrossVertical = mesh(
+    new THREE.BoxGeometry(0.035, 0.16, 0.02),
+    gold,
+    new THREE.Vector3(0.4, 0.92, 0.555),
+    new THREE.Vector3(1, 1, 1)
+  );
+  bookCrossVertical.rotation.copy(holyBook.rotation);
+  const bookCrossHorizontal = mesh(
+    new THREE.BoxGeometry(0.12, 0.03, 0.02),
+    gold,
+    new THREE.Vector3(0.4, 0.93, 0.565),
+    new THREE.Vector3(1, 1, 1)
+  );
+  bookCrossHorizontal.rotation.copy(holyBook.rotation);
+  const staffCrossVertical = mesh(
+    new THREE.BoxGeometry(0.04, 0.34, 0.04),
+    gold,
+    new THREE.Vector3(0, 0.04, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const staffCrossHorizontal = mesh(
+    new THREE.BoxGeometry(0.22, 0.04, 0.04),
+    gold,
+    new THREE.Vector3(0, 0.09, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  projectileSocket?.add(staffCrossVertical, staffCrossHorizontal);
+  group.add(
+    headWrap,
+    cap,
+    mantle,
+    veilLeft,
+    veilRight,
+    veilBack,
+    innerDress,
+    frontApron,
+    stoleLeft,
+    stoleRight,
+    emblemVertical,
+    emblemHorizontal,
+    hoodCrossVertical,
+    hoodCrossHorizontal,
+    sleeveLeft,
+    sleeveRight,
+    holyBook,
+    bookPages,
+    bookCrossVertical,
+    bookCrossHorizontal
+  );
+  return enableShadows(group);
 }
 
 export function createPurifierModel(team) {
-  return createPriestModel(team, {
-    robeColor: team === 'player' ? '#7889c7' : '#8f6658',
-    hoodColor: team === 'player' ? '#5666a4' : '#6f4c44',
-    trimColor: team === 'player' ? '#f0e8c6' : '#d0b08b',
-    focusColor: '#e9fbff',
-    focusEmissive: '#8feaff'
+  const group = createPriestModel(team, {
+    hideHood: true,
+    robeColor: team === 'player' ? '#17191d' : '#241c1f',
+    hoodColor: '#17191d',
+    trimColor: team === 'player' ? '#3c4148' : '#5a3d3d',
+    hideFocusGem: true,
+    focusColor: '#dfe8ee',
+    focusEmissive: '#9fdfff'
   });
+  const { offhandPivot, projectileSocket } = group.userData.parts ?? {};
+  const coat = mat('#111318');
+  const coatEdge = mat('#2f343b');
+  const maskMat = mat('#eef1f2');
+  const glass = mat('#101114');
+  const metal = mat('#8b8f92', { metalness: 0.28 });
+  const glow = mat('#aef7ff', { emissive: '#6fdfff', emissiveIntensity: 0.62 });
+
+  const capelet = mesh(
+    new THREE.CylinderGeometry(0.5, 0.38, 0.22, 6),
+    coat,
+    new THREE.Vector3(0, 1.18, 0.02),
+    new THREE.Vector3(1, 0.82, 1)
+  );
+  const shoulderFlap = mesh(
+    new THREE.BoxGeometry(0.82, 0.12, 0.5),
+    coatEdge,
+    new THREE.Vector3(0, 1.16, 0.06),
+    new THREE.Vector3(1, 1, 1)
+  );
+  shoulderFlap.rotation.x = -0.06;
+  const frontPanel = mesh(
+    new THREE.BoxGeometry(0.16, 0.92, 0.05),
+    coatEdge,
+    new THREE.Vector3(0, 0.78, 0.43),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const belt = mesh(
+    new THREE.BoxGeometry(0.54, 0.08, 0.08),
+    metal,
+    new THREE.Vector3(0, 0.82, 0.4),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const maskBase = mesh(
+    new THREE.DodecahedronGeometry(0.24, 0),
+    maskMat,
+    new THREE.Vector3(0, 1.52, 0.14),
+    new THREE.Vector3(0.92, 0.82, 0.72)
+  );
+  const beak = mesh(
+    new THREE.ConeGeometry(0.11, 0.5, 6),
+    maskMat,
+    new THREE.Vector3(0, 1.48, 0.48),
+    new THREE.Vector3(1, 1, 1)
+  );
+  beak.rotation.x = Math.PI / 2;
+  const eyeHoleLeft = mesh(
+    new THREE.BoxGeometry(0.09, 0.07, 0.025),
+    glass,
+    new THREE.Vector3(-0.09, 1.56, 0.31),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const eyeHoleRight = eyeHoleLeft.clone();
+  eyeHoleRight.position.x = 0.09;
+  const hatBrim = mesh(
+    new THREE.CylinderGeometry(0.52, 0.58, 0.06, 8),
+    coat,
+    new THREE.Vector3(0, 1.74, 0.02),
+    new THREE.Vector3(1, 0.7, 1)
+  );
+  const hatCrown = mesh(
+    new THREE.CylinderGeometry(0.24, 0.28, 0.24, 6),
+    coat,
+    new THREE.Vector3(0, 1.88, -0.02),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const hatBand = mesh(
+    new THREE.BoxGeometry(0.42, 0.055, 0.08),
+    metal,
+    new THREE.Vector3(0, 1.78, 0.25),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const staffKnob = mesh(
+    new THREE.SphereGeometry(0.08, 6, 5),
+    metal,
+    new THREE.Vector3(0, 0.03, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  projectileSocket?.add(staffKnob);
+  for (let i = 0; i < 5; i += 1) {
+    const button = mesh(
+      new THREE.SphereGeometry(0.025, 5, 4),
+      metal,
+      new THREE.Vector3(0, 1.08 - i * 0.14, 0.46),
+      new THREE.Vector3(1, 1, 1)
+    );
+    group.add(button);
+  }
+  if (offhandPivot) {
+    const lantern = new THREE.Group();
+    lantern.name = 'purifierLantern';
+    lantern.position.set(-0.02, -0.48, 0.4);
+    const handle = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.012, 5, 14, Math.PI), metal);
+    handle.position.y = 0.16;
+    handle.rotation.z = Math.PI;
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.24, 0.12), metal);
+    frame.position.y = -0.02;
+    const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.16, 0.08), glow);
+    lamp.position.y = -0.02;
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.09, 0.05, 6), metal);
+    cap.position.y = 0.12;
+    const base = cap.clone();
+    base.position.y = -0.16;
+    lantern.add(handle, frame, lamp, cap, base);
+    offhandPivot.add(lantern);
+  }
+  group.add(capelet, shoulderFlap, frontPanel, belt, maskBase, beak, eyeHoleLeft, eyeHoleRight, hatBrim, hatCrown, hatBand);
+  return enableShadows(group);
 }
 
 export function createWarderModel(team) {
-  return createPriestModel(team, {
-    robeColor: team === 'player' ? '#6b9ab8' : '#6a7280',
-    hoodColor: team === 'player' ? '#466f8d' : '#4b5260',
-    trimColor: '#dcefff',
-    focusColor: '#b7eaff',
-    focusEmissive: '#62cfff'
-  });
+  const group = new THREE.Group();
+  const skinMat = mat(team === 'player' ? '#d9a16f' : '#b8755e');
+  const tunic = mat(team === 'player' ? '#24333c' : '#3c3030');
+  const cloakMat = mat(team === 'player' ? '#8d2634' : '#6f202d');
+  const dark = mat('#1f2b34');
+  const gold = mat('#d7a64f');
+  const wardMat = mat('#ffb347', { emissive: '#ff8a18', emissiveIntensity: 0.72 });
+
+  const body = mesh(
+    new THREE.DodecahedronGeometry(0.5, 0),
+    tunic,
+    new THREE.Vector3(0, 0.88, 0),
+    new THREE.Vector3(0.82, 1.14, 0.62)
+  );
+  const head = mesh(
+    new THREE.DodecahedronGeometry(0.26, 0),
+    skinMat,
+    new THREE.Vector3(0, 1.52, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const hair = mesh(
+    new THREE.DodecahedronGeometry(0.28, 0),
+    mat('#18181c'),
+    new THREE.Vector3(0, 1.66, -0.03),
+    new THREE.Vector3(1.06, 0.52, 0.9)
+  );
+  const eyeLeft = mesh(
+    new THREE.BoxGeometry(0.04, 0.032, 0.02),
+    mat('#201410'),
+    new THREE.Vector3(-0.075, 1.55, 0.235),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const eyeRight = eyeLeft.clone();
+  eyeRight.position.x = 0.075;
+  const cloak = mesh(
+    new THREE.ConeGeometry(0.58, 1.26, 6),
+    cloakMat,
+    new THREE.Vector3(0, 0.88, -0.18),
+    new THREE.Vector3(0.96, 1, 0.62)
+  );
+  cloak.rotation.x = -0.08;
+  const collar = mesh(
+    new THREE.BoxGeometry(0.58, 0.18, 0.16),
+    cloakMat,
+    new THREE.Vector3(0, 1.25, -0.08),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const belt = mesh(
+    new THREE.BoxGeometry(0.48, 0.08, 0.08),
+    gold,
+    new THREE.Vector3(0, 0.82, 0.34),
+    new THREE.Vector3(1, 1, 1)
+  );
+
+  const rightShoulder = new THREE.Vector3(-0.32, 1.16, 0.04);
+  const rightHandPosition = new THREE.Vector3(0.1, 1.2, 0.56);
+  const leftShoulder = new THREE.Vector3(0.32, 1.12, 0.04);
+  const leftHandPosition = new THREE.Vector3(-0.08, 0.94, 0.58);
+  const rightArm = limb(rightShoulder, rightHandPosition, 0.058, skinMat);
+  const leftArm = limb(leftShoulder, leftHandPosition, 0.058, skinMat);
+  const rightSleeve = limb(rightShoulder, rightShoulder.clone().lerp(rightHandPosition, 0.48), 0.085, dark);
+  const leftSleeve = limb(leftShoulder, leftShoulder.clone().lerp(leftHandPosition, 0.48), 0.085, dark);
+  const rightHand = mesh(
+    new THREE.DodecahedronGeometry(0.09, 0),
+    skinMat,
+    rightHandPosition,
+    new THREE.Vector3(1, 1, 1)
+  );
+  const leftHand = mesh(
+    new THREE.DodecahedronGeometry(0.09, 0),
+    skinMat,
+    leftHandPosition,
+    new THREE.Vector3(1, 1, 1)
+  );
+  const wardCirclePivot = new THREE.Group();
+  wardCirclePivot.name = 'warderCirclePivot';
+  wardCirclePivot.position.set(0, 1.06, 0.6);
+  const wardRing = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.016, 5, 24), wardMat);
+  const wardCore = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.19, 0.2, 0.012, 6),
+    basicMat('#ffb347', {
+      transparent: true,
+      opacity: 0.22,
+      depthWrite: false
+    })
+  );
+  wardCore.rotation.x = Math.PI / 2;
+  const wardRuneA = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.018, 0.018), wardMat);
+  const wardRuneB = wardRuneA.clone();
+  wardRuneB.rotation.z = Math.PI / 3;
+  const wardRuneC = wardRuneA.clone();
+  wardRuneC.rotation.z = -Math.PI / 3;
+  const projectileSocket = new THREE.Group();
+  projectileSocket.name = 'warderSigilSocket';
+  projectileSocket.position.set(0, 0, 0);
+  wardCirclePivot.add(wardCore, wardRing, wardRuneA, wardRuneB, wardRuneC, projectileSocket);
+  const rightHandPivot = createPivot('warderRightHandPivot', rightShoulder, [rightSleeve, rightArm, rightHand]);
+  const leftHandPivot = createPivot('warderLeftHandPivot', leftShoulder, [leftSleeve, leftArm, leftHand]);
+  const leg = mesh(
+    new THREE.BoxGeometry(0.16, 0.42, 0.16),
+    mat('#24242b'),
+    new THREE.Vector3(-0.12, 0.2, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const leg2 = leg.clone();
+  leg2.position.x = 0.12;
+  group.add(cloak, body, belt, collar, head, hair, eyeLeft, eyeRight, rightHandPivot, leftHandPivot, wardCirclePivot, leg, leg2);
+  group.userData.parts = {
+    warderRightHandPivot: rightHandPivot,
+    warderLeftHandPivot: leftHandPivot,
+    wardCirclePivot,
+    projectileSocket,
+    rightHand,
+    leftHand
+  };
+  return enableShadows(group);
 }
 
 export function createWaterMageModel(team) {
@@ -1163,17 +1632,27 @@ export function createWizardModel() {
     trimColor: '#9f6bff',
     focusColor: '#b46aff',
     focusEmissive: '#7c3dff',
-    scale: 0.82
+    hideHood: true,
+    hideFocusGem: true,
+    scale: 0.76
   });
-  const hat = mesh(
-    new THREE.ConeGeometry(0.34, 0.48, 6),
-    mat('#241936'),
-    new THREE.Vector3(0, 2.02, 0.01),
-    new THREE.Vector3(1, 1, 1)
+  const { projectileSocket } = group.userData.parts ?? {};
+  const brim = mesh(
+    new THREE.CylinderGeometry(0.48, 0.54, 0.06, 6),
+    mat('#1d142d'),
+    new THREE.Vector3(0, 1.75, 0),
+    new THREE.Vector3(1, 1, 0.72)
   );
-  hat.rotation.z = -0.14;
+  const hat = mesh(
+    new THREE.ConeGeometry(0.31, 0.72, 6),
+    mat('#241936'),
+    new THREE.Vector3(-0.04, 2.1, 0.02),
+    new THREE.Vector3(0.88, 1, 0.88)
+  );
+  hat.rotation.z = -0.34;
+  hat.rotation.x = 0.08;
   const band = mesh(
-    new THREE.BoxGeometry(0.5, 0.055, 0.09),
+    new THREE.BoxGeometry(0.62, 0.055, 0.09),
     mat('#9f6bff'),
     new THREE.Vector3(0, 1.78, 0.25),
     new THREE.Vector3(1, 1, 1)
@@ -1185,7 +1664,27 @@ export function createWizardModel() {
     new THREE.Vector3(1, 1, 1)
   );
   nose.rotation.x = Math.PI / 2;
-  group.add(hat, band, nose);
+  const hairLeft = boxBetween(
+    new THREE.Vector3(-0.18, 1.58, -0.12),
+    new THREE.Vector3(-0.28, 1.12, -0.04),
+    0.08,
+    0.06,
+    mat('#16121b')
+  );
+  const hairRight = boxBetween(
+    new THREE.Vector3(0.18, 1.58, -0.12),
+    new THREE.Vector3(0.25, 1.16, -0.03),
+    0.08,
+    0.06,
+    mat('#16121b')
+  );
+  const crookedStaffTop = new THREE.Mesh(
+    new THREE.TorusGeometry(0.13, 0.018, 5, 14, Math.PI * 1.45),
+    mat('#5a3a28')
+  );
+  crookedStaffTop.rotation.set(0.2, 0.2, -0.6);
+  projectileSocket?.add(crookedStaffTop);
+  group.add(brim, hat, band, nose, hairLeft, hairRight);
   return enableShadows(group);
 }
 
@@ -1565,23 +2064,26 @@ export function createBoltModel(color = '#d8dde0') {
 export function createDaggerModel(color = '#d8dce2') {
   const group = new THREE.Group();
   const blade = new THREE.Mesh(
-    new THREE.ConeGeometry(0.075, 0.46, 5),
+    new THREE.ConeGeometry(0.08, 0.36, 5),
     mat(color, { metalness: 0.28 })
   );
-  blade.position.z = 0.18;
+  blade.position.z = 0.26;
   blade.rotation.x = Math.PI / 2;
   const grip = new THREE.Mesh(
     new THREE.CylinderGeometry(0.035, 0.04, 0.24, 5),
     mat('#4a3026')
   );
-  grip.position.z = -0.22;
+  grip.position.z = -0.18;
   grip.rotation.x = Math.PI / 2;
   const guard = new THREE.Mesh(
-    new THREE.BoxGeometry(0.26, 0.055, 0.06),
+    new THREE.BoxGeometry(0.22, 0.055, 0.06),
     mat('#7b5a38')
   );
-  guard.position.z = -0.04;
+  guard.position.z = 0.01;
   group.add(blade, grip, guard);
+  group.traverse((node) => {
+    if (node.isMesh) node.renderOrder = 1600;
+  });
   return enableShadows(group);
 }
 
@@ -1619,6 +2121,34 @@ export function createHolyBoltModel(color = '#e9fbff') {
   );
   ring.rotation.y = Math.PI / 2;
   group.add(core, tail, ring);
+  return enableShadows(group);
+}
+
+export function createWardSigilModel(color = '#ffb347') {
+  const group = new THREE.Group();
+  const ringMat = basicMat(color, {
+    transparent: true,
+    opacity: 0.86,
+    depthWrite: false
+  });
+  const fillMat = basicMat('#ff9b2f', {
+    transparent: true,
+    opacity: 0.2,
+    depthWrite: false
+  });
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.48, 0.028, 5, 32), ringMat);
+  const inner = new THREE.Mesh(new THREE.TorusGeometry(0.29, 0.014, 5, 24), ringMat);
+  const fill = new THREE.Mesh(new THREE.CylinderGeometry(0.44, 0.44, 0.014, 6), fillMat);
+  fill.rotation.x = Math.PI / 2;
+  const runeA = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.026, 0.02), ringMat);
+  const runeB = runeA.clone();
+  runeB.rotation.z = Math.PI / 3;
+  const runeC = runeA.clone();
+  runeC.rotation.z = -Math.PI / 3;
+  group.add(fill, ring, inner, runeA, runeB, runeC);
+  group.traverse((node) => {
+    if (node.isMesh) node.renderOrder = 1500;
+  });
   return enableShadows(group);
 }
 

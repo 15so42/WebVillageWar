@@ -32,6 +32,15 @@ export class TargetingSystem {
     unit.target = null;
   }
 
+  handleKill(deadUnit, source = null) {
+    if (!deadUnit?.position || !source?.alive || source === deadUnit) return;
+    this.rebuild();
+    source.target = this.acquireTarget(source);
+    source.targetSearchTimer = source.target
+      ? targetSearchDelay(source, TARGET_RESCAN_INTERVAL, TARGET_RESCAN_JITTER)
+      : 0;
+  }
+
   update(dt) {
     this.indexTimer -= dt;
     if (this.indexTimer > 0 && this.indices.size > 0) return;

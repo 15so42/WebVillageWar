@@ -303,10 +303,12 @@ export const UNIT_DEFINITIONS = {
       rangedProjectile: {
         key: 'throwDagger',
         cooldown: 7,
-        initialCooldown: 0.8,
+        initialCooldown: 0,
         range: 7.5,
         projectileType: 'dagger',
-        projectileSpeed: 14.5,
+        projectileColor: '#f4fbff',
+        projectileSpeed: 9.5,
+        animationVariant: 'throw',
         damageMultiplier: 1,
         knockback: 1.2,
         attackLockSeconds: 0.38,
@@ -376,7 +378,7 @@ export const UNIT_DEFINITIONS = {
       clips: {
         idle: 'Idle',
         walk: 'Walk',
-        attack: 'Staff_Cast',
+        attack: 'Ward_Cast',
         hit: 'Hit',
         death: 'Death'
       },
@@ -507,9 +509,13 @@ export const UNIT_DEFINITIONS = {
     damage: 1.8,
     knockback: 0.7,
     aggroRange: 12.3,
-    projectileSpeed: 10,
-    projectileType: 'holyBolt',
-    projectileColor: '#b7eaff',
+    projectileSpeed: 4.3,
+    projectileType: 'wardSigil',
+    projectileColor: '#ffb347',
+    projectileAbsorb: {
+      radius: 0.9,
+      types: ['arrow', 'bolt', 'dagger', 'holyBolt', 'energyOrb', 'waterOrb']
+    },
     support: {
       shield: {
         cooldown: 5.5,
@@ -519,7 +525,7 @@ export const UNIT_DEFINITIONS = {
       }
     },
     weapon: {
-      name: '结界杖',
+      name: '结界法阵',
       maxDurability: 21,
       durabilityCost: 0.7
     }
@@ -2085,7 +2091,7 @@ export const CARD_DEFINITIONS = [
     kind: 'summon',
     label: '界',
     artKey: 'warder',
-    summary: '低攻击，周期性为友军补充护盾',
+    summary: '低攻击，发射可吞没飞行物的法阵，周期性为友军补充护盾',
     target: 'ground',
     radius: 1.15,
     cooldown: 7,

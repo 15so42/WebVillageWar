@@ -19,6 +19,7 @@ import {
 
 const projectileLaunchPosition = new THREE.Vector3();
 const projectileTargetPosition = new THREE.Vector3();
+const projectileTrailTargetPosition = new THREE.Vector3();
 const projectileForward = new THREE.Vector3(0, 0, 1);
 const linearProjectileDirection = new THREE.Vector3();
 const PROJECTILE_TARGET_QUERY_PADDING = 3.2;
@@ -55,7 +56,9 @@ export class AttackSystem {
     unit.attackTimer = Math.max(unit.attackTimer, ability.attackLockSeconds ?? 0.35);
     unit.visualState = 'idle';
     const duration = getAnimationDuration(unit, 'attack');
-    playUnitAnimation(unit, 'attack', duration);
+    playUnitAnimation(unit, 'attack', duration, {
+      variant: ability.animationVariant ?? 'rangedAbility'
+    });
     this.queuePendingAttack({
       source: unit,
       target,
@@ -67,6 +70,7 @@ export class AttackSystem {
       duration,
       projectileOverride: {
         projectileType: ability.projectileType ?? 'dagger',
+        projectileColor: ability.projectileColor,
         projectileSpeed: ability.projectileSpeed ?? unit.definition.projectileSpeed ?? 13,
         damage: this.game.modifiers.getAttackDamage(unit) * (ability.damageMultiplier ?? 1),
         knockback: ability.knockback ?? this.game.modifiers.getKnockback(unit),
@@ -83,7 +87,9 @@ export class AttackSystem {
     unit.visualState = 'idle';
     const eventName = unit.definition.role === 'ranged' ? 'release' : 'impact';
     const duration = getAnimationDuration(unit, 'attack');
-    playUnitAnimation(unit, 'attack', duration);
+    playUnitAnimation(unit, 'attack', duration, {
+      variant: unit.definition.attackAnimationVariant ?? null
+    });
     this.queuePendingAttack({
       source: unit,
       target,
@@ -159,7 +165,7 @@ export class AttackSystem {
     const { source, target } = attack;
     if (!source.alive) return;
     if (target?.alive === false) return;
-    if (target?.position && source.definition.role === 'melee') {
+    if (!attack.projectileOverride && target?.position && source.definition.role === 'melee') {
       const allowedRange =
         this.game.modifiers.getAttackRange(source) + targetCombatRadius(target) + 0.85;
       if (distance2D(source.position, target.position) > allowedRange) return;
@@ -196,10 +202,17 @@ export class AttackSystem {
 
   spawnProjectile(source, target, override = {}) {
     const projectileType = override.projectileType ?? source.definition.projectileType ?? 'arrow';
-    const projectileColor = resolveProjectileColor(source, projectileType);
+    const projectileColor = override.projectileColor ?? resolveProjectileColor(source, projectileType);
     const projectileObject = this.acquireProjectileObject(projectileType, projectileColor);
     const launchPosition = this.getProjectileLaunchPosition(source);
     projectileObject.position.copy(launchPosition);
+    projectileTrailTargetPosition.copy(target.position);
+    projectileTrailTargetPosition.y = target.position.y + (target.projectileHitHeight ?? 1);
+    projectileTargetPosition.copy(projectileTrailTargetPosition).sub(launchPosition);
+    if (projectileTargetPosition.lengthSq() > 0.0001) {
+      projectileTargetPosition.normalize();
+      projectileObject.quaternion.setFromUnitVectors(projectileForward, projectileTargetPosition);
+    }
     this.game.scene.add(projectileObject);
 
     const pierce = override.projectilePierce ?? source.definition.projectilePierce;
@@ -207,10 +220,12 @@ export class AttackSystem {
       object: projectileObject,
       source,
       target,
+      type: projectileType,
       speed: override.projectileSpeed ?? this.game.modifiers.getProjectileSpeed(source),
       damage: override.damage ?? this.game.modifiers.getAttackDamage(source),
       knockback: override.knockback ?? this.game.modifiers.getKnockback(source),
       damageTypes: override.damageTypes,
+      absorb: override.projectileAbsorb ?? source.definition.projectileAbsorb,
       age: 0
     };
 
@@ -282,6 +297,7 @@ export class AttackSystem {
       projectileTargetPosition.set(dx / distance, dy / distance, dz / distance);
       projectile.object.quaternion.setFromUnitVectors(projectileForward, projectileTargetPosition);
       recordProjectileProfile(profile, 'projectileMoveApplyMs', moveStartedAt);
+      i -= this.absorbHostileProjectiles(projectile, i);
     }
   }
 
@@ -323,6 +339,30 @@ export class AttackSystem {
       });
       recordProjectileProfile(profile, 'projectileHitMs', hitStartedAt);
     }
+    this.absorbHostileProjectiles(projectile, index);
+  }
+
+  absorbHostileProjectiles(projectile, projectileIndex) {
+    const absorb = projectile.absorb;
+    if (!absorb || !projectile.source?.team) return 0;
+    const radius = Math.max(0.05, absorb.radius ?? 0.65);
+    const radiusSq = radius * radius;
+    const allowedTypes = Array.isArray(absorb.types) ? new Set(absorb.types) : null;
+    let removedBefore = 0;
+    for (let i = this.projectiles.length - 1; i >= 0; i -= 1) {
+      if (i === projectileIndex) continue;
+      const other = this.projectiles[i];
+      if (!other || other.source?.team === projectile.source.team) continue;
+      if (other.absorb) continue;
+      if (allowedTypes && !allowedTypes.has(other.type)) continue;
+      const dx = other.object.position.x - projectile.object.position.x;
+      const dy = other.object.position.y - projectile.object.position.y;
+      const dz = other.object.position.z - projectile.object.position.z;
+      if (dx * dx + dy * dy + dz * dz > radiusSq) continue;
+      this.removeProjectileAt(i);
+      if (i < projectileIndex) removedBefore += 1;
+    }
+    return removedBefore;
   }
 
   removeProjectileAt(index) {

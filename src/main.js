@@ -1,4 +1,6 @@
 import './styles.css';
+import { AnimationPreviewScene } from './systems/AnimationPreviewScene.js';
+import { DebugScene, createDebugSession } from './systems/DebugScene.js';
 import { Game } from './systems/Game.js';
 import { MetaGameSystem } from './systems/MetaGameSystem.js';
 
@@ -86,9 +88,78 @@ try {
       meta.show('levels');
     }
   };
+  const startDebugScene = () => {
+    activeGame?.destroy?.();
+    try {
+      activeGame = new DebugScene({
+        canvas,
+        session: createDebugSession(),
+        onLevelComplete: () => {
+          activeGame?.destroy?.();
+          activeGame = null;
+          meta.show('levels');
+        },
+        onRestart: () => {
+          startDebugScene();
+        },
+        onExitToMenu: () => {
+          activeGame?.destroy?.();
+          activeGame = null;
+          meta.show('levels');
+        }
+      });
+      activeGame.start();
+      if (debugState) {
+        debugState.hidden = true;
+        debugState.textContent = '';
+      }
+    } catch (error) {
+      activeGame?.destroy?.();
+      activeGame = null;
+      if (debugState) {
+        debugState.hidden = false;
+        debugState.textContent = error?.stack ?? String(error);
+      }
+      console.error(error);
+      meta.show('levels');
+    }
+  };
+  const startAnimationPreview = () => {
+    activeGame?.destroy?.();
+    try {
+      activeGame = new AnimationPreviewScene({
+        canvas,
+        onExitToMenu: () => {
+          activeGame?.destroy?.();
+          activeGame = null;
+          meta.show('levels');
+        }
+      });
+      activeGame.start();
+      if (debugState) {
+        debugState.hidden = true;
+        debugState.textContent = '';
+      }
+    } catch (error) {
+      activeGame?.destroy?.();
+      activeGame = null;
+      if (debugState) {
+        debugState.hidden = false;
+        debugState.textContent = error?.stack ?? String(error);
+      }
+      console.error(error);
+      meta.show('levels');
+    }
+  };
   meta = new MetaGameSystem({
     onStartLevel: (session) => {
       startSession(session);
+    },
+    onStartDebug: () => {
+      startDebugScene();
+    },
+    onStartAnimationPreview: () => {
+      startAnimationPreview();
     }
   });
 } catch (error) {

@@ -12,8 +12,10 @@ const STARTING_COINS = 10000;
 const STARTING_COINS_VERSION = 1;
 
 export class MetaGameSystem {
-  constructor({ onStartLevel }) {
+  constructor({ onStartLevel, onStartDebug = null, onStartAnimationPreview = null }) {
     this.onStartLevel = onStartLevel;
+    this.onStartDebug = onStartDebug;
+    this.onStartAnimationPreview = onStartAnimationPreview;
     this.progress = loadProgress();
     this.view = 'levels';
     this.selectedLevelId = LEVEL_DEFINITIONS[0]?.id ?? 'snow-valley';
@@ -94,6 +96,14 @@ export class MetaGameSystem {
       this.show('upgrades');
       return;
     }
+    if (action === 'debug-scene') {
+      this.enterDebugScene();
+      return;
+    }
+    if (action === 'animation-preview') {
+      this.enterAnimationPreview();
+      return;
+    }
     if (action === 'select-level') {
       this.selectedLevelId = actionTarget.dataset.levelId;
       this.selectedDifficulty = Math.min(
@@ -171,11 +181,23 @@ export class MetaGameSystem {
     }
   }
 
+  enterDebugScene() {
+    this.hide();
+    this.onStartDebug?.();
+  }
+
+  enterAnimationPreview() {
+    this.hide();
+    this.onStartAnimationPreview?.();
+  }
+
   renderHeader() {
     const tabs = [
       ['levels', '选关'],
       ['shop', '商店'],
-      ['upgrades', '升级']
+      ['upgrades', '升级'],
+      ['animation-preview', '动画预览'],
+      ['debug-scene', 'Debug']
     ];
     const currencyClass = `meta-currency${this.notice ? ' is-pulse' : ''}`;
     return `

@@ -131,11 +131,12 @@ export class CombatSystem {
       text: '闪避',
       color: '#dff8ff',
       stroke: '#12303a',
-      height: context.target.projectileHitHeight ?? 1.45,
-      duration: 0.62,
-      fontSize: 92,
-      baseHeight: 0.5,
-      fadeStart: 0.58
+      height: (context.target.projectileHitHeight ?? 1.45) + 0.18,
+      duration: 0.78,
+      fontSize: 108,
+      strokeWidth: 18,
+      baseHeight: 0.62,
+      fadeStart: 0.64
     });
     this.game.effects.spawnRing(context.target.position, '#dff8ff', 0.55, 0.34);
     return true;

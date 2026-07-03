@@ -56,6 +56,7 @@ export class UnitRegistry {
       Math.max(0.68, this.game.movement?.crowdRadius?.(unit) ?? 0.7)
     );
     this.unregister(unit);
+    this.game.targeting?.handleKill?.(unit, source);
     this.game.onUnitDied?.(unit, source);
     return true;
   }

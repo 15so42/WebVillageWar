@@ -32,6 +32,7 @@ import {
   createWarderModel,
   createWaterMageModel,
   createWaterOrbModel,
+  createWardSigilModel,
   createWizardModel,
   createWolfModel
 } from './lowpoly.js';
@@ -72,6 +73,7 @@ const PROJECTILE_FACTORIES = {
   bolt: ({ color }) => createBoltModel(color),
   dagger: ({ color }) => createDaggerModel(color),
   holyBolt: ({ color }) => createHolyBoltModel(color),
+  wardSigil: ({ color }) => createWardSigilModel(color),
   energyOrb: ({ color }) => createEnergyOrbModel(color),
   waterOrb: ({ color }) => createWaterOrbModel(color)
 };
@@ -111,11 +113,12 @@ export function createSpellModel(type) {
   return factory();
 }
 
-export function playUnitAnimation(unit, name, duration = getAnimationDuration(unit, name)) {
+export function playUnitAnimation(unit, name, duration = getAnimationDuration(unit, name), options = {}) {
   unit.visualRoot.userData.animation = {
     name,
     duration,
-    time: 0
+    time: 0,
+    variant: options.variant ?? null
   };
 }
 
@@ -146,7 +149,7 @@ export function updateUnitAnimation(unit, dt) {
   if (state) {
     state.time += dt;
     const t = Math.min(1, state.time / state.duration);
-    applyOneShot(unit, root, state.name, t);
+    applyOneShot(unit, root, state.name, t, state);
     if (t >= 1) {
       root.userData.animation = null;
     }
@@ -174,7 +177,7 @@ export function updateUnitAnimation(unit, dt) {
   root.scale.setScalar(1);
 }
 
-function applyOneShot(unit, root, name, t) {
+function applyOneShot(unit, root, name, t, state = null) {
   const pulse = Math.sin(t * Math.PI);
   root.rotation.x = 0;
   root.rotation.y = 0;
@@ -192,13 +195,13 @@ function applyOneShot(unit, root, name, t) {
   if (name === 'attack') {
     if (unit.type === 'archer' || unit.type === 'goblinArcher' || unit.type === 'skeletonArcher') {
       root.position.y = pulse * 0.025;
-      applyAttackPose(unit, root, t, pulse);
+      applyAttackPose(unit, root, t, pulse, state?.variant);
       return;
     }
     root.position.y = pulse * 0.045;
     root.rotation.z = -pulse * 0.035;
     root.scale.set(1 + pulse * 0.025, 1 - pulse * 0.018, 1 + pulse * 0.025);
-    applyAttackPose(unit, root, t, pulse);
+    applyAttackPose(unit, root, t, pulse, state?.variant);
     return;
   }
   if (name === 'hit') {
@@ -207,12 +210,18 @@ function applyOneShot(unit, root, name, t) {
     root.scale.set(1 - pulse * 0.04, 1 + pulse * 0.05, 1 - pulse * 0.04);
     return;
   }
+  if (name === 'support') {
+    root.position.y = pulse * 0.028;
+    root.rotation.z = -pulse * 0.012;
+    applySupportPose(unit, root, t, pulse, state?.variant);
+    return;
+  }
   root.position.y = 0;
   root.rotation.z = 0;
   root.scale.setScalar(1);
 }
 
-function applyAttackPose(unit, root, t, pulse) {
+function applyAttackPose(unit, root, t, pulse, variant = null) {
   if (unit.type === 'archer' || unit.type === 'goblinArcher' || unit.type === 'skeletonArcher') {
     applyArcherAttack(root, t, pulse);
     return;
@@ -222,7 +231,7 @@ function applyAttackPose(unit, root, t, pulse) {
     return;
   }
   if (unit.type === 'rogue') {
-    applyRogueAttack(root, t, pulse);
+    applyRogueAttack(root, t, pulse, variant);
     return;
   }
   if (unit.type === 'crossbowman') {
@@ -236,11 +245,14 @@ function applyAttackPose(unit, root, t, pulse) {
   if (
     unit.type === 'physician' ||
     unit.type === 'purifier' ||
-    unit.type === 'warder' ||
     unit.type === 'wizard' ||
     unit.type === 'waterMage'
   ) {
     applyCasterAttack(root, t, pulse);
+    return;
+  }
+  if (unit.type === 'warder') {
+    applyWarderAttack(root, t, pulse);
     return;
   }
   if (unit.type === 'wolf' || unit.type === 'bear' || unit.type === 'scorpion' || unit.type === 'spider') {
@@ -250,19 +262,58 @@ function applyAttackPose(unit, root, t, pulse) {
   applySwordsmanAttack(root, t, pulse);
 }
 
-function applyRogueAttack(root, t, pulse) {
-  applySwordsmanAttack(root, t, pulse);
-  const { offhandPivot, projectileSocket } = root.userData.parts ?? {};
-  const feint = bell(0.12, 0.34, 0.62, t);
-  const release = bell(0.42, 0.52, 0.7, t);
-  root.rotation.z += pulse * 0.025;
-  root.position.y += pulse * 0.025;
-  if (offhandPivot) {
-    offhandPivot.rotation.x += -0.34 * feint + 0.42 * release;
-    offhandPivot.rotation.z += 0.26 * feint - 0.18 * release;
+function applyRogueAttack(root, t, pulse, variant = null) {
+  if (variant === 'throw') {
+    applyRogueThrowAttack(root, t, pulse);
+    return;
   }
-  if (projectileSocket) {
-    projectileSocket.position.z += release * 0.18;
+  applyRogueSlashAttack(root, t, pulse);
+}
+
+function applyRogueSlashAttack(root, t, pulse) {
+  applyRogueArmSwipe(root, t, pulse, false);
+}
+
+function applyRogueThrowAttack(root, t, pulse) {
+  applyRogueArmSwipe(root, t, pulse, true);
+}
+
+function applyRogueArmSwipe(root, t, pulse, isThrow) {
+  const { upperBodyPivot, weaponPivot, weaponSwingPivot, offhandPivot, rogueElbowPivot } = root.userData.parts ?? {};
+  if (!weaponPivot) return;
+  const ready = smoothstep(0, 0.22, t) * (1 - smoothstep(0.76, 1, t));
+  const slide = smoothstep(0.28, 0.56, t) * (1 - smoothstep(0.68, 0.92, t));
+  const snap = bell(0.42, 0.55, 0.72, t);
+  const release = isThrow ? bell(0.46, 0.58, 0.74, t) : 0;
+  const recover = smoothstep(0.7, 1, t);
+  const bodyTurn = smoothstep(0.04, 0.28, t) * (1 - smoothstep(0.76, 1, t));
+  const armSlash = smoothstep(0.16, 0.46, t) * (1 - smoothstep(0.76, 1, t));
+  root.position.y += pulse * 0.024;
+  if (upperBodyPivot) {
+    upperBodyPivot.position.x += 0.012 * bodyTurn;
+    upperBodyPivot.position.z -= 0.028 * bodyTurn;
+    upperBodyPivot.rotation.y += 0.82 * bodyTurn;
+    upperBodyPivot.rotation.z += -0.012 * bodyTurn;
+  } else {
+    root.rotation.y += 0.23 * bodyTurn;
+  }
+  root.rotation.z += 0.018 * ready - 0.024 * slide;
+  weaponPivot.rotation.x += -0.2 * ready + 0.12 * slide + 0.08 * release - 0.04 * recover;
+  weaponPivot.rotation.y += 1.38 * armSlash;
+  weaponPivot.rotation.z += -0.42 * ready + 1.05 * slide + 0.18 * release - 0.14 * recover;
+  if (rogueElbowPivot) {
+    rogueElbowPivot.rotation.x += 0.2 * ready - 0.3 * slide + 0.34 * release;
+    rogueElbowPivot.rotation.y += 0.34 * armSlash;
+    rogueElbowPivot.rotation.z += 0.24 * ready - 0.46 * slide + 0.12 * recover;
+  }
+  if (weaponSwingPivot) {
+    weaponSwingPivot.rotation.x += -0.08 * ready + 0.18 * snap + 0.22 * release;
+    weaponSwingPivot.rotation.y += -0.42 * armSlash;
+    weaponSwingPivot.rotation.z += 0.16 * ready - 0.34 * slide;
+  }
+  if (offhandPivot) {
+    offhandPivot.rotation.x += -0.06 * ready + 0.035 * slide;
+    offhandPivot.rotation.z += -0.1 * ready + 0.06 * slide;
   }
 }
 
@@ -372,6 +423,120 @@ function applyCasterAttack(root, t, pulse) {
   if (projectileSocket) {
     const glow = 1 + gather * 0.55 + release * 0.35;
     projectileSocket.scale.setScalar(glow);
+  }
+}
+
+function applySupportPose(unit, root, t, pulse, variant = null) {
+  if (unit.type === 'warder') {
+    applyWarderSupport(root, t, pulse);
+    return;
+  }
+  if (unit.type === 'engineer') {
+    applyEngineerSupport(root, t, pulse);
+    return;
+  }
+  applyCasterSupport(root, t, pulse, variant);
+}
+
+function applyCasterSupport(root, t, pulse) {
+  const { weaponPivot, weaponSwingPivot, offhandPivot, projectileSocket } = root.userData.parts ?? {};
+  const gather = smoothstep(0, 0.4, t) * (1 - smoothstep(0.78, 1, t));
+  const release = bell(0.46, 0.62, 0.82, t);
+  root.rotation.z += -0.008 * pulse;
+  if (weaponPivot) {
+    weaponPivot.position.y += 0.12 * gather;
+    weaponPivot.position.z += 0.04 * gather;
+    weaponPivot.rotation.x += -0.5 * gather + 0.16 * release;
+    weaponPivot.rotation.z += -0.08 * gather;
+  }
+  if (weaponSwingPivot) {
+    weaponSwingPivot.rotation.x += -0.16 * gather + 0.08 * release;
+    weaponSwingPivot.rotation.z += 0.12 * gather;
+  }
+  if (offhandPivot) {
+    offhandPivot.rotation.x += -0.18 * gather + 0.08 * release;
+    offhandPivot.position.y += 0.05 * gather;
+  }
+  if (projectileSocket) {
+    projectileSocket.scale.setScalar(1 + gather * 0.5 + release * 0.22);
+  }
+}
+
+function applyEngineerSupport(root, t, pulse) {
+  const { weaponPivot, weaponSwingPivot, offhandPivot } = root.userData.parts ?? {};
+  const gather = smoothstep(0, 0.42, t) * (1 - smoothstep(0.78, 1, t));
+  const release = bell(0.5, 0.62, 0.82, t);
+  root.rotation.z += -0.01 * pulse;
+  if (weaponPivot) {
+    weaponPivot.position.y += 0.14 * gather;
+    weaponPivot.position.z += 0.05 * gather;
+    weaponPivot.rotation.x += -0.7 * gather + 0.22 * release;
+    weaponPivot.rotation.z += -0.18 * gather;
+  }
+  if (weaponSwingPivot) {
+    weaponSwingPivot.rotation.z += 0.2 * gather - 0.12 * release;
+    weaponSwingPivot.rotation.x += -0.12 * gather;
+  }
+  if (offhandPivot) {
+    offhandPivot.position.y += 0.06 * gather;
+    offhandPivot.rotation.x += -0.12 * gather;
+  }
+}
+
+function applyWarderSupport(root, t, pulse) {
+  const { warderRightHandPivot, warderLeftHandPivot, wardCirclePivot, projectileSocket } = root.userData.parts ?? {};
+  const gather = smoothstep(0, 0.44, t) * (1 - smoothstep(0.82, 1, t));
+  const release = bell(0.48, 0.64, 0.84, t);
+  root.rotation.z += -0.006 * pulse;
+  if (warderRightHandPivot) {
+    warderRightHandPivot.position.z += 0.08 * gather;
+    warderRightHandPivot.position.y += 0.06 * gather;
+    warderRightHandPivot.rotation.x += -0.12 * gather;
+  }
+  if (warderLeftHandPivot) {
+    warderLeftHandPivot.position.z += 0.08 * gather;
+    warderLeftHandPivot.position.y -= 0.05 * gather;
+    warderLeftHandPivot.rotation.x += 0.1 * gather;
+  }
+  if (wardCirclePivot) {
+    wardCirclePivot.position.z += 0.08 * gather;
+    wardCirclePivot.rotation.z += 0.34 * gather + 0.56 * release;
+    wardCirclePivot.scale.setScalar(1 + gather * 0.48 + release * 0.28);
+  }
+  if (projectileSocket) {
+    projectileSocket.scale.setScalar(1 + gather * 0.34 + release * 0.3);
+  }
+}
+
+function applyWarderAttack(root, t, pulse) {
+  const { warderRightHandPivot, warderLeftHandPivot, wardCirclePivot, projectileSocket } = root.userData.parts ?? {};
+  const gather = smoothstep(0, 0.36, t) * (1 - smoothstep(0.78, 1, t));
+  const release = bell(0.46, 0.56, 0.72, t);
+  const push = smoothstep(0.4, 0.6, t) * (1 - smoothstep(0.72, 1, t));
+  const recover = smoothstep(0.72, 1, t);
+
+  root.position.y += pulse * 0.018;
+  root.rotation.z = -0.006 * pulse;
+  if (warderRightHandPivot) {
+    warderRightHandPivot.position.z += 0.08 * gather + 0.18 * push - 0.06 * recover;
+    warderRightHandPivot.position.y += 0.03 * gather + 0.04 * release;
+    warderRightHandPivot.rotation.x += -0.08 * gather - 0.14 * push;
+    warderRightHandPivot.rotation.z += -0.08 * gather;
+  }
+  if (warderLeftHandPivot) {
+    warderLeftHandPivot.position.z += 0.08 * gather + 0.18 * push - 0.06 * recover;
+    warderLeftHandPivot.position.y -= 0.03 * gather - 0.035 * release;
+    warderLeftHandPivot.rotation.x += 0.08 * gather - 0.08 * push;
+    warderLeftHandPivot.rotation.z += 0.08 * gather;
+  }
+  if (wardCirclePivot) {
+    wardCirclePivot.position.z += 0.08 * gather + 0.28 * push;
+    wardCirclePivot.position.y += 0.015 * gather;
+    wardCirclePivot.rotation.z += gather * 0.4 + release * 0.9;
+    wardCirclePivot.scale.setScalar(1 + gather * 0.18 + release * 0.24);
+  }
+  if (projectileSocket) {
+    projectileSocket.scale.setScalar(1 + gather * 0.28 + release * 0.45);
   }
 }
 
@@ -493,5 +658,6 @@ function bell(start, peak, end, value) {
 function defaultDuration(name) {
   if (name === 'attack') return 0.34;
   if (name === 'hit') return 0.24;
+  if (name === 'support') return 0.58;
   return 0.5;
 }

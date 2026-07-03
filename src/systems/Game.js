@@ -63,6 +63,9 @@ const SPIDER_EGG_HATCH_SECONDS = 15;
 const TOUCH_TAP_THRESHOLD = 7;
 const MOBILE_DOUBLE_TAP_MS = 360;
 const MOBILE_DOUBLE_TAP_DISTANCE = 38;
+const STRUCTURE_HEALTH_LAG_DELAY = 0.4;
+const STRUCTURE_HEALTH_LAG_RAPID_DELAY = 0.08;
+const STRUCTURE_HEALTH_LAG_RAPID_WINDOW = 0.18;
 const PERF_HISTORY_LIMIT = 120;
 const PERF_CHART_UPDATE_INTERVAL = 0.25;
 const PERF_TOP_SECTION_LIMIT = 9;
@@ -187,6 +190,7 @@ export class Game {
     this.selectedUnit = null;
     this.selectedUnits = [];
     this.selectedUnitIds = new Set();
+    this.selectionMode = 'none';
     this.selectionRings = [];
     this.guardVisuals = new Map();
     this.selectionDrag = null;
@@ -1526,8 +1530,9 @@ export class Game {
   damagePlayerBase(amount) {
     const previousHealth = this.playerBase.health;
     this.playerBase.health = Math.max(0, this.playerBase.health - amount);
-    registerStructureHealthLoss(this.playerBase, previousHealth);
+    registerStructureHealthLoss(this.playerBase, previousHealth, this.elapsedTime);
     this.playerBase.alive = this.playerBase.health > 0;
+    this.updateStructureStatusElement(this.playerBase, 0);
     this.shakeStructure(this.playerBase, 0.2, 0.36);
     this.effects.spawnRing(this.playerBase.position, '#ff8c66', 1.2, 0.44);
     this.effects.spawnStructureDust(this.playerBase.position, this.playerBase.collisionRadius);
@@ -1540,8 +1545,9 @@ export class Game {
     if (!this.enemyCamp.alive) return;
     const previousHealth = this.enemyCamp.health;
     this.enemyCamp.health = Math.max(0, this.enemyCamp.health - amount);
-    registerStructureHealthLoss(this.enemyCamp, previousHealth);
+    registerStructureHealthLoss(this.enemyCamp, previousHealth, this.elapsedTime);
     this.enemyCamp.alive = this.enemyCamp.health > 0;
+    this.updateStructureStatusElement(this.enemyCamp, 0);
     this.shakeStructure(this.enemyCamp, 0.16, 0.32);
     this.effects.spawnRing(this.enemyCamp.position, '#ff8c66', 1.1, 0.44);
     this.effects.spawnStructureDust(this.enemyCamp.position, this.enemyCamp.collisionRadius, '#8d7464');
@@ -1650,10 +1656,10 @@ export class Game {
   }
 
   selectUnit(unit) {
-    this.selectUnits(unit ? [unit] : []);
+    this.selectUnits(unit ? [unit] : [], { mode: unit ? 'direct' : 'none' });
   }
 
-  selectUnits(units) {
+  selectUnits(units, { mode = 'direct' } = {}) {
     const unique = new Set();
     this.selectedUnits.forEach((unit) => {
       unit.statusUiDirty = true;
@@ -1668,6 +1674,7 @@ export class Game {
       unit.statusUiDirty = true;
     });
     this.selectedUnit = this.selectedUnits[0] ?? null;
+    this.selectionMode = this.selectedUnits.length ? mode : 'none';
   }
 
   onCanvasPointerDown(event) {
@@ -1791,7 +1798,7 @@ export class Game {
     this.hideSelectionBox();
 
     if (drag.active) {
-      this.selectUnits(this.unitsInScreenRect(drag));
+      this.selectUnits(this.unitsInScreenRect(drag), { mode: 'box' });
       return;
     }
 
@@ -1965,10 +1972,14 @@ export class Game {
 
   handleMobileTapCommand(event) {
     if (this.lootDrops?.tryOpenPickup(event)) return;
+    const shouldCancelBoxSelection = this.selectionMode === 'box' && this.selectedUnits.length > 0;
+    if (shouldCancelBoxSelection) {
+      this.selectUnit(null);
+    }
     const unit = this.pickFriendlyUnit(event.clientX, event.clientY);
     if (unit) {
       this.selectUnit(unit);
-    } else {
+    } else if (!shouldCancelBoxSelection) {
       this.issueMoveCommand(event);
     }
     this.lastMobileTap = {
@@ -2664,6 +2675,7 @@ function createSelectionBoxElement() {
 function isGameUiTarget(target) {
   return Boolean(target?.closest?.(
     '.hud, .card, .energy-panel, .card-pile-dock, .pile-viewer, .loot-confirm, .drag-ghost, .game-settings-button, .game-command-dock, .mobile-action-dock, .pause-overlay'
+      + ', .debug-scene-panel'
   ));
 }
 
@@ -3511,7 +3523,8 @@ function createStructureState({ id, position, projectileHitHeight, attributes })
     attributes: new AttributeSet(attributes),
     alive: true,
     healthLagRatio: 1,
-    healthLagDelay: 0
+    healthLagDelay: 0,
+    lastHealthLossAt: -Infinity
   };
   [
     'maxHealth',
@@ -3525,11 +3538,15 @@ function createStructureState({ id, position, projectileHitHeight, attributes })
   return structure;
 }
 
-function registerStructureHealthLoss(structure, previousHealth) {
+function registerStructureHealthLoss(structure, previousHealth, now = 0) {
   if (!structure || structure.health >= previousHealth) return;
   const previousRatio = clamp(previousHealth / structure.maxHealth, 0, 1);
   structure.healthLagRatio = Math.max(structure.healthLagRatio ?? previousRatio, previousRatio);
-  structure.healthLagDelay = 0.4;
+  const rapidHit = now - (structure.lastHealthLossAt ?? -Infinity) <= STRUCTURE_HEALTH_LAG_RAPID_WINDOW;
+  structure.healthLagDelay = rapidHit
+    ? Math.min(structure.healthLagDelay ?? 0, STRUCTURE_HEALTH_LAG_RAPID_DELAY)
+    : STRUCTURE_HEALTH_LAG_DELAY;
+  structure.lastHealthLossAt = now;
 }
 
 function updateHealthTicks(ticks, maxHealth) {

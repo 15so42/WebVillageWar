@@ -230,6 +230,51 @@ export class EffectsSystem {
     }, () => this.releasePooledEffect(poolKey, group));
   }
 
+  spawnProjectileTrail(start, end, color = '#f4fbff', options = {}) {
+    const direction = new THREE.Vector3().subVectors(end, start);
+    const length = direction.length();
+    if (length < 0.08) return;
+
+    const width = options.width ?? 0.075;
+    const opacity = options.opacity ?? 0.86;
+    const duration = options.duration ?? 0.22;
+    const group = new THREE.Group();
+    group.position.copy(start).addScaledVector(direction, 0.5);
+    group.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), direction.normalize());
+    group.renderOrder = 1810;
+
+    const core = new THREE.Mesh(
+      new THREE.BoxGeometry(width, width, length),
+      new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity,
+        depthWrite: false,
+        depthTest: false
+      })
+    );
+    const glow = new THREE.Mesh(
+      new THREE.BoxGeometry(width * 2.7, width * 2.7, Math.max(0.08, length * 0.92)),
+      new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity: opacity * 0.34,
+        depthWrite: false,
+        depthTest: false
+      })
+    );
+    core.renderOrder = 1811;
+    glow.renderOrder = 1810;
+    group.add(glow, core);
+
+    this.addEffect(group, duration, (_, t) => {
+      const fade = Math.max(0, 1 - t);
+      core.material.opacity = opacity * fade;
+      glow.material.opacity = opacity * 0.34 * fade;
+      group.scale.set(1 + t * 0.28, 1 + t * 0.28, Math.max(0.18, 1 - t * 0.5));
+    });
+  }
+
   spawnDeathBurst(position, radius = 0.8) {
     const group = new THREE.Group();
     group.position.set(position.x, position.y ?? 0, position.z);

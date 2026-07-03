@@ -11,6 +11,7 @@ const ENERGY_REGEN_SECONDS = 5;
 const TEMPORARY_CARD_LIMIT = 3;
 const PLAY_DRAG_RATIO = 0.5;
 const DISCARD_DRAG_RATIO = 0.3;
+const PLAY_DRAG_MIN_DISTANCE = 24;
 const DISCARD_FALL_DELAY_MS = 2000;
 const CARD_USAGE_HINT = '上滑使用 / 下滑丢弃';
 const CARD_KIND_COLORS = {
@@ -278,7 +279,7 @@ export class CardSystem {
     this.drag.playThreshold = this.drag.sourceHeight * PLAY_DRAG_RATIO;
     this.drag.discardThreshold = this.drag.sourceHeight * DISCARD_DRAG_RATIO;
     this.drag.sourceElement?.classList.add('is-dragging');
-    this.ghost.textContent = '';
+    this.prepareDragGhost(event.currentTarget, card);
     this.ghost.classList.toggle('enchant-crosshair', card.target === 'friendly-unit');
     this.ghost.hidden = true;
     this.updateDraggedCardMotion(event);
@@ -610,6 +611,29 @@ export class CardSystem {
     this.ghost.style.top = `${y}px`;
   }
 
+  prepareDragGhost(sourceElement, card) {
+    this.ghost.textContent = '';
+    this.ghost.classList.remove('has-card-preview');
+    if (!shouldUseCardFaceGhost(card) || !sourceElement) return;
+    const clone = sourceElement.cloneNode(true);
+    clone.classList.remove(
+      'is-dragging',
+      'is-discard-ready',
+      'is-discard-only',
+      'is-locked',
+      'is-drawn',
+      'is-hand-card-target'
+    );
+    clone.classList.add('drag-ghost-card');
+    clone.removeAttribute('data-hand-index');
+    clone.removeAttribute('data-temporary-index');
+    clone.setAttribute('aria-hidden', 'true');
+    clone.style.removeProperty('--card-drag-y');
+    clone.style.removeProperty('--card-drag-rotate');
+    this.ghost.classList.add('has-card-preview');
+    this.ghost.appendChild(clone);
+  }
+
   updateDraggedCardMotion(event) {
     if (!this.drag?.sourceElement) return;
     const deltaY = Math.max(0, event.clientY - this.drag.startY);
@@ -625,9 +649,24 @@ export class CardSystem {
   resolveDragMode(event) {
     if (!this.drag) return 'idle';
     const deltaY = event.clientY - this.drag.startY;
-    if (deltaY <= -this.drag.playThreshold) return 'play';
     if (deltaY >= this.drag.discardThreshold) return 'discard';
-    return 'idle';
+    const targetsHandCard = this.drag.card?.target === 'hand-card';
+    if (!targetsHandCard && this.isPointerBlockedByCardUi(event.clientX, event.clientY)) {
+      return 'idle';
+    }
+    if (deltaY <= -this.drag.playThreshold) return 'play';
+    const distance = Math.hypot(event.clientX - this.drag.startX, event.clientY - this.drag.startY);
+    if (distance < PLAY_DRAG_MIN_DISTANCE) return 'idle';
+    if (targetsHandCard) return 'play';
+    return 'play';
+  }
+
+  isPointerBlockedByCardUi(x, y) {
+    const element = document.elementFromPoint(x, y);
+    const blocker = element?.closest?.(
+      '.card, .card-empty-slot, .temporary-card-empty-slot, .energy-panel, .card-pile-dock, .pile-viewer'
+    );
+    return Boolean(blocker);
   }
 
   cleanupDrag(event, { preserveSourceElement = false } = {}) {
@@ -644,7 +683,8 @@ export class CardSystem {
     this.enchantTargetRing.visible = false;
     this.clearDeploymentRangePreview();
     this.ghost.hidden = true;
-    this.ghost.classList.remove('enchant-crosshair', 'is-valid');
+    this.ghost.classList.remove('enchant-crosshair', 'is-valid', 'has-card-preview');
+    this.ghost.textContent = '';
     this.clearHint('card-drag');
     this.clearHandCardTargetHighlights();
     document.removeEventListener('pointermove', this.onPointerMove);
@@ -956,6 +996,27 @@ export class CardSystem {
     return { added: true, location: 'draw', card };
   }
 
+  addDebugCard(cardDefinition, options = {}) {
+    if (!cardDefinition) return { added: false, location: 'none' };
+    const level = Math.max(1, Math.floor(Number(options.level) || 1));
+    const card = createCardInstance({
+      ...cardDefinition,
+      level
+    }, `debug-${Date.now()}`);
+
+    if (options.location !== 'hand' && this.temporaryCards.length < TEMPORARY_CARD_LIMIT) {
+      this.temporaryCards.push(card);
+      this.pendingDrawAnimations.add(card);
+      this.renderTemporaryCards();
+      this.updatePileUi();
+      return { added: true, location: 'temporary', card };
+    }
+
+    this.drawPile.unshift(card);
+    this.updatePileUi();
+    return { added: true, location: 'draw', card };
+  }
+
   drawToFullHand({ animate = false } = {}) {
     while (this.handCards.length < HAND_SIZE) {
       const card = this.drawCard();
@@ -1127,6 +1188,10 @@ function kindLabel(kind) {
   if (kind === 'tactic') return '战术卡';
   if (kind === 'ability') return '能力卡';
   return '附魔卡';
+}
+
+function shouldUseCardFaceGhost(card) {
+  return card?.kind === 'ability';
 }
 
 export function cardThemeColor(cardOrKind) {
