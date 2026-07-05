@@ -542,10 +542,6 @@ export const UNIT_DEFINITIONS = {
     projectileSpeed: 4.3,
     projectileType: 'wardSigil',
     projectileColor: '#ffb347',
-    projectileAbsorb: {
-      radius: 0.9,
-      types: ['arrow', 'bolt', 'dagger', 'holyBolt', 'energyOrb', 'waterOrb']
-    },
     support: {
       shield: {
         cooldown: 5.5,
@@ -588,14 +584,14 @@ export const UNIT_DEFINITIONS = {
         }
       }
     },
-    maxHealth: 58,
+    maxHealth: 54,
     maxShield: 0,
     speed: 0,
     attackRange: 9.2,
     attackRate: 1.08,
     damage: 7,
-    armor: 1,
-    magicResistance: 1,
+    armor: 0,
+    magicResistance: 0,
     dodgeChance: 0,
     knockback: 0.9,
     aggroRange: 14.3,
@@ -605,7 +601,53 @@ export const UNIT_DEFINITIONS = {
     collisionRadius: 0.62,
     weapon: {
       name: '箭塔',
-      maxDurability: 34,
+      maxDurability: 30,
+      durabilityCost: 0
+    }
+  },
+  miniTurret: {
+    name: '小炮台',
+    role: 'ranged',
+    art: {
+      modelKey: 'unit.miniTurret',
+      rig: 'building',
+      clips: {
+        idle: 'Idle',
+        attack: 'Tower_Shot',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.42,
+          events: {
+            release: 0.42
+          }
+        },
+        hit: {
+          duration: 0.12
+        }
+      }
+    },
+    maxHealth: 18,
+    maxShield: 0,
+    speed: 0,
+    attackRange: 6.4,
+    attackRate: 0.86,
+    damage: 3.5,
+    armor: 0,
+    magicResistance: 0,
+    dodgeChance: 0,
+    knockback: 0.55,
+    aggroRange: 8.8,
+    projectileSpeed: 16,
+    projectileType: 'bolt',
+    projectileColor: '#dff8ff',
+    projectileHitHeight: 1.5,
+    collisionRadius: 0.38,
+    weapon: {
+      name: '尖弹匣',
+      maxDurability: 16,
       durabilityCost: 0
     }
   },
@@ -625,14 +667,14 @@ export const UNIT_DEFINITIONS = {
         death: 'Death'
       }
     },
-    maxHealth: 62,
+    maxHealth: 56,
     maxShield: 0,
     speed: 0,
     attackRange: 0,
     attackRate: 0,
     damage: 0,
-    armor: 1,
-    magicResistance: 1,
+    armor: 0,
+    magicResistance: 0,
     dodgeChance: 0,
     knockback: 0,
     aggroRange: 0,
@@ -640,13 +682,13 @@ export const UNIT_DEFINITIONS = {
     collisionRadius: 0.68,
     buildingAura: {
       type: 'restoreDurability',
-      radius: 4.4,
-      durabilityPerSecond: 3.6,
+      radius: 4.1,
+      durabilityPerSecond: 2.6,
       restorePerDurability: 1
     },
     weapon: {
       name: '维修储备',
-      maxDurability: 64,
+      maxDurability: 54,
       durabilityCost: 0
     }
   },
@@ -666,14 +708,14 @@ export const UNIT_DEFINITIONS = {
         death: 'Death'
       }
     },
-    maxHealth: 52,
+    maxHealth: 50,
     maxShield: 0,
     speed: 0,
     attackRange: 0,
     attackRate: 0,
     damage: 0,
-    armor: 1,
-    magicResistance: 1,
+    armor: 0,
+    magicResistance: 0,
     dodgeChance: 0,
     knockback: 0,
     aggroRange: 0,
@@ -681,13 +723,13 @@ export const UNIT_DEFINITIONS = {
     collisionRadius: 0.72,
     buildingAura: {
       type: 'restoreHealthFromDurability',
-      radius: 4.4,
-      durabilityPerSecond: 2.8,
-      healthPerDurability: 1.15
+      radius: 4.1,
+      durabilityPerSecond: 2,
+      healthPerDurability: 1
     },
     weapon: {
       name: '食材储备',
-      maxDurability: 46,
+      maxDurability: 44,
       durabilityCost: 0
     }
   },
@@ -709,14 +751,14 @@ export const UNIT_DEFINITIONS = {
         death: 'Death'
       }
     },
-    maxHealth: 44,
+    maxHealth: 40,
     maxShield: 0,
     speed: 0,
     attackRange: 0,
     attackRate: 0,
     damage: 0,
-    armor: 1,
-    magicResistance: 1,
+    armor: 0,
+    magicResistance: 0,
     dodgeChance: 0,
     knockback: 0,
     aggroRange: 0,
@@ -724,7 +766,7 @@ export const UNIT_DEFINITIONS = {
     collisionRadius: 0.58,
     weapon: {
       name: '信标核心',
-      maxDurability: 42,
+      maxDurability: 36,
       durabilityCost: 0
     }
   },
@@ -2336,6 +2378,87 @@ export const BUFF_DEFINITIONS = {
       }
     ]
   },
+  stunned: {
+    name: '眩晕',
+    category: 'status',
+    color: '#ffd166',
+    duration: 0.7,
+    hidden: true,
+    negative: true
+  },
+  waterSnared: {
+    name: '水牢',
+    category: 'status',
+    color: '#76cfff',
+    duration: 2.4,
+    hidden: true,
+    negative: true,
+    modifiers: [
+      {
+        stat: 'moveSpeed',
+        type: 'multiply',
+        factor: 0.62
+      }
+    ]
+  },
+  armorShredded: {
+    name: '破甲',
+    category: 'status',
+    color: '#d8c58d',
+    duration: 3,
+    hidden: true,
+    negative: true,
+    modifiers: [
+      {
+        stat: 'armor',
+        type: 'add',
+        amount: -1
+      }
+    ]
+  },
+  marked: {
+    name: '标记',
+    category: 'status',
+    color: '#ffd166',
+    duration: 3.5,
+    hidden: true,
+    negative: true,
+    modifiers: [
+      {
+        stat: 'armor',
+        type: 'add',
+        amount: -1.5
+      }
+    ]
+  },
+  weakenedAttack: {
+    name: '破胆',
+    category: 'status',
+    color: '#b9b07a',
+    duration: 3.5,
+    hidden: true,
+    negative: true,
+    modifiers: [
+      {
+        stat: 'attackDamage',
+        type: 'multiply',
+        factor: 0.9
+      }
+    ]
+  },
+  purifyGuard: {
+    name: '净化守护',
+    category: 'status',
+    color: '#dcefff',
+    duration: 5,
+    modifiers: [
+      {
+        stat: 'magicResistance',
+        type: 'add',
+        amount: 3
+      }
+    ]
+  },
   drained: {
     name: '汲取中',
     category: 'status',
@@ -2449,10 +2572,10 @@ export const PLAYER_ABILITY_DEFINITIONS = {
   },
   exhaustEnergy: {
     id: 'exhaustEnergy',
-    name: '回收术',
-    label: '收',
+    name: '节能术',
+    label: '省',
     color: '#7fd8b0',
-    summary: '卡牌被消耗时获得能量'
+    summary: '打出有能量消耗的牌时概率返还能量'
   },
   periodicEnergy: {
     id: 'periodicEnergy',
@@ -2572,7 +2695,7 @@ export const CARD_DEFINITIONS = [
     kind: 'summon',
     label: '骑',
     artKey: 'knight',
-    summary: '持盾近战，正面普通攻击 -2',
+    summary: '高护甲持盾近战，适合吸收物理攻击',
     target: 'ground',
     radius: 1.15,
     cooldown: 6.5,
@@ -2632,7 +2755,7 @@ export const CARD_DEFINITIONS = [
     kind: 'summon',
     label: '弩',
     artKey: 'crossbowman',
-    summary: '重弩远程单位，3 秒一发，初始伤害 12 且强击退',
+    summary: '慢速重弩远程，单发高伤害且强击退',
     target: 'ground',
     radius: 1.15,
     cooldown: 8,
@@ -2672,7 +2795,7 @@ export const CARD_DEFINITIONS = [
     kind: 'summon',
     label: '盗',
     artKey: 'rogue',
-    summary: '近战匕首单位，每 7 秒投掷飞刀，20% 闪避普通攻击',
+    summary: '近战匕首单位，每 7 秒投掷飞刀，12% 闪避普通攻击',
     target: 'ground',
     radius: 1.15,
     cooldown: 6,
@@ -2832,7 +2955,7 @@ export const CARD_DEFINITIONS = [
     kind: 'summon',
     label: '界',
     artKey: 'warder',
-    summary: '低攻击，发射可吞没飞行物的法阵，周期性为友军补充护盾',
+    summary: '低攻击，周期性为友军补充护盾',
     target: 'ground',
     radius: 1.15,
     cooldown: 7,
@@ -2928,7 +3051,7 @@ export const CARD_DEFINITIONS = [
     kind: 'tactic',
     label: '能',
     artKey: 'tacticEnergySmall',
-    summary: '获得 2 点能量；升级后每级额外 +25%',
+    summary: '获得 2 点能量；每级额外 +0.5',
     target: 'none',
     radius: 1,
     cooldown: 0,
@@ -2946,45 +3069,45 @@ export const CARD_DEFINITIONS = [
     kind: 'tactic',
     label: '涌',
     artKey: 'tacticEnergyLarge',
-    summary: '消耗。获得 4 点能量；升级后每级额外 +25%',
+    summary: '获得 3 点能量；升级后每级额外 +1',
     target: 'none',
     radius: 1,
     cooldown: 0,
     energyCost: 0,
-    exhaust: true,
     effect: {
       type: 'gain-energy',
-      amountBase: 4,
+      amountBase: 3,
       amountPerLevel: 1
     },
     color: '#7f8fc7'
   },
   {
     id: 'field-upgrade',
-    name: '战场研习',
+    name: '战术调度',
     kind: 'tactic',
-    label: '研',
+    label: '调',
     artKey: 'tacticUpgrade',
-    summary: '消耗。选择一张手牌，本局同名卡临时升级 1 次；升级后额外升级次数 +1',
-    target: 'hand-card',
+    summary: '从本局出战牌组调度 2 张临时牌；临时位满时排到抽牌堆顶',
+    target: 'none',
     radius: 1,
     cooldown: 0,
-    energyCost: 6,
-    exhaust: true,
+    energyCost: 2,
     effect: {
-      type: 'upgrade-hand-card',
-      amountBase: 1,
-      amountPerLevel: 1
+      type: 'draw-temporary-cards',
+      amountBase: 2,
+      amountPerLevel: 1,
+      temporaryLimit: 6,
+      fallbackPool: 'selected-deck'
     },
     color: '#8a6fc4'
   },
   {
     id: 'exhaust-energy-ability',
-    name: '回收术',
+    name: '节能术',
     kind: 'ability',
-    label: '收',
+    label: '省',
     artKey: 'abilityExhaustEnergy',
-    summary: '卡牌被消耗时获得能量',
+    summary: '打出有能量消耗的牌时，概率返还 1 点能量',
     target: 'none',
     radius: 1,
     cooldown: 0,
@@ -3531,14 +3654,13 @@ export const CARD_DEFINITIONS = [
     kind: 'enchant',
     label: '狼',
     artKey: 'wolfInstinct',
-    summary: '消耗。附近每名友军每级 +1 攻击',
+    summary: '附近每名友军每级 +1 攻击',
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 4,
     energyCost: 1,
     enchantmentId: 'wolfInstinct',
     lootOnly: true,
-    exhaust: true,
     effect: {
       type: 'apply-buff',
       buffId: 'wolfInstinct'
@@ -3551,14 +3673,13 @@ export const CARD_DEFINITIONS = [
     kind: 'enchant',
     label: '熊',
     artKey: 'ursineSpirit',
-    summary: '消耗。每级 +25% 攻击与最大生命',
+    summary: '每级 +25% 攻击与最大生命',
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 4,
     energyCost: 2,
     enchantmentId: 'ursineSpirit',
     lootOnly: true,
-    exhaust: true,
     effect: {
       type: 'apply-buff',
       buffId: 'ursineSpirit'
@@ -3992,7 +4113,10 @@ export const BALANCE = {
   },
   enemyCamp: {
     position: { x: 0, y: 0, z: -30 },
-    maxHealth: 260
+    maxHealth: 260,
+    attackRange: 8.5,
+    attackDamage: 7,
+    attackInterval: 1
   },
   world: {
     ground: {

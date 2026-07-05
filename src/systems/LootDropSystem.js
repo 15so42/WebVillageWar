@@ -47,7 +47,6 @@ export class LootDropSystem {
     return {
       ...definition,
       level,
-      exhaust: true,
       lootOnly: true,
       instanceId: `drop-${definition.id}-${unit.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`
     };
@@ -97,7 +96,7 @@ export class LootDropSystem {
     this.ui.card.innerHTML = `
       <div class="loot-card-cost">${cardEnergyCost(drop.card)}</div>
       <div class="loot-card-level">Lv.${drop.card.level ?? 1}</div>
-      <div class="loot-card-keyword">消耗</div>
+      ${drop.card.exhaust ? '<div class="loot-card-keyword">消耗</div>' : ''}
       <div class="loot-card-header">
         <span class="loot-card-rune">${drop.card.label}</span>
         <span>${kindLabel(drop.card.kind)}</span>
@@ -363,7 +362,9 @@ function createLootCardTexture(card) {
   fitText(context, card.name, 128, 275, 210, 30);
   context.fillStyle = '#ffe6a4';
   context.font = '900 22px "Microsoft YaHei", Arial, sans-serif';
-  context.fillText('消耗', 128, 314);
+  if (card.exhaust) {
+    context.fillText('消耗', 128, 314);
+  }
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;

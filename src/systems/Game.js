@@ -10,6 +10,12 @@ import {
   WAVE_BOSS_TYPES,
   WAVE_MONSTER_TYPES
 } from '../data/gameData.js';
+import {
+  UNIT_GENERIC_UPGRADES,
+  UNIT_SPECIAL_UPGRADES,
+  runtimeUpgradeSummaryForCard,
+  runtimeUpgradeTitleForCard
+} from '../data/cardUpgrades.js';
 import { UnitEntity } from '../entities/UnitEntity.js';
 import { prewarmUnitModelTemplates } from '../art/visualRegistry.js';
 import { createWorld } from '../world/createWorld.js';
@@ -73,6 +79,7 @@ const WAVE_DIFFICULTY_GROWTH_PER_SELECTED_DIFFICULTY = 0.16;
 const STRATEGY_CHOICE_COUNT = 3;
 const FORCED_CARD_CHOICE_UNTIL_WAVE = 3;
 const OPENING_COMBAT_UNIT_CHOICES = 2;
+const ENEMY_CAMP_IDLE_SCAN_SECONDS = 0.18;
 const WAVE_AFFIX_DEFINITIONS = {
   swarm: {
     id: 'swarm',
@@ -346,6 +353,7 @@ export class Game {
     this.currentWave = null;
     this.bossesDefeated = 0;
     this.strategyEvent = null;
+    this.enemyCampAttackTimer = 0;
     this.lastCardPlayed = null;
     this.selectedUnit = null;
     this.selectedUnits = [];
@@ -615,6 +623,7 @@ export class Game {
       runPerfStep('waveSpawn', () => this.updateWaveFlow(dt));
       runPerfStep('card', () => this.cardSystem.update(dt));
       runPerfStep('abilities', () => this.abilities.update(dt));
+      runPerfStep('enemyCampAttack', () => this.updateEnemyCampAttack(dt));
       runPerfStep('enemyCommander', () => this.enemyCommander.update(dt));
       runPerfStep('spiders', () => this.updateSpiderLifecycle(dt));
       runPerfStep('combat', () => this.unitLogic.update(dt));
@@ -641,6 +650,7 @@ export class Game {
       runStep('waveSpawn', () => this.updateWaveFlow(dt));
       runStep('card', () => this.cardSystem.update(dt));
       runStep('abilities', () => this.abilities.update(dt));
+      runStep('enemyCampAttack', () => this.updateEnemyCampAttack(dt));
       runStep('enemyCommander', () => this.enemyCommander.update(dt));
       runStep('spiders', () => this.updateSpiderLifecycle(dt));
       runStep('combat', () => this.unitLogic.update(dt));
@@ -737,7 +747,16 @@ export class Game {
 
   openStrategyEvent(type, options = {}) {
     if (this.levelFinished || this.levelSession.debug) return;
-    const event = this.createStrategyEvent(type, options);
+    let event = this.createStrategyEvent(type, options);
+    if (!event?.choices?.length && type !== 'card-choice') {
+      event = this.createStrategyEvent('card-choice', {
+        ...options,
+        fallbackFrom: type
+      });
+    }
+    if (!event?.choices?.length) {
+      event = this.createFallbackCardChoiceEvent(options);
+    }
     if (!event?.choices?.length) {
       this.startNextWave();
       return;
@@ -789,9 +808,18 @@ export class Game {
       return {
         type,
         kicker: waveEventKicker(options.wave),
-        title: '整理你的牌组',
-        summary: '选择一次维护操作，调整当前局内抽牌堆。',
+        title: '升级一张卡牌',
+        summary: '选择当前局内的一张卡牌进行升级。单位卡会继续选择升级倾向。',
         choices: this.createMaintenanceChoices()
+      };
+    }
+    if (type === 'unit-upgrade') {
+      return {
+        type,
+        kicker: '单位升级',
+        title: `选择 ${options.card?.name ?? '单位卡'} 的升级倾向`,
+        summary: '通用属性可以重复选择，单位专属能力每局同一张卡只能获得一次。',
+        choices: this.createUnitUpgradeChoices(options.card)
       };
     }
     if (type === 'card-copy') {
@@ -813,9 +841,26 @@ export class Game {
         ? '再从本局出战牌组中选择一张卡，降低第一波压力。'
         : isOpening
           ? '开局抽牌堆为空，从本局出战牌组中选择第一张牌。'
-          : '候选牌只来自本局出战牌组，会作为新实例加入抽牌堆。',
+          : options.fallbackFrom
+            ? '当前事件没有可用目标，改为选择一张新卡作为本波奖励。'
+            : '候选牌只来自本局出战牌组，会作为新实例加入抽牌堆。',
       choices: this.weightedCardChoices({
         pool: this.selectedCardPool(),
+        action: 'add-card',
+        actionLabel: '加入牌堆',
+        wave: this.nextUpcomingWave()
+      })
+    };
+  }
+
+  createFallbackCardChoiceEvent(options = {}) {
+    return {
+      type: 'card-choice',
+      kicker: waveEventKicker(options.wave),
+      title: '选择一张新卡',
+      summary: '当前奖励事件没有可用目标，改为从全部可用卡牌中选择一张。',
+      choices: this.weightedCardChoices({
+        pool: this.selectedCardPool({ allowAllFallback: true }),
         action: 'add-card',
         actionLabel: '加入牌堆',
         wave: this.nextUpcomingWave()
@@ -843,7 +888,7 @@ export class Game {
         maxUses: undefined
       }));
     }
-    if (hasSessionDeck) return [];
+    if (hasSessionDeck && options.allowAllFallback !== true) return [];
     return CARD_DEFINITIONS
       .filter((card) => !card.lootOnly)
       .filter((card) => !options.kind || card.kind === options.kind)
@@ -929,84 +974,72 @@ export class Game {
   }
 
   createMaintenanceChoices() {
-    const cards = this.cardSystem.allDeckCards();
+    const cards = this.uniqueRuntimeCards();
     if (!cards.length) {
       return this.weightedCardChoices({
-        pool: this.selectedCardPool(),
+        pool: this.selectedCardPool({ allowAllFallback: true }),
         action: 'add-card',
         actionLabel: '加入牌堆',
         wave: this.nextUpcomingWave()
       });
     }
-    const depleted = cards.filter((card) => {
-      const maxUses = Math.max(1, Math.floor(card.maxUses ?? 1));
-      return Math.floor(card.remainingUses ?? maxUses) < maxUses;
-    });
-    const upgradeTarget = randomItem(cards);
-    const selectedPool = this.selectedCardPool();
-    const newCardTarget = pickWeightedCardItems(selectedPool, 1, (card) => (
-      cardChoiceWeightForWave(card, this.nextUpcomingWave())
-    ))[0] ?? randomItem(selectedPool);
-    const copyTarget = randomItem(cards);
-    const candidates = [];
-    if (depleted.length) {
-      const restoreTarget = randomItem(depleted);
-      candidates.push({
-        action: 'restore-card',
-        actionLabel: '补满次数',
-        title: `补满 ${restoreTarget.name}`,
-        description: '将这张牌的剩余使用次数恢复到上限。',
-        card: restoreTarget,
-        targetCard: restoreTarget
-      });
-    }
-    candidates.push(
-      {
-        action: 'upgrade-card',
-        actionLabel: '同名强化',
-        title: `强化 ${upgradeTarget.name}`,
-        description: '本局内所有同名卡提升 1 级，之后新获得的同名卡也会带着这个临时等级。',
-        card: upgradeTarget,
-        targetCard: upgradeTarget
-      },
-      ...(newCardTarget ? [{
-        action: 'add-card-limited-uses',
-        actionLabel: '强征',
-        title: `强征 ${newCardTarget.name}`,
-        description: '加入这张牌，但这张牌的使用次数上限 -1，最低保留 1 次。',
-        card: newCardTarget,
-        targetCard: newCardTarget,
-        usePenalty: 1
-      }] : []),
-      {
-        action: 'upgrade-existing-copies',
-        actionLabel: '激进强化',
-        title: `激进强化 ${upgradeTarget.name}`,
-        description: '当前牌堆中所有同名卡临时提升 2 级，但之后新获得的同名卡不会继承这次强化。',
-        card: upgradeTarget,
-        targetCard: upgradeTarget,
-        upgradeAmount: 2
-      },
-      {
-        action: 'copy-card-limited',
-        actionLabel: '过载复制',
-        title: `过载复制 ${copyTarget.name}`,
-        description: '加入一张同等级复制牌，复制品拥有目标牌当前剩余使用次数。',
-        card: copyTarget,
-        targetCard: copyTarget
-      }
-    );
-    return pickRandomItems(candidates, STRATEGY_CHOICE_COUNT);
+    return cards.map((card) => ({
+      action: 'select-upgrade-card',
+      actionLabel: '选择升级',
+      title: card.name,
+      description: runtimeUpgradeSummaryForCard(card),
+      metaText: runtimeUpgradeTitleForCard(card),
+      card,
+      targetCard: card
+    }));
+  }
+
+  uniqueRuntimeCards() {
+    const seen = new Set();
+    return this.cardSystem.allDeckCards().filter((card) => {
+      if (!card?.id || seen.has(card.id)) return false;
+      seen.add(card.id);
+      return true;
+    }).sort((a, b) => cardSortKey(a).localeCompare(cardSortKey(b), 'zh-Hans-CN'));
+  }
+
+  createUnitUpgradeChoices(card) {
+    if (!card?.unitType) return [];
+    const owned = new Set(card.runtimeUpgrades?.unitUpgradeIds ?? []);
+    const genericChoices = UNIT_GENERIC_UPGRADES.map((upgrade) => ({
+      action: 'apply-card-upgrade',
+      actionLabel: '选择升级',
+      title: upgrade.name,
+      description: upgrade.summary,
+      metaText: '通用属性 / 可重复',
+      card,
+      targetCard: card,
+      upgrade
+    }));
+    const specialChoices = (UNIT_SPECIAL_UPGRADES[card.unitType] ?? [])
+      .filter((upgrade) => !owned.has(upgrade.id))
+      .map((upgrade) => ({
+        action: 'apply-card-upgrade',
+        actionLabel: '选择升级',
+        title: upgrade.name,
+        description: upgrade.summary,
+        metaText: '单位专属 / 本局唯一',
+        card,
+        targetCard: card,
+        upgrade
+      }));
+    return pickRandomItems([...genericChoices, ...specialChoices], STRATEGY_CHOICE_COUNT);
   }
 
   createCopyChoices() {
     const selectedIds = new Set(this.selectedCardPool().map((card) => card.id));
     const cards = this.cardSystem.allDeckCards().filter((card) => selectedIds.has(card.id));
     if (!cards.length) {
-      return this.randomCardChoices({
-        pool: this.selectedCardPool(),
+      return this.weightedCardChoices({
+        pool: this.selectedCardPool({ allowAllFallback: true }),
         action: 'add-card',
-        actionLabel: '加入牌堆'
+        actionLabel: '加入牌堆',
+        wave: this.nextUpcomingWave()
       });
     }
     return pickRandomItems(cards, STRATEGY_CHOICE_COUNT).map((card) => ({
@@ -1022,6 +1055,10 @@ export class Game {
   renderStrategyEvent() {
     const event = this.strategyEvent;
     if (!event) return;
+    const typeMeta = strategyEventTypeMeta(event.type);
+    this.strategyEventUi.root.dataset.eventType = typeMeta.key;
+    this.strategyEventUi.typeMark.textContent = typeMeta.mark;
+    this.strategyEventUi.typeLabel.textContent = typeMeta.label;
     this.strategyEventUi.kicker.textContent = event.kicker;
     this.strategyEventUi.title.textContent = event.title;
     this.strategyEventUi.summary.textContent = event.summary;
@@ -1039,12 +1076,36 @@ export class Game {
     const eventType = this.strategyEvent.type;
     const choice = this.strategyEvent.choices[index];
     if (!choice || button.disabled) return;
+    if (choice.action === 'select-upgrade-card') {
+      this.handleUpgradeCardSelection(choice);
+      return;
+    }
     if (!this.applyStrategyChoice(choice)) return;
     this.closeStrategyEvent();
     if (eventType === 'opening-unit') {
       this.openStrategyEvent('card-choice', { openingSupport: true });
       return;
     }
+    this.startNextWave();
+  }
+
+  handleUpgradeCardSelection(choice) {
+    const card = choice.targetCard ?? choice.card;
+    if (!card) return;
+    if (card.kind === 'summon' && card.unitType) {
+      const event = this.createStrategyEvent('unit-upgrade', { card });
+      if (!event?.choices?.length) {
+        this.applyDirectCardUpgrade(card);
+        this.closeStrategyEvent();
+        this.startNextWave();
+        return;
+      }
+      this.strategyEvent = event;
+      this.renderStrategyEvent();
+      return;
+    }
+    if (!this.applyDirectCardUpgrade(card)) return;
+    this.closeStrategyEvent();
     this.startNextWave();
   }
 
@@ -1066,6 +1127,8 @@ export class Game {
       applied = this.cardSystem.restoreCardUses(choice.targetCard);
     } else if (choice.action === 'upgrade-card') {
       applied = this.cardSystem.upgradeCardInstance(choice.targetCard, 1);
+    } else if (choice.action === 'apply-card-upgrade') {
+      applied = this.cardSystem.applyRuntimeUpgrade(choice.targetCard, choice.upgrade);
     } else if (choice.action === 'upgrade-existing-copies') {
       applied = this.cardSystem.upgradeExistingCardCopies(choice.targetCard, choice.upgradeAmount ?? 2);
     } else if (choice.action === 'copy-card') {
@@ -1087,6 +1150,16 @@ export class Game {
     if (!applied) return false;
     this.applyStrategyChoiceCost(choice);
     return true;
+  }
+
+  applyDirectCardUpgrade(card) {
+    return this.cardSystem.applyRuntimeUpgrade(card, {
+      id: `${card.id}:runtime-level:${Date.now()}`,
+      kind: `${card.kind}-level`,
+      name: runtimeUpgradeTitleForCard(card),
+      summary: runtimeUpgradeSummaryForCard(card),
+      levelBonus: 1
+    });
   }
 
   applyStrategyChoiceCost(choice) {
@@ -1402,35 +1475,118 @@ export class Game {
   }
 
   applySummonCardLevel(unit, card) {
-    const level = Math.max(1, Math.floor(card?.level ?? 1));
-    if (level <= 1) return;
-    const bonusLevel = level - 1;
-    const healthMultiplier = 1 + bonusLevel * 0.25;
-    unit.attributes.addModifiers([
-      {
-        stat: 'maxHealth',
-        type: 'multiply',
-        amount: healthMultiplier
-      },
-      {
-        stat: 'maxShield',
-        type: 'multiply',
-        amount: healthMultiplier
-      },
-      {
-        stat: 'maxDurability',
-        type: 'multiply',
-        amount: healthMultiplier
-      },
-      {
-        stat: 'attackDamage',
-        type: 'add',
-        amount: bonusLevel
+    applyBuildingCardUpgrade(unit, card);
+    const upgradeIds = card?.runtimeUpgrades?.unitUpgradeIds ?? [];
+    if (!upgradeIds.length) return;
+    unit.runtimeUpgradeIds = new Set(upgradeIds);
+    unit.runtimeTraits = new Set();
+    const modifiers = [];
+    upgradeIds.forEach((upgradeId, index) => {
+      const upgrade = runtimeUnitUpgradeDefinition(unit.type, upgradeId);
+      if (!upgrade) return;
+      if (upgrade.kind === 'unit-generic') {
+        modifiers.push(...unitGenericUpgradeModifiers(unit, upgrade, index));
       }
-    ], `card:${card.id}:level`);
+      if (upgrade.modifiers?.length) {
+        modifiers.push(...upgrade.modifiers);
+      }
+      if (upgrade.supportModifiers) {
+        applySupportUpgrade(unit, upgrade.supportModifiers);
+      }
+      if (upgrade.trait) {
+        unit.runtimeTraits.add(upgrade.trait);
+      }
+    });
+    if (modifiers.length) {
+      unit.attributes.addModifiers(modifiers, `card:${card.id}:runtime-upgrades`);
+    }
     unit.health = unit.maxHealth;
     unit.weapon.durability = unit.weapon.maxDurability;
     unit.clampToAttributeCaps();
+  }
+
+  spawnUpgradeTurret(owner, ability = {}) {
+    if (!owner?.alive) return null;
+    const existing = this.friendlyUnits.filter((unit) => (
+      unit.alive &&
+      unit.type === 'miniTurret' &&
+      unit.ownerUnitId === owner.id
+    ));
+    const maxTurrets = Math.max(1, Math.floor(ability.maxTurrets ?? 1));
+    if (existing.length >= maxTurrets) return null;
+    const offset = polarOffset(existing.length, maxTurrets + 1, ability.spawnRadius ?? 1.35);
+    const position = this.resolveWalkablePoint(owner.position.clone().add(offset));
+    position.y = this.groundHeightAt(position);
+    const turret = new UnitEntity({
+      type: 'miniTurret',
+      team: owner.team,
+      position
+    });
+    turret.ownerUnitId = owner.id;
+    turret.controlMode = owner.controlMode;
+    turret.guardPoint = owner.guardPoint?.clone?.() ?? owner.position.clone();
+    turret.guardRadius = Math.max(6.5, owner.guardRadius ?? 6.5);
+    this.attachUnitStatus(turret);
+    this.registerUnit(turret);
+    this.effects.spawnRing(turret.position, '#dff8ff', 0.72, 0.48);
+    return turret;
+  }
+
+  updateEnemyCampAttack(dt) {
+    if (this.levelFinished || !this.enemyCamp?.alive) return;
+    this.enemyCampAttackTimer = Math.max(0, (this.enemyCampAttackTimer ?? 0) - dt);
+    if (this.enemyCampAttackTimer > 0) return;
+    const target = this.findEnemyCampAttackTarget();
+    if (!target) {
+      this.enemyCampAttackTimer = ENEMY_CAMP_IDLE_SCAN_SECONDS;
+      return;
+    }
+    this.enemyCampAttackTimer = Math.max(0.1, BALANCE.enemyCamp.attackInterval ?? 1);
+    this.applyEnemyCampAttack(target);
+  }
+
+  findEnemyCampAttackTarget() {
+    if (!this.enemyCamp?.alive) return null;
+    const range = Math.max(0, BALANCE.enemyCamp.attackRange ?? 8.5);
+    const campRadius = targetCombatRadius(this.enemyCamp);
+    let best = null;
+    let bestScore = Number.POSITIVE_INFINITY;
+    this.friendlyUnits.forEach((unit) => {
+      if (!unit.alive || !unit.position) return;
+      const distance = Math.max(
+        0,
+        flatDistance(this.enemyCamp.position, unit.position) - campRadius - targetCombatRadius(unit)
+      );
+      if (distance > range) return;
+      const healthRatio = unit.health / Math.max(1, unit.maxHealth);
+      const score = distance + healthRatio * 0.2 + (unit.isBuilding ? 0.35 : 0);
+      if (score >= bestScore) return;
+      best = unit;
+      bestScore = score;
+    });
+    return best;
+  }
+
+  applyEnemyCampAttack(target) {
+    if (!target?.alive || !target.takeRawDamage) return;
+    const damage = Math.max(0, BALANCE.enemyCamp.attackDamage ?? 7);
+    if (damage <= 0) return;
+    const start = this.enemyCamp.position.clone();
+    start.y += this.enemyCamp.projectileHitHeight ?? 2.2;
+    const end = target.position.clone();
+    end.y += target.projectileHitHeight ?? 1.35;
+    this.effects.spawnEnemyCampBlast(start, end);
+    target.takeRawDamage(damage, { bypassShield: false });
+    target.statusUiDirty = true;
+    this.effects.spawnDamageNumber(target.position, damage, {
+      color: '#ffcf7a',
+      stroke: '#4a2506',
+      height: target.projectileHitHeight ?? 1.45,
+      duration: 0.72
+    });
+    if (target.alive === false) {
+      this.handleUnitDeath(target, null);
+    }
   }
 
   spawnEnemyWave(wave, { orders = 'attack', waveConfig = null } = {}) {
@@ -2262,11 +2418,14 @@ export class Game {
     this.effects.spawnDamageNumber(this.enemyCamp.position, amount, {
       height: 2.7
     });
+    if (!this.enemyCamp.alive) {
+      this.finishLevel(true);
+    }
   }
 
   checkLevelEnd() {
     if (this.levelFinished) return;
-    if (this.levelSession.debug && !this.enemyCamp.alive) {
+    if (!this.enemyCamp.alive) {
       this.finishLevel(true);
       return;
     }
@@ -2747,7 +2906,7 @@ export class Game {
       const forceMove = this.isUnitEngaged(unit);
       unit.commandMoveGoal = forceMove ? destination.clone() : null;
       unit.moveGoal = destination.clone();
-      unit.moveGoalUsesDirectSteering = true;
+      unit.moveGoalUsesDirectSteering = false;
       unit.directMoveBlocked = false;
       unit.directMoveBlockedTime = 0;
       unit.attackRangeHoldTargetId = null;
@@ -3685,6 +3844,135 @@ function isOpeningCombatSummon(card) {
   return (unit.damage ?? 0) >= 3 && (unit.attackRange ?? 0) > 0;
 }
 
+function runtimeUnitUpgradeDefinition(unitType, upgradeId) {
+  return UNIT_GENERIC_UPGRADES.find((upgrade) => upgrade.id === upgradeId) ??
+    (UNIT_SPECIAL_UPGRADES[unitType] ?? []).find((upgrade) => upgrade.id === upgradeId) ??
+    null;
+}
+
+function unitGenericUpgradeModifiers(unit, upgrade, index = 0) {
+  const sourceSuffix = `${upgrade.id}:${index}`;
+  if (upgrade.stat === 'vitality') {
+    const baseHealth = Math.max(0, unit.definition.maxHealth ?? 0);
+    const baseDurability = Math.max(0, unit.definition.weapon?.maxDurability ?? 0);
+    return [
+      {
+        id: `${sourceSuffix}:health`,
+        stat: 'maxHealth',
+        type: 'add',
+        amount: baseHealth * 0.5
+      },
+      {
+        id: `${sourceSuffix}:durability`,
+        stat: 'maxDurability',
+        type: 'add',
+        amount: baseDurability * 0.5
+      }
+    ];
+  }
+  if (upgrade.stat === 'attack') {
+    const baseAttack = Math.max(0, unit.definition.damage ?? 0);
+    return [{
+      id: `${sourceSuffix}:attack`,
+      stat: 'attackDamage',
+      type: 'add',
+      amount: baseAttack * 0.5
+    }];
+  }
+  if (upgrade.stat === 'armor') {
+    const baseArmor = Math.max(0, unit.definition.armor ?? 0);
+    return [{
+      id: `${sourceSuffix}:armor`,
+      stat: 'armor',
+      type: 'add',
+      amount: baseArmor > 0 ? baseArmor * 0.5 : 1
+    }];
+  }
+  if (upgrade.stat === 'magicResistance') {
+    const baseResistance = Math.max(0, unit.definition.magicResistance ?? 0);
+    return [{
+      id: `${sourceSuffix}:magicResistance`,
+      stat: 'magicResistance',
+      type: 'add',
+      amount: baseResistance > 0 ? baseResistance * 0.5 : 1
+    }];
+  }
+  return [];
+}
+
+function applySupportUpgrade(unit, supportModifiers) {
+  if (!supportModifiers || !unit.definition.support) return;
+  Object.entries(supportModifiers).forEach(([key, modifier]) => {
+    const ability = unit.definition.support[key];
+    if (!ability) return;
+    if (Number.isFinite(modifier.amountFactor) && Number.isFinite(ability.amount)) {
+      ability.amount *= modifier.amountFactor;
+    }
+    if (Number.isFinite(modifier.cooldownFactor) && Number.isFinite(ability.cooldown)) {
+      ability.cooldown *= modifier.cooldownFactor;
+    }
+    if (Number.isFinite(modifier.tickIntervalFactor) && Number.isFinite(ability.tickInterval)) {
+      ability.tickInterval *= modifier.tickIntervalFactor;
+    }
+  });
+}
+
+function applyBuildingCardUpgrade(unit, card) {
+  if (card?.kind !== 'building') return;
+  const bonusLevel = Math.max(0, Math.floor(card.level ?? 1) - 1);
+  if (bonusLevel <= 0) return;
+  const source = `card:${card.id}:building-level`;
+  if (unit.type === 'arrowTower') {
+    unit.attributes.addModifiers([
+      {
+        stat: 'attackDamage',
+        type: 'multiply',
+        percent: 0.18 * bonusLevel
+      },
+      {
+        stat: 'attackRate',
+        type: 'multiply',
+        percent: 0.08 * bonusLevel
+      },
+      {
+        stat: 'attackRange',
+        type: 'add',
+        amount: 0.35 * bonusLevel
+      }
+    ], source);
+    return;
+  }
+  if (unit.definition.buildingAura) {
+    const aura = unit.definition.buildingAura;
+    aura.radius = (aura.radius ?? 4.4) + 0.28 * bonusLevel;
+    if (Number.isFinite(aura.durabilityPerSecond)) {
+      aura.durabilityPerSecond *= 1 + 0.18 * bonusLevel;
+    }
+    if (Number.isFinite(aura.healthPerDurability)) {
+      aura.healthPerDurability *= 1 + 0.12 * bonusLevel;
+    }
+    if (Number.isFinite(aura.restorePerDurability)) {
+      aura.restorePerDurability *= 1 + 0.12 * bonusLevel;
+    }
+    return;
+  }
+  if (unit.definition.deploymentBeacon) {
+    unit.definition.deploymentRadius = (unit.definition.deploymentRadius ?? 7.5) + 0.75 * bonusLevel;
+  }
+}
+
+function cardSortKey(card) {
+  const order = {
+    summon: '1',
+    building: '2',
+    spell: '3',
+    enchant: '4',
+    tactic: '5',
+    ability: '6'
+  }[card?.kind] ?? '9';
+  return `${order}:${card?.name ?? card?.id ?? ''}`;
+}
+
 function randomItem(items) {
   return items[Math.floor(Math.random() * items.length)] ?? items[0];
 }
@@ -3693,18 +3981,57 @@ function strategyChoiceMarkup(choice, index) {
   const card = choice.card;
   const color = cardThemeColor(card);
   const metaText = choice.metaText ?? `${strategyKindLabel(card.kind)} / ${cardUsesText(card)}`;
+  const actionMeta = strategyChoiceActionMeta(choice);
+  const actionKey = cssKey(actionMeta.key);
+  const kindKey = cssKey(card?.kind ?? 'card');
   return `
-    <button class="strategy-choice" type="button" data-strategy-choice-index="${index}" style="--card-color:${color}">
-      <span class="strategy-choice-action">${escapeHtml(choice.actionLabel)}</span>
+    <button class="strategy-choice is-choice-${actionKey} is-kind-${kindKey}" type="button" data-strategy-choice-index="${index}" style="--card-color:${color}">
+      <span class="strategy-choice-topline">
+        <span class="strategy-choice-action">${escapeHtml(choice.actionLabel)}</span>
+        <span class="strategy-choice-type">${escapeHtml(actionMeta.label)}</span>
+      </span>
       <span class="strategy-choice-cost">${cardEnergyCost(card)}</span>
       <div class="strategy-choice-art">${createCardArtMarkup(card)}</div>
       <span class="strategy-choice-body">
         <strong>${escapeHtml(choice.title)}</strong>
-        <em>${escapeHtml(metaText)}</em>
+        <em>${escapeHtml(actionMeta.label)} · ${escapeHtml(metaText)}</em>
         <span>${escapeHtml(choice.description)}</span>
       </span>
     </button>
   `;
+}
+
+function strategyEventTypeMeta(type) {
+  if (type === 'opening-unit') {
+    return { key: 'opening', mark: '初', label: '开局选牌' };
+  }
+  if (type === 'boss-reward') {
+    return { key: 'boss', mark: '核', label: 'Boss 奖励' };
+  }
+  if (type === 'card-maintenance') {
+    return { key: 'upgrade', mark: '升', label: '升级事件' };
+  }
+  if (type === 'unit-upgrade') {
+    return { key: 'unit-upgrade', mark: '专', label: '单位专精' };
+  }
+  if (type === 'card-copy') {
+    return { key: 'copy', mark: '复', label: '复制事件' };
+  }
+  return { key: 'choice', mark: '选', label: '选牌奖励' };
+}
+
+function strategyChoiceActionMeta(choice) {
+  if (choice.action === 'add-card') return { key: 'add-card', label: '新卡奖励' };
+  if (choice.action === 'add-card-limited-uses') return { key: 'add-card', label: '代价新卡' };
+  if (choice.action === 'select-upgrade-card') return { key: 'select-upgrade', label: '选择升级对象' };
+  if (choice.action === 'apply-card-upgrade') return { key: 'apply-upgrade', label: '升级倾向' };
+  if (choice.action === 'upgrade-card') return { key: 'upgrade-card', label: '等级提升' };
+  if (choice.action === 'upgrade-existing-copies') return { key: 'upgrade-card', label: '同名升级' };
+  if (choice.action === 'copy-card') return { key: 'copy-card', label: '复制奖励' };
+  if (choice.action === 'copy-card-limited') return { key: 'copy-card', label: '代价复制' };
+  if (choice.action === 'restore-card') return { key: 'restore-card', label: '补充次数' };
+  if (choice.action === 'acquire-core') return { key: 'boss-core', label: '构筑核心' };
+  return { key: choice.action ?? 'choice', label: choice.actionLabel ?? '奖励' };
 }
 
 function strategyKindLabel(kind) {
@@ -3753,18 +4080,30 @@ function createStrategyEventUi() {
     root.hidden = true;
     root.setAttribute('role', 'dialog');
     root.setAttribute('aria-modal', 'true');
+    document.querySelector('#app')?.appendChild(root);
+  }
+  if (!root.querySelector('.strategy-event-type-badge')) {
     root.innerHTML = `
       <div class="strategy-event-panel">
-        <div class="strategy-event-kicker"></div>
-        <h2></h2>
+        <div class="strategy-event-header">
+          <div class="strategy-event-type-badge">
+            <span></span>
+            <strong></strong>
+          </div>
+          <div class="strategy-event-heading">
+            <div class="strategy-event-kicker"></div>
+            <h2></h2>
+          </div>
+        </div>
         <p></p>
         <div class="strategy-event-choices"></div>
       </div>
     `;
-    document.querySelector('#app')?.appendChild(root);
   }
   return {
     root,
+    typeMark: root.querySelector('.strategy-event-type-badge span'),
+    typeLabel: root.querySelector('.strategy-event-type-badge strong'),
     kicker: root.querySelector('.strategy-event-kicker'),
     title: root.querySelector('h2'),
     summary: root.querySelector('p'),
@@ -3787,6 +4126,10 @@ function escapeHtml(value) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+function cssKey(value) {
+  return String(value ?? 'item').toLowerCase().replace(/[^a-z0-9-]/g, '-');
 }
 
 function createSelectionBoxElement() {

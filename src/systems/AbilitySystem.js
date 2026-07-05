@@ -2,11 +2,12 @@ import { PLAYER_ABILITY_DEFINITIONS, TEAMS } from '../data/gameData.js';
 import { distance2D } from '../utils/math.js';
 
 const PERIODIC_ENERGY_SECONDS = 10;
+const CARD_ENERGY_REFUND_CHANCE_PER_STACK = 0.16;
 const ENCHANT_ECHO_CHANCE_PER_STACK = 0.2;
 const DEATH_EXPLOSION_DAMAGE_PER_STACK = 10;
 const DEATH_EXPLOSION_RADIUS = 3.2;
 const BUILDING_DURABILITY_PER_STACK = 0.2;
-const RANDOM_HEAL_PERCENT = 0.3;
+const RANDOM_HEAL_PERCENT = 0.16;
 const VICTORY_GOLD_PER_STACK = 0.2;
 
 export class AbilitySystem {
@@ -60,13 +61,12 @@ export class AbilitySystem {
     if (card?.kind === 'enchant' && !drag?.skipAbilityTriggers) {
       this.tryEchoEnchant(card, drag);
     }
+    this.triggerEnergyRefund(card);
     this.triggerRandomHeal(card);
   }
 
   onCardExhausted(card) {
-    const stacks = this.getStacks('exhaustEnergy');
-    if (stacks <= 0) return;
-    this.gainEnergy(stacks, this.game.playerBase?.position);
+    void card;
   }
 
   onFriendlyUnitDeath(unit) {
@@ -146,6 +146,14 @@ export class AbilitySystem {
         baseHeight: 0.48
       });
     }
+  }
+
+  triggerEnergyRefund(card) {
+    const stacks = this.getStacks('exhaustEnergy');
+    if (stacks <= 0 || (card?.energyCost ?? 0) <= 0) return;
+    const chance = Math.min(0.5, CARD_ENERGY_REFUND_CHANCE_PER_STACK * stacks);
+    if (Math.random() >= chance) return;
+    this.gainEnergy(1, this.game.playerBase?.position);
   }
 
   triggerRandomHeal(card) {

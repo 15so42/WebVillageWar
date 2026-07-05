@@ -11,7 +11,7 @@ export class CardEffectSystem {
       'apply-buff': (context) => this.applyBuff(context),
       'acquire-ability': (context) => this.acquireAbility(context),
       'gain-energy': (context) => this.gainEnergy(context),
-      'upgrade-hand-card': (context) => this.upgradeHandCard(context)
+      'draw-temporary-cards': (context) => this.drawTemporaryCards(context)
     };
   }
 
@@ -77,13 +77,16 @@ export class CardEffectSystem {
     if (!targetUnit) return false;
     const buffId = effect.buffId ?? card.enchantmentId;
     const cardLevel = Math.max(1, Math.floor(card.level ?? 1));
-    const applyLevel = cardLevel;
+    const definition = BUFF_DEFINITIONS[buffId];
+    const applyLevel = definition?.category === 'enchantment'
+      ? cardLevel + 1
+      : cardLevel;
     const buff = this.game.buffs.applyBuff(targetUnit, buffId, null, {
       sourceCard: card.id,
       level: applyLevel
     });
-    const definition = buff ?? BUFF_DEFINITIONS[buffId];
-    this.game.effects.spawnRing(targetUnit.position, definition?.color ?? card.color, 0.85, 0.6);
+    const visualDefinition = buff ?? definition;
+    this.game.effects.spawnRing(targetUnit.position, visualDefinition?.color ?? card.color, 0.85, 0.6);
     this.game.selectUnit(targetUnit);
     return Boolean(buff);
   }
@@ -100,10 +103,24 @@ export class CardEffectSystem {
     return true;
   }
 
-  upgradeHandCard({ card, effect, targetCard }) {
-    if (!targetCard || targetCard === card) return false;
-    const amount = resolveCardEffectNumber(card, effect, 'amount', effect.amount ?? 1);
-    return this.game.cardSystem.upgradeHandCard(targetCard, amount);
+  drawTemporaryCards({ card, effect }) {
+    const amount = Math.max(1, Math.floor(resolveCardEffectNumber(card, effect, 'amount', 1)));
+    let drawn = this.game.cardSystem.drawTemporaryCards(amount, {
+      temporaryLimit: effect.temporaryLimit,
+      overflowToDrawTop: true
+    });
+    if (drawn < amount && effect.fallbackPool === 'selected-deck') {
+      drawn += this.game.cardSystem.addTemporaryCardsFromPool(
+        this.game.selectedCardPool?.() ?? [],
+        amount - drawn,
+        {
+          temporaryLimit: effect.temporaryLimit,
+          overflowToDrawTop: true,
+          prefix: `tactic-${card.id}-${Date.now()}`
+        }
+      );
+    }
+    return drawn > 0;
   }
 
 }

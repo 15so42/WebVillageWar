@@ -205,6 +205,11 @@ export class AttackSystem {
     const projectileType = override.projectileType ?? source.definition.projectileType ?? 'arrow';
     const projectileColor = override.projectileColor ?? resolveProjectileColor(source, projectileType);
     const projectileObject = this.acquireProjectileObject(projectileType, projectileColor);
+    const isGreatWaterOrb =
+      projectileType === 'waterOrb' &&
+      hasRuntimeTrait(source, 'greatWaterOrb') &&
+      Math.random() < 0.3;
+    projectileObject.scale.setScalar(isGreatWaterOrb ? 1.38 : 1);
     const launchPosition = this.getProjectileLaunchPosition(source);
     projectileObject.position.copy(launchPosition);
     projectileTrailTargetPosition.copy(target.position);
@@ -223,11 +228,10 @@ export class AttackSystem {
       target,
       type: projectileType,
       speed: override.projectileSpeed ?? this.game.modifiers.getProjectileSpeed(source),
-      damage: override.damage ?? this.game.modifiers.getAttackDamage(source),
+      damage: (override.damage ?? this.game.modifiers.getAttackDamage(source)) * (isGreatWaterOrb ? 1.55 : 1),
       attackDamageType: override.attackDamageType ?? source.definition.attackDamageType,
-      knockback: override.knockback ?? this.game.modifiers.getKnockback(source),
+      knockback: (override.knockback ?? this.game.modifiers.getKnockback(source)) * (isGreatWaterOrb ? 1.25 : 1),
       damageTypes: override.damageTypes,
-      absorb: override.projectileAbsorb ?? source.definition.projectileAbsorb,
       age: 0
     };
 
@@ -249,6 +253,17 @@ export class AttackSystem {
     }
 
     this.projectiles.push(projectile);
+    if (isGreatWaterOrb) {
+      this.game.effects.spawnDamageNumber(source.position, 1, {
+        text: '大水弹',
+        color: '#9bdcff',
+        stroke: '#183146',
+        height: source.projectileHitHeight ?? 1.55,
+        duration: 0.6,
+        fontSize: 72,
+        baseHeight: 0.44
+      });
+    }
   }
 
   updateProjectiles(dt, profile = null) {
@@ -300,7 +315,6 @@ export class AttackSystem {
       projectileTargetPosition.set(dx / distance, dy / distance, dz / distance);
       projectile.object.quaternion.setFromUnitVectors(projectileForward, projectileTargetPosition);
       recordProjectileProfile(profile, 'projectileMoveApplyMs', moveStartedAt);
-      i -= this.absorbHostileProjectiles(projectile, i);
     }
   }
 
@@ -343,30 +357,6 @@ export class AttackSystem {
       });
       recordProjectileProfile(profile, 'projectileHitMs', hitStartedAt);
     }
-    this.absorbHostileProjectiles(projectile, index);
-  }
-
-  absorbHostileProjectiles(projectile, projectileIndex) {
-    const absorb = projectile.absorb;
-    if (!absorb || !projectile.source?.team) return 0;
-    const radius = Math.max(0.05, absorb.radius ?? 0.65);
-    const radiusSq = radius * radius;
-    const allowedTypes = Array.isArray(absorb.types) ? new Set(absorb.types) : null;
-    let removedBefore = 0;
-    for (let i = this.projectiles.length - 1; i >= 0; i -= 1) {
-      if (i === projectileIndex) continue;
-      const other = this.projectiles[i];
-      if (!other || other.source?.team === projectile.source.team) continue;
-      if (other.absorb) continue;
-      if (allowedTypes && !allowedTypes.has(other.type)) continue;
-      const dx = other.object.position.x - projectile.object.position.x;
-      const dy = other.object.position.y - projectile.object.position.y;
-      const dz = other.object.position.z - projectile.object.position.z;
-      if (dx * dx + dy * dy + dz * dz > radiusSq) continue;
-      this.removeProjectileAt(i);
-      if (i < projectileIndex) removedBefore += 1;
-    }
-    return removedBefore;
   }
 
   removeProjectileAt(index) {
@@ -432,6 +422,10 @@ function isPendingAttackActive(attack) {
     attack.target?.alive !== false &&
     attack.elapsed < attack.duration
   );
+}
+
+function hasRuntimeTrait(unit, trait) {
+  return unit?.runtimeTraits?.has?.(trait) === true;
 }
 
 function recordProjectileProfile(profile, key, mark) {

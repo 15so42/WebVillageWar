@@ -14,8 +14,20 @@ export class AreaEffectSystem {
 
   create(effect, point, card) {
     if (!point) return null;
-    const radius = effect.radius ?? card.radius ?? 3;
-    const duration = effect.duration ?? card.duration ?? 10;
+    const level = Math.max(1, Math.floor(card?.level ?? 1));
+    const bonusLevel = Math.max(0, level - 1);
+    const radius = resolveAreaDimension(
+      effect.radius ?? card?.radius ?? 3,
+      effect.radiusPerLevel,
+      level,
+      0.06 * bonusLevel
+    );
+    const duration = resolveAreaDimension(
+      effect.duration ?? card?.duration ?? 10,
+      effect.durationPerLevel,
+      level,
+      0.08 * bonusLevel
+    );
     const position = point.clone();
     position.y = this.game.groundHeightAt(position) + 0.08;
     const visual = createFogVisual({
@@ -30,7 +42,7 @@ export class AreaEffectSystem {
     const zone = {
       id: `${card.id}:${this.game.elapsedTime.toFixed(2)}:${this.zones.length}`,
       cardId: card.id,
-      level: Math.max(1, Math.floor(card.level ?? 1)),
+      level,
       kind: effect.kind ?? 'fog',
       target: effect.target ?? 'all',
       position,
@@ -242,6 +254,12 @@ function updateFogVisual(zone, dt) {
 function resolveLevelNumber(base, perLevel, level) {
   if (!Number.isFinite(base) && !Number.isFinite(perLevel)) return null;
   return (Number.isFinite(base) ? base : 0) + (Number.isFinite(perLevel) ? perLevel : 0) * level;
+}
+
+function resolveAreaDimension(base, perLevel, level, percentBonus = 0) {
+  const value = Math.max(0.1, Number.isFinite(base) ? base : 1);
+  const flatBonus = Number.isFinite(perLevel) ? perLevel * Math.max(0, level - 1) : 0;
+  return (value + flatBonus) * (1 + Math.max(0, percentBonus));
 }
 
 function resolveDirectDamagePerSecond(zone) {

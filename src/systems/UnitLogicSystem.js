@@ -74,6 +74,13 @@ export class UnitLogicSystem {
     mark = recordUnitStep(profile, 'unitBookkeepingMs', mark);
     if (!unit.alive) return;
 
+    if (unit.hasBuff?.('stunned')) {
+      unit.aiState = 'stunned';
+      unit.movement?.applyMotion(dt);
+      recordUnitStep(profile, 'motionMs', mark);
+      return;
+    }
+
     if (unit.underConstruction) {
       unit.aiState = 'idle';
       unit.movement?.applyMotion(dt);
@@ -263,6 +270,7 @@ export class UnitLogicSystem {
     if (support.cleanse) this.updateCleanseAbility(unit, support.cleanse, dt);
     if (support.shield) this.updateShieldAbility(unit, support.shield, dt);
     if (support.repairAura) this.updateRepairAura(unit, support.repairAura, dt);
+    if (hasRuntimeTrait(unit, 'miniTurret')) this.updateMiniTurretAbility(unit, dt);
   }
 
   updateHealAbility(unit, ability, dt) {
@@ -291,6 +299,20 @@ export class UnitLogicSystem {
         height: target.projectileHitHeight ?? 1.55,
         duration: 0.72
       });
+      if (hasRuntimeTrait(unit, 'healShield')) {
+        const shield = target.restoreShield?.(Math.max(1, amount * 0.35)) ?? 0;
+        if (shield > 0.01) {
+          this.game.effects.spawnDamageNumber(target.position, 1, {
+            text: `护盾+${formatSupportAmount(shield)}`,
+            color: '#ffe0a3',
+            stroke: '#4a2506',
+            height: (target.projectileHitHeight ?? 1.55) + 0.18,
+            duration: 0.68,
+            fontSize: 76,
+            baseHeight: 0.46
+          });
+        }
+      }
     });
   }
 
@@ -316,6 +338,15 @@ export class UnitLogicSystem {
         if (removed >= count) break;
       }
       if (removed > 0) {
+        if (hasRuntimeTrait(unit, 'purifyGuard')) {
+          this.game.buffs.applyBuff(target, 'purifyGuard', unit, {
+            duration: 5,
+            level: 1
+          });
+        }
+        if (hasRuntimeTrait(unit, 'exorcism')) {
+          this.damageEnemiesAroundCleanseTarget(unit, target, ability);
+        }
         this.game.effects.spawnRing(target.position, '#dcefff', 0.7, 0.58);
         this.game.effects.spawnDamageNumber(target.position, 1, {
           text: '净化',
@@ -362,6 +393,12 @@ export class UnitLogicSystem {
         baseHeight: 0.5,
         fadeStart: 0.62
       });
+      if (hasRuntimeTrait(unit, 'wardResonance')) {
+        this.game.buffs.applyBuff(target, 'purifyGuard', unit, {
+          duration: 4,
+          level: 1
+        });
+      }
     });
   }
 
@@ -403,6 +440,43 @@ export class UnitLogicSystem {
       });
     } else {
       unit.supportCooldowns.set(key, 0.25);
+    }
+  }
+
+  updateMiniTurretAbility(unit, dt) {
+    const key = 'miniTurret';
+    const ability = {
+      cooldown: 12,
+      initialCooldown: 2.5,
+      maxTurrets: 1,
+      spawnRadius: 1.45
+    };
+    const remaining = this.tickSupportCooldown(unit, key, ability, ability.cooldown, dt);
+    if (remaining > 0) return;
+    const turret = this.game.spawnUpgradeTurret(unit, ability);
+    unit.supportCooldowns.set(key, turret ? ability.cooldown : 2.5);
+  }
+
+  damageEnemiesAroundCleanseTarget(unit, target, ability) {
+    const radius = Math.max(2.4, ability.exorcismRadius ?? 3);
+    const damage = Math.max(4, ability.exorcismDamage ?? 7);
+    const enemies = unit.team === TEAMS.PLAYER ? this.game.enemyUnits : this.game.friendlyUnits;
+    let hit = 0;
+    enemies.forEach((enemy) => {
+      if (!enemy.alive || distance2D(enemy.position, target.position) > radius) return;
+      hit += 1;
+      this.game.combat.applyDamage(enemy, damage, unit, 0.35, {
+        damage,
+        source: unit,
+        target: enemy,
+        defenseDamageType: 'magic',
+        isAttack: false,
+        damageNumberHeight: enemy.projectileHitHeight ?? 1.45,
+        damageNumberDuration: 0.62
+      });
+    });
+    if (hit > 0) {
+      this.game.effects.spawnRing(target.position, '#dcefff', radius, 0.42);
     }
   }
 
@@ -598,6 +672,10 @@ function insertRepairTarget(selected, selectedMissing, unit, missing, maxTargets
     selected.length = maxTargets;
     selectedMissing.length = maxTargets;
   }
+}
+
+function hasRuntimeTrait(unit, trait) {
+  return unit?.runtimeTraits?.has?.(trait) === true;
 }
 
 function completeMoveGoal(game, unit) {

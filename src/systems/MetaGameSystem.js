@@ -20,9 +20,9 @@ export class MetaGameSystem {
     this.onStartAnimationPreview = onStartAnimationPreview;
     this.progress = loadProgress();
     this.view = 'levels';
-    this.selectedLevelId = LEVEL_DEFINITIONS[0]?.id ?? 'snow-valley';
-    this.selectedDifficulty = 1;
-    this.deckSelection = this.progress.ownedCards.slice(0, DECK_SIZE);
+    this.selectedLevelId = this.progress.preferences.selectedLevelId;
+    this.selectedDifficulty = this.selectedDifficultyForLevel(this.selectedLevelId);
+    this.deckSelection = this.progress.preferences.deckSelection.slice(0, DECK_SIZE);
     this.lastResult = null;
     this.notice = null;
     this.noticeTimer = null;
@@ -111,11 +111,10 @@ export class MetaGameSystem {
       return;
     }
     if (action === 'select-level') {
+      this.persistPreferences();
       this.selectedLevelId = actionTarget.dataset.levelId;
-      this.selectedDifficulty = Math.min(
-        clampDifficulty(this.selectedDifficulty),
-        this.availableDifficulty(this.selectedLevelId)
-      );
+      this.selectedDifficulty = this.selectedDifficultyForLevel(this.selectedLevelId);
+      this.persistPreferences();
       this.show('levels');
       return;
     }
@@ -123,12 +122,14 @@ export class MetaGameSystem {
       const difficulty = clampDifficulty(actionTarget.dataset.difficulty);
       if (difficulty <= this.availableDifficulty(this.selectedLevelId)) {
         this.selectedDifficulty = difficulty;
+        this.persistPreferences();
       }
       this.show('levels');
       return;
     }
     if (action === 'deck') {
       this.ensureDeckSelection();
+      this.persistPreferences();
       this.show('deck');
       return;
     }
@@ -335,7 +336,7 @@ export class MetaGameSystem {
             </div>
             <div class="meta-reward-preview">
               <span>胜利目标</span>
-              <strong>击败 3 个 Boss</strong>
+              <strong>击败 3 个 Boss 或击破敌营</strong>
             </div>
             <button class="meta-primary-button" type="button" data-action="deck">选择牌组</button>
           </div>
@@ -405,7 +406,7 @@ export class MetaGameSystem {
       <main class="meta-deck">
         <section class="meta-panel">
           <div class="meta-section-title">卡牌升级</div>
-          <p>升级消耗金币翻倍。召唤卡提升召唤单位百分比生命、护盾、耐久和攻击，附魔卡提升附魔等级。</p>
+          <p>升级消耗金币翻倍，并提高卡牌基础等级。局内事件升级只在当局生效；附魔牌的局内升级会提高施加的附魔等级。</p>
         </section>
         <section class="meta-card-grid">
           ${this.progress.ownedCards.map((id) => {
@@ -485,6 +486,38 @@ export class MetaGameSystem {
     return clampDifficulty(this.progress.levelDifficulties[levelId] ?? 1);
   }
 
+  selectedDifficultyForLevel(levelId) {
+    const saved = this.progress.preferences.selectedDifficulties?.[levelId] ?? 1;
+    return Math.min(clampDifficulty(saved), this.availableDifficulty(levelId));
+  }
+
+  persistPreferences() {
+    const selectedLevelId = normalizeLevelId(this.selectedLevelId);
+    const selectedDifficulties = {
+      ...(this.progress.preferences?.selectedDifficulties ?? {})
+    };
+    selectedDifficulties[selectedLevelId] = Math.min(
+      clampDifficulty(this.selectedDifficulty),
+      this.availableDifficulty(selectedLevelId)
+    );
+    LEVEL_DEFINITIONS.forEach((level) => {
+      selectedDifficulties[level.id] = Math.min(
+        clampDifficulty(selectedDifficulties[level.id] ?? 1),
+        this.availableDifficulty(level.id)
+      );
+    });
+    this.selectedLevelId = selectedLevelId;
+    this.deckSelection = normalizeDeckSelection(this.deckSelection, this.progress.ownedCards, {
+      defaultToOwned: false
+    });
+    this.progress.preferences = {
+      selectedLevelId,
+      selectedDifficulties,
+      deckSelection: this.deckSelection.slice(0, DECK_SIZE)
+    };
+    saveProgress(this.progress);
+  }
+
   cardWithLevel(id) {
     const definition = CARD_DEFINITIONS.find((card) => card.id === id) ?? CARD_DEFINITIONS[0];
     return {
@@ -494,12 +527,12 @@ export class MetaGameSystem {
   }
 
   ensureDeckSelection() {
-    const owned = new Set(this.progress.ownedCards);
-    this.deckSelection = this.deckSelection
-      .filter((id) => owned.has(id))
-      .slice(0, DECK_SIZE);
-    if (!this.deckSelection.length) {
-      this.deckSelection = this.progress.ownedCards.slice(0, DECK_SIZE);
+    const previous = this.deckSelection.join('|');
+    this.deckSelection = normalizeDeckSelection(this.deckSelection, this.progress.ownedCards, {
+      defaultToOwned: false
+    });
+    if (this.deckSelection.join('|') !== previous) {
+      this.persistPreferences();
     }
   }
 
@@ -508,10 +541,12 @@ export class MetaGameSystem {
     const index = this.deckSelection.indexOf(id);
     if (index >= 0) {
       this.deckSelection.splice(index, 1);
+      this.persistPreferences();
       return;
     }
     if (this.deckSelection.length >= DECK_SIZE) return;
     this.deckSelection.push(id);
+    this.persistPreferences();
   }
 
   buyCard(id) {
@@ -563,6 +598,7 @@ export class MetaGameSystem {
       this.availableDifficulty(this.selectedLevelId)
     );
     this.selectedDifficulty = difficulty;
+    this.persistPreferences();
     const session = {
       level: this.selectedLevel(),
       difficulty,
@@ -595,6 +631,7 @@ function loadProgress() {
   LEVEL_DEFINITIONS.forEach((level) => {
     levelDifficulties[level.id] = clampDifficulty(raw?.levelDifficulties?.[level.id] ?? 1);
   });
+  const preferences = normalizePreferences(raw?.preferences, ownedCards, levelDifficulties);
   const hasStartingCoinsGrant = raw?.startingCoinsVersion === STARTING_COINS_VERSION;
   const storedCoins = Math.max(0, Math.floor(raw?.coins ?? 0));
   const progress = {
@@ -602,7 +639,8 @@ function loadProgress() {
     startingCoinsVersion: STARTING_COINS_VERSION,
     ownedCards,
     cardLevels,
-    levelDifficulties
+    levelDifficulties,
+    preferences
   };
   saveProgress(progress);
   return progress;
@@ -622,6 +660,42 @@ function saveProgress(progress) {
   } catch {
     // Local storage can fail in private contexts; gameplay can continue in memory.
   }
+}
+
+function normalizePreferences(rawPreferences, ownedCards, levelDifficulties) {
+  const selectedLevelId = normalizeLevelId(rawPreferences?.selectedLevelId);
+  const selectedDifficulties = {};
+  LEVEL_DEFINITIONS.forEach((level) => {
+    selectedDifficulties[level.id] = Math.min(
+      clampDifficulty(rawPreferences?.selectedDifficulties?.[level.id] ?? 1),
+      clampDifficulty(levelDifficulties[level.id] ?? 1)
+    );
+  });
+  return {
+    selectedLevelId,
+    selectedDifficulties,
+    deckSelection: normalizeDeckSelection(rawPreferences?.deckSelection, ownedCards)
+  };
+}
+
+function normalizeLevelId(levelId) {
+  return LEVEL_DEFINITIONS.some((level) => level.id === levelId)
+    ? levelId
+    : LEVEL_DEFINITIONS[0]?.id ?? 'snow-valley';
+}
+
+function normalizeDeckSelection(rawDeckSelection, ownedCards, options = {}) {
+  const defaultToOwned = options.defaultToOwned !== false;
+  const source = Array.isArray(rawDeckSelection)
+    ? rawDeckSelection
+    : defaultToOwned ? ownedCards : [];
+  const owned = new Set(ownedCards);
+  const result = [];
+  source.forEach((id) => {
+    if (!owned.has(id) || result.includes(id)) return;
+    result.push(id);
+  });
+  return result.slice(0, DECK_SIZE);
 }
 
 function normalizeOwnedCards(rawOwnedCards) {

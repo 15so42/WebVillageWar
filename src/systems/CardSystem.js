@@ -14,6 +14,7 @@ const PLAY_DRAG_RATIO = 0.5;
 const DISCARD_DRAG_RATIO = 0.3;
 const PLAY_DRAG_MIN_DISTANCE = 24;
 const DISCARD_FALL_DELAY_MS = 500;
+const TEMPORARY_CARD_EFFECT_LIMIT = 6;
 const CARD_USAGE_HINT = '上滑使用 / 下滑丢弃';
 const CARD_KIND_COLORS = {
   summon: '#4f7d64',
@@ -47,6 +48,7 @@ export class CardSystem {
     this.handCards = [];
     this.temporaryCards = [];
     this.runtimeCardLevelBonuses = new Map();
+    this.runtimeCardUpgrades = new Map();
     this.pendingDrawAnimations = new Set();
     this.drag = null;
     this.raycaster = new THREE.Raycaster();
@@ -971,11 +973,6 @@ export class CardSystem {
     return (card.remainingUses ?? 0) <= 0 || shouldExhaustAfterPlay(card);
   }
 
-  upgradeHandCard(card, amount = 1) {
-    if (!card || !this.handCards.includes(card)) return false;
-    return this.upgradeCardFamily(card, amount);
-  }
-
   upgradeCardInstance(card, amount = 1) {
     if (!card || !this.allDeckCards().includes(card)) return false;
     return this.upgradeCardFamily(card, amount);
@@ -1014,6 +1011,60 @@ export class CardSystem {
     this.renderTemporaryCards();
     this.updatePileUi();
     return upgraded;
+  }
+
+  applyRuntimeUpgrade(card, upgrade) {
+    if (!card?.id || !upgrade?.id) return false;
+    const record = this.ensureRuntimeUpgradeRecord(card.id);
+    if (upgrade.kind === 'unit-special' && record.unitUpgradeIds.includes(upgrade.id)) {
+      return false;
+    }
+    const levelBonus = Math.max(0, Math.floor(upgrade.levelBonus ?? 1));
+    if (levelBonus > 0) {
+      const currentBonus = this.runtimeCardLevelBonuses.get(card.id) ?? 0;
+      this.runtimeCardLevelBonuses.set(card.id, currentBonus + levelBonus);
+    }
+    record.upgradeIds.push(upgrade.id);
+    if (upgrade.kind === 'unit-generic' || upgrade.kind === 'unit-special') {
+      record.unitUpgradeIds.push(upgrade.id);
+    }
+    this.syncRuntimeCardUpgrades(card.id);
+    return true;
+  }
+
+  ensureRuntimeUpgradeRecord(cardId) {
+    if (!this.runtimeCardUpgrades.has(cardId)) {
+      this.runtimeCardUpgrades.set(cardId, {
+        upgradeIds: [],
+        unitUpgradeIds: []
+      });
+    }
+    return this.runtimeCardUpgrades.get(cardId);
+  }
+
+  runtimeUpgradesForCard(cardOrId) {
+    const cardId = typeof cardOrId === 'string' ? cardOrId : cardOrId?.id;
+    const record = this.runtimeCardUpgrades.get(cardId);
+    return {
+      upgradeIds: [...(record?.upgradeIds ?? [])],
+      unitUpgradeIds: [...(record?.unitUpgradeIds ?? [])]
+    };
+  }
+
+  syncRuntimeCardUpgrades(cardId) {
+    let updated = false;
+    this.allDeckCards().forEach((candidate) => {
+      if (candidate.id !== cardId) return;
+      Object.assign(candidate, this.applyRuntimeCardLevel(candidate));
+      this.pendingDrawAnimations.add(candidate);
+      updated = true;
+    });
+    if (updated) {
+      this.renderHand();
+      this.renderTemporaryCards();
+      this.updatePileUi();
+    }
+    return updated;
   }
 
   restoreCardUses(card) {
@@ -1143,10 +1194,10 @@ export class CardSystem {
   addCardToDrawPile(cardDefinition, options = {}) {
     if (!cardDefinition) return { added: false, location: 'none' };
     const hasExplicitUses = Number.isFinite(cardDefinition.maxUses);
-    const card = createCardInstance({
-      ...cardDefinition,
-      level: this.runtimeLevelForCard(cardDefinition, options)
-    }, options.prefix ?? `reward-${Date.now()}`);
+    const card = createCardInstance(
+      this.applyRuntimeCardLevel(cardDefinition, options),
+      options.prefix ?? `reward-${Date.now()}`
+    );
     if (!hasExplicitUses) {
       this.applyAbilityUseBonus(card);
     }
@@ -1165,11 +1216,10 @@ export class CardSystem {
 
   addDebugCard(cardDefinition, options = {}) {
     if (!cardDefinition) return { added: false, location: 'none' };
-    const level = this.runtimeLevelForCard(cardDefinition, options);
-    const card = createCardInstance({
-      ...cardDefinition,
-      level
-    }, `debug-${Date.now()}`);
+    const card = createCardInstance(
+      this.applyRuntimeCardLevel(cardDefinition, options),
+      `debug-${Date.now()}`
+    );
 
     if (options.location !== 'hand' && this.temporaryCards.length < TEMPORARY_CARD_LIMIT) {
       this.temporaryCards.push(card);
@@ -1182,6 +1232,85 @@ export class CardSystem {
     this.drawPile.unshift(card);
     this.updatePileUi();
     return { added: true, location: 'draw', card };
+  }
+
+  drawTemporaryCards(count = 1, options = {}) {
+    const targetCount = Math.max(1, Math.floor(count));
+    const overflowToDrawTop = options.overflowToDrawTop === true;
+    const defaultLimit = overflowToDrawTop ? TEMPORARY_CARD_EFFECT_LIMIT : TEMPORARY_CARD_LIMIT;
+    const temporaryLimit = Math.max(
+      TEMPORARY_CARD_LIMIT,
+      Math.floor(options.temporaryLimit ?? defaultLimit)
+    );
+    const overflowCards = [];
+    let visibleDrawn = 0;
+    let resolved = 0;
+    while (resolved < targetCount) {
+      const card = this.drawCard();
+      if (!card) break;
+      if (this.temporaryCards.length < temporaryLimit) {
+        this.temporaryCards.push(card);
+        this.pendingDrawAnimations.add(card);
+        visibleDrawn += 1;
+      } else if (overflowToDrawTop) {
+        overflowCards.push(card);
+      } else {
+        this.drawPile.unshift(card);
+        break;
+      }
+      resolved += 1;
+    }
+    if (overflowCards.length) {
+      this.drawPile.unshift(...overflowCards);
+    }
+    if (visibleDrawn > 0 || overflowCards.length) {
+      this.renderTemporaryCards();
+      this.updatePileUi();
+    }
+    return resolved;
+  }
+
+  addTemporaryCardsFromPool(pool, count = 1, options = {}) {
+    if (!Array.isArray(pool) || pool.length === 0) return 0;
+    const targetCount = Math.max(1, Math.floor(count));
+    const overflowToDrawTop = options.overflowToDrawTop === true;
+    const defaultLimit = overflowToDrawTop ? TEMPORARY_CARD_EFFECT_LIMIT : TEMPORARY_CARD_LIMIT;
+    const temporaryLimit = Math.max(
+      TEMPORARY_CARD_LIMIT,
+      Math.floor(options.temporaryLimit ?? defaultLimit)
+    );
+    const candidates = shuffleCards(pool.filter((card) => card && !card.lootOnly));
+    const overflowCards = [];
+    let created = 0;
+    while (created < targetCount && candidates.length > 0) {
+      const definition = candidates.shift();
+      const card = createCardInstance(
+        this.applyRuntimeCardLevel({
+          ...definition,
+          instanceId: undefined,
+          remainingUses: undefined,
+          maxUses: undefined
+        }),
+        options.prefix ?? `temporary-${Date.now()}`
+      );
+      if (this.temporaryCards.length < temporaryLimit) {
+        this.temporaryCards.push(card);
+        this.pendingDrawAnimations.add(card);
+      } else if (overflowToDrawTop) {
+        overflowCards.push(card);
+      } else {
+        break;
+      }
+      created += 1;
+    }
+    if (overflowCards.length) {
+      this.drawPile.unshift(...overflowCards);
+    }
+    if (created > 0) {
+      this.renderTemporaryCards();
+      this.updatePileUi();
+    }
+    return created;
   }
 
   runtimeLevelForCard(cardDefinition, options = {}) {
@@ -1199,6 +1328,7 @@ export class CardSystem {
     return {
       ...cardDefinition,
       level: this.runtimeLevelForCard(cardDefinition, options),
+      runtimeUpgrades: this.runtimeUpgradesForCard(cardDefinition.id),
       runtimeLevelBonusApplied: Math.max(
         Math.max(0, Math.floor(cardDefinition.runtimeLevelBonusApplied ?? 0)),
         bonus

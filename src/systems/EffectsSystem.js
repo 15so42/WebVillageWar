@@ -275,6 +275,148 @@ export class EffectsSystem {
     });
   }
 
+  spawnEnemyCampBlast(start, end, options = {}) {
+    const startPoint = start.clone();
+    const endPoint = end.clone();
+    const direction = new THREE.Vector3().subVectors(endPoint, startPoint);
+    const length = direction.length();
+    if (length < 0.08) return;
+
+    const color = options.color ?? '#ffcf7a';
+    const hotColor = options.hotColor ?? '#ff8c3a';
+    const duration = options.duration ?? 0.58;
+    const hitAt = 0.58;
+    const group = new THREE.Group();
+    const forward = direction.clone().normalize();
+    const beamCenter = startPoint.clone().addScaledVector(direction, 0.5);
+
+    const beam = new THREE.Group();
+    beam.position.copy(beamCenter);
+    beam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), forward);
+    beam.renderOrder = 1830;
+
+    const coreMaterial = new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.92,
+      depthWrite: false,
+      depthTest: false
+    });
+    const glowMaterial = new THREE.MeshBasicMaterial({
+      color: hotColor,
+      transparent: true,
+      opacity: 0.32,
+      depthWrite: false,
+      depthTest: false
+    });
+    const core = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, length), coreMaterial);
+    const glow = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.34, Math.max(0.18, length * 0.96)), glowMaterial);
+    core.renderOrder = 1832;
+    glow.renderOrder = 1831;
+    beam.add(glow, core);
+
+    const boltMaterial = mat(color, {
+      transparent: true,
+      opacity: 1,
+      emissive: hotColor,
+      emissiveIntensity: 1.25,
+      depthWrite: false
+    }).clone();
+    const bolt = new THREE.Mesh(new THREE.OctahedronGeometry(0.22, 0), boltMaterial);
+    bolt.position.copy(startPoint);
+    bolt.scale.set(0.9, 0.9, 1.28);
+    bolt.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), forward);
+    bolt.renderOrder = 1834;
+
+    const sourceY = Math.max(0.08, startPoint.y - 1.85);
+    const sourceGroup = new THREE.Group();
+    sourceGroup.position.set(startPoint.x, sourceY, startPoint.z);
+    const sourceDiscMaterial = basicMat(hotColor, {
+      transparent: true,
+      opacity: 0.2,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      depthTest: false
+    }).clone();
+    const sourceRingMaterial = basicMat(color, {
+      transparent: true,
+      opacity: 0.82,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      depthTest: false
+    }).clone();
+    const sourceDisc = new THREE.Mesh(new THREE.CircleGeometry(0.72, 28), sourceDiscMaterial);
+    const sourceRing = new THREE.Mesh(new THREE.RingGeometry(0.84, 1.02, 36), sourceRingMaterial);
+    [sourceDisc, sourceRing].forEach((mesh) => {
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.renderOrder = 1828;
+      sourceGroup.add(mesh);
+    });
+
+    const impactMaterial = mat('#ffdca3', {
+      transparent: true,
+      opacity: 0.96,
+      emissive: hotColor,
+      emissiveIntensity: 0.95,
+      depthWrite: false
+    }).clone();
+    const impactGroup = new THREE.Group();
+    impactGroup.position.copy(endPoint);
+    impactGroup.visible = false;
+    for (let i = 0; i < 12; i += 1) {
+      const shard = new THREE.Mesh(new THREE.DodecahedronGeometry(0.045 + Math.random() * 0.045, 0), impactMaterial);
+      const angle = Math.random() * Math.PI * 2;
+      const lift = 0.45 + Math.random() * 0.95;
+      shard.userData.velocity = new THREE.Vector3(
+        Math.cos(angle) * (1.15 + Math.random() * 2.1),
+        lift,
+        Math.sin(angle) * (1.15 + Math.random() * 2.1)
+      );
+      shard.userData.spin = new THREE.Vector3(
+        Math.random() * 8,
+        Math.random() * 8,
+        Math.random() * 8
+      );
+      shard.userData.baseScale = 1;
+      shard.renderOrder = 1833;
+      impactGroup.add(shard);
+    }
+
+    group.add(beam, bolt, sourceGroup, impactGroup);
+    this.addEffect(group, duration, (dt, t) => {
+      const flightT = clamp(t / hitAt, 0, 1);
+      const easedFlight = 1 - (1 - flightT) ** 2;
+      bolt.position.lerpVectors(startPoint, endPoint, easedFlight);
+      bolt.rotation.x += dt * 7.5;
+      bolt.rotation.z += dt * 10.5;
+
+      const beamFade = Math.max(0, 1 - t * 1.25);
+      core.material.opacity = 0.92 * beamFade;
+      glow.material.opacity = 0.32 * beamFade;
+      beam.scale.set(1 + flightT * 0.08, 1 + flightT * 0.08, Math.max(0.16, 1 - flightT * 0.34));
+      bolt.material.opacity = Math.max(0, 1 - clamp((t - hitAt * 0.78) / 0.22, 0, 1));
+
+      const sourcePulse = Math.sin(clamp(t / 0.42, 0, 1) * Math.PI);
+      sourceGroup.scale.setScalar(0.78 + t * 0.72);
+      sourceDisc.material.opacity = 0.2 * Math.max(0, 1 - t * 1.4);
+      sourceRing.material.opacity = 0.82 * Math.max(0, 1 - t * 1.5) * (0.65 + sourcePulse * 0.35);
+
+      if (t >= hitAt) {
+        const impactT = clamp((t - hitAt) / Math.max(0.01, 1 - hitAt), 0, 1);
+        impactGroup.visible = true;
+        impactGroup.children.forEach((shard) => {
+          shard.position.addScaledVector(shard.userData.velocity, dt);
+          shard.userData.velocity.y -= 4.4 * dt;
+          shard.rotation.x += shard.userData.spin.x * dt;
+          shard.rotation.y += shard.userData.spin.y * dt;
+          shard.rotation.z += shard.userData.spin.z * dt;
+          shard.scale.setScalar(1 - impactT * 0.68);
+        });
+        impactMaterial.opacity = 0.96 * (1 - impactT);
+      }
+    });
+  }
+
   spawnDeathBurst(position, radius = 0.8) {
     const group = new THREE.Group();
     group.position.set(position.x, position.y ?? 0, position.z);

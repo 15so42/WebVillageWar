@@ -81,6 +81,11 @@ const UNIT_FACTORIES = {
   wolf: () => createWolfModel(),
   bear: () => createBearModel(),
   arrowTower: ({ team }) => createArrowTowerModel(team),
+  miniTurret: ({ team }) => {
+    const group = createArrowTowerModel(team);
+    group.scale.setScalar(0.55);
+    return group;
+  },
   repairStation: ({ team }) => createRepairStationModel(team),
   canteen: ({ team }) => createCanteenModel(team),
   beacon: ({ team }) => createBeaconModel(team)
@@ -172,6 +177,8 @@ export function getAnimationEventTime(unit, name, eventName) {
 export function updateUnitAnimation(unit, dt) {
   const root = unit.visualRoot;
   resetAnimatedParts(root);
+  root.position.x = 0;
+  root.position.z = 0;
   const state = root.userData.animation;
   if (state) {
     state.time += dt;

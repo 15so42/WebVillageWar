@@ -110,14 +110,17 @@ export class TargetingSystem {
       }
       return null;
     }
-    const friendly = this.nearestUnit(unit, TEAMS.PLAYER, aggroRange);
+    const guardFilter = unit.controlMode === 'guard'
+      ? (target) => this.isInsideGuardRadius(unit, target)
+      : null;
+    const friendly = this.nearestUnit(unit, TEAMS.PLAYER, aggroRange, guardFilter);
     if (friendly) return friendly;
-    return this.nearestStructure(unit, this.game.playerBase, aggroRange);
+    return this.nearestStructure(unit, this.game.playerBase, aggroRange, guardFilter);
   }
 
   isCurrentTargetValid(unit, target) {
     if (!target?.alive || !unit?.position) return false;
-    if (unit.team === TEAMS.PLAYER && unit.controlMode === 'guard' && !this.isInsideGuardRadius(unit, target)) {
+    if (unit.controlMode === 'guard' && !this.isInsideGuardRadius(unit, target)) {
       return false;
     }
     if (unit.isWildlife && target.position && unit.spawnPoint) {

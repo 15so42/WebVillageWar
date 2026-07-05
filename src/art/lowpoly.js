@@ -2376,7 +2376,6 @@ export function createShieldBearerModel() {
     shieldPivot,
     shield
   };
-  centerModelFootprint(group);
   return enableShadows(group);
 }
 
@@ -3236,6 +3235,9 @@ export function createEnemyCampModel() {
   const group = new THREE.Group();
   const hide = mat('#6c4631');
   const cloth = mat('#9e413a');
+  const darkWood = mat('#3f2c24');
+  const iron = mat('#3a3430', { roughness: 0.85, metalness: 0.08 });
+  const ember = mat('#ffb14f', { emissive: '#ff7a2f', emissiveIntensity: 0.75 });
   const tent = mesh(
     new THREE.ConeGeometry(1.6, 1.6, 4),
     cloth,
@@ -3265,7 +3267,73 @@ export function createEnemyCampModel() {
   shortLogA.rotation.y = 0.22;
   shortLogB.rotation.z = Math.PI / 2;
   shortLogB.rotation.y = -0.16;
-  group.add(tent, supplyCrate, shortLogA, shortLogB);
+
+  const focusBase = mesh(
+    new THREE.CylinderGeometry(0.42, 0.54, 0.28, 6),
+    iron,
+    new THREE.Vector3(1.08, 0.16, 0.86),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const focusMast = mesh(
+    new THREE.CylinderGeometry(0.13, 0.18, 0.86, 6),
+    darkWood,
+    new THREE.Vector3(1.08, 0.62, 0.86),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const focusCrystal = mesh(
+    new THREE.OctahedronGeometry(0.36, 0),
+    ember,
+    new THREE.Vector3(1.08, 1.2, 0.86),
+    new THREE.Vector3(0.82, 1.28, 0.82)
+  );
+  focusCrystal.rotation.y = Math.PI / 4;
+  const focusRing = mesh(
+    new THREE.TorusGeometry(0.46, 0.035, 6, 18),
+    ember,
+    new THREE.Vector3(1.08, 1.03, 0.86),
+    new THREE.Vector3(1, 1, 1)
+  );
+  focusRing.rotation.x = Math.PI / 2;
+
+  const bannerPole = mesh(
+    new THREE.CylinderGeometry(0.055, 0.075, 1.45, 5),
+    darkWood,
+    new THREE.Vector3(-0.78, 0.78, 0.82),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const banner = mesh(
+    new THREE.BoxGeometry(0.56, 0.36, 0.05),
+    mat('#c55a3e', { roughness: 0.88 }),
+    new THREE.Vector3(-0.48, 1.22, 0.82),
+    new THREE.Vector3(1, 1, 1)
+  );
+  banner.rotation.z = -0.08;
+
+  const stakeMaterial = mat('#4b3328');
+  for (let i = 0; i < 4; i += 1) {
+    const x = -1.02 + i * 0.68;
+    const stake = mesh(
+      new THREE.ConeGeometry(0.09, 0.62, 5),
+      stakeMaterial,
+      new THREE.Vector3(x, 0.56, 1.52),
+      new THREE.Vector3(1, 1, 1)
+    );
+    stake.rotation.z = (i - 1.5) * 0.08;
+    group.add(stake);
+  }
+
+  group.add(
+    tent,
+    supplyCrate,
+    shortLogA,
+    shortLogB,
+    focusBase,
+    focusMast,
+    focusCrystal,
+    focusRing,
+    bannerPole,
+    banner
+  );
   return enableShadows(group);
 }
 

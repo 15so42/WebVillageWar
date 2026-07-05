@@ -99,9 +99,13 @@ export class UnitEntity {
     if (!definition) return null;
     const existing = this.buffs.get(id);
     const isEnchantment = definition.category === 'enchantment';
-    const level = resolveIncomingBuffLevel(definition, overrides);
+    const incomingLevel = resolveIncomingBuffLevel(definition, overrides);
+    const existingLevel = Math.max(1, existing?.level ?? 1);
+    const level = existing && isEnchantment
+      ? existingLevel + incomingLevel
+      : incomingLevel;
     const duration = overrides.duration ?? definition.duration ?? 0;
-    if (existing && level <= Math.max(1, existing.level ?? 1)) {
+    if (existing && !isEnchantment && level <= existingLevel) {
       existing.remaining = refreshBuffDuration(existing.remaining, duration);
       refreshBuffSource(existing, overrides);
       return existing;
@@ -125,7 +129,9 @@ export class UnitEntity {
       ...(maxHealthDamagePercentPerSecond !== null ? { maxHealthDamagePercentPerSecond } : {}),
       ...(healPerSecond !== null ? { healPerSecond } : {}),
       source: resolveBuffSource(existing, overrides),
-      remaining: duration,
+      remaining: isEnchantment
+        ? refreshBuffDuration(existing?.remaining, duration)
+        : duration,
       tickTimer: overrides.tickTimer ?? existing?.tickTimer ?? overrides.tickInterval ?? definition.tickInterval ?? 0
     };
     this.buffs.set(id, instance);
