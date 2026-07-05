@@ -17,6 +17,10 @@ import {
   targetCombatRadius
 } from './combatHelpers.js';
 
+const ATTACK_RANGE_ENTER_PADDING = 0.06;
+const ATTACK_RANGE_HOLD_PADDING_MELEE = 0.28;
+const ATTACK_RANGE_HOLD_PADDING_RANGED = 0.46;
+
 export class UnitLogicSystem {
   constructor(game) {
     this.game = game;
@@ -81,6 +85,10 @@ export class UnitLogicSystem {
       unit.target = null;
       unit.moveGoal = null;
       unit.commandMoveGoal = null;
+      unit.moveGoalUsesDirectSteering = false;
+      unit.directMoveBlocked = false;
+      unit.directMoveBlockedTime = 0;
+      unit.attackRangeHoldTargetId = null;
       unit.knockbackVelocity.set(0, 0, 0);
       unit.aiState = 'idle';
       recordUnitStep(profile, 'immobileMs', mark);
@@ -98,6 +106,10 @@ export class UnitLogicSystem {
       unit.target = null;
       unit.moveGoal = null;
       unit.commandMoveGoal = null;
+      unit.moveGoalUsesDirectSteering = false;
+      unit.directMoveBlocked = false;
+      unit.directMoveBlockedTime = 0;
+      unit.attackRangeHoldTargetId = null;
       unit.aiState = 'idle';
       unit.movement?.applyMotion(dt);
       recordUnitStep(profile, 'motionMs', mark);
@@ -121,9 +133,15 @@ export class UnitLogicSystem {
     if (unit.commandMoveGoal) {
       if (distance2D(unit.position, unit.commandMoveGoal) > 0.65) {
         unit.target = null;
+        unit.attackRangeHoldTargetId = null;
         unit.aiState = 'moving';
-        const moved = unit.movement?.moveToward(unit.commandMoveGoal, dt, 0.48);
-        if (!moved && distance2D(unit.position, unit.commandMoveGoal) <= 0.82) {
+        const moved = unit.movement?.moveToward(unit.commandMoveGoal, dt, 0.48, {
+          direct: unit.moveGoalUsesDirectSteering === true
+        });
+        if (
+          !moved &&
+          (distance2D(unit.position, unit.commandMoveGoal) <= 0.82 || unit.directMoveBlocked)
+        ) {
           completeMoveGoal(this.game, unit);
         }
         mark = recordUnitStep(profile, 'commandMs', mark);
@@ -140,6 +158,7 @@ export class UnitLogicSystem {
     mark = recordUnitStep(profile, 'activeAttackMs', mark);
     if (activeAttack) {
       unit.aiState = 'attacking';
+      unit.attackRangeHoldTargetId = targetHoldId(activeAttack.target);
       const targetPosition = getTargetPosition(activeAttack.target);
       if (targetPosition) {
         unit.movement?.face(targetPosition, dt);
@@ -166,19 +185,28 @@ export class UnitLogicSystem {
       const targetDistance = distance2D(unit.position, targetPosition);
       const targetRadius = targetCombatRadius(target);
       const attackRange = this.game.modifiers.getAttackRange(unit);
+      const attackReach = attackRange + targetRadius;
+      const holdTargetId = targetHoldId(target);
+      const isHoldingAttackRange = holdTargetId != null && unit.attackRangeHoldTargetId === holdTargetId;
+      const attackRangePadding = isHoldingAttackRange
+        ? attackRangeHoldPadding(unit)
+        : ATTACK_RANGE_ENTER_PADDING;
       if (this.game.attacks.tryRangedWeaponAbility(unit, target, targetDistance, targetRadius)) {
         unit.aiState = 'attacking';
+        unit.attackRangeHoldTargetId = holdTargetId;
         mark = recordUnitStep(profile, 'attackDecisionMs', mark);
         unit.movement?.applyMotion(dt);
         recordUnitStep(profile, 'motionMs', mark);
         return;
       }
-      if (targetDistance <= attackRange + targetRadius) {
+      if (targetDistance <= attackReach + attackRangePadding) {
         unit.aiState = 'attacking';
+        unit.attackRangeHoldTargetId = holdTargetId;
         unit.movement?.face(targetPosition, dt);
         this.game.attacks.tryAttack(unit, target);
       } else {
         unit.aiState = 'chasing';
+        unit.attackRangeHoldTargetId = null;
         unit.movement?.moveToward(
           targetPosition,
           dt,
@@ -186,25 +214,34 @@ export class UnitLogicSystem {
         );
       }
     } else if (unit.isWildlife) {
+      unit.attackRangeHoldTargetId = null;
       unit.aiState = 'moving';
       this.updateWildlifeWander(unit, dt);
       unit.movement?.moveToward(unit.wanderGoal, dt, 0.55);
     } else if (unit.controlMode === 'guard') {
+      unit.attackRangeHoldTargetId = null;
       unit.aiState = 'moving';
       this.returnToGuardPoint(unit, dt);
     } else if (unit.moveGoal) {
+      unit.attackRangeHoldTargetId = null;
       if (distance2D(unit.position, unit.moveGoal) <= 0.34) {
         completeMoveGoal(this.game, unit);
         unit.aiState = 'idle';
       } else {
         unit.aiState = 'moving';
-        const moved = unit.movement?.moveToward(unit.moveGoal, dt);
-        if (!moved && distance2D(unit.position, unit.moveGoal) <= 0.48) {
+        const moved = unit.movement?.moveToward(unit.moveGoal, dt, undefined, {
+          direct: unit.moveGoalUsesDirectSteering === true
+        });
+        if (
+          !moved &&
+          (distance2D(unit.position, unit.moveGoal) <= 0.48 || unit.directMoveBlocked)
+        ) {
           completeMoveGoal(this.game, unit);
           unit.aiState = 'idle';
         }
       }
     } else {
+      unit.attackRangeHoldTargetId = null;
       unit.aiState = 'idle';
     }
     mark = recordUnitStep(profile, 'attackDecisionMs', mark);
@@ -566,9 +603,26 @@ function insertRepairTarget(selected, selectedMissing, unit, missing, maxTargets
 function completeMoveGoal(game, unit) {
   unit.moveGoal = null;
   unit.commandMoveGoal = null;
+  unit.moveGoalUsesDirectSteering = false;
+  unit.directMoveBlocked = false;
+  unit.directMoveBlockedTime = 0;
+  unit.attackRangeHoldTargetId = null;
   unit.navMoveTarget = null;
   unit.navSteeringTarget = null;
   game.clearUnitRoute?.(unit);
+}
+
+function attackRangeHoldPadding(unit) {
+  return unit.definition?.role === 'ranged'
+    ? ATTACK_RANGE_HOLD_PADDING_RANGED
+    : ATTACK_RANGE_HOLD_PADDING_MELEE;
+}
+
+function targetHoldId(target) {
+  if (!target) return null;
+  if (target.id != null) return target.id;
+  if (target.type != null) return target.type;
+  return null;
 }
 
 function createUnitProfile() {

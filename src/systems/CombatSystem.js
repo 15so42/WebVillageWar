@@ -3,7 +3,6 @@ import { playUnitAnimation } from '../art/visualRegistry.js';
 import { direction2D } from '../utils/math.js';
 import {
   hitStunDuration,
-  isAttackFromFront,
   isStaticUnit,
   maxKnockbackVelocity
 } from './combatHelpers.js';
@@ -80,8 +79,8 @@ export class CombatSystem {
       return false;
     }
 
+    this.applyDefenseReduction(damageContext);
     this.game.buffs.beforeDamage(damageContext);
-    this.applyInnateDamageTraits(damageContext);
     const finalDamage = Math.max(0, damageContext.damage);
     const isTrueDamage = damageContext.damageTypes.has('true');
     const isDirectHealthDamage = damageContext.damageTypes.has('directHealth');
@@ -89,13 +88,15 @@ export class CombatSystem {
       bypassShield: isTrueDamage || isDirectHealthDamage
     });
     this.game.effects.spawnDamageNumber(target.position, finalDamage, {
-      damageType: isTrueDamage ? 'true' : 'normal',
+      damageType: damageNumberType(damageContext, isTrueDamage),
       height: damageContext.damageNumberHeight,
       duration: damageContext.damageNumberDuration
     });
 
-    const finalKnockback = damageContext.knockback;
+    const knockbackResistance = this.game.modifiers.getKnockbackResistance(target);
+    const finalKnockback = Math.max(0, damageContext.knockback * (1 - knockbackResistance));
     damageContext.damageDealt = finalDamage;
+    damageContext.knockbackApplied = finalKnockback;
 
     if (source && finalKnockback > 0 && !isStaticUnit(target)) {
       const dir = direction2D(source.position, target.position);
@@ -127,32 +128,36 @@ export class CombatSystem {
     if (!context.source || !context.target?.attributes || context.target.isBuilding) return false;
     const chance = this.game.modifiers.getDodgeChance(context.target);
     if (chance <= 0 || Math.random() >= chance) return false;
-    this.game.effects.spawnDamageNumber(context.target.position, 1, {
+    this.spawnDodgeFeedback(context.target);
+    return true;
+  }
+
+  spawnDodgeFeedback(target) {
+    this.game.effects.spawnDamageNumber(target.position, 1, {
       text: '闪避',
       color: '#dff8ff',
       stroke: '#12303a',
-      height: (context.target.projectileHitHeight ?? 1.45) + 0.18,
+      height: (target.projectileHitHeight ?? 1.45) + 0.18,
       duration: 0.78,
       fontSize: 108,
       strokeWidth: 18,
       baseHeight: 0.62,
       fadeStart: 0.64
     });
-    this.game.effects.spawnRing(context.target.position, '#dff8ff', 0.55, 0.34);
-    return true;
+    this.game.effects.spawnRing(target.position, '#dff8ff', 0.55, 0.34);
   }
 
-  applyInnateDamageTraits(context) {
-    if (!context.target?.definition?.traits?.length) return;
-    if (!context.isAttack || context.damageTypes?.has?.('true')) return;
-    context.target.definition.traits.forEach((trait) => {
-      if (trait.type !== 'frontGuard') return;
-      if (!isAttackFromFront(context.target, context.source, trait.angleDegrees ?? 120)) return;
-      const reduction = Math.max(0, trait.reduction ?? 0);
-      if (reduction <= 0 || context.damage <= 0) return;
-      context.damage = Math.max(0, context.damage - reduction);
-      this.game.effects.spawnRing(context.target.position, '#d9d2a2', 0.48, 0.32);
-    });
+  applyDefenseReduction(context) {
+    if (context.damageTypes?.has?.('true')) return;
+    if (!context.target?.attributes) return;
+    const defenseType = defenseDamageType(context);
+    if (!defenseType) return;
+    const defense = defenseType === 'magic'
+      ? this.game.modifiers.getMagicResistance(context.target)
+      : this.game.modifiers.getArmor(context.target);
+    if (!Number.isFinite(defense) || Math.abs(defense) <= 0.001) return;
+    context.damage = Math.max(0, context.damage - defense);
+    context.defenseApplied = defense;
   }
 
   applySourceAttackTraits(context) {
@@ -164,4 +169,16 @@ export class CombatSystem {
       context.damage *= trait.multiplier ?? 1;
     });
   }
+}
+
+function damageNumberType(context, isTrueDamage) {
+  if (isTrueDamage) return 'true';
+  return defenseDamageType(context) === 'magic' ? 'magic' : 'normal';
+}
+
+function defenseDamageType(context) {
+  const type = context.defenseDamageType ?? (context.isAttack ? context.attackDamageType : null);
+  if (type === 'magic') return 'magic';
+  if (type === 'physical') return 'physical';
+  return null;
 }

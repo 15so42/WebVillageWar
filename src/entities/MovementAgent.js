@@ -1,4 +1,3 @@
-import { stopUnitAnimation } from '../art/visualRegistry.js';
 import { BALANCE } from '../data/gameData.js';
 import { clamp, direction2D, distance2D } from '../utils/math.js';
 import {
@@ -11,6 +10,7 @@ import {
 
 const NAVIGATION_TARGET_EPSILON = 0.04;
 const KNOCKBACK_EPSILON_SQ = 0.0004;
+const DIRECT_MOVE_BLOCKED_SECONDS = 0.26;
 
 export class MovementAgent {
   constructor(unit, game) {
@@ -30,25 +30,30 @@ export class MovementAgent {
     this.destination = setReusableVector(this.destination, point);
     this.desiredDistance = desiredDistance;
     this.unit.moveGoal = setReusableVector(this.unit.moveGoal, point);
+    this.unit.moveGoalUsesDirectSteering = false;
   }
 
   clearDestination() {
     this.destination = null;
     this.unit.moveGoal = null;
+    this.unit.moveGoalUsesDirectSteering = false;
     this.game.clearUnitRoute?.(this.unit);
   }
 
-  moveToward(targetPosition, dt, desiredDistance = this.desiredDistance) {
+  moveToward(targetPosition, dt, desiredDistance = this.desiredDistance, options = {}) {
     const unit = this.unit;
     if (!targetPosition) return false;
     if (unit.isBuilding || unit.definition.canMove === false || isImmobileUnit(unit)) return false;
     const targetDistance = distance2D(unit.position, targetPosition);
     if (targetDistance <= desiredDistance) {
       unit.navSteeringTarget = null;
+      unit.directMoveBlockedTime = 0;
+      unit.directMoveBlocked = false;
       return false;
     }
 
-    const usesNavigationSteering = Boolean(this.game.world?.navGrid);
+    const usesDirectSteering = options.direct === true;
+    const usesNavigationSteering = Boolean(this.game.world?.navGrid) && !usesDirectSteering;
     const safeSteering = usesNavigationSteering
       ? this.game.safeSurfaceSteeringToward(unit.position, targetPosition, unit, NAVIGATION_TARGET_EPSILON)
       : null;
@@ -75,10 +80,20 @@ export class MovementAgent {
       step = Math.min(step, waypointDistance);
     }
     if (step <= 0) return false;
-    stopUnitAnimation(unit, 'attack');
 
-    const previousX = unit.position.x;
-    const previousZ = unit.position.z;
+    if (usesDirectSteering) {
+      if (!this.tryApplyWalkableStep(movementDirection, step, false)) {
+        unit.directMoveBlockedTime = (unit.directMoveBlockedTime ?? 0) + dt;
+        unit.directMoveBlocked = unit.directMoveBlockedTime >= DIRECT_MOVE_BLOCKED_SECONDS;
+        return false;
+      }
+      unit.directMoveBlockedTime = 0;
+      unit.directMoveBlocked = false;
+      unit.visualState = 'walk';
+      this.face(movementTarget, dt);
+      return true;
+    }
+
     if (usesNavigationSteering) {
       unit.position.addScaledVector(movementDirection, step);
       this.clampToBattlefield();
@@ -89,24 +104,55 @@ export class MovementAgent {
 
     let moved = false;
     for (const scale of [1, 0.5, 0.25]) {
-      unit.position.x = previousX;
-      unit.position.z = previousZ;
-      unit.position.addScaledVector(movementDirection, step * scale);
-      this.clampToBattlefield();
-      if (this.game.isPointWalkable(unit.position)) {
+      if (this.tryApplyWalkableStep(movementDirection, step * scale, false)) {
         moved = true;
         break;
       }
     }
     if (!moved) {
-      unit.position.x = previousX;
-      unit.position.z = previousZ;
       this.game.clearUnitRoute?.(unit);
       return false;
     }
     unit.visualState = 'walk';
     this.face(movementTarget, dt);
     return true;
+  }
+
+  tryApplyWalkableStep(direction, step, allowSlide = false) {
+    const unit = this.unit;
+    const previousX = unit.position.x;
+    const previousZ = unit.position.z;
+    const attempt = (xFactor, zFactor, scale = 1) => {
+      if (Math.abs(xFactor) + Math.abs(zFactor) < 0.0001) return false;
+      unit.position.x = previousX + xFactor * step * scale;
+      unit.position.z = previousZ + zFactor * step * scale;
+      this.clampToBattlefield();
+      if (this.game.isPointWalkable(unit.position)) return true;
+      unit.position.x = previousX;
+      unit.position.z = previousZ;
+      return false;
+    };
+
+    for (const scale of [1, 0.65, 0.35]) {
+      if (attempt(direction.x, direction.z, scale)) return true;
+    }
+    if (allowSlide) {
+      const primaryFirst = Math.abs(direction.x) >= Math.abs(direction.z);
+      const primary = primaryFirst
+        ? { x: direction.x, z: 0 }
+        : { x: 0, z: direction.z };
+      const secondary = primaryFirst
+        ? { x: 0, z: direction.z }
+        : { x: direction.x, z: 0 };
+      for (const scale of [1, 0.65, 0.35]) {
+        if (attempt(primary.x, primary.z, scale)) return true;
+        if (attempt(secondary.x, secondary.z, scale)) return true;
+      }
+    }
+
+    unit.position.x = previousX;
+    unit.position.z = previousZ;
+    return false;
   }
 
   applyMotion(dt) {

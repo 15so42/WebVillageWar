@@ -65,7 +65,13 @@ export class TargetingSystem {
 
   targetForUnit(unit, dt, profile = null) {
     unit.targetSearchTimer = Math.max(0, (unit.targetSearchTimer ?? targetSearchDelay(unit, 0, TARGET_RESCAN_JITTER)) - dt);
-    const current = unit.target?.alive !== false ? unit.target : null;
+    let current = unit.target?.alive !== false ? unit.target : null;
+    if (current && !this.isCurrentTargetValid(unit, current)) {
+      unit.target = null;
+      current = null;
+      unit.targetSearchTimer = 0;
+      this.game.attacks?.cancelPendingAttacksFor?.([unit]);
+    }
     if (unit.targetSearchTimer > 0) {
       return current;
     }
@@ -109,9 +115,29 @@ export class TargetingSystem {
     return this.nearestStructure(unit, this.game.playerBase, aggroRange);
   }
 
+  isCurrentTargetValid(unit, target) {
+    if (!target?.alive || !unit?.position) return false;
+    if (unit.team === TEAMS.PLAYER && unit.controlMode === 'guard' && !this.isInsideGuardRadius(unit, target)) {
+      return false;
+    }
+    if (unit.isWildlife && target.position && unit.spawnPoint) {
+      const aggroRange = this.game.modifiers.getAggroRange(unit);
+      if (distance2D(unit.spawnPoint, target.position) > unit.leashRadius + aggroRange) {
+        return false;
+      }
+    }
+    const targetPosition = getTargetPosition(target);
+    if (!targetPosition) return false;
+    const distance = Math.max(
+      0,
+      distance2D(unit.position, targetPosition) - targetCombatRadius(target)
+    );
+    return distance <= this.game.modifiers.getAggroRange(unit);
+  }
+
   nearestUnit(source, team, range, predicate = null) {
     let best = null;
-    let bestDistance = range;
+    let bestScore = -Infinity;
     const candidates = this.query(team, source.position, range + TARGET_QUERY_PADDING);
     for (let i = 0; i < candidates.length; i += 1) {
       const candidate = candidates[i];
@@ -121,9 +147,11 @@ export class TargetingSystem {
         0,
         distance2D(source.position, candidate.position) - targetCombatRadius(candidate)
       );
-      if (distance < bestDistance) {
+      if (distance > range) continue;
+      const score = targetPriorityScore(source, candidate, distance);
+      if (score > bestScore) {
         best = candidate;
-        bestDistance = distance;
+        bestScore = score;
       }
     }
     return best;
@@ -205,4 +233,31 @@ function createTargetingStats() {
     queries: 0,
     candidates: 0
   };
+}
+
+function targetPriorityScore(source, candidate, distance) {
+  const priority = source?.definition?.targetPriority;
+  if (!priority) return -distance;
+  const distanceWeight = Math.max(0.05, priority.distanceWeight ?? 1);
+  let score = -distance * distanceWeight;
+  const roleWeights = priority.roleWeights ?? {};
+  score += roleWeights[candidate.definition?.role] ?? 0;
+  if (candidate.definition?.support) {
+    score += priority.supportWeight ?? 0;
+  }
+  if (candidate.isBuilding) {
+    score += priority.buildingWeight ?? 0;
+  }
+  if (candidate.definition?.attackDamageType === 'magic') {
+    score += priority.magicUserWeight ?? 0;
+  }
+  const attackRange = candidate.definition?.attackRange ?? 0;
+  if (attackRange >= (priority.backlineAttackRange ?? 5.5)) {
+    score += priority.backlineWeight ?? 0;
+  }
+  const healthRatio = candidate.health / Math.max(1, candidate.maxHealth);
+  if (healthRatio <= (priority.woundedHealthRatio ?? 0)) {
+    score += priority.woundedWeight ?? 0;
+  }
+  return score;
 }

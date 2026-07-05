@@ -49,6 +49,10 @@ export class UnitEntity {
     }
     this.moveGoal = null;
     this.commandMoveGoal = null;
+    this.moveGoalUsesDirectSteering = false;
+    this.directMoveBlocked = false;
+    this.directMoveBlockedTime = 0;
+    this.attackRangeHoldTargetId = null;
     this.controlMode = 'normal';
     this.guardPoint = null;
     this.guardRadius = null;
@@ -65,7 +69,8 @@ export class UnitEntity {
     };
     this.mesh = new THREE.Group();
     this.visualRoot = createUnitModel(type, team);
-    this.visualRoot.position.y = unitVisualGroundOffset(this.definition);
+    this.visualRoot.userData.groundOffset = unitVisualGroundOffset(this.definition);
+    this.visualRoot.position.y = this.visualRoot.userData.groundOffset;
     this.mesh.add(this.visualRoot);
     this.groundShadow = createUnitGroundShadow(this);
     this.mesh.add(this.groundShadow);
@@ -94,20 +99,32 @@ export class UnitEntity {
     if (!definition) return null;
     const existing = this.buffs.get(id);
     const isEnchantment = definition.category === 'enchantment';
-    const level = resolveBuffLevel(definition, existing, overrides, isEnchantment);
-    const damagePerSecond = resolveStackingNumber('damagePerSecond', definition, existing, overrides);
-    const healPerSecond = resolveStackingNumber('healPerSecond', definition, existing, overrides);
+    const level = resolveIncomingBuffLevel(definition, overrides);
+    const duration = overrides.duration ?? definition.duration ?? 0;
+    if (existing && level <= Math.max(1, existing.level ?? 1)) {
+      existing.remaining = refreshBuffDuration(existing.remaining, duration);
+      refreshBuffSource(existing, overrides);
+      return existing;
+    }
+
+    const damagePerSecond = resolveBuffNumber('damagePerSecond', definition, overrides);
+    const maxHealthDamagePercentPerSecond = resolveBuffNumber(
+      'maxHealthDamagePercentPerSecond',
+      definition,
+      overrides
+    );
+    const healPerSecond = resolveBuffNumber('healPerSecond', definition, overrides);
     this.attributes.removeModifiersBySource(buffModifierSource(id));
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:focus-range`);
-    const duration = overrides.duration ?? definition.duration ?? 0;
     const instance = {
       ...definition,
       ...overrides,
       id,
       level,
       ...(damagePerSecond !== null ? { damagePerSecond } : {}),
+      ...(maxHealthDamagePercentPerSecond !== null ? { maxHealthDamagePercentPerSecond } : {}),
       ...(healPerSecond !== null ? { healPerSecond } : {}),
-      source: overrides.source ?? existing?.source ?? null,
+      source: resolveBuffSource(existing, overrides),
       remaining: duration,
       tickTimer: overrides.tickTimer ?? existing?.tickTimer ?? overrides.tickInterval ?? definition.tickInterval ?? 0
     };
@@ -255,7 +272,7 @@ function createUnitAttributes(definition) {
   const maxShield = Number.isFinite(definition.maxShield)
     ? definition.maxShield
     : maxHealth * 0.5;
-  return new AttributeSet({
+  const attributes = new AttributeSet({
     maxHealth,
     maxShield,
     moveSpeed: definition.speed,
@@ -263,12 +280,16 @@ function createUnitAttributes(definition) {
     attackRate: definition.attackRate,
     attackDamage: definition.damage,
     knockback: definition.knockback,
+    knockbackResistance: definition.knockbackResistance ?? 0,
     aggroRange: definition.aggroRange,
     projectileSpeed: definition.projectileSpeed ?? 0,
     dodgeChance: definition.dodgeChance ?? 0,
     maxDurability: definition.weapon.maxDurability,
     durabilityCost: definition.weapon.durabilityCost
   });
+  attributes.setBase('armor', definition.armor ?? 0, { min: -99 });
+  attributes.setBase('magicResistance', definition.magicResistance ?? 0, { min: -99 });
+  return attributes;
 }
 
 function bindUnitAttributeGetters(unit) {
@@ -278,7 +299,10 @@ function bindUnitAttributeGetters(unit) {
   bindAttributeGetter(unit, 'attackRange', 'attackRange');
   bindAttributeGetter(unit, 'attackRate', 'attackRate');
   bindAttributeGetter(unit, 'attackDamage', 'attackDamage');
+  bindAttributeGetter(unit, 'armor', 'armor');
+  bindAttributeGetter(unit, 'magicResistance', 'magicResistance');
   bindAttributeGetter(unit, 'knockback', 'knockback');
+  bindAttributeGetter(unit, 'knockbackResistance', 'knockbackResistance');
   bindAttributeGetter(unit, 'aggroRange', 'aggroRange');
   bindAttributeGetter(unit, 'projectileSpeed', 'projectileSpeed');
   bindAttributeGetter(unit, 'dodgeChance', 'dodgeChance');
@@ -290,30 +314,46 @@ function buffModifierSource(id) {
   return `buff:${id}`;
 }
 
-function resolveBuffLevel(definition, existing, overrides, isEnchantment) {
-  if (isEnchantment && existing && Number.isFinite(overrides.levelIncrement)) {
-    return Math.max(1, existing.level ?? 1) + Math.max(1, overrides.levelIncrement);
-  }
+function resolveIncomingBuffLevel(definition, overrides) {
   if (Number.isFinite(overrides.level)) {
-    return existing && !isEnchantment
-      ? Math.max(existing.level ?? 1, overrides.level)
-      : Math.max(1, overrides.level);
+    return Math.max(1, overrides.level);
   }
-  if (isEnchantment && existing) {
-    return Math.max(1, existing.level ?? 1) + (overrides.levelIncrement ?? 1);
+  if (Number.isFinite(overrides.levelIncrement)) {
+    return Math.max(1, definition.level ?? 1) + Math.max(1, overrides.levelIncrement);
   }
-  return Math.max(1, definition.level ?? existing?.level ?? 1);
+  return Math.max(1, definition.level ?? 1);
 }
 
-function resolveStackingNumber(field, definition, existing, overrides) {
+function resolveBuffNumber(field, definition, overrides) {
   const next = overrides[field] ?? definition[field];
-  const previous = existing?.[field];
-  if (Number.isFinite(next) && Number.isFinite(previous)) {
-    return Math.max(next, previous);
-  }
   if (Number.isFinite(next)) return next;
-  if (Number.isFinite(previous)) return previous;
   return null;
+}
+
+function refreshBuffDuration(current, next) {
+  if (!Number.isFinite(next)) return next;
+  if (!Number.isFinite(current)) return current;
+  return Math.max(current, next);
+}
+
+function resolveBuffSource(existing, overrides) {
+  if (Object.prototype.hasOwnProperty.call(overrides, 'source')) {
+    return overrides.source;
+  }
+  return existing?.source ?? null;
+}
+
+function refreshBuffSource(buff, overrides) {
+  buff.source = resolveBuffSource(buff, overrides);
+  copyOverrideField(buff, overrides, 'sourceCard');
+  copyOverrideField(buff, overrides, 'sourceUnitType');
+  copyOverrideField(buff, overrides, 'sourceWaveAffix');
+}
+
+function copyOverrideField(target, source, field) {
+  if (Object.prototype.hasOwnProperty.call(source, field)) {
+    target[field] = source[field];
+  }
 }
 
 function createEnchantHalo() {

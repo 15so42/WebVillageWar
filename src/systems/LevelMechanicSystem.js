@@ -76,6 +76,7 @@ export class LevelMechanicSystem {
         damage,
         source: null,
         target: unit,
+        defenseDamageType: trapDefenseDamageType(trap),
         isAttack: false,
         skipHitAnimation: trap.type !== 'spikes',
         damageNumberHeight: unit.projectileHitHeight ?? 1.4,
@@ -102,6 +103,7 @@ export class LevelMechanicSystem {
         damage,
         source: null,
         target: unit,
+        defenseDamageType: sunlight.defenseDamageType ?? 'magic',
         isAttack: false,
         skipHitAnimation: true,
         damageNumberHeight: unit.projectileHitHeight ?? 1.45,
@@ -149,6 +151,7 @@ export class LevelMechanicSystem {
         damage,
         source: null,
         target: unit,
+        defenseDamageType: lava.defenseDamageType ?? 'magic',
         isAttack: false,
         skipHitAnimation: true,
         damageTypes: lava.bypassShield === false ? new Set() : new Set(['directHealth']),
@@ -168,6 +171,13 @@ function lavaDamageFor(unit, lava, tickSeconds) {
     return Math.max(0, unit.maxHealth * percentPerSecond * tickSeconds);
   }
   return Math.max(0, (lava.damagePerSecond ?? 18) * tickSeconds);
+}
+
+function trapDefenseDamageType(trap) {
+  if (trap.defenseDamageType === 'magic' || trap.defenseDamageType === 'physical') {
+    return trap.defenseDamageType;
+  }
+  return trap.type === 'fireVent' ? 'magic' : 'physical';
 }
 
 function trapPosition(trap, game) {

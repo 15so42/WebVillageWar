@@ -23,7 +23,7 @@ export function stopDistance(unit, modifiers) {
 }
 
 export function crowdRadius(unit) {
-  if (unit.type === 'goblinTroll') return 0.64;
+  if (unit.type === 'goblinTroll' || unit.type === 'shieldBearer') return 0.64;
   if (unit.type === 'ogre') return 0.78;
   if (unit.type === 'scorpion') return 0.45;
   if (unit.type === 'spider') return 0.42;
@@ -46,7 +46,7 @@ export function hitStunDuration(knockback) {
 }
 
 export function maxKnockbackVelocity(unit) {
-  if (unit.type === 'goblinTroll') return 6.8;
+  if (unit.type === 'goblinTroll' || unit.type === 'shieldBearer') return 6.8;
   if (unit.type === 'ogre') return 7;
   if (unit.type === 'bear') return 8;
   if (unit.type === 'scorpion') return 8.8;

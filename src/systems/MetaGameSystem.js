@@ -10,6 +10,8 @@ import { cardEnergyCost, cardThemeColor, createCardArtMarkup } from './CardSyste
 const STORAGE_KEY = 'village-war-meta-v1';
 const STARTING_COINS = 10000;
 const STARTING_COINS_VERSION = 1;
+const MAX_LEVEL_DIFFICULTY = 10;
+const WAVE_DIFFICULTY_GROWTH_PER_SELECTED_DIFFICULTY = 0.16;
 
 export class MetaGameSystem {
   constructor({ onStartLevel, onStartDebug = null, onStartAnimationPreview = null }) {
@@ -52,10 +54,14 @@ export class MetaGameSystem {
     const reward = result.victory ? this.calculateReward(result) : 0;
     if (result.victory) {
       const levelId = result.session.level.id;
-      const currentDifficulty = this.progress.levelDifficulties[levelId] ?? 1;
+      const currentDifficulty = this.availableDifficulty(levelId);
+      const nextDifficulty = Math.min(
+        MAX_LEVEL_DIFFICULTY,
+        clampDifficulty(result.session.difficulty) + 1
+      );
       this.progress.levelDifficulties[levelId] = Math.max(
         currentDifficulty,
-        result.session.difficulty + 1
+        nextDifficulty
       );
       this.progress.coins += reward;
       saveProgress(this.progress);
@@ -96,10 +102,6 @@ export class MetaGameSystem {
       this.show('shop');
       return;
     }
-    if (action === 'upgrades') {
-      this.show('upgrades');
-      return;
-    }
     if (action === 'debug-scene') {
       this.enterDebugScene();
       return;
@@ -111,14 +113,17 @@ export class MetaGameSystem {
     if (action === 'select-level') {
       this.selectedLevelId = actionTarget.dataset.levelId;
       this.selectedDifficulty = Math.min(
-        this.selectedDifficulty,
+        clampDifficulty(this.selectedDifficulty),
         this.availableDifficulty(this.selectedLevelId)
       );
       this.show('levels');
       return;
     }
     if (action === 'select-difficulty') {
-      this.selectedDifficulty = Number(actionTarget.dataset.difficulty) || 1;
+      const difficulty = clampDifficulty(actionTarget.dataset.difficulty);
+      if (difficulty <= this.availableDifficulty(this.selectedLevelId)) {
+        this.selectedDifficulty = difficulty;
+      }
       this.show('levels');
       return;
     }
@@ -129,7 +134,7 @@ export class MetaGameSystem {
     }
     if (action === 'toggle-deck-card') {
       this.toggleDeckCard(actionTarget.dataset.cardId);
-      this.show('deck');
+      this.show('deck', { preserveScroll: true });
       return;
     }
     if (action === 'start-level') {
@@ -204,15 +209,14 @@ export class MetaGameSystem {
   renderHeader() {
     const tabs = [
       ['levels', '选关'],
-      ['shop', '商店'],
-      ['upgrades', '升级']
+      ['shop', '商店']
     ];
     const currencyClass = `meta-currency${this.notice ? ' is-pulse' : ''}`;
     return `
       <header class="meta-header">
         <div>
           <div class="meta-title">村落战争</div>
-          <div class="meta-subtitle">卡牌构筑 / 关卡推进 / 局外养成</div>
+          <div class="meta-subtitle">选择关卡后，在战斗中通过三选一构筑牌组</div>
         </div>
         <div class="${currencyClass}">
           <span>金币</span>
@@ -273,7 +277,12 @@ export class MetaGameSystem {
   renderLevels() {
     const selectedLevel = this.selectedLevel();
     const availableDifficulty = this.availableDifficulty(selectedLevel.id);
-    const difficulties = Array.from({ length: availableDifficulty }, (_, index) => index + 1);
+    const selectedDifficulty = Math.min(
+      clampDifficulty(this.selectedDifficulty),
+      availableDifficulty
+    );
+    const baseDifficulty = Math.max(1, Math.floor(selectedLevel.baseDifficulty ?? 1));
+    const growthMultiplier = difficultyGrowthMultiplier(selectedLevel, selectedDifficulty);
     return `
       <main class="meta-layout">
         <section class="meta-panel">
@@ -288,31 +297,45 @@ export class MetaGameSystem {
               >
                 <strong>${level.name}</strong>
                 <span>${level.subtitle}</span>
-                <em>可选难度 ${this.availableDifficulty(level.id)}</em>
+                <em>基础 ${level.baseDifficulty ?? 1} / 已解锁 ${this.availableDifficulty(level.id)}/${MAX_LEVEL_DIFFICULTY}</em>
               </button>
             `).join('')}
           </div>
         </section>
         <section class="meta-panel">
-          <div class="meta-section-title">难度与出战牌组</div>
+          <div class="meta-section-title">关卡预览</div>
           <div class="meta-level-detail">
             <h2>${selectedLevel.name}</h2>
             <p>${selectedLevel.subtitle}</p>
-            <div class="meta-difficulty-row">
-              ${difficulties.map((difficulty) => `
-                <button
-                  class="${difficulty === this.selectedDifficulty ? 'is-selected' : ''}"
-                  type="button"
-                  data-action="select-difficulty"
-                  data-difficulty="${difficulty}"
-                >
-                  ${difficulty}
-                </button>
-              `).join('')}
+            <div class="meta-difficulty-row" aria-label="关卡难度">
+              ${Array.from({ length: MAX_LEVEL_DIFFICULTY }, (_, index) => {
+                const difficulty = index + 1;
+                const disabled = difficulty > availableDifficulty ? 'disabled' : '';
+                const selected = difficulty === selectedDifficulty ? 'is-selected' : '';
+                return `
+                  <button
+                    class="${selected}"
+                    type="button"
+                    data-action="select-difficulty"
+                    data-difficulty="${difficulty}"
+                    ${disabled}
+                  >
+                    ${difficulty}
+                  </button>
+                `;
+              }).join('')}
             </div>
             <div class="meta-reward-preview">
-              <span>基础金币</span>
-              <strong>${Math.round(selectedLevel.baseReward * (1 + (this.selectedDifficulty - 1) * 0.45))}</strong>
+              <span>开局难度</span>
+              <strong>${baseDifficulty}</strong>
+            </div>
+            <div class="meta-reward-preview">
+              <span>波次成长</span>
+              <strong>x${formatGrowthMultiplier(growthMultiplier)}</strong>
+            </div>
+            <div class="meta-reward-preview">
+              <span>胜利目标</span>
+              <strong>击败 3 个 Boss</strong>
             </div>
             <button class="meta-primary-button" type="button" data-action="deck">选择牌组</button>
           </div>
@@ -335,6 +358,7 @@ export class MetaGameSystem {
           <button class="meta-primary-button" type="button" data-action="start-level" ${selectedCount === DECK_SIZE ? '' : 'disabled'}>
             开始关卡
           </button>
+          <button class="meta-secondary-button" type="button" data-action="levels">返回选关</button>
         </section>
         <section class="meta-card-grid">
           ${this.progress.ownedCards.map((id) => {
@@ -360,8 +384,7 @@ export class MetaGameSystem {
       <main class="meta-deck">
         <section class="meta-panel">
           <div class="meta-section-title">卡牌商店</div>
-          <p>购买后会进入局外卡牌库，并可在升级界面无限升级。</p>
-          <p class="meta-control-note">目前只支持电脑端操控。</p>
+          <p>购买后会进入局外卡牌库，并可加入 30 张出战牌组。</p>
         </section>
         <section class="meta-card-grid">
           ${unowned.length ? unowned.map((card) => {
@@ -413,12 +436,11 @@ export class MetaGameSystem {
             <span>用时 <strong>${formatTime(result.elapsedTime)}</strong></span>
             <span>到达波次 <strong>${result.wave}</strong></span>
             <span>获得金币 <strong>${result.reward}</strong></span>
-            <span>可选难度 <strong>${result.nextDifficulty}</strong></span>
+            <span>已解锁难度 <strong>${result.nextDifficulty}</strong></span>
           </div>
           <div class="meta-action-row">
             <button class="meta-primary-button" type="button" data-action="levels">继续选关</button>
             <button class="meta-secondary-button" type="button" data-action="shop">商店</button>
-            <button class="meta-secondary-button" type="button" data-action="upgrades">升级</button>
           </div>
         </section>
       </main>
@@ -460,7 +482,7 @@ export class MetaGameSystem {
   }
 
   availableDifficulty(levelId) {
-    return Math.max(1, this.progress.levelDifficulties[levelId] ?? 1);
+    return clampDifficulty(this.progress.levelDifficulties[levelId] ?? 1);
   }
 
   cardWithLevel(id) {
@@ -531,9 +553,19 @@ export class MetaGameSystem {
         instanceId: `${id}-${index}-${Date.now()}-${Math.random().toString(36).slice(2)}`
       };
     });
+    if (!deck.some((card) => card.kind === 'summon')) {
+      this.setNotice('出战牌组至少需要 1 张单位卡');
+      this.show('deck', { preserveScroll: true, keepNotice: true });
+      return;
+    }
+    const difficulty = Math.min(
+      clampDifficulty(this.selectedDifficulty),
+      this.availableDifficulty(this.selectedLevelId)
+    );
+    this.selectedDifficulty = difficulty;
     const session = {
       level: this.selectedLevel(),
-      difficulty: this.selectedDifficulty,
+      difficulty,
       deck,
       startedAt: Date.now()
     };
@@ -561,7 +593,7 @@ function loadProgress() {
   });
   const levelDifficulties = {};
   LEVEL_DEFINITIONS.forEach((level) => {
-    levelDifficulties[level.id] = Math.max(1, Math.floor(raw?.levelDifficulties?.[level.id] ?? 1));
+    levelDifficulties[level.id] = clampDifficulty(raw?.levelDifficulties?.[level.id] ?? 1);
   });
   const hasStartingCoinsGrant = raw?.startingCoinsVersion === STARTING_COINS_VERSION;
   const storedCoins = Math.max(0, Math.floor(raw?.coins ?? 0));
@@ -607,6 +639,24 @@ function normalizeOwnedCards(rawOwnedCards) {
 function upgradeCost(id, level) {
   const base = CARD_META[id]?.upgradeBaseCost ?? 25;
   return Math.round(base * 2 ** Math.max(0, level - 1));
+}
+
+function clampDifficulty(value) {
+  const number = Number(value);
+  const integer = Number.isFinite(number) ? Math.floor(number) : 1;
+  return Math.max(1, Math.min(MAX_LEVEL_DIFFICULTY, integer));
+}
+
+function difficultyGrowthMultiplier(level, selectedDifficulty) {
+  const levelGrowth = Number.isFinite(level?.waveDifficultyGrowth)
+    ? Math.max(0.1, level.waveDifficultyGrowth)
+    : 1;
+  return levelGrowth * (1 + (clampDifficulty(selectedDifficulty) - 1) * WAVE_DIFFICULTY_GROWTH_PER_SELECTED_DIFFICULTY);
+}
+
+function formatGrowthMultiplier(value) {
+  const rounded = Math.round(value * 100) / 100;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/0$/, '');
 }
 
 function kindLabel(kind) {

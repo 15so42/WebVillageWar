@@ -29,7 +29,15 @@ export class SpellSystem {
           unit,
           card.damage * (0.65 + falloff * 0.35),
           null,
-          0
+          0,
+          {
+            source: null,
+            target: unit,
+            defenseDamageType: card.defenseDamageType ?? 'magic',
+            isAttack: false,
+            damageNumberHeight: unit.projectileHitHeight ?? 1.45,
+            damageNumberDuration: 0.72
+          }
         );
 
         const dir = unit.position.clone().sub(point).setY(0);

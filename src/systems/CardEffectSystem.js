@@ -11,8 +11,7 @@ export class CardEffectSystem {
       'apply-buff': (context) => this.applyBuff(context),
       'acquire-ability': (context) => this.acquireAbility(context),
       'gain-energy': (context) => this.gainEnergy(context),
-      'upgrade-hand-card': (context) => this.upgradeHandCard(context),
-      'exhaust-hand-card': (context) => this.exhaustHandCard(context)
+      'upgrade-hand-card': (context) => this.upgradeHandCard(context)
     };
   }
 
@@ -78,11 +77,10 @@ export class CardEffectSystem {
     if (!targetUnit) return false;
     const buffId = effect.buffId ?? card.enchantmentId;
     const cardLevel = Math.max(1, Math.floor(card.level ?? 1));
-    const applyLevel = card.kind === 'enchant' ? cardLevel + 1 : cardLevel;
+    const applyLevel = cardLevel;
     const buff = this.game.buffs.applyBuff(targetUnit, buffId, null, {
       sourceCard: card.id,
-      level: applyLevel,
-      levelIncrement: applyLevel
+      level: applyLevel
     });
     const definition = buff ?? BUFF_DEFINITIONS[buffId];
     this.game.effects.spawnRing(targetUnit.position, definition?.color ?? card.color, 0.85, 0.6);
@@ -106,14 +104,6 @@ export class CardEffectSystem {
     if (!targetCard || targetCard === card) return false;
     const amount = resolveCardEffectNumber(card, effect, 'amount', effect.amount ?? 1);
     return this.game.cardSystem.upgradeHandCard(targetCard, amount);
-  }
-
-  exhaustHandCard({ card, effect, targetCard }) {
-    if (!targetCard || targetCard === card) return false;
-    const amount = resolveCardEffectNumber(card, effect, 'amount', effect.amount ?? 1);
-    return this.game.cardSystem.exhaustHandCard(targetCard, amount, {
-      excludeCards: [card]
-    }) > 0;
   }
 
 }

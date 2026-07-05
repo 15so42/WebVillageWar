@@ -178,17 +178,7 @@ export class BuildingSystem {
     for (const target of targets) {
       if (building.weapon.durability <= 0) return didWork;
       const missing = Math.max(0, target.maxHealth - target.health);
-      if (missing <= 0.01) {
-        const displayAmount = spendRate * healthPerDurability;
-        if (displayAmount > 0.01) {
-          didWork = true;
-          this.game.effects.spawnHealNumber(target.position, 0, {
-            displayAmount,
-            height: target.projectileHitHeight ?? 1.55
-          });
-        }
-        continue;
-      }
+      if (missing <= 0.01) continue;
       const wantedCost = Math.min(spendRate, missing / healthPerDurability);
       const spent = Math.min(building.weapon.durability, wantedCost);
       if (spent <= 0) return didWork;

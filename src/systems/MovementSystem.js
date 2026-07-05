@@ -3,6 +3,8 @@ import { crowdRadius, isImmobileUnit } from './combatHelpers.js';
 
 const SEPARATION_QUERY_RADIUS = 1.9;
 const SEPARATION_CELL_SIZE = 2.25;
+const SEPARATION_MAX_PUSH_PER_SECOND = 0.85;
+const DIRECT_MOVE_SEPARATION_SCALE = 0.36;
 
 export class MovementSystem {
   constructor(game) {
@@ -18,7 +20,7 @@ export class MovementSystem {
   }
 
   updateSeparation(units, dt) {
-    const maxPush = 1.35 * dt;
+    const maxPush = SEPARATION_MAX_PUSH_PER_SECOND * dt;
     const stats = createSeparationStats();
     this.rebuildIndex(units);
     this.index.forEach((bucket) => {
@@ -93,7 +95,13 @@ export class MovementSystem {
     const aStatic = a.isBuilding || a.definition.canMove === false || isImmobileUnit(a);
     const bStatic = b.isBuilding || b.definition.canMove === false || isImmobileUnit(b);
     if (aStatic && bStatic) return false;
-    const push = Math.min(overlap * (aStatic || bStatic ? 1 : 0.5), maxPush);
+    const directMoveScale = a.moveGoalUsesDirectSteering || b.moveGoalUsesDirectSteering
+      ? DIRECT_MOVE_SEPARATION_SCALE
+      : 1;
+    const push = Math.min(
+      overlap * (aStatic || bStatic ? 1 : 0.5) * directMoveScale,
+      maxPush * directMoveScale
+    );
     const ax = a.position.x;
     const az = a.position.z;
     const bx = b.position.x;

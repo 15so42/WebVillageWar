@@ -1,13 +1,22 @@
 import * as THREE from 'three';
 import { createAttackRangeRing, createGuardFlag, createSelectionRing } from '../art/lowpoly.js';
-import { BALANCE, CARD_DEFINITIONS, LEVEL_DEFINITIONS, TEAMS, UNIT_DEFINITIONS } from '../data/gameData.js';
+import {
+  BALANCE,
+  CARD_DEFINITIONS,
+  LEVEL_DEFINITIONS,
+  PLAYER_ABILITY_DEFINITIONS,
+  TEAMS,
+  UNIT_DEFINITIONS,
+  WAVE_BOSS_TYPES,
+  WAVE_MONSTER_TYPES
+} from '../data/gameData.js';
 import { UnitEntity } from '../entities/UnitEntity.js';
 import { prewarmUnitModelTemplates } from '../art/visualRegistry.js';
 import { createWorld } from '../world/createWorld.js';
 import { BuffSystem } from './BuffSystem.js';
 import { BuildingSystem } from './BuildingSystem.js';
 import { CardEffectSystem } from './CardEffectSystem.js';
-import { CardSystem } from './CardSystem.js';
+import { CardSystem, cardEnergyCost, cardThemeColor, createCardArtMarkup } from './CardSystem.js';
 import { CombatSystem } from './CombatSystem.js';
 import { AttackSystem } from './AttackSystem.js';
 import { EffectsSystem } from './EffectsSystem.js';
@@ -26,7 +35,8 @@ import { PathfindingSystem } from './PathfindingSystem.js';
 import { TargetingSystem } from './TargetingSystem.js';
 import { UnitLogicSystem } from './UnitLogicSystem.js';
 import { UnitRegistry } from './UnitRegistry.js';
-import { clamp, polarOffset } from '../utils/math.js';
+import { clamp, polarOffset, seededRandom } from '../utils/math.js';
+import { formatSupportAmount, targetCombatRadius } from './combatHelpers.js';
 
 const ROUTE_REPATH_DISTANCE = 1.15;
 const ROUTE_REJOIN_DISTANCE = 2.2;
@@ -52,9 +62,150 @@ const UNIT_MAX_FALL_SPEED = 18;
 const UNIT_CLIMB_SPEED = 3.4;
 const UNIT_MAX_SMOOTH_CLIMB_HEIGHT = 0.58;
 const UNIT_GROUND_EPSILON = 0.006;
-const MAX_ACTIVE_WAVE_SPAWNS = 4;
-const INITIAL_ATTACK_WAVE_DELAY = 18;
-const EARLY_ENEMY_WAVE_DELAY = 24;
+const MAX_ACTIVE_WAVE_SPAWNS = 7;
+const WAVE_PREVIEW_COUNT = 5;
+const MAX_LEVEL_DIFFICULTY = 10;
+const BOSS_WAVES_TO_WIN = 3;
+const WAVES_PER_BOSS = 5;
+const ELITE_WAVE_INTERVAL = 3;
+const WAVE_DIFFICULTY_STEP_WAVES = 3;
+const WAVE_DIFFICULTY_GROWTH_PER_SELECTED_DIFFICULTY = 0.16;
+const STRATEGY_CHOICE_COUNT = 3;
+const FORCED_CARD_CHOICE_UNTIL_WAVE = 3;
+const OPENING_COMBAT_UNIT_CHOICES = 2;
+const WAVE_AFFIX_DEFINITIONS = {
+  swarm: {
+    id: 'swarm',
+    name: '虫群',
+    preview: '数量压迫',
+    description: '数量更多，但单体略脆',
+    buffId: 'waveSwarm',
+    countBonus: 2,
+    preferredTypes: ['goblinSoldier', 'spider', 'enemyRaider']
+  },
+  armored: {
+    id: 'armored',
+    name: '重甲',
+    preview: '护盾厚',
+    description: '生命和护盾更高',
+    buffId: 'waveArmored',
+    countBonus: 0,
+    preferredTypes: ['skeletonSoldier', 'shieldBearer', 'goblinShaman', 'goblinTroll', 'ogre', 'scorpion']
+  },
+  rush: {
+    id: 'rush',
+    name: '冲锋',
+    preview: '速度快',
+    description: '移动和攻击更快',
+    buffId: 'waveRush',
+    countBonus: 1,
+    preferredTypes: ['enemyRaider', 'goblinHunter', 'spider', 'goblinSoldier']
+  },
+  ranged: {
+    id: 'ranged',
+    name: '远射',
+    preview: '远程多',
+    description: '更容易出现远程单位',
+    buffId: 'waveRanged',
+    countBonus: 0,
+    preferredTypes: ['goblinArcher', 'goblinHunter', 'elfSniper', 'skeletonArcher', 'venomArcher', 'goblinShaman', 'wizard', 'frostAcolyte']
+  },
+  siege: {
+    id: 'siege',
+    name: '攻城',
+    preview: '高伤害',
+    description: '伤害更高，压迫基地',
+    buffId: 'waveSiege',
+    countBonus: 0,
+    preferredTypes: ['ogre', 'goblinTroll', 'shieldBearer', 'goblinShaman', 'goblinBomber', 'scorpion']
+  }
+};
+const DEFAULT_WAVE_AFFIX_FLOW = [
+  'swarm',
+  'rush',
+  'ranged',
+  'armored',
+  'siege',
+  'swarm',
+  'armored',
+  'ranged',
+  'rush',
+  'siege',
+  'ranged',
+  'swarm',
+  'armored',
+  'rush',
+  'siege'
+];
+const WAVE_MONSTER_UNLOCKS = {
+  enemyRaider: { minWave: 1 },
+  goblinSoldier: { minWave: 1 },
+  spider: { minWave: 2 },
+  goblinArcher: { minWave: 3 },
+  goblinHunter: { minWave: 4 },
+  goblinShaman: { minWave: 5 },
+  goblinBomber: { minWave: 6 },
+  venomArcher: { minWave: 4 },
+  skeletonSoldier: { minWave: 4 },
+  skeletonArcher: { minWave: 6 },
+  frostAcolyte: { minWave: 6 },
+  elfSniper: { minWave: 8 },
+  scorpion: { minWave: 6 },
+  shieldBearer: { minWave: 6 },
+  goblinTroll: { minWave: 7 },
+  wizard: { minWave: 8 },
+  ogre: { minWave: 10 }
+};
+const WAVE_BOSS_UNLOCKS = {
+  goblinTroll: { minBoss: 1 },
+  scorpion: { minBoss: 1 },
+  wizard: { minBoss: 2 },
+  ogre: { minBoss: 2 }
+};
+const BOSS_CORE_REWARDS = [
+  {
+    abilityId: 'summonUseBonus',
+    stacks: 1,
+    title: '军团扩编',
+    description: '所有现有和之后获得的单位卡使用次数 +1。',
+    cardId: 'barbarians'
+  },
+  {
+    abilityId: 'periodicEnergy',
+    stacks: 2,
+    title: '魔力泉涌',
+    description: '每 10 秒获得 2 点能量，支撑法术和高费牌。',
+    cardId: 'periodic-energy-ability'
+  },
+  {
+    abilityId: 'buildingDurability',
+    stacks: 2,
+    title: '阵地工法',
+    description: '之后新建建筑获得 40% 额外耐久。',
+    cardId: 'building-durability-ability'
+  },
+  {
+    abilityId: 'enchantEcho',
+    stacks: 2,
+    title: '双重附魔',
+    description: '使用附魔牌时有 40% 概率额外生效一次。',
+    cardId: 'enchant-echo-ability'
+  },
+  {
+    abilityId: 'randomHealOnCard',
+    stacks: 1,
+    title: '生机循环',
+    description: '每次打出牌时治疗一名随机友军。',
+    cardId: 'random-heal-ability'
+  },
+  {
+    abilityId: 'deathExplosion',
+    stacks: 2,
+    title: '殉爆阵线',
+    description: '友方单位死亡时爆炸，适合人海和消耗流。',
+    cardId: 'death-explosion-ability'
+  }
+];
 const SUMMON_DEPLOY_RADIUS = 7.5;
 const BEACON_PLACEMENT_RADIUS = 5.5;
 const SPIDER_FIRST_EGG_SECONDS = 37;
@@ -144,12 +295,17 @@ export class Game {
     this.levelFinished = false;
     this.paused = false;
     this.destroyed = false;
+    this.runtimeError = null;
+    this.currentFrameStep = null;
     this.eventController = new AbortController();
     this.renderSettings = loadRenderSettings();
     this.renderQuality = createRenderQualityProfile(this.renderSettings);
     this.frameLimitMs = 1000 / this.renderSettings.fpsLimit;
     this.lastAnimationFrameTime = null;
-    this.worldConfig = this.levelSession.level.world ?? BALANCE.world;
+    this.worldConfig = {
+      ...(this.levelSession.level.world ?? BALANCE.world),
+      altars: []
+    };
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(48, 1, 0.1, 240);
     this.camera.position.set(0, 34, 47.2);
@@ -184,8 +340,12 @@ export class Game {
     this.friendlyUnits = this.unitRegistry.friendlyUnits;
     this.enemyUnits = this.unitRegistry.enemyUnits;
     this.score = 0;
-    this.wave = 1;
-    this.waveTimer = INITIAL_ATTACK_WAVE_DELAY;
+    this.wave = 0;
+    this.waveSchedule = createWaveSchedule(this.levelSession);
+    this.waveIndex = 0;
+    this.currentWave = null;
+    this.bossesDefeated = 0;
+    this.strategyEvent = null;
     this.lastCardPlayed = null;
     this.selectedUnit = null;
     this.selectedUnits = [];
@@ -285,7 +445,8 @@ export class Game {
     this.cardEffects = new CardEffectSystem(this);
     this.recovery = new RecoverySystem(this);
     this.cardSystem = new CardSystem(this, {
-      deck: this.levelSession.deck
+      deck: this.levelSession.deck,
+      startWithEmptyDrawPile: !this.levelSession.debug
     });
     this.abilities = new AbilitySystem(this);
     this.lootDrops = new LootDropSystem(this);
@@ -297,6 +458,7 @@ export class Game {
     this.dom = {
       baseHealth: document.querySelector('#base-health'),
       waveLabel: document.querySelector('#wave-label'),
+      wavePreview: document.querySelector('#wave-preview'),
       battleTime: document.querySelector('#battle-time'),
       unitCount: document.querySelector('#unit-count'),
       selectedName: document.querySelector('#selected-name'),
@@ -318,6 +480,7 @@ export class Game {
       perfStats: document.querySelector('#perf-stats')
     };
     if (this.dom.fpsMeter) this.dom.fpsMeter.hidden = false;
+    this.strategyEventUi = createStrategyEventUi();
     this.syncSettingsControls();
 
     this.raycaster = new THREE.Raycaster();
@@ -339,6 +502,9 @@ export class Game {
     window.addEventListener('keydown', (event) => this.onKeyDown(event), { signal });
     window.addEventListener('resize', () => this.resize(), { signal });
     window.addEventListener('popstate', (event) => this.onReturnNavigation(event), { signal });
+    this.strategyEventUi.root.addEventListener('click', (event) => this.onStrategyEventClick(event), { signal });
+    this.strategyEventUi.root.addEventListener('pointerdown', stopUiEvent, { signal });
+    this.strategyEventUi.root.addEventListener('contextmenu', stopUiEvent, { signal });
     this.dom.settingsButton?.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -360,14 +526,18 @@ export class Game {
     this.armReturnNavigationTrap();
     prewarmUnitModelTemplates(unitModelPrewarmEntries());
 
-    this.summonUnits('raider', 1, this.playerBase.position.clone().add(new THREE.Vector3(-1.4, 0, -2.2)), 0.7, {
-      select: false
-    });
-    this.summonUnits('archer', 1, this.playerBase.position.clone().add(new THREE.Vector3(1.4, 0, -2.2)), 0.7, {
-      select: false
-    });
-    this.spawnWildlife();
-    this.spawnEnemyWave(1, { orders: 'guard' });
+    if (this.levelSession.debug) {
+      this.summonUnits('raider', 1, this.playerBase.position.clone().add(new THREE.Vector3(-1.4, 0, -2.2)), 0.7, {
+        select: false
+      });
+      this.summonUnits('archer', 1, this.playerBase.position.clone().add(new THREE.Vector3(1.4, 0, -2.2)), 0.7, {
+        select: false
+      });
+      this.spawnEnemyWave(1, { orders: 'guard' });
+    } else {
+      this.updateWavePreview();
+      this.openStrategyEvent('opening-unit');
+    }
 
     window.__VILLAGE_WAR_DEBUG__ = {
       game: this,
@@ -406,7 +576,8 @@ export class Game {
     this.disposeNavDebug();
     this.renderer.dispose();
     this.selectionBox?.remove();
-    document.body.classList.remove('is-game-active', 'is-game-paused');
+    this.strategyEventUi?.root?.remove();
+    document.body.classList.remove('is-game-active', 'is-game-paused', 'is-strategy-event-open');
     if (this.dom.settingsButton) this.dom.settingsButton.hidden = true;
     if (this.dom.fpsMeter) this.dom.fpsMeter.hidden = true;
     if (this.dom.pauseOverlay) this.dom.pauseOverlay.hidden = true;
@@ -438,65 +609,490 @@ export class Game {
     }
     this.elapsedTime += dt;
     this.routeSearchBudget = ROUTE_SEARCHES_PER_FRAME;
-    const updateWaveSpawn = () => {
-      this.waveTimer -= dt;
-      if (this.waveTimer <= 0 && this.playerBase.health > 0 && this.enemyCamp.alive) {
-        this.wave += 1;
-        this.spawnEnemyWave(this.wave, { orders: 'attack' });
-        this.waveTimer = nextEnemyWaveDelay(this.wave);
-      }
-    };
+    const runStep = (name, action) => this.runFrameStep(name, action);
+    const runPerfStep = (name, action) => runStep(name, () => this.measurePerf(name, action));
     if (perf) {
-      this.measurePerf('waveSpawn', updateWaveSpawn);
-      this.measurePerf('card', () => this.cardSystem.update(dt));
-      this.measurePerf('abilities', () => this.abilities.update(dt));
-      this.measurePerf('enemyCommander', () => this.enemyCommander.update(dt));
-      this.measurePerf('spiders', () => this.updateSpiderLifecycle(dt));
-      this.measurePerf('combat', () => this.unitLogic.update(dt));
-      this.measurePerf('buildings', () => this.buildings.update(dt));
-      this.measurePerf('recovery', () => this.recovery.update(dt));
-      this.measurePerf('altars', () => this.altars.update(dt));
-      this.measurePerf('mechanics', () => this.levelMechanics.update(dt));
-      this.measurePerf('areaEffects', () => this.areaEffects.update(dt));
-      this.measurePerf('loot', () => this.lootDrops.update(dt));
-      this.measurePerf('effects', () => this.effects.update(dt));
-      this.measurePerf('structure', () => this.updateStructureFeedback(dt));
-      this.measurePerf('camera', () => this.updateCamera(dt));
-      this.measurePerf('world', () => this.world.update?.(dt, this.cameraTarget));
-      this.measurePerf('selection', () => this.updateSelection());
-      this.measurePerf('guardVisuals', () => this.updateGuardVisuals(dt));
-      this.measurePerf('unitVisuals', () => this.updateUnitVisuals(dt));
-      this.measurePerf('navDebug', () => this.updateNavDebug(dt));
-      this.measurePerf('hud', () => this.updateHud(dt));
-      this.measurePerf('render', () => this.renderer.render(this.scene, this.camera));
+      runPerfStep('waveSpawn', () => this.updateWaveFlow(dt));
+      runPerfStep('card', () => this.cardSystem.update(dt));
+      runPerfStep('abilities', () => this.abilities.update(dt));
+      runPerfStep('enemyCommander', () => this.enemyCommander.update(dt));
+      runPerfStep('spiders', () => this.updateSpiderLifecycle(dt));
+      runPerfStep('combat', () => this.unitLogic.update(dt));
+      runPerfStep('buildings', () => this.buildings.update(dt));
+      runPerfStep('recovery', () => this.recovery.update(dt));
+      runPerfStep('altars', () => this.altars.update(dt));
+      runPerfStep('mechanics', () => this.levelMechanics.update(dt));
+      runPerfStep('areaEffects', () => this.areaEffects.update(dt));
+      runPerfStep('loot', () => this.lootDrops.update(dt));
+      runPerfStep('effects', () => this.effects.update(dt));
+      runPerfStep('structure', () => this.updateStructureFeedback(dt));
+      runPerfStep('camera', () => this.updateCamera(dt));
+      runPerfStep('world', () => this.world.update?.(dt, this.cameraTarget));
+      runPerfStep('selection', () => this.updateSelection());
+      runPerfStep('guardVisuals', () => this.updateGuardVisuals(dt));
+      runPerfStep('unitVisuals', () => this.updateUnitVisuals(dt));
+      runPerfStep('navDebug', () => this.updateNavDebug(dt));
+      runPerfStep('hud', () => this.updateHud(dt));
+      runPerfStep('render', () => this.renderer.render(this.scene, this.camera));
       perf.endFrame(this.createPerfCounters({ takeNavStats: true }));
       this.recordPerfSample();
       this.updatePerfPanel(dt);
     } else {
-      updateWaveSpawn();
-      this.cardSystem.update(dt);
-      this.abilities.update(dt);
-      this.enemyCommander.update(dt);
-      this.updateSpiderLifecycle(dt);
-      this.unitLogic.update(dt);
-      this.buildings.update(dt);
-      this.recovery.update(dt);
-      this.altars.update(dt);
-      this.levelMechanics.update(dt);
-      this.areaEffects.update(dt);
-      this.lootDrops.update(dt);
-      this.effects.update(dt);
-      this.updateStructureFeedback(dt);
-      this.updateCamera(dt);
-      this.world.update?.(dt, this.cameraTarget);
-      this.updateSelection();
-      this.updateGuardVisuals(dt);
-      this.updateUnitVisuals(dt);
-      this.updateNavDebug(dt);
-      this.updateHud(dt);
-      this.renderer.render(this.scene, this.camera);
+      runStep('waveSpawn', () => this.updateWaveFlow(dt));
+      runStep('card', () => this.cardSystem.update(dt));
+      runStep('abilities', () => this.abilities.update(dt));
+      runStep('enemyCommander', () => this.enemyCommander.update(dt));
+      runStep('spiders', () => this.updateSpiderLifecycle(dt));
+      runStep('combat', () => this.unitLogic.update(dt));
+      runStep('buildings', () => this.buildings.update(dt));
+      runStep('recovery', () => this.recovery.update(dt));
+      runStep('altars', () => this.altars.update(dt));
+      runStep('mechanics', () => this.levelMechanics.update(dt));
+      runStep('areaEffects', () => this.areaEffects.update(dt));
+      runStep('loot', () => this.lootDrops.update(dt));
+      runStep('effects', () => this.effects.update(dt));
+      runStep('structure', () => this.updateStructureFeedback(dt));
+      runStep('camera', () => this.updateCamera(dt));
+      runStep('world', () => this.world.update?.(dt, this.cameraTarget));
+      runStep('selection', () => this.updateSelection());
+      runStep('guardVisuals', () => this.updateGuardVisuals(dt));
+      runStep('unitVisuals', () => this.updateUnitVisuals(dt));
+      runStep('navDebug', () => this.updateNavDebug(dt));
+      runStep('hud', () => this.updateHud(dt));
+      runStep('render', () => this.renderer.render(this.scene, this.camera));
     }
     this.checkLevelEnd();
+  }
+
+  updateWaveFlow() {
+    if (this.levelSession.debug || this.levelFinished || this.strategyEvent) return;
+    if (!this.currentWave) return;
+    if (this.hasActiveWaveEnemies()) return;
+    this.completeCurrentWave();
+  }
+
+  hasActiveWaveEnemies() {
+    return this.enemyUnits.some((unit) => (
+      unit.alive && !unit.isWildlife
+    ));
+  }
+
+  startNextWave() {
+    if (this.levelFinished || this.levelSession.debug) return;
+    const wave = this.waveSchedule[this.waveIndex];
+    if (!wave) {
+      this.finishLevel(true);
+      return;
+    }
+    this.currentWave = wave;
+    this.waveIndex += 1;
+    this.wave = wave.index;
+    this.spawnEnemyWave(wave.index, {
+      orders: 'attack',
+      waveConfig: wave
+    });
+    this.updateWavePreview();
+    this.updateHud(0);
+  }
+
+  completeCurrentWave() {
+    const wave = this.currentWave;
+    if (!wave || this.levelFinished) return;
+    this.currentWave = null;
+    this.updateWavePreview();
+    if (wave.kind === 'boss') {
+      this.bossesDefeated += 1;
+      if (this.bossesDefeated >= BOSS_WAVES_TO_WIN) {
+        this.finishLevel(true);
+        return;
+      }
+      this.openStrategyEvent('boss-reward', { wave });
+      return;
+    }
+    this.openStrategyEvent(this.nextBasicStrategyEventType(wave), { wave });
+  }
+
+  nextBasicStrategyEventType(wave = null) {
+    if ((wave?.index ?? 0) <= FORCED_CARD_CHOICE_UNTIL_WAVE) return 'card-choice';
+    const roll = Math.random();
+    if (roll < 0.6) return 'card-choice';
+    if (roll < 0.85) return 'card-maintenance';
+    return 'card-copy';
+  }
+
+  updateWavePreview() {
+    const root = this.dom.wavePreview;
+    if (!root) return;
+    const startIndex = this.currentWave
+      ? Math.max(0, this.currentWave.index - 1)
+      : this.waveIndex;
+    const waves = this.waveSchedule.slice(startIndex, startIndex + WAVE_PREVIEW_COUNT);
+    root.innerHTML = waves.map((wave) => `
+      <div class="wave-preview-cell is-${wave.kind}${this.currentWave === wave ? ' is-active' : ''}">
+        <span>第 ${wave.index} 波 / 难度 ${wave.effectiveDifficulty ?? this.effectiveDifficultyForWave(wave.index)}</span>
+        <strong>${waveKindLabel(wave)} · ${waveAffixLabel(wave.affixId)}</strong>
+      </div>
+    `).join('');
+  }
+
+  openStrategyEvent(type, options = {}) {
+    if (this.levelFinished || this.levelSession.debug) return;
+    const event = this.createStrategyEvent(type, options);
+    if (!event?.choices?.length) {
+      this.startNextWave();
+      return;
+    }
+    this.strategyEvent = event;
+    this.paused = true;
+    this.cancelCameraDrag();
+    this.cancelSelectionDrag();
+    document.body.classList.add('is-game-paused', 'is-strategy-event-open');
+    this.strategyEventUi.root.hidden = false;
+    this.renderStrategyEvent();
+    this.clock.getDelta();
+  }
+
+  closeStrategyEvent() {
+    this.strategyEvent = null;
+    this.strategyEventUi.root.hidden = true;
+    this.strategyEventUi.choices.innerHTML = '';
+    document.body.classList.remove('is-game-paused', 'is-strategy-event-open');
+    this.paused = false;
+    this.clock.getDelta();
+  }
+
+  createStrategyEvent(type, options = {}) {
+    if (type === 'opening-unit') {
+      const summonPool = this.selectedCardPool({ kind: 'summon' });
+      return {
+        type,
+        kicker: '第一波准备',
+        title: '选择第一张单位卡',
+        summary: '开局抽牌堆为空，先从本局出战单位牌中选择一张，随后再补一张支援卡。',
+        choices: this.openingUnitChoices({
+          pool: summonPool,
+          action: 'add-card',
+          actionLabel: '加入牌堆'
+        })
+      };
+    }
+    if (type === 'boss-reward') {
+      return {
+        type,
+        kicker: `Boss 奖励 ${this.bossesDefeated}/${BOSS_WAVES_TO_WIN}`,
+        title: '选择一个构筑核心',
+        summary: 'Boss 奖励会改变这局的构筑方向，是强力局内被动。',
+        choices: this.createBossCoreChoices()
+      };
+    }
+    if (type === 'card-maintenance') {
+      return {
+        type,
+        kicker: waveEventKicker(options.wave),
+        title: '整理你的牌组',
+        summary: '选择一次维护操作，调整当前局内抽牌堆。',
+        choices: this.createMaintenanceChoices()
+      };
+    }
+    if (type === 'card-copy') {
+      return {
+        type,
+        kicker: waveEventKicker(options.wave),
+        title: '复制一张卡牌',
+        summary: '复制会保留等级，并以完整使用次数加入抽牌堆。',
+        choices: this.createCopyChoices()
+      };
+    }
+    const isOpening = options.opening === true;
+    const isOpeningSupport = options.openingSupport === true;
+    return {
+      type: 'card-choice',
+      kicker: isOpening || isOpeningSupport ? '第一波准备' : waveEventKicker(options.wave),
+      title: isOpeningSupport ? '选择一张支援卡' : isOpening ? '选择第一张卡' : '选择一张新卡',
+      summary: isOpeningSupport
+        ? '再从本局出战牌组中选择一张卡，降低第一波压力。'
+        : isOpening
+          ? '开局抽牌堆为空，从本局出战牌组中选择第一张牌。'
+          : '候选牌只来自本局出战牌组，会作为新实例加入抽牌堆。',
+      choices: this.weightedCardChoices({
+        pool: this.selectedCardPool(),
+        action: 'add-card',
+        actionLabel: '加入牌堆',
+        wave: this.nextUpcomingWave()
+      })
+    };
+  }
+
+  selectedCardPool(options = {}) {
+    const seen = new Set();
+    const hasSessionDeck = Array.isArray(this.levelSession.deck);
+    const sourceDeck = hasSessionDeck ? this.levelSession.deck : CARD_DEFINITIONS;
+    const source = sourceDeck
+      .filter((card) => !card.lootOnly)
+      .filter((card) => !options.kind || card.kind === options.kind)
+      .filter((card) => {
+        if (!card?.id || seen.has(card.id)) return false;
+        seen.add(card.id);
+        return true;
+      });
+    if (source.length) {
+      return source.map((card) => ({
+        ...(this.cardSystem?.applyRuntimeCardLevel?.(card) ?? card),
+        instanceId: undefined,
+        remainingUses: undefined,
+        maxUses: undefined
+      }));
+    }
+    if (hasSessionDeck) return [];
+    return CARD_DEFINITIONS
+      .filter((card) => !card.lootOnly)
+      .filter((card) => !options.kind || card.kind === options.kind)
+      .map((card) => this.cardSystem?.applyRuntimeCardLevel?.(card) ?? card);
+  }
+
+  randomCardChoices({ pool, action, actionLabel }) {
+    return pickRandomItems(pool, STRATEGY_CHOICE_COUNT).map((card) => ({
+      action,
+      actionLabel,
+      card,
+      title: card.name,
+      description: card.summary
+    }));
+  }
+
+  openingUnitChoices({ pool, action, actionLabel }) {
+    const combatPool = pool.filter((card) => isOpeningCombatSummon(card));
+    const choices = pickRandomItems(
+      combatPool,
+      Math.min(OPENING_COMBAT_UNIT_CHOICES, STRATEGY_CHOICE_COUNT)
+    );
+    const pickedIds = new Set(choices.map((card) => card.id));
+    const remainingPool = pool.filter((card) => !pickedIds.has(card.id));
+    choices.push(...pickRandomItems(remainingPool, STRATEGY_CHOICE_COUNT - choices.length));
+    return choices.map((card) => ({
+      action,
+      actionLabel,
+      card,
+      title: card.name,
+      description: card.summary
+    }));
+  }
+
+  weightedCardChoices({ pool, action, actionLabel, wave = null }) {
+    return pickWeightedCardItems(pool, STRATEGY_CHOICE_COUNT, (card) => (
+      cardChoiceWeightForWave(card, wave)
+    )).map((card) => ({
+      action,
+      actionLabel,
+      card,
+      title: card.name,
+      description: card.summary
+    }));
+  }
+
+  nextUpcomingWave() {
+    return this.waveSchedule[this.waveIndex] ?? null;
+  }
+
+  createBossCoreChoices() {
+    return pickRandomItems(BOSS_CORE_REWARDS, STRATEGY_CHOICE_COUNT).map((reward) => {
+      const definition = PLAYER_ABILITY_DEFINITIONS[reward.abilityId];
+      const card = CARD_DEFINITIONS.find((entry) => entry.id === reward.cardId) ??
+        CARD_DEFINITIONS.find((entry) => entry.effect?.abilityId === reward.abilityId) ??
+        {
+          id: `boss-core-${reward.abilityId}`,
+          name: reward.title,
+          kind: 'ability',
+          label: definition?.label ?? '核',
+          artKey: 'abilityPeriodicEnergy',
+          energyCost: 0,
+          summary: reward.description,
+          color: definition?.color ?? '#9eeedb'
+        };
+      return {
+        action: 'acquire-core',
+        actionLabel: '选择核心',
+        title: reward.title,
+        description: reward.description,
+        card: {
+          ...card,
+          name: reward.title,
+          summary: reward.description,
+          energyCost: 0,
+          level: reward.stacks
+        },
+        metaText: '构筑核心 / 局内被动',
+        abilityId: reward.abilityId,
+        stacks: reward.stacks
+      };
+    });
+  }
+
+  createMaintenanceChoices() {
+    const cards = this.cardSystem.allDeckCards();
+    if (!cards.length) {
+      return this.weightedCardChoices({
+        pool: this.selectedCardPool(),
+        action: 'add-card',
+        actionLabel: '加入牌堆',
+        wave: this.nextUpcomingWave()
+      });
+    }
+    const depleted = cards.filter((card) => {
+      const maxUses = Math.max(1, Math.floor(card.maxUses ?? 1));
+      return Math.floor(card.remainingUses ?? maxUses) < maxUses;
+    });
+    const upgradeTarget = randomItem(cards);
+    const selectedPool = this.selectedCardPool();
+    const newCardTarget = pickWeightedCardItems(selectedPool, 1, (card) => (
+      cardChoiceWeightForWave(card, this.nextUpcomingWave())
+    ))[0] ?? randomItem(selectedPool);
+    const copyTarget = randomItem(cards);
+    const candidates = [];
+    if (depleted.length) {
+      const restoreTarget = randomItem(depleted);
+      candidates.push({
+        action: 'restore-card',
+        actionLabel: '补满次数',
+        title: `补满 ${restoreTarget.name}`,
+        description: '将这张牌的剩余使用次数恢复到上限。',
+        card: restoreTarget,
+        targetCard: restoreTarget
+      });
+    }
+    candidates.push(
+      {
+        action: 'upgrade-card',
+        actionLabel: '同名强化',
+        title: `强化 ${upgradeTarget.name}`,
+        description: '本局内所有同名卡提升 1 级，之后新获得的同名卡也会带着这个临时等级。',
+        card: upgradeTarget,
+        targetCard: upgradeTarget
+      },
+      ...(newCardTarget ? [{
+        action: 'add-card-limited-uses',
+        actionLabel: '强征',
+        title: `强征 ${newCardTarget.name}`,
+        description: '加入这张牌，但这张牌的使用次数上限 -1，最低保留 1 次。',
+        card: newCardTarget,
+        targetCard: newCardTarget,
+        usePenalty: 1
+      }] : []),
+      {
+        action: 'upgrade-existing-copies',
+        actionLabel: '激进强化',
+        title: `激进强化 ${upgradeTarget.name}`,
+        description: '当前牌堆中所有同名卡临时提升 2 级，但之后新获得的同名卡不会继承这次强化。',
+        card: upgradeTarget,
+        targetCard: upgradeTarget,
+        upgradeAmount: 2
+      },
+      {
+        action: 'copy-card-limited',
+        actionLabel: '过载复制',
+        title: `过载复制 ${copyTarget.name}`,
+        description: '加入一张同等级复制牌，复制品拥有目标牌当前剩余使用次数。',
+        card: copyTarget,
+        targetCard: copyTarget
+      }
+    );
+    return pickRandomItems(candidates, STRATEGY_CHOICE_COUNT);
+  }
+
+  createCopyChoices() {
+    const selectedIds = new Set(this.selectedCardPool().map((card) => card.id));
+    const cards = this.cardSystem.allDeckCards().filter((card) => selectedIds.has(card.id));
+    if (!cards.length) {
+      return this.randomCardChoices({
+        pool: this.selectedCardPool(),
+        action: 'add-card',
+        actionLabel: '加入牌堆'
+      });
+    }
+    return pickRandomItems(cards, STRATEGY_CHOICE_COUNT).map((card) => ({
+      action: 'copy-card',
+      actionLabel: '复制',
+      title: `复制 ${card.name}`,
+      description: '加入一张同等级、满使用次数的复制牌。',
+      card,
+      targetCard: card
+    }));
+  }
+
+  renderStrategyEvent() {
+    const event = this.strategyEvent;
+    if (!event) return;
+    this.strategyEventUi.kicker.textContent = event.kicker;
+    this.strategyEventUi.title.textContent = event.title;
+    this.strategyEventUi.summary.textContent = event.summary;
+    this.strategyEventUi.choices.innerHTML = event.choices
+      .map((choice, index) => strategyChoiceMarkup(choice, index))
+      .join('');
+  }
+
+  onStrategyEventClick(event) {
+    const button = event.target.closest('[data-strategy-choice-index]');
+    if (!button || !this.strategyEvent) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const index = Number(button.dataset.strategyChoiceIndex);
+    const eventType = this.strategyEvent.type;
+    const choice = this.strategyEvent.choices[index];
+    if (!choice || button.disabled) return;
+    if (!this.applyStrategyChoice(choice)) return;
+    this.closeStrategyEvent();
+    if (eventType === 'opening-unit') {
+      this.openStrategyEvent('card-choice', { openingSupport: true });
+      return;
+    }
+    this.startNextWave();
+  }
+
+  applyStrategyChoice(choice) {
+    let applied = false;
+    if (choice.action === 'add-card') {
+      const result = this.cardSystem.addCardToDrawPile(choice.card, {
+        prefix: `event-${choice.card.id}-${Date.now()}`
+      });
+      applied = result.added;
+    } else if (choice.action === 'add-card-limited-uses') {
+      const result = this.cardSystem.addCardToDrawPile(cardWithUsePenalty(choice.card, choice.usePenalty ?? 1), {
+        prefix: `event-cost-${choice.card.id}-${Date.now()}`
+      });
+      applied = result.added;
+    } else if (choice.action === 'acquire-core') {
+      applied = this.abilities?.acquire(choice.abilityId, choice.stacks ?? 1) === true;
+    } else if (choice.action === 'restore-card') {
+      applied = this.cardSystem.restoreCardUses(choice.targetCard);
+    } else if (choice.action === 'upgrade-card') {
+      applied = this.cardSystem.upgradeCardInstance(choice.targetCard, 1);
+    } else if (choice.action === 'upgrade-existing-copies') {
+      applied = this.cardSystem.upgradeExistingCardCopies(choice.targetCard, choice.upgradeAmount ?? 2);
+    } else if (choice.action === 'copy-card') {
+      applied = this.cardSystem.copyCardInstance(choice.targetCard, {
+        prefix: `event-copy-${choice.targetCard.id}-${Date.now()}`
+      }).added;
+    } else if (choice.action === 'copy-card-limited') {
+      const copiedUses = currentCardRemainingUses(choice.targetCard);
+      applied = this.cardSystem.addCardToDrawPile({
+        ...choice.targetCard,
+        instanceId: undefined,
+        maxUses: copiedUses,
+        remainingUses: copiedUses
+      }, {
+        prefix: `event-overload-${choice.targetCard.id}-${Date.now()}`,
+        applyRuntimeLevelBonus: false
+      }).added;
+    }
+    if (!applied) return false;
+    this.applyStrategyChoiceCost(choice);
+    return true;
+  }
+
+  applyStrategyChoiceCost(choice) {
+    if (choice.baseDamagePercent > 0) {
+      this.damagePlayerBase(this.playerBase.maxHealth * choice.baseDamagePercent);
+    }
   }
 
   measurePerf(name, action) {
@@ -506,10 +1102,53 @@ export class Game {
     return result;
   }
 
+  runFrameStep(name, action) {
+    const previousStep = this.currentFrameStep;
+    this.currentFrameStep = name;
+    try {
+      return action();
+    } catch (error) {
+      this.handleRuntimeError(error, name);
+      throw error;
+    } finally {
+      this.currentFrameStep = previousStep;
+    }
+  }
+
   animationFrame(time = performance.now()) {
     if (this.destroyed) return;
     if (this.shouldSkipFrame(time)) return;
-    this.tick();
+    try {
+      this.tick();
+    } catch (error) {
+      this.handleRuntimeError(error, this.currentFrameStep ?? 'frame');
+      this.stop();
+    }
+  }
+
+  handleRuntimeError(error, step = 'frame') {
+    if (this.runtimeError) return;
+    const message = error?.message ? String(error.message) : String(error);
+    this.runtimeError = {
+      step,
+      message,
+      stack: error?.stack ?? null,
+      time: this.elapsedTime
+    };
+    window.__VILLAGE_WAR_DEBUG__ = {
+      ...(window.__VILLAGE_WAR_DEBUG__ ?? {}),
+      game: this,
+      lastRuntimeError: this.runtimeError
+    };
+    console.error(`[VillageWar] runtime error in ${step}`, error);
+    this.paused = true;
+    document.body.classList.add('is-game-paused');
+    if (this.dom.pauseReason) {
+      this.dom.pauseReason.textContent = `运行错误：${step} / ${message}`;
+    }
+    if (this.dom.pauseOverlay) {
+      this.dom.pauseOverlay.hidden = false;
+    }
   }
 
   shouldSkipFrame(time) {
@@ -794,9 +1433,9 @@ export class Game {
     unit.clampToAttributeCaps();
   }
 
-  spawnEnemyWave(wave, { orders = 'attack' } = {}) {
-    const difficulty = this.effectiveDifficulty();
-    const count = Math.min(
+  spawnEnemyWave(wave, { orders = 'attack', waveConfig = null } = {}) {
+    const difficulty = waveConfig?.effectiveDifficulty ?? this.effectiveDifficultyForWave(wave);
+    const count = waveConfig?.count ?? Math.min(
       MAX_ACTIVE_WAVE_SPAWNS,
       2 + Math.floor(wave * 0.72) + Math.floor((difficulty - 1) * 0.45)
     );
@@ -806,11 +1445,13 @@ export class Game {
       const position = this.resolveWalkablePoint(this.enemyCamp.position.clone().setY(0).add(offset));
       position.y = this.groundHeightAt(position);
       const unit = new UnitEntity({
-        type: this.enemyTypeForWave(wave, i, difficulty),
+        type: this.enemyTypeForWave(wave, i, difficulty, waveConfig),
         team: TEAMS.ENEMY,
         position
       });
       this.applyEnemyDifficulty(unit, wave, difficulty);
+      this.applyWaveModifiers(unit, waveConfig, i);
+      this.applyWaveAffixModifiers(unit, waveConfig);
       this.applySpiderSpawnTraits(unit, wave, difficulty, i);
       this.initializeSpiderLifecycle(unit);
       this.attachUnitStatus(unit);
@@ -823,7 +1464,10 @@ export class Game {
     this.enemyCommander?.registerWave(spawnedUnits, wave, orders);
   }
 
-  enemyTypeForWave(wave, index, difficulty) {
+  enemyTypeForWave(wave, index, difficulty, waveConfig = null) {
+    if (waveConfig?.types?.length) {
+      return waveConfig.types[index % waveConfig.types.length];
+    }
     const pool = this.levelSession.level.enemyPool ?? [];
     const pooledType = selectEnemyFromPool(pool, wave, index, difficulty);
     if (pooledType) return pooledType;
@@ -852,13 +1496,77 @@ export class Game {
     return (index + wave) % archerEvery === 0 ? 'goblinArcher' : 'goblinSoldier';
   }
 
+  applyWaveModifiers(unit, waveConfig, index) {
+    if (!waveConfig) return;
+    if (waveConfig.kind === 'elite') {
+      unit.isElite = true;
+      unit.name = `精英${unit.name}`;
+      unit.attributes.addModifiers([
+        { stat: 'maxHealth', type: 'multiply', amount: 1.55 },
+        { stat: 'maxShield', type: 'multiply', amount: 1.55 },
+        { stat: 'attackDamage', type: 'multiply', amount: 1.22 },
+        { stat: 'knockbackResistance', type: 'add', amount: 0.14 }
+      ], `wave:${waveConfig.index}:elite`);
+      unit.health = unit.maxHealth;
+      unit.shield = 0;
+      unit.weapon.durability = unit.weapon.maxDurability;
+      unit.visualRoot?.scale?.multiplyScalar?.(1.1);
+      return;
+    }
+    if (waveConfig.kind !== 'boss') return;
+    if (index === 0) {
+      const bossRank = Math.max(1, waveConfig.bossOrdinal ?? 1);
+      unit.isBoss = true;
+      unit.name = `Boss ${unit.name}`;
+      unit.attributes.addModifiers([
+        { stat: 'maxHealth', type: 'multiply', amount: 4.4 + bossRank * 0.65 },
+        { stat: 'maxShield', type: 'multiply', amount: 3.6 + bossRank * 0.45 },
+        { stat: 'attackDamage', type: 'multiply', amount: 1.35 + bossRank * 0.12 },
+        { stat: 'knockback', type: 'multiply', amount: 1.18 },
+        { stat: 'knockbackResistance', type: 'add', amount: 0.28 + bossRank * 0.04 }
+      ], `wave:${waveConfig.index}:boss`);
+      unit.health = unit.maxHealth;
+      unit.shield = unit.maxShield;
+      unit.weapon.durability = unit.weapon.maxDurability;
+      unit.visualRoot?.scale?.multiplyScalar?.(1.32);
+      unit.projectileHitHeight = (unit.projectileHitHeight ?? 1.6) * 1.18;
+      return;
+    }
+    unit.attributes.addModifiers([
+      { stat: 'maxHealth', type: 'multiply', amount: 1.18 },
+      { stat: 'attackDamage', type: 'multiply', amount: 1.08 },
+      { stat: 'knockbackResistance', type: 'add', amount: 0.08 }
+    ], `wave:${waveConfig.index}:boss-support`);
+    unit.health = unit.maxHealth;
+    unit.shield = 0;
+  }
+
+  applyWaveAffixModifiers(unit, waveConfig) {
+    const affixId = waveConfig?.affixId;
+    if (!affixId) return;
+    const affix = WAVE_AFFIX_DEFINITIONS[affixId];
+    if (!affix?.buffId) return;
+    const applied = this.buffs.applyBuff(unit, affix.buffId, unit, {
+      level: waveAffixLevel(waveConfig),
+      sourceWaveAffix: affixId
+    });
+    if (!applied) return;
+    unit.health = unit.maxHealth;
+    unit.shield = Math.min(unit.shield, unit.maxShield);
+    unit.weapon.durability = unit.weapon.maxDurability;
+    unit.statusUiDirty = true;
+  }
+
   levelBaseDifficulty() {
     return Math.max(1, Math.floor(this.levelSession.level.baseDifficulty ?? 1));
   }
 
   effectiveDifficulty() {
-    const challengeDifficulty = Math.max(1, Math.floor(this.levelSession.difficulty ?? 1));
-    return this.levelBaseDifficulty() + challengeDifficulty - 1;
+    return resolveSessionBaseDifficulty(this.levelSession);
+  }
+
+  effectiveDifficultyForWave(wave = this.wave) {
+    return this.effectiveDifficulty() + waveDifficultyBonus(wave, this.levelSession);
   }
 
   applyEnemyDifficulty(unit, wave, difficulty) {
@@ -978,7 +1686,7 @@ export class Game {
     const position = egg.position.clone();
     position.y = this.groundHeightAt(position);
     const wave = this.wave;
-    const difficulty = this.effectiveDifficulty();
+    const difficulty = this.currentWave?.effectiveDifficulty ?? this.effectiveDifficultyForWave(wave);
     this.removeEnemyUnitSilently(egg);
 
     const spider = new UnitEntity({
@@ -1012,6 +1720,7 @@ export class Game {
     goal.y = this.groundHeightAt(goal);
     unit.moveGoal = goal;
     unit.commandMoveGoal = null;
+    unit.moveGoalUsesDirectSteering = false;
   }
 
   spawnWildlife() {
@@ -1467,12 +2176,11 @@ export class Game {
 
   resolveCommandPoint(point) {
     if (!point) return null;
-    point.y = this.groundHeightAt(point);
-    if (this.isPointWalkable(point)) return point;
-    return this.resolveNearestNavigationPoint(point, {
-      maxRings: 14,
-      requireSafeSurface: false
-    });
+    const resolved = point.clone();
+    resolved.x = clamp(resolved.x, -BALANCE.battlefield.halfWidth, BALANCE.battlefield.halfWidth);
+    resolved.z = clamp(resolved.z, BALANCE.battlefield.minZ, BALANCE.battlefield.maxZ);
+    resolved.y = this.groundHeightAt(resolved);
+    return resolved;
   }
 
   resolveNearestNavigationPoint(point, {
@@ -1558,7 +2266,11 @@ export class Game {
 
   checkLevelEnd() {
     if (this.levelFinished) return;
-    if (!this.enemyCamp.alive) {
+    if (this.levelSession.debug && !this.enemyCamp.alive) {
+      this.finishLevel(true);
+      return;
+    }
+    if (!this.levelSession.debug && this.bossesDefeated >= BOSS_WAVES_TO_WIN) {
       this.finishLevel(true);
       return;
     }
@@ -1578,6 +2290,7 @@ export class Game {
       session: this.levelSession,
       playerBaseHealth: this.playerBase.health,
       enemyCampHealth: this.enemyCamp.health,
+      bossesDefeated: this.bossesDefeated,
       rewardMultiplier: this.abilities?.getRewardMultiplier?.() ?? 1
     });
   }
@@ -1607,6 +2320,12 @@ export class Game {
     event.stopPropagation();
     const action = actionTarget.dataset.pauseAction;
     if (action === 'continue') {
+      if (this.runtimeError) {
+        if (this.dom.pauseReason) {
+          this.dom.pauseReason.textContent = '运行错误后请重新开始或返回菜单';
+        }
+        return;
+      }
       this.setPaused(false);
       return;
     }
@@ -1665,7 +2384,7 @@ export class Game {
       unit.statusUiDirty = true;
     });
     this.selectedUnits = units.filter((unit) => {
-      if (!unit?.alive || unit.team !== TEAMS.PLAYER || unique.has(unit.id)) return false;
+      if (!unit?.alive || unique.has(unit.id)) return false;
       unique.add(unit.id);
       return true;
     });
@@ -1762,7 +2481,7 @@ export class Game {
       this.setNavDebugEnabled(!this.navDebugEnabled);
       return;
     }
-    if (!this.selectedUnits.some((unit) => unit.alive)) return;
+    if (!this.selectedUnits.some((unit) => unit.alive && unit.team === TEAMS.PLAYER)) return;
     if (key === 's') {
       event.preventDefault();
       this.stopSelectedUnits();
@@ -1802,7 +2521,7 @@ export class Game {
       return;
     }
 
-    this.selectUnit(this.pickFriendlyUnit(event.clientX, event.clientY));
+    this.selectUnit(this.pickSelectableUnit(event.clientX, event.clientY));
   }
 
   onCanvasPointerCancel(event) {
@@ -1947,10 +2666,15 @@ export class Game {
     return elapsed <= MOBILE_DOUBLE_TAP_MS && distance <= MOBILE_DOUBLE_TAP_DISTANCE;
   }
 
-  pickFriendlyUnit(clientX, clientY) {
+  pickSelectableUnit(clientX, clientY) {
+    return this.pickUnitFromList(this.friendlyUnits, clientX, clientY) ??
+      this.pickUnitFromList(this.enemyUnits, clientX, clientY);
+  }
+
+  pickUnitFromList(units, clientX, clientY) {
     this.setPointerFromClient(clientX, clientY);
     this.raycaster.setFromCamera(this.pointer, this.camera);
-    const objects = this.friendlyUnits.flatMap((unit) => unit.mesh.children);
+    const objects = units.flatMap((unit) => unit.mesh.children);
     const hit = this.raycaster
       .intersectObjects(objects, true)
       .find((entry) => entry.object.userData.entity?.alive);
@@ -1958,7 +2682,7 @@ export class Game {
 
     let best = null;
     let bestDistance = 42;
-    this.friendlyUnits.forEach((unit) => {
+    units.forEach((unit) => {
       if (!unit.alive) return;
       const screen = this.worldToScreen(unit.position);
       const distance = Math.hypot(screen.x - clientX, screen.y - clientY);
@@ -1972,7 +2696,7 @@ export class Game {
 
   handleMobileTapCommand(event) {
     if (this.lootDrops?.tryOpenPickup(event)) return;
-    const unit = this.pickFriendlyUnit(event.clientX, event.clientY);
+    const unit = this.pickSelectableUnit(event.clientX, event.clientY);
     if (unit) {
       this.selectUnit(unit);
     } else {
@@ -2006,21 +2730,27 @@ export class Game {
   commandSelectedUnits(point) {
     const units = this.selectedUnits.filter((unit) => (
       unit.alive &&
+      unit.team === TEAMS.PLAYER &&
       !unit.isBuilding &&
       unit.definition?.canMove !== false
     ));
     if (!units.length) return;
-    const commandCenter = this.resolveWalkablePoint(point);
+    const commandCenter = this.resolveCommandPoint(point);
+    if (!commandCenter) return;
     const formationRadius = Math.min(2.4, 0.55 + Math.sqrt(units.length) * 0.42);
     const forceMoveUnits = [];
     units.forEach((unit, index) => {
-      const destination = this.resolveWalkablePoint(
+      const destination = this.resolveCommandPoint(
         commandCenter.clone().add(commandFormationOffset(index, units.length, formationRadius))
       );
-      destination.y = this.groundHeightAt(destination);
+      if (!destination) return;
       const forceMove = this.isUnitEngaged(unit);
       unit.commandMoveGoal = forceMove ? destination.clone() : null;
       unit.moveGoal = destination.clone();
+      unit.moveGoalUsesDirectSteering = true;
+      unit.directMoveBlocked = false;
+      unit.directMoveBlockedTime = 0;
+      unit.attackRangeHoldTargetId = null;
       this.clearUnitRoute(unit);
       unit.target = null;
       unit.controlMode = 'normal';
@@ -2034,16 +2764,37 @@ export class Game {
 
   isUnitEngaged(unit) {
     return Boolean(unit.target?.alive !== false && unit.target) ||
-      Boolean(this.attacks.getActiveAttackFor(unit));
+      Boolean(this.attacks.getActiveAttackFor(unit)) ||
+      this.hasHostileInAggroRange(unit);
+  }
+
+  hasHostileInAggroRange(unit) {
+    if (!unit?.position) return false;
+    const hostileTeam = unit.team === TEAMS.PLAYER ? TEAMS.ENEMY : TEAMS.PLAYER;
+    const candidates = hostileTeam === TEAMS.ENEMY ? this.enemyUnits : this.friendlyUnits;
+    const aggroRange = this.modifiers.getAggroRange(unit);
+    return candidates.some((candidate) => {
+      if (!candidate.alive || candidate === unit || candidate.underConstruction) return false;
+      const distance = Math.max(
+        0,
+        Math.hypot(unit.position.x - candidate.position.x, unit.position.z - candidate.position.z) -
+          targetCombatRadius(candidate)
+      );
+      return distance <= aggroRange;
+    });
   }
 
   stopSelectedUnits() {
-    const units = this.selectedUnits.filter((unit) => unit.alive);
+    const units = this.selectedUnits.filter((unit) => unit.alive && unit.team === TEAMS.PLAYER);
     if (!units.length) return;
     units.forEach((unit) => {
       unit.controlMode = 'hold';
       unit.moveGoal = null;
       unit.commandMoveGoal = null;
+      unit.moveGoalUsesDirectSteering = false;
+      unit.directMoveBlocked = false;
+      unit.directMoveBlockedTime = 0;
+      unit.attackRangeHoldTargetId = null;
       unit.target = null;
       this.clearUnitRoute(unit);
       unit.guardPoint = null;
@@ -2054,7 +2805,7 @@ export class Game {
   }
 
   guardSelectedUnits() {
-    const units = this.selectedUnits.filter((unit) => unit.alive);
+    const units = this.selectedUnits.filter((unit) => unit.alive && unit.team === TEAMS.PLAYER);
     if (!units.length) return;
     units.forEach((unit) => {
       unit.controlMode = 'guard';
@@ -2063,6 +2814,10 @@ export class Game {
       unit.guardRadius = this.gameGuardRadiusFor(unit);
       unit.moveGoal = null;
       unit.commandMoveGoal = null;
+      unit.moveGoalUsesDirectSteering = false;
+      unit.directMoveBlocked = false;
+      unit.directMoveBlockedTime = 0;
+      unit.attackRangeHoldTargetId = null;
       unit.target = null;
       this.clearUnitRoute(unit);
     });
@@ -2336,7 +3091,9 @@ export class Game {
       (this.playerBase.health / this.playerBase.maxHealth) * 100
     );
     this.dom.baseHealth.textContent = `${baseRatio}%`;
-    this.dom.waveLabel.textContent = String(this.wave);
+    this.dom.waveLabel.textContent = this.currentWave
+      ? `${this.wave}/${this.waveSchedule.length}`
+      : (this.wave > 0 ? '整备' : '准备');
     this.dom.battleTime.textContent = formatBattleTime(this.elapsedTime);
     this.dom.unitCount.textContent = String(this.friendlyUnits.length);
     if (this.selectedUnits.length > 1) {
@@ -2354,9 +3111,17 @@ export class Game {
       const durability = Math.round(unit.weapon.durability);
       const maxDurability = Math.round(unit.weapon.maxDurability);
       const enchantments = formatEnchantmentList(unit);
-      this.dom.selectedName.textContent = `${unit.name} #${unit.id}`;
-      this.dom.selectedStats.textContent = `HP ${hp}/${unit.maxHealth} / 护盾 ${shield}/${unit.maxShield} / ${unit.weapon.name} ${durability}/${maxDurability}`;
-      this.dom.selectedEnchants.textContent = `附魔 ${enchantments || '-'}`;
+      const teamLabel = unit.team === TEAMS.PLAYER ? '友军' : '敌方';
+      const attack = formatSupportAmount(this.modifiers.getAttackDamage(unit));
+      const armor = formatSignedStat(this.modifiers.getArmor(unit));
+      const magicResistance = formatSignedStat(this.modifiers.getMagicResistance(unit));
+      const dodgeChance = Math.round(this.modifiers.getDodgeChance(unit) * 100);
+      const knockbackResistance = Math.round(this.modifiers.getKnockbackResistance(unit) * 100);
+      this.dom.selectedName.textContent = `${teamLabel} ${unit.name} #${unit.id}`;
+      this.dom.selectedStats.textContent =
+        `HP ${hp}/${Math.round(unit.maxHealth)} / 护盾 ${shield}/${Math.round(unit.maxShield)} / ${unit.weapon.name} ${durability}/${maxDurability}`;
+      this.dom.selectedEnchants.textContent =
+        `${attackDamageTypeLabel(unit.definition.attackDamageType)}攻 ${attack} / 护甲 ${armor} / 魔抗 ${magicResistance} / 闪避 ${dodgeChance}% / 抗击退 ${knockbackResistance}% / 附魔 ${enchantments || '-'}`;
     } else {
       this.dom.selectedName.textContent = '未选中';
       this.dom.selectedStats.textContent = 'HP - / 武器 -';
@@ -2654,10 +3419,374 @@ function normalizeLevelSession(session) {
   const level = session?.level ?? fallbackLevel;
   return {
     level,
-    difficulty: Math.max(1, Math.floor(session?.difficulty ?? 1)),
-    deck: session?.deck?.length ? session.deck : fallbackDeck,
+    difficulty: clampLevelDifficulty(session?.difficulty ?? 1),
+    deck: Array.isArray(session?.deck) ? session.deck : fallbackDeck,
+    debug: session?.debug === true,
     startedAt: session?.startedAt ?? Date.now()
   };
+}
+
+function createWaveSchedule(session) {
+  const level = session.level ?? {};
+  const baseDifficulty = resolveSessionBaseDifficulty(session);
+  const selectedDifficulty = clampLevelDifficulty(session?.difficulty ?? 1);
+  const difficultyGrowth = resolveSessionDifficultyGrowth(session);
+  const seed = hashStringToSeed(
+    `${level.id ?? 'level'}:${session.startedAt ?? Date.now()}:${baseDifficulty}:${selectedDifficulty}:${difficultyGrowth.toFixed(3)}`
+  );
+  const random = seededRandom(seed);
+  const affixFlow = normalizeWaveAffixFlow(level.waveAffixFlow);
+  const monsterPool = normalizeTypePool(level.waveMonsterTypes ?? WAVE_MONSTER_TYPES, WAVE_MONSTER_TYPES);
+  const bossPool = normalizeTypePool(level.waveBossTypes ?? WAVE_BOSS_TYPES, WAVE_BOSS_TYPES);
+  const totalWaves = BOSS_WAVES_TO_WIN * WAVES_PER_BOSS;
+  const schedule = [];
+
+  for (let index = 1; index <= totalWaves; index += 1) {
+    const isBoss = index % WAVES_PER_BOSS === 0;
+    const kind = isBoss ? 'boss' : index % ELITE_WAVE_INTERVAL === 0 ? 'elite' : 'normal';
+    const bossOrdinal = isBoss ? Math.floor(index / WAVES_PER_BOSS) : 0;
+    const difficultyBonus = waveDifficultyBonus(index, difficultyGrowth);
+    const effectiveDifficulty = baseDifficulty + difficultyBonus;
+    const affixId = chooseWaveAffix(index, kind, affixFlow);
+    const affix = WAVE_AFFIX_DEFINITIONS[affixId];
+    const waveMonsterPool = filterWaveMonsterPool(monsterPool, index, effectiveDifficulty);
+    const waveBossPool = filterWaveBossPool(bossPool, bossOrdinal, effectiveDifficulty);
+    const countBonus = waveAffixCountBonus(affix, index, kind);
+    const count = Math.min(
+      MAX_ACTIVE_WAVE_SPAWNS,
+      waveEnemyCount(kind, index, effectiveDifficulty, bossOrdinal) + countBonus
+    );
+    const types = waveEnemyTypes({
+      kind,
+      count,
+      random,
+      monsterPool: waveMonsterPool,
+      bossPool: waveBossPool,
+      affixId
+    });
+    schedule.push({
+      index,
+      kind,
+      affixId,
+      bossOrdinal,
+      count,
+      types,
+      effectiveDifficulty,
+      difficultyBonus
+    });
+  }
+
+  return schedule;
+}
+
+function waveAffixCountBonus(affix, index, kind) {
+  const bonus = Math.max(0, Math.floor(affix?.countBonus ?? 0));
+  if (bonus <= 0) return 0;
+  if (kind === 'boss') return bonus;
+  if (index <= 1) return 0;
+  if (index <= 4) return Math.min(1, bonus);
+  return bonus;
+}
+
+function waveEnemyCount(kind, index, difficulty, bossOrdinal) {
+  if (kind === 'boss') {
+    return Math.min(MAX_ACTIVE_WAVE_SPAWNS, 2 + bossOrdinal + Math.floor((difficulty - 1) * 0.32));
+  }
+  if (kind === 'elite') {
+    return Math.min(MAX_ACTIVE_WAVE_SPAWNS, 2 + Math.floor(index * 0.38) + Math.floor((difficulty - 1) * 0.25));
+  }
+  return Math.min(MAX_ACTIVE_WAVE_SPAWNS, 2 + Math.floor(index * 0.42) + Math.floor((difficulty - 1) * 0.22));
+}
+
+function waveEnemyTypes({ kind, count, random, monsterPool, bossPool, affixId = null }) {
+  if (kind === 'boss') {
+    return [
+      pickFromPool(bossPool, random),
+      ...Array.from({ length: Math.max(0, count - 1) }, () => pickWaveMonster(monsterPool, random, affixId))
+    ];
+  }
+  const typeCount = kind === 'elite' ? Math.min(3, count) : Math.min(2, count);
+  return Array.from({ length: typeCount }, () => pickWaveMonster(monsterPool, random, affixId));
+}
+
+function filterWaveMonsterPool(pool, wave, difficulty) {
+  const valid = pool.filter((type) => UNIT_DEFINITIONS[type]);
+  const unlocked = valid.filter((type) => isWaveMonsterUnlocked(type, wave, difficulty));
+  if (unlocked.length) return unlocked;
+  return valid.filter((type) => isEarlyMonster(type));
+}
+
+function filterWaveBossPool(pool, bossOrdinal, difficulty) {
+  const valid = pool.filter((type) => UNIT_DEFINITIONS[type]);
+  const unlocked = valid.filter((type) => isWaveBossUnlocked(type, bossOrdinal, difficulty));
+  if (unlocked.length) return unlocked;
+  return valid.length ? valid : WAVE_BOSS_TYPES.filter((type) => UNIT_DEFINITIONS[type]);
+}
+
+function resolveSessionBaseDifficulty(session) {
+  const level = session?.level ?? {};
+  return Math.max(1, Math.floor(level.baseDifficulty ?? 1));
+}
+
+function resolveSessionDifficultyGrowth(session) {
+  const level = session?.level ?? {};
+  const selectedDifficulty = clampLevelDifficulty(session?.difficulty ?? 1);
+  const levelGrowth = Number.isFinite(level.waveDifficultyGrowth)
+    ? Math.max(0.1, level.waveDifficultyGrowth)
+    : 1;
+  return levelGrowth * (1 + (selectedDifficulty - 1) * WAVE_DIFFICULTY_GROWTH_PER_SELECTED_DIFFICULTY);
+}
+
+function waveDifficultyBonus(wave, sessionOrGrowth = 1) {
+  const growth = Number.isFinite(sessionOrGrowth)
+    ? sessionOrGrowth
+    : resolveSessionDifficultyGrowth(sessionOrGrowth);
+  return Math.floor((Math.max(0, wave - 1) / WAVE_DIFFICULTY_STEP_WAVES) * growth);
+}
+
+function clampLevelDifficulty(value) {
+  const number = Number(value);
+  const integer = Number.isFinite(number) ? Math.floor(number) : 1;
+  return Math.max(1, Math.min(MAX_LEVEL_DIFFICULTY, integer));
+}
+
+function normalizeTypePool(types, fallback) {
+  const valid = (types ?? []).filter((type) => UNIT_DEFINITIONS[type]);
+  if (valid.length) return valid;
+  return fallback.filter((type) => UNIT_DEFINITIONS[type]);
+}
+
+function isWaveMonsterUnlocked(type, wave, difficulty) {
+  const unlock = WAVE_MONSTER_UNLOCKS[type] ?? {};
+  return wave >= (unlock.minWave ?? 1) && difficulty >= (unlock.minDifficulty ?? 1);
+}
+
+function isWaveBossUnlocked(type, bossOrdinal, difficulty) {
+  const unlock = WAVE_BOSS_UNLOCKS[type] ?? {};
+  return bossOrdinal >= (unlock.minBoss ?? 1) && difficulty >= (unlock.minDifficulty ?? 1);
+}
+
+function isEarlyMonster(type) {
+  return (WAVE_MONSTER_UNLOCKS[type]?.minWave ?? 1) <= 1;
+}
+
+function pickFromPool(pool, random) {
+  return pool[Math.floor(random() * pool.length)] ?? 'goblinSoldier';
+}
+
+function pickWaveMonster(pool, random, affixId) {
+  const preferred = new Set(WAVE_AFFIX_DEFINITIONS[affixId]?.preferredTypes ?? []);
+  if (!preferred.size) return pickFromPool(pool, random);
+  const weighted = pool.flatMap((type) => (
+    preferred.has(type) ? [type, type, type, type] : [type]
+  ));
+  return pickFromPool(weighted, random);
+}
+
+function normalizeWaveAffixFlow(flow) {
+  const valid = (flow ?? DEFAULT_WAVE_AFFIX_FLOW).filter((affixId) => WAVE_AFFIX_DEFINITIONS[affixId]);
+  return valid.length ? valid : DEFAULT_WAVE_AFFIX_FLOW;
+}
+
+function chooseWaveAffix(index, kind, flow = DEFAULT_WAVE_AFFIX_FLOW) {
+  const affixId = flow[(index - 1) % flow.length];
+  if (WAVE_AFFIX_DEFINITIONS[affixId]) return affixId;
+  return kind === 'boss' ? 'siege' : 'swarm';
+}
+
+function waveAffixLevel(waveConfig) {
+  const waveIndex = Math.max(1, Math.floor(waveConfig?.index ?? 1));
+  return 1 + Math.floor((waveIndex - 1) / WAVES_PER_BOSS);
+}
+
+function waveKindLabel(wave) {
+  if (wave.kind === 'boss') return `Boss ${wave.bossOrdinal}/${BOSS_WAVES_TO_WIN}`;
+  if (wave.kind === 'elite') return '精英';
+  return '普通';
+}
+
+function waveAffixLabel(affixId) {
+  const affix = WAVE_AFFIX_DEFINITIONS[affixId];
+  if (!affix) return '无词缀';
+  return `${affix.name}`;
+}
+
+function waveEventKicker(wave) {
+  if (!wave) return '波次事件';
+  return `第 ${wave.index} 波结束 / ${waveKindLabel(wave)} · ${waveAffixLabel(wave.affixId)}`;
+}
+
+function pickRandomItems(items, count) {
+  const pool = [...items];
+  for (let index = pool.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [pool[index], pool[swapIndex]] = [pool[swapIndex], pool[index]];
+  }
+  return pool.slice(0, Math.min(count, pool.length));
+}
+
+function pickWeightedCardItems(items, count, readWeight) {
+  const pool = [...items];
+  const result = [];
+  while (pool.length && result.length < count) {
+    const weights = pool.map((item) => Math.max(0.01, readWeight(item)));
+    const total = weights.reduce((sum, weight) => sum + weight, 0);
+    let roll = Math.random() * total;
+    let pickedIndex = 0;
+    for (let index = 0; index < weights.length; index += 1) {
+      roll -= weights[index];
+      if (roll <= 0) {
+        pickedIndex = index;
+        break;
+      }
+    }
+    result.push(pool.splice(pickedIndex, 1)[0]);
+  }
+  return result;
+}
+
+function cardChoiceWeightForWave(card, wave) {
+  if (!wave?.affixId || !card) return 1;
+  const id = card.id ?? '';
+  const kind = card.kind ?? '';
+  const unitType = card.unitType ?? '';
+  let weight = 1;
+  if (wave.kind === 'boss') weight += 0.5;
+  if (wave.affixId === 'swarm') {
+    if (kind === 'spell' || id.includes('meteor') || id.includes('fog')) weight += 3;
+    if (id.includes('arrow-tower')) weight += 0.8;
+    if (unitType === 'waterMage' || unitType === 'crossbowman') weight += 1.2;
+  } else if (wave.affixId === 'armored') {
+    if (kind === 'enchant' && /(poison|bleed|curse|power|spirit)/.test(id)) weight += 3;
+    if (unitType === 'crossbowman' || unitType === 'waterMage') weight += 2;
+    if (kind === 'tactic' || kind === 'ability') weight += 0.8;
+  } else if (wave.affixId === 'rush') {
+    if (/(knights|swordsmen|berserkers|warders|toughness|protection|block|white-smoke)/.test(id)) weight += 3;
+    if (kind === 'building') weight += 0.4;
+    if (kind === 'summon' && ['knight', 'swordsman', 'berserker', 'engineer'].includes(unitType)) weight += 1.4;
+  } else if (wave.affixId === 'ranged') {
+    if (/(rogues|berserkers|white-smoke|meteor|focus-energy)/.test(id)) weight += 3;
+    if (kind === 'summon' && ['rogue', 'berserker', 'knight'].includes(unitType)) weight += 1.6;
+    if (kind === 'enchant' && /(spirit-shield|protection|recovery)/.test(id)) weight += 1.2;
+  } else if (wave.affixId === 'siege') {
+    if (/(knights|swordsmen|berserkers|engineers|physicians|spirit-shield|recovery|protection)/.test(id)) {
+      weight += 3;
+    }
+    if (/(repair-station|beacon)/.test(id)) weight += 0.8;
+    if (kind === 'spell' && /(meteor|poison-fog)/.test(id)) weight += 1.5;
+  }
+  return weight;
+}
+
+function isOpeningCombatSummon(card) {
+  if (card?.kind !== 'summon' || !card.unitType) return false;
+  const unit = UNIT_DEFINITIONS[card.unitType];
+  if (!unit || unit.isBuilding || unit.support) return false;
+  return (unit.damage ?? 0) >= 3 && (unit.attackRange ?? 0) > 0;
+}
+
+function randomItem(items) {
+  return items[Math.floor(Math.random() * items.length)] ?? items[0];
+}
+
+function strategyChoiceMarkup(choice, index) {
+  const card = choice.card;
+  const color = cardThemeColor(card);
+  const metaText = choice.metaText ?? `${strategyKindLabel(card.kind)} / ${cardUsesText(card)}`;
+  return `
+    <button class="strategy-choice" type="button" data-strategy-choice-index="${index}" style="--card-color:${color}">
+      <span class="strategy-choice-action">${escapeHtml(choice.actionLabel)}</span>
+      <span class="strategy-choice-cost">${cardEnergyCost(card)}</span>
+      <div class="strategy-choice-art">${createCardArtMarkup(card)}</div>
+      <span class="strategy-choice-body">
+        <strong>${escapeHtml(choice.title)}</strong>
+        <em>${escapeHtml(metaText)}</em>
+        <span>${escapeHtml(choice.description)}</span>
+      </span>
+    </button>
+  `;
+}
+
+function strategyKindLabel(kind) {
+  if (kind === 'summon') return '单位卡';
+  if (kind === 'building') return '建筑卡';
+  if (kind === 'spell') return '法术卡';
+  if (kind === 'tactic') return '战术卡';
+  if (kind === 'ability') return '能力卡';
+  return '附魔卡';
+}
+
+function cardUsesText(card) {
+  const maxUses = Math.max(1, Math.floor(card.maxUses ?? defaultStrategyCardUses(card)));
+  const remainingUses = Math.max(0, Math.min(maxUses, Math.floor(card.remainingUses ?? maxUses)));
+  return `次数 ${remainingUses}/${maxUses}`;
+}
+
+function defaultStrategyCardUses(card) {
+  if (card?.exhaust) return 1;
+  if (card?.kind === 'summon') return 4;
+  if (card?.kind === 'ability') return 1;
+  return 2;
+}
+
+function cardWithUsePenalty(card, penalty = 1) {
+  const baseUses = Math.max(1, Math.floor(card?.maxUses ?? defaultStrategyCardUses(card)));
+  const maxUses = Math.max(1, baseUses - Math.max(1, Math.floor(penalty)));
+  return {
+    ...card,
+    maxUses,
+    remainingUses: maxUses
+  };
+}
+
+function currentCardRemainingUses(card) {
+  const maxUses = Math.max(1, Math.floor(card?.maxUses ?? defaultStrategyCardUses(card)));
+  return Math.max(1, Math.min(maxUses, Math.floor(card?.remainingUses ?? maxUses)));
+}
+
+function createStrategyEventUi() {
+  let root = document.querySelector('#strategy-event-overlay');
+  if (!root) {
+    root = document.createElement('section');
+    root.id = 'strategy-event-overlay';
+    root.className = 'strategy-event-overlay';
+    root.hidden = true;
+    root.setAttribute('role', 'dialog');
+    root.setAttribute('aria-modal', 'true');
+    root.innerHTML = `
+      <div class="strategy-event-panel">
+        <div class="strategy-event-kicker"></div>
+        <h2></h2>
+        <p></p>
+        <div class="strategy-event-choices"></div>
+      </div>
+    `;
+    document.querySelector('#app')?.appendChild(root);
+  }
+  return {
+    root,
+    kicker: root.querySelector('.strategy-event-kicker'),
+    title: root.querySelector('h2'),
+    summary: root.querySelector('p'),
+    choices: root.querySelector('.strategy-event-choices')
+  };
+}
+
+function hashStringToSeed(value) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 function createSelectionBoxElement() {
@@ -2671,7 +3800,7 @@ function createSelectionBoxElement() {
 function isGameUiTarget(target) {
   return Boolean(target?.closest?.(
     '.hud, .card, .energy-panel, .card-pile-dock, .pile-viewer, .loot-confirm, .drag-ghost, .game-settings-button, .game-command-dock, .mobile-action-dock, .pause-overlay'
-      + ', .debug-scene-panel'
+      + ', .strategy-event-overlay, .debug-scene-panel'
   ));
 }
 
@@ -2738,10 +3867,6 @@ function routeRepathCooldown(unit, baseDelay) {
   const id = Number.isFinite(unit?.id) ? unit.id : 0;
   const jitter = ((id * 37) % 100) / 100 * ROUTE_REPATH_JITTER;
   return Math.max(0, baseDelay) + jitter;
-}
-
-function nextEnemyWaveDelay() {
-  return EARLY_ENEMY_WAVE_DELAY;
 }
 
 function steeringFromRoute(position, targetPosition, route, {
@@ -3450,6 +4575,16 @@ function formatCounts(counts) {
   return [...counts.entries()].map(([name, count]) => `${name} x${count}`).join('、');
 }
 
+function formatSignedStat(value) {
+  const rounded = Math.round((Number.isFinite(value) ? value : 0) * 10) / 10;
+  const text = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+  return rounded > 0 ? `+${text}` : text;
+}
+
+function attackDamageTypeLabel(type) {
+  return type === 'magic' ? '魔法' : '物理';
+}
+
 function formatBattleTime(seconds = 0) {
   const total = Math.max(0, Math.floor(seconds));
   const minutes = Math.floor(total / 60);
@@ -3497,10 +4632,11 @@ function createStructureStatusElement(team) {
 }
 
 function unitStatusHeight(unit) {
-  if (unit.type === 'goblinTroll') return 2.35;
+  if (Number.isFinite(unit.definition?.statusHeight)) return unit.definition.statusHeight;
+  if (unit.type === 'goblinTroll' || unit.type === 'shieldBearer') return 2.35;
   if (unit.type === 'ogre') return 2.65;
-  if (unit.type === 'wizard') return 1.85;
-  if (unit.type === 'skeletonArcher') return 2.02;
+  if (unit.type === 'wizard' || unit.type === 'frostAcolyte') return 1.85;
+  if (unit.type === 'skeletonArcher' || unit.type === 'venomArcher') return 2.02;
   if (unit.type === 'skeletonSoldier') return 2.05;
   if (unit.type === 'scorpion') return 1.28;
   if (unit.type === 'spider') return 1.18;

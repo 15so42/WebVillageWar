@@ -73,6 +73,7 @@ export class AttackSystem {
         projectileColor: ability.projectileColor,
         projectileSpeed: ability.projectileSpeed ?? unit.definition.projectileSpeed ?? 13,
         damage: this.game.modifiers.getAttackDamage(unit) * (ability.damageMultiplier ?? 1),
+        attackDamageType: ability.attackDamageType ?? unit.definition.attackDamageType,
         knockback: ability.knockback ?? this.game.modifiers.getKnockback(unit),
         damageTypes: ability.damageTypes
       }
@@ -223,6 +224,7 @@ export class AttackSystem {
       type: projectileType,
       speed: override.projectileSpeed ?? this.game.modifiers.getProjectileSpeed(source),
       damage: override.damage ?? this.game.modifiers.getAttackDamage(source),
+      attackDamageType: override.attackDamageType ?? source.definition.attackDamageType,
       knockback: override.knockback ?? this.game.modifiers.getKnockback(source),
       damageTypes: override.damageTypes,
       absorb: override.projectileAbsorb ?? source.definition.projectileAbsorb,
@@ -277,6 +279,7 @@ export class AttackSystem {
         const hitStartedAt = profile ? performance.now() : 0;
         this.game.combat.applyAttack(projectile.source, projectile.target, {
           damage: projectile.damage,
+          attackDamageType: projectile.attackDamageType,
           knockback: projectile.knockback,
           damageTypes: projectile.damageTypes,
           isProjectile: true
@@ -333,6 +336,7 @@ export class AttackSystem {
       const hitStartedAt = profile ? performance.now() : 0;
       this.game.combat.applyAttack(projectile.source, target, {
         damage: projectile.damage,
+        attackDamageType: projectile.attackDamageType,
         knockback: projectile.knockback,
         damageTypes: projectile.damageTypes,
         isProjectile: true

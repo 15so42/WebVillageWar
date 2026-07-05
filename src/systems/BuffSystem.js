@@ -4,6 +4,7 @@ export class BuffSystem {
   constructor(game) {
     this.game = game;
     this.expiredBuffIds = [];
+    this.disabledEffectKeys = new Set();
   }
 
   update(dt, units = this.getActiveUnits()) {
@@ -60,41 +61,66 @@ export class BuffSystem {
 
       if (buff.id === 'burning') {
         buff.vfxTimer = (buff.vfxTimer ?? 0) - dt;
-        while (buff.vfxTimer <= 0 && unit.alive) {
+        let vfxCount = 0;
+        while (buff.vfxTimer <= 0 && unit.alive && vfxCount < 8) {
           this.game.effects.spawnBurningParticles(unit, 2);
           buff.vfxTimer += 0.07;
+          vfxCount += 1;
+        }
+        if (buff.vfxTimer <= 0) {
+          buff.vfxTimer = 0.07;
         }
       }
 
       if (buff.id === 'poisoned') {
         buff.vfxTimer = (buff.vfxTimer ?? 0) - dt;
-        while (buff.vfxTimer <= 0 && unit.alive) {
+        let vfxCount = 0;
+        while (buff.vfxTimer <= 0 && unit.alive && vfxCount < 8) {
           this.game.effects.spawnPoisonParticles(unit, 1);
           buff.vfxTimer += 0.18;
+          vfxCount += 1;
+        }
+        if (buff.vfxTimer <= 0) {
+          buff.vfxTimer = 0.18;
         }
       }
 
       if (buff.id === 'drained') {
         buff.vfxTimer = (buff.vfxTimer ?? 0) - dt;
-        while (buff.vfxTimer <= 0 && unit.alive) {
+        let vfxCount = 0;
+        while (buff.vfxTimer <= 0 && unit.alive && vfxCount < 8) {
           this.game.effects.spawnDrainParticles(unit, 1);
           buff.vfxTimer += 0.16;
+          vfxCount += 1;
+        }
+        if (buff.vfxTimer <= 0) {
+          buff.vfxTimer = 0.16;
         }
       }
 
       if (buff.id === 'bleeding') {
         buff.vfxTimer = (buff.vfxTimer ?? 0) - dt;
-        while (buff.vfxTimer <= 0 && unit.alive) {
+        let vfxCount = 0;
+        while (buff.vfxTimer <= 0 && unit.alive && vfxCount < 8) {
           this.game.effects.spawnBleedParticles(unit, 1);
           buff.vfxTimer += 0.26;
+          vfxCount += 1;
+        }
+        if (buff.vfxTimer <= 0) {
+          buff.vfxTimer = 0.26;
         }
       }
 
       if (buff.id === 'cursed') {
         buff.vfxTimer = (buff.vfxTimer ?? 0) - dt;
-        while (buff.vfxTimer <= 0 && unit.alive) {
+        let vfxCount = 0;
+        while (buff.vfxTimer <= 0 && unit.alive && vfxCount < 8) {
           this.game.effects.spawnCurseParticles(unit, 1);
           buff.vfxTimer += 0.22;
+          vfxCount += 1;
+        }
+        if (buff.vfxTimer <= 0) {
+          buff.vfxTimer = 0.22;
         }
       }
 
@@ -135,16 +161,53 @@ export class BuffSystem {
 
   runEffectList(buff, eventName, context) {
     const effects = buff.effects ?? [];
-    effects.forEach((effect) => {
+    effects.forEach((effect, index) => {
       if (effect.event !== eventName) return;
+      const effectKey = `${buff.id}:${eventName}:${index}:${effect.op ?? 'effect'}`;
+      if (this.disabledEffectKeys.has(effectKey)) return;
       const previousBuff = context.buff;
       context.buff = buff;
       try {
         this.applyEffect(effect, context);
+      } catch (error) {
+        this.handleEffectError(error, {
+          buff,
+          effect,
+          eventName,
+          index,
+          effectKey,
+          context
+        });
       } finally {
         context.buff = previousBuff;
       }
     });
+  }
+
+  handleEffectError(error, { buff, effect, eventName, index, effectKey, context }) {
+    this.disabledEffectKeys.add(effectKey);
+    const record = {
+      system: 'buff',
+      buffId: buff?.id ?? null,
+      buffName: buff?.name ?? null,
+      eventName,
+      effectIndex: index,
+      op: effect?.op ?? null,
+      sourceId: context?.source?.id ?? null,
+      sourceType: context?.source?.type ?? null,
+      targetId: context?.target?.id ?? null,
+      targetType: context?.target?.type ?? null,
+      message: error?.message ? String(error.message) : String(error),
+      stack: error?.stack ?? null
+    };
+    if (typeof window !== 'undefined') {
+      window.__VILLAGE_WAR_DEBUG__ = {
+        ...(window.__VILLAGE_WAR_DEBUG__ ?? {}),
+        game: this.game,
+        lastBuffEffectError: record
+      };
+    }
+    console.error(`[VillageWar] disabled buff effect ${effectKey}`, error, record);
   }
 
   applyEffect(effect, context) {
@@ -249,7 +312,13 @@ export class BuffSystem {
     if (effect.op === 'applyBuff') {
       const applied = this.applyBuff(context.target, effect.buffId, context.source, {
         duration: resolveEffectNumber(effect, 'duration', context, effect.duration),
-        damagePerSecond: resolveEffectNumber(effect, 'damagePerSecond', context, 0),
+        damagePerSecond: resolveEffectNumber(effect, 'damagePerSecond', context, null),
+        maxHealthDamagePercentPerSecond: resolveEffectNumber(
+          effect,
+          'maxHealthDamagePercentPerSecond',
+          context,
+          null
+        ),
         healPerSecond: resolveEffectNumber(effect, 'healPerSecond', context, null),
         damageType: effect.damageType,
         level: sourceBuffLevel(context)
@@ -288,6 +357,7 @@ export class BuffSystem {
           damage,
           source: context.source,
           target: unit,
+          defenseDamageType: effect.defenseDamageType ?? 'physical',
           damageTypes: new Set(effect.damageTypes ?? []),
           isAttack: false,
           isExplosionDamage: true,
@@ -416,8 +486,13 @@ export class BuffSystem {
     if (effect.op === 'damageOverTime') {
       if (!context.target?.alive) return;
       const damagePerSecond = context.buff.damagePerSecond ?? effect.damagePerSecond ?? 0;
+      const maxHealthPercentPerSecond = Number.isFinite(context.buff.maxHealthDamagePercentPerSecond)
+        ? context.buff.maxHealthDamagePercentPerSecond
+        : resolveEffectNumber(effect, 'maxHealthDamagePercentPerSecond', context, 0);
       const tickInterval = context.buff.tickInterval ?? effect.tickInterval ?? 0.45;
-      const damage = damagePerSecond * tickInterval;
+      const maxHealthDamagePerSecond =
+        Math.max(0, context.target.maxHealth ?? 0) * Math.max(0, maxHealthPercentPerSecond);
+      const damage = (damagePerSecond + maxHealthDamagePerSecond) * tickInterval;
       const damageTypes = new Set();
       if (context.buff.damageType === 'true' || effect.damageType === 'true') {
         damageTypes.add('true');

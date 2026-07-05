@@ -23,6 +23,14 @@ const CARD_KIND_COLORS = {
   tactic: '#6f718a',
   ability: '#5f8f9f'
 };
+const DEFAULT_CARD_USES = {
+  summon: 4,
+  building: 2,
+  tactic: 2,
+  spell: 2,
+  enchant: 2,
+  ability: 1
+};
 const CARD_RANGE_DISC_RENDER_ORDER = 62;
 const CARD_RANGE_RING_RENDER_ORDER = 63;
 
@@ -34,10 +42,11 @@ export class CardSystem {
     this.energyTimer = 0;
     this.lastRenderedEnergy = -1;
     this.lastRenderedProgress = -1;
-    this.drawPile = shuffleCards([...this.cards]);
+    this.drawPile = options.startWithEmptyDrawPile ? [] : shuffleCards([...this.cards]);
     this.discardPile = [];
     this.handCards = [];
     this.temporaryCards = [];
+    this.runtimeCardLevelBonuses = new Map();
     this.pendingDrawAnimations = new Set();
     this.drag = null;
     this.raycaster = new THREE.Raycaster();
@@ -64,7 +73,9 @@ export class CardSystem {
     this.activePileViewer = null;
     this.pileUi = createPileUi();
     this.bindPileUi();
-    this.drawToFullHand();
+    if (!options.startWithEmptyDrawPile) {
+      this.drawToFullHand();
+    }
     this.updateEnergyUi(true);
     this.renderHand();
     this.renderTemporaryCards();
@@ -136,6 +147,7 @@ export class CardSystem {
     element.innerHTML = `
       <div class="card-cost">${cardEnergyCost(card)}</div>
       <div class="card-level">Lv.${card.level ?? 1}</div>
+      ${createCardUseBarMarkup(card, 'card')}
       ${shouldExhaustAfterPlay(card) ? '<div class="card-keyword">消耗</div>' : ''}
       <div class="card-face">
         <div class="card-header">
@@ -700,6 +712,7 @@ export class CardSystem {
     if (!this.resolveCard(drag)) return false;
     this.spendEnergy(cost);
     this.game.abilities?.onCardPlayed(drag.card, drag);
+    this.consumeCardUse(drag.card);
     this.moveCardToDiscard(drag.card);
     return true;
   }
@@ -916,8 +929,10 @@ export class CardSystem {
     const temporaryIndex = this.temporaryCards.indexOf(card);
     if (temporaryIndex !== -1) {
       this.temporaryCards.splice(temporaryIndex, 1);
-      if (shouldExhaustAfterPlay(card)) {
+      if (this.isCardSpent(card)) {
         this.game.abilities?.onCardExhausted(card);
+      } else {
+        this.discardPile.push(card);
       }
       this.renderTemporaryCards();
       this.updatePileUi();
@@ -926,7 +941,7 @@ export class CardSystem {
     const index = this.handCards.indexOf(card);
     if (index === -1) return false;
     this.handCards.splice(index, 1);
-    if (shouldExhaustAfterPlay(card)) {
+    if (this.isCardSpent(card)) {
       this.game.abilities?.onCardExhausted(card);
     } else {
       this.discardPile.push(card);
@@ -943,14 +958,142 @@ export class CardSystem {
     return true;
   }
 
+  consumeCardUse(card) {
+    if (!card) return 0;
+    ensureCardUses(card);
+    card.remainingUses = Math.max(0, Math.floor(card.remainingUses ?? card.maxUses) - 1);
+    return card.remainingUses;
+  }
+
+  isCardSpent(card) {
+    if (!card) return true;
+    ensureCardUses(card);
+    return (card.remainingUses ?? 0) <= 0 || shouldExhaustAfterPlay(card);
+  }
+
   upgradeHandCard(card, amount = 1) {
     if (!card || !this.handCards.includes(card)) return false;
+    return this.upgradeCardFamily(card, amount);
+  }
+
+  upgradeCardInstance(card, amount = 1) {
+    if (!card || !this.allDeckCards().includes(card)) return false;
+    return this.upgradeCardFamily(card, amount);
+  }
+
+  upgradeCardFamily(card, amount = 1) {
+    if (!card?.id) return false;
     const levels = Math.max(1, Math.floor(amount));
-    card.level = Math.max(1, Math.floor(card.level ?? 1)) + levels;
+    const currentBonus = this.runtimeCardLevelBonuses.get(card.id) ?? 0;
+    this.runtimeCardLevelBonuses.set(card.id, currentBonus + levels);
+    let upgraded = false;
+    this.allDeckCards().forEach((candidate) => {
+      if (candidate.id !== card.id) return;
+      candidate.level = Math.max(1, Math.floor(candidate.level ?? 1)) + levels;
+      candidate.runtimeLevelBonusApplied = Math.max(0, Math.floor(candidate.runtimeLevelBonusApplied ?? 0)) + levels;
+      this.pendingDrawAnimations.add(candidate);
+      upgraded = true;
+    });
+    this.renderHand();
+    this.renderTemporaryCards();
+    this.updatePileUi();
+    return upgraded;
+  }
+
+  upgradeExistingCardCopies(card, amount = 1) {
+    if (!card?.id) return false;
+    const levels = Math.max(1, Math.floor(amount));
+    let upgraded = false;
+    this.allDeckCards().forEach((candidate) => {
+      if (candidate.id !== card.id) return;
+      candidate.level = Math.max(1, Math.floor(candidate.level ?? 1)) + levels;
+      this.pendingDrawAnimations.add(candidate);
+      upgraded = true;
+    });
+    this.renderHand();
+    this.renderTemporaryCards();
+    this.updatePileUi();
+    return upgraded;
+  }
+
+  restoreCardUses(card) {
+    if (!card || !this.allDeckCards().includes(card)) return false;
+    ensureCardUses(card);
+    card.remainingUses = card.maxUses;
     this.pendingDrawAnimations.add(card);
     this.renderHand();
+    this.renderTemporaryCards();
     this.updatePileUi();
     return true;
+  }
+
+  removeCardInstance(card) {
+    if (!card) return false;
+    const locations = [
+      this.handCards,
+      this.temporaryCards,
+      this.drawPile,
+      this.discardPile
+    ];
+    for (const pile of locations) {
+      const index = pile.indexOf(card);
+      if (index === -1) continue;
+      pile.splice(index, 1);
+      this.renderHand();
+      this.renderTemporaryCards();
+      this.updatePileUi();
+      return true;
+    }
+    return false;
+  }
+
+  copyCardInstance(card, options = {}) {
+    if (!card || !this.allDeckCards().includes(card)) return { added: false, location: 'none' };
+    ensureCardUses(card);
+    return this.addCardToDrawPile({
+      ...card,
+      instanceId: undefined,
+      remainingUses: card.maxUses
+    }, {
+      prefix: options.prefix ?? `copy-${Date.now()}`,
+      applyRuntimeLevelBonus: false
+    });
+  }
+
+  allDeckCards() {
+    const seen = new Set();
+    return [
+      ...this.handCards,
+      ...this.temporaryCards,
+      ...this.drawPile,
+      ...this.discardPile
+    ].filter((card) => {
+      if (!card || seen.has(card.instanceId)) return false;
+      seen.add(card.instanceId);
+      return true;
+    });
+  }
+
+  applyAbilityUseBonus(card) {
+    const bonus = Math.max(0, Math.floor(this.game.abilities?.getCardUseBonus?.(card) ?? 0));
+    if (bonus <= 0) return;
+    ensureCardUses(card);
+    card.maxUses += bonus;
+    card.remainingUses += bonus;
+  }
+
+  increaseUsesForKind(kind, amount = 1) {
+    const bonus = Math.max(1, Math.floor(amount));
+    this.allDeckCards().forEach((card) => {
+      if (card.kind !== kind) return;
+      ensureCardUses(card);
+      card.maxUses += bonus;
+      card.remainingUses += bonus;
+      this.pendingDrawAnimations.add(card);
+    });
+    this.renderHand();
+    this.renderTemporaryCards();
+    this.updatePileUi();
   }
 
   exhaustHandCard(card, amount = 1, options = {}) {
@@ -984,7 +1127,7 @@ export class CardSystem {
 
   addLootCard(cardDefinition) {
     if (!cardDefinition) return { added: false, location: 'none' };
-    const card = createCardInstance(cardDefinition, `loot-${Date.now()}`);
+    const card = createCardInstance(this.applyRuntimeCardLevel(cardDefinition), `loot-${Date.now()}`);
     if (this.temporaryCards.length < TEMPORARY_CARD_LIMIT) {
       this.temporaryCards.push(card);
       this.pendingDrawAnimations.add(card);
@@ -997,9 +1140,32 @@ export class CardSystem {
     return { added: true, location: 'draw', card };
   }
 
+  addCardToDrawPile(cardDefinition, options = {}) {
+    if (!cardDefinition) return { added: false, location: 'none' };
+    const hasExplicitUses = Number.isFinite(cardDefinition.maxUses);
+    const card = createCardInstance({
+      ...cardDefinition,
+      level: this.runtimeLevelForCard(cardDefinition, options)
+    }, options.prefix ?? `reward-${Date.now()}`);
+    if (!hasExplicitUses) {
+      this.applyAbilityUseBonus(card);
+    }
+    if (options.top === false) {
+      this.drawPile.push(card);
+    } else {
+      this.drawPile.unshift(card);
+    }
+    if (options.drawToHand !== false) {
+      this.drawToFullHand({ animate: true });
+      this.renderHand();
+    }
+    this.updatePileUi();
+    return { added: true, location: 'draw', card };
+  }
+
   addDebugCard(cardDefinition, options = {}) {
     if (!cardDefinition) return { added: false, location: 'none' };
-    const level = Math.max(1, Math.floor(Number(options.level) || 1));
+    const level = this.runtimeLevelForCard(cardDefinition, options);
     const card = createCardInstance({
       ...cardDefinition,
       level
@@ -1016,6 +1182,28 @@ export class CardSystem {
     this.drawPile.unshift(card);
     this.updatePileUi();
     return { added: true, location: 'draw', card };
+  }
+
+  runtimeLevelForCard(cardDefinition, options = {}) {
+    const baseLevel = Math.max(1, Math.floor(cardDefinition.level ?? options.level ?? 1));
+    if (options.applyRuntimeLevelBonus === false) return baseLevel;
+    const bonus = this.runtimeCardLevelBonuses.get(cardDefinition.id) ?? 0;
+    const alreadyApplied = Math.max(0, Math.floor(cardDefinition.runtimeLevelBonusApplied ?? 0));
+    return baseLevel + Math.max(0, bonus - alreadyApplied);
+  }
+
+  applyRuntimeCardLevel(cardDefinition, options = {}) {
+    const bonus = options.applyRuntimeLevelBonus === false
+      ? 0
+      : (this.runtimeCardLevelBonuses.get(cardDefinition.id) ?? 0);
+    return {
+      ...cardDefinition,
+      level: this.runtimeLevelForCard(cardDefinition, options),
+      runtimeLevelBonusApplied: Math.max(
+        Math.max(0, Math.floor(cardDefinition.runtimeLevelBonusApplied ?? 0)),
+        bonus
+      )
+    };
   }
 
   drawToFullHand({ animate = false } = {}) {
@@ -1166,20 +1354,49 @@ export class CardSystem {
 }
 
 function normalizeDeck(cards) {
-  const source = cards?.length
+  const source = Array.isArray(cards)
     ? cards
     : CARD_DEFINITIONS.filter((card) => !card.lootOnly);
   return source.map((card, index) => ({
-    ...card,
+    ...initializeCardUses(card),
     instanceId: card.instanceId ?? `${card.id}-${index}-${Math.random().toString(36).slice(2)}`
   }));
 }
 
 function createCardInstance(card, prefix = 'card') {
-  return {
+  return initializeCardUses({
     ...card,
     instanceId: `${prefix}-${card.id}-${Math.random().toString(36).slice(2)}`
+  });
+}
+
+function initializeCardUses(card) {
+  const maxUses = Math.max(1, Math.floor(card.maxUses ?? defaultCardUses(card)));
+  const remainingUses = Math.max(0, Math.min(
+    maxUses,
+    Math.floor(card.remainingUses ?? maxUses)
+  ));
+  return {
+    ...card,
+    maxUses,
+    remainingUses
   };
+}
+
+function ensureCardUses(card) {
+  if (!card) return null;
+  const maxUses = Math.max(1, Math.floor(card.maxUses ?? defaultCardUses(card)));
+  card.maxUses = maxUses;
+  card.remainingUses = Math.max(0, Math.min(
+    maxUses,
+    Math.floor(card.remainingUses ?? maxUses)
+  ));
+  return card;
+}
+
+function defaultCardUses(card) {
+  if (card?.exhaust) return 1;
+  return DEFAULT_CARD_USES[card?.kind] ?? 2;
 }
 
 function kindLabel(kind) {
@@ -1196,7 +1413,21 @@ function shouldUseCardFaceGhost(card) {
 }
 
 function shouldExhaustAfterPlay(card) {
-  return Boolean(card?.exhaust || card?.kind === 'ability');
+  return Boolean(card?.exhaust);
+}
+
+function createCardUseBarMarkup(card, classPrefix) {
+  const normalized = ensureCardUses(card);
+  const maxUses = normalized?.maxUses ?? 1;
+  const remainingUses = normalized?.remainingUses ?? maxUses;
+  const segments = Array.from({ length: maxUses }, (_, index) => (
+    `<span class="${index < remainingUses ? 'is-filled' : ''}"></span>`
+  )).join('');
+  return `
+    <div class="${classPrefix}-use-bar" aria-label="剩余使用次数 ${remainingUses}/${maxUses}">
+      ${segments}
+    </div>
+  `;
 }
 
 export function cardThemeColor(cardOrKind) {
@@ -1785,6 +2016,64 @@ const CARD_ART_RENDERERS = {
     <circle fill="#ffffff" opacity="0.7" cx="71" cy="48" r="3" />
     <circle fill="#ffffff" opacity="0.55" cx="78" cy="28" r="2" />
   `),
+  waveSwarm: () => artSvg(`
+    <polygon fill="#223827" points="0,51 18,42 43,44 68,38 96,49 96,64 0,64" />
+    <ellipse fill="#93c86f" opacity="0.2" cx="50" cy="40" rx="36" ry="18" />
+    <polygon fill="#93c86f" points="47,12 58,23 52,41 39,41 33,23" />
+    <polygon fill="#3f6f35" points="47,19 53,25 50,38 41,38 38,25" />
+    <path fill="none" stroke="#d7f6b8" stroke-width="3" stroke-linecap="round" d="M20 47 C30 33 40 39 49 27 C57 16 69 22 78 12" />
+    <path fill="none" stroke="#93c86f" stroke-width="3" stroke-linecap="round" d="M17 55 C31 43 45 47 57 36 C66 28 72 31 82 24" />
+    <circle fill="#d7f6b8" cx="27" cy="39" r="4" />
+    <circle fill="#d7f6b8" opacity="0.72" cx="66" cy="25" r="4" />
+    <polygon fill="#fff2c7" points="39,18 31,9 36,27" />
+    <polygon fill="#fff2c7" points="56,18 65,9 59,27" />
+  `),
+  waveArmored: () => artSvg(`
+    <polygon fill="#26343b" points="0,52 18,42 43,44 68,38 96,49 96,64 0,64" />
+    <path fill="#9fb1c1" opacity="0.24" d="M19 52 C22 28 38 12 49 10 C65 14 77 29 79 52 C62 60 36 60 19 52 Z" />
+    <path fill="none" stroke="#e8eef0" stroke-width="3" d="M19 52 C22 28 38 12 49 10 C65 14 77 29 79 52" />
+    <polygon fill="#9fb1c1" points="49,16 69,25 64,47 49,57 34,47 29,25" />
+    <polygon fill="#56636b" points="49,23 60,29 57,42 49,49 41,42 38,29" />
+    <polygon fill="#d8c58d" points="47,20 52,20 52,53 47,53" />
+    <polygon fill="#d8c58d" points="34,34 64,34 64,39 34,39" />
+    <circle fill="#eef7ff" cx="29" cy="26" r="3" />
+    <circle fill="#eef7ff" opacity="0.65" cx="73" cy="45" r="3" />
+  `),
+  waveRush: () => artSvg(`
+    <polygon fill="#3a3426" points="0,51 18,42 43,44 68,38 96,49 96,64 0,64" />
+    <polygon fill="#ffd166" opacity="0.28" points="22,53 44,9 43,32 68,16 54,41 79,38 48,59" />
+    <polygon fill="#d7a878" points="47,12 56,23 40,23" />
+    <polygon fill="#8f5d2c" points="38,24 60,24 64,47 49,56 34,47" />
+    <polygon fill="#2b241f" points="39,47 48,47 45,59 37,59" />
+    <polygon fill="#2b241f" points="52,47 61,47 63,59 54,59" />
+    <path fill="none" stroke="#fff2c7" stroke-width="4" stroke-linecap="round" d="M18 45 C34 39 44 31 55 18" />
+    <path fill="none" stroke="#ffd166" stroke-width="3" stroke-linecap="round" d="M28 56 C45 51 58 42 75 23" />
+    <polygon fill="#fff2c7" points="70,18 84,17 76,30" />
+  `),
+  waveRanged: () => artSvg(`
+    <polygon fill="#22313e" points="0,51 18,42 43,44 68,38 96,49 96,64 0,64" />
+    <ellipse fill="#b7e8ff" opacity="0.2" cx="50" cy="36" rx="36" ry="20" />
+    <path fill="none" stroke="#4a3026" stroke-width="4" stroke-linecap="round" d="M68 13 C86 27 85 49 67 59" />
+    <path fill="none" stroke="#dff8ff" stroke-width="2" d="M68 13 L67 59" />
+    <polygon fill="#dff8ff" points="21,34 75,32 75,37 21,39" />
+    <polygon fill="#b7e8ff" points="75,31 88,35 75,39" />
+    <path fill="none" stroke="#dff8ff" stroke-width="2" opacity="0.75" d="M18 25 C35 19 54 18 77 12" />
+    <path fill="none" stroke="#b7e8ff" stroke-width="2" opacity="0.72" d="M15 48 C35 42 56 43 82 34" />
+    <circle fill="#dff8ff" cx="32" cy="25" r="3" />
+    <circle fill="#dff8ff" opacity="0.62" cx="61" cy="45" r="3" />
+  `),
+  waveSiege: () => artSvg(`
+    <polygon fill="#3a2a24" points="0,52 18,42 43,44 68,38 96,49 96,64 0,64" />
+    <ellipse fill="#ffb45c" opacity="0.22" cx="50" cy="45" rx="35" ry="16" />
+    <polygon fill="#6d4a2c" points="27,15 35,11 76,54 68,59" />
+    <polygon fill="#8b6037" points="22,13 36,8 43,18 28,24" />
+    <circle fill="#ff6b35" cx="65" cy="42" r="16" />
+    <circle fill="#ffb45c" cx="65" cy="42" r="9" />
+    <circle fill="#fff2c7" cx="65" cy="42" r="4" />
+    <polygon fill="#ffd166" points="65,16 70,33 59,33" />
+    <polygon fill="#ffd166" points="87,42 70,47 70,36" />
+    <polygon fill="#fff2c7" opacity="0.68" points="39,21 66,47 62,50 35,24" />
+  `),
   wolfInstinct: () => artSvg(`
     <polygon fill="#26333a" points="0,52 18,42 43,44 68,38 96,49 96,64 0,64" />
     <path fill="#dbe8e9" opacity="0.18" d="M17 49 C30 31 41 20 51 18 C65 20 76 32 82 50 C64 58 35 58 17 49 Z" />
@@ -2081,6 +2370,7 @@ function createPileCardElement(card, index) {
   element.innerHTML = `
     <div class="pile-card-cost">${cardEnergyCost(card)}</div>
     <div class="pile-card-level">Lv.${card.level ?? 1}</div>
+    ${createCardUseBarMarkup(card, 'pile-card')}
     ${shouldExhaustAfterPlay(card) ? '<div class="pile-card-keyword">消耗</div>' : ''}
     <div class="pile-card-header">
       <span class="pile-card-rune">${card.label}</span>

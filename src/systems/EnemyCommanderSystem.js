@@ -158,8 +158,6 @@ export class EnemyCommanderSystem {
   }
 
   chooseOrder(squad) {
-    const capture = this.captureOrder(squad);
-    if (capture && this.shouldUseCaptureOrder(squad)) return capture;
     return this.attackOrder(squad);
   }
 

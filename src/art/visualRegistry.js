@@ -5,16 +5,22 @@ import {
   createBearModel,
   createBeaconModel,
   createBerserkerModel,
+  createBombProjectileModel,
   createBoltModel,
   createCanteenModel,
   createCrossbowmanModel,
   createDaggerModel,
   createEnergyOrbModel,
   createEngineerModel,
+  createFrostAcolyteModel,
   createGoblinArcherModel,
+  createGoblinBomberModel,
+  createGoblinHunterModel,
+  createGoblinShamanModel,
   createGoblinSoldierModel,
   createGoblinTrollModel,
   createHolyBoltModel,
+  createIceShardModel,
   createKnightModel,
   createMeteorModel,
   createOgreModel,
@@ -26,9 +32,13 @@ import {
   createScorpionModel,
   createSkeletonArcherModel,
   createSkeletonSoldierModel,
+  createShieldBearerModel,
   createSpiderEggModel,
   createSpiderModel,
   createSwordsmanModel,
+  createElfSniperModel,
+  createVenomArcherModel,
+  createVenomArrowModel,
   createWarderModel,
   createWaterMageModel,
   createWaterOrbModel,
@@ -50,12 +60,20 @@ const UNIT_FACTORIES = {
   purifier: ({ team }) => createPurifierModel(team),
   warder: ({ team }) => createWarderModel(team),
   raider: () => createRaiderModel(),
+  enemyRaider: () => createRaiderModel(),
   ogre: () => createOgreModel(),
   skeletonSoldier: () => createSkeletonSoldierModel(),
   skeletonArcher: () => createSkeletonArcherModel(),
   wizard: () => createWizardModel(),
   goblinSoldier: () => createGoblinSoldierModel(),
   goblinArcher: () => createGoblinArcherModel(),
+  goblinHunter: () => createGoblinHunterModel(),
+  goblinBomber: () => createGoblinBomberModel(),
+  goblinShaman: () => createGoblinShamanModel(),
+  shieldBearer: () => createShieldBearerModel(),
+  venomArcher: () => createVenomArcherModel(),
+  elfSniper: () => createElfSniperModel(),
+  frostAcolyte: () => createFrostAcolyteModel(),
   goblinTroll: () => createGoblinTrollModel(),
   scorpion: () => createScorpionModel(),
   spider: () => createSpiderModel(),
@@ -70,6 +88,9 @@ const UNIT_FACTORIES = {
 
 const PROJECTILE_FACTORIES = {
   arrow: ({ color }) => createArrowModel(color),
+  venomArrow: ({ color }) => createVenomArrowModel(color),
+  bomb: () => createBombProjectileModel(),
+  iceShard: ({ color }) => createIceShardModel(color),
   bolt: ({ color }) => createBoltModel(color),
   dagger: ({ color }) => createDaggerModel(color),
   holyBolt: ({ color }) => createHolyBoltModel(color),
@@ -77,6 +98,12 @@ const PROJECTILE_FACTORIES = {
   energyOrb: ({ color }) => createEnergyOrbModel(color),
   waterOrb: ({ color }) => createWaterOrbModel(color)
 };
+
+const WALK_BOB_RATE = 6.4;
+const WALK_SWAY_RATE = 5.2;
+const WALK_BOB_HEIGHT = 0.022;
+const WALK_SWAY_ANGLE = 0.012;
+const IDLE_BOB_HEIGHT = 0.014;
 
 const SPELL_FACTORIES = {
   meteor: () => createMeteorModel()
@@ -158,7 +185,7 @@ export function updateUnitAnimation(unit, dt) {
 
   const time = performance.now() * 0.001;
   if (unit.isBuilding) {
-    root.position.y = 0;
+    root.position.y = rootGroundOffset(root);
     root.rotation.set(0, 0, 0);
     root.scale.setScalar(1);
     return;
@@ -166,15 +193,19 @@ export function updateUnitAnimation(unit, dt) {
   if (unit.visualState === 'walk') {
     root.rotation.x = 0;
     root.rotation.y = 0;
-    root.position.y = Math.sin(time * 10 + unit.id) * 0.055;
-    root.rotation.z = Math.sin(time * 8 + unit.id) * 0.035;
+    root.position.y = rootGroundOffset(root) + Math.sin(time * WALK_BOB_RATE + unit.id) * WALK_BOB_HEIGHT;
+    root.rotation.z = Math.sin(time * WALK_SWAY_RATE + unit.id) * WALK_SWAY_ANGLE;
     return;
   }
-  root.position.y = Math.sin(time * 2 + unit.id) * 0.025;
+  root.position.y = rootGroundOffset(root) + Math.sin(time * 1.7 + unit.id) * IDLE_BOB_HEIGHT;
   root.rotation.x = 0;
   root.rotation.y = 0;
   root.rotation.z = 0;
   root.scale.setScalar(1);
+}
+
+function rootGroundOffset(root) {
+  return Number.isFinite(root?.userData?.groundOffset) ? root.userData.groundOffset : 0;
 }
 
 function applyOneShot(unit, root, name, t, state = null) {
@@ -193,7 +224,7 @@ function applyOneShot(unit, root, name, t, state = null) {
     return;
   }
   if (name === 'attack') {
-    if (unit.type === 'archer' || unit.type === 'goblinArcher' || unit.type === 'skeletonArcher') {
+    if (isBowAttackUnit(unit.type)) {
       root.position.y = pulse * 0.025;
       applyAttackPose(unit, root, t, pulse, state?.variant);
       return;
@@ -222,11 +253,32 @@ function applyOneShot(unit, root, name, t, state = null) {
 }
 
 function applyAttackPose(unit, root, t, pulse, variant = null) {
-  if (unit.type === 'archer' || unit.type === 'goblinArcher' || unit.type === 'skeletonArcher') {
-    applyArcherAttack(root, t, pulse);
+  if (unit.type === 'goblinBomber') {
+    applyBomberAttack(root, t, pulse);
     return;
   }
-  if (unit.type === 'raider' || unit.type === 'goblinSoldier' || unit.type === 'skeletonSoldier') {
+  if (unit.type === 'shieldBearer') {
+    applyShieldBearerAttack(root, t, pulse);
+    return;
+  }
+  if (unit.type === 'frostAcolyte') {
+    applyFrostAcolyteAttack(root, t, pulse);
+    return;
+  }
+  if (isBowAttackUnit(unit.type)) {
+    applyArcherAttack(root, t, pulse);
+    if (unit.type === 'venomArcher') {
+      applyVenomArcherExtras(root, t, pulse);
+    }
+    return;
+  }
+  if (
+    unit.type === 'raider' ||
+    unit.type === 'enemyRaider' ||
+    unit.type === 'goblinSoldier' ||
+    unit.type === 'goblinBomber' ||
+    unit.type === 'skeletonSoldier'
+  ) {
     applyRaiderAttack(root, t, pulse);
     return;
   }
@@ -245,6 +297,7 @@ function applyAttackPose(unit, root, t, pulse, variant = null) {
   if (
     unit.type === 'physician' ||
     unit.type === 'purifier' ||
+    unit.type === 'goblinShaman' ||
     unit.type === 'wizard' ||
     unit.type === 'waterMage'
   ) {
@@ -260,6 +313,15 @@ function applyAttackPose(unit, root, t, pulse, variant = null) {
     return;
   }
   applySwordsmanAttack(root, t, pulse);
+}
+
+function isBowAttackUnit(type) {
+  return type === 'archer' ||
+    type === 'goblinArcher' ||
+    type === 'goblinHunter' ||
+    type === 'elfSniper' ||
+    type === 'skeletonArcher' ||
+    type === 'venomArcher';
 }
 
 function applyRogueAttack(root, t, pulse, variant = null) {
@@ -400,6 +462,69 @@ function applyRaiderAttack(root, t, pulse) {
   }
 }
 
+function applyBomberAttack(root, t, pulse) {
+  const { weaponPivot, weaponSwingPivot, offhandPivot, projectileSocket, spark, matchTip } = root.userData.parts ?? {};
+  const windup = smoothstep(0, 0.36, t) * (1 - smoothstep(0.7, 1, t));
+  const throwOut = smoothstep(0.42, 0.58, t) * (1 - smoothstep(0.78, 1, t));
+  const release = bell(0.52, 0.58, 0.72, t);
+  const recover = smoothstep(0.72, 1, t);
+
+  root.position.y += pulse * 0.03 + release * 0.025;
+  root.rotation.z = -0.018 * windup + 0.04 * throwOut;
+  root.rotation.x += -0.04 * windup + 0.06 * throwOut;
+  if (weaponPivot) {
+    weaponPivot.position.z -= 0.08 * windup;
+    weaponPivot.position.y += 0.08 * windup + 0.04 * throwOut;
+    weaponPivot.rotation.x += -0.72 * windup + 0.96 * throwOut - 0.18 * recover;
+    weaponPivot.rotation.z += -0.34 * windup + 0.22 * throwOut;
+  }
+  if (weaponSwingPivot) {
+    weaponSwingPivot.rotation.x += -0.24 * windup + 0.36 * throwOut;
+    weaponSwingPivot.rotation.z += 0.2 * windup - 0.12 * throwOut;
+    weaponSwingPivot.scale.setScalar(Math.max(0.45, 1 - release * 0.42));
+  }
+  if (offhandPivot) {
+    offhandPivot.rotation.x += -0.1 * windup + 0.08 * release;
+    offhandPivot.rotation.z += 0.1 * windup;
+  }
+  if (projectileSocket) {
+    projectileSocket.scale.setScalar(1 + windup * 0.2 + release * 0.4);
+  }
+  if (spark) {
+    spark.scale.setScalar(1 + pulse * 0.16 + windup * 0.2);
+  }
+  if (matchTip) {
+    matchTip.scale.setScalar(1 + pulse * 0.18 + release * 0.22);
+  }
+}
+
+function applyShieldBearerAttack(root, t, pulse) {
+  const { weaponPivot, weaponSwingPivot, shieldPivot, shield } = root.userData.parts ?? {};
+  const brace = smoothstep(0, 0.3, t) * (1 - smoothstep(0.76, 1, t));
+  const bash = smoothstep(0.34, 0.56, t) * (1 - smoothstep(0.76, 1, t));
+  const recover = smoothstep(0.76, 1, t);
+
+  root.position.y += pulse * 0.025;
+  root.position.z += 0.025 * bash - 0.012 * recover;
+  root.rotation.x += -0.025 * brace + 0.035 * bash;
+  if (shieldPivot) {
+    shieldPivot.position.z += 0.12 * brace + 0.36 * bash - 0.08 * recover;
+    shieldPivot.position.y += 0.05 * brace;
+    shieldPivot.rotation.x += -0.18 * brace - 0.12 * bash;
+    shieldPivot.rotation.z += -0.08 * brace + 0.04 * bash;
+  }
+  if (shield) {
+    shield.scale.set(1 + bash * 0.04, 1 + bash * 0.02, 1);
+  }
+  if (weaponPivot) {
+    weaponPivot.rotation.x += -0.28 * brace + 0.48 * bash - 0.08 * recover;
+    weaponPivot.rotation.z += 0.14 * brace - 0.16 * bash;
+  }
+  if (weaponSwingPivot) {
+    weaponSwingPivot.rotation.x += -0.12 * brace + 0.2 * bash;
+  }
+}
+
 function applyCasterAttack(root, t, pulse) {
   const { weaponPivot, weaponSwingPivot, offhandPivot, projectileSocket } = root.userData.parts ?? {};
   if (!weaponPivot) return;
@@ -423,6 +548,24 @@ function applyCasterAttack(root, t, pulse) {
   if (projectileSocket) {
     const glow = 1 + gather * 0.55 + release * 0.35;
     projectileSocket.scale.setScalar(glow);
+  }
+}
+
+function applyFrostAcolyteAttack(root, t, pulse) {
+  applyCasterAttack(root, t, pulse);
+  const { crystalCluster, shardRing, projectileSocket } = root.userData.parts ?? {};
+  const gather = smoothstep(0, 0.4, t) * (1 - smoothstep(0.78, 1, t));
+  const release = bell(0.48, 0.57, 0.74, t);
+  if (crystalCluster) {
+    crystalCluster.rotation.y += gather * 0.32 + release * 0.55;
+    crystalCluster.scale.setScalar(1 + gather * 0.28 + release * 0.22);
+  }
+  if (shardRing) {
+    shardRing.rotation.y += gather * 0.22 + pulse * 0.08;
+    shardRing.position.y += gather * 0.05;
+  }
+  if (projectileSocket) {
+    projectileSocket.scale.setScalar(1 + gather * 0.42 + release * 0.48);
   }
 }
 
@@ -582,6 +725,19 @@ function applyArcherAttack(root, t, pulse) {
     heldArrow.visible = t < releaseAt;
     heldArrow.position.x -= 0.004 * handPull;
     heldArrow.position.z -= 0.26 * handPull;
+  }
+}
+
+function applyVenomArcherExtras(root, t, pulse) {
+  const { venomVial, projectileSocket } = root.userData.parts ?? {};
+  const drawIn = smoothstep(0.14, 0.5, t) * (1 - smoothstep(0.6, 0.95, t));
+  const release = bell(0.57, 0.64, 0.78, t);
+  if (venomVial) {
+    venomVial.rotation.z += 0.12 * pulse + 0.24 * drawIn;
+    venomVial.scale.setScalar(1 + drawIn * 0.08 + release * 0.12);
+  }
+  if (projectileSocket) {
+    projectileSocket.scale.setScalar(1 + drawIn * 0.18 + release * 0.25);
   }
 }
 

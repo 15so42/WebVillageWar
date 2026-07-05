@@ -354,7 +354,7 @@ export class EffectsSystem {
     if (value <= 0.01) return;
     const text = options.text ?? formatDamage(value);
     const damageType = options.damageType ?? 'normal';
-    const color = options.color ?? (damageType === 'true' ? '#ffffff' : '#ff9b35');
+    const color = options.color ?? damageNumberColor(damageType);
     const stroke = options.stroke ?? '#000000';
     const textureEntry = this.getDamageNumberTexture(text, {
       color,
@@ -910,6 +910,12 @@ export class EffectsSystem {
 function formatDamage(value) {
   if (value >= 10) return String(Math.round(value));
   return value.toFixed(1).replace(/\.0$/, '');
+}
+
+function damageNumberColor(damageType) {
+  if (damageType === 'true') return '#ffffff';
+  if (damageType === 'magic') return '#9bdcff';
+  return '#ff9b35';
 }
 
 function formatResourceAmount(value) {

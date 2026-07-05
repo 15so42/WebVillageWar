@@ -38,8 +38,28 @@ export class ModifierSystem {
     return baseDamage * this.getAttackDamageMultiplier(unit);
   }
 
+  getArmor(unit) {
+    return this.getAttribute(unit, 'armor', unit?.definition?.armor ?? 0);
+  }
+
+  getMagicResistance(unit) {
+    return this.getAttribute(
+      unit,
+      'magicResistance',
+      unit?.definition?.magicResistance ?? 0
+    );
+  }
+
   getKnockback(unit) {
     return this.getAttribute(unit, 'knockback', unit.definition.knockback);
+  }
+
+  getKnockbackResistance(unit) {
+    return clampResistance(this.getAttribute(
+      unit,
+      'knockbackResistance',
+      unit?.definition?.knockbackResistance ?? 0
+    ));
   }
 
   getAggroRange(unit) {
@@ -92,6 +112,9 @@ export class ModifierSystem {
       source,
       target,
       damage: override.damage ?? this.getAttackDamage(source),
+      attackDamageType: normalizeAttackDamageType(
+        override.attackDamageType ?? source?.definition?.attackDamageType
+      ),
       knockback: override.knockback ?? this.getKnockback(source),
       damageTypes: new Set(override.damageTypes ?? []),
       isProjectile: Boolean(override.isProjectile),
@@ -140,4 +163,13 @@ function applyModifier(value, modifier) {
 function clamp01(value) {
   if (!Number.isFinite(value)) return 0;
   return Math.min(1, Math.max(0, value));
+}
+
+function clampResistance(value) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(0.92, Math.max(0, value));
+}
+
+function normalizeAttackDamageType(value) {
+  return value === 'magic' ? 'magic' : 'physical';
 }

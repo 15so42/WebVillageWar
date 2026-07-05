@@ -3,7 +3,7 @@ export const TEAMS = {
   ENEMY: 'enemy'
 };
 
-export const DECK_SIZE = 15;
+export const DECK_SIZE = 30;
 
 export const UNIT_DEFINITIONS = {
   knight: {
@@ -31,26 +31,23 @@ export const UNIT_DEFINITIONS = {
         }
       }
     },
-    maxHealth: 25,
-    maxShield: 12.5,
-    speed: 3.15,
+    maxHealth: 34,
+    maxShield: 20,
+    speed: 2.85,
     attackRange: 1.35,
     attackRate: 1.05,
-    damage: 5,
+    damage: 5.5,
+    armor: 5,
+    magicResistance: 0,
+    dodgeChance: 0.01,
+    knockbackResistance: 0.25,
     knockback: 4.8,
     aggroRange: 11.2,
     weapon: {
       name: '铁剑',
       maxDurability: 40,
       durabilityCost: 1.35
-    },
-    traits: [
-      {
-        type: 'frontGuard',
-        reduction: 2,
-        angleDegrees: 120
-      }
-    ]
+    }
   },
   swordsman: {
     name: '剑士',
@@ -77,12 +74,15 @@ export const UNIT_DEFINITIONS = {
         }
       }
     },
-    maxHealth: 20,
-    maxShield: 10,
+    maxHealth: 28,
+    maxShield: 14,
     speed: 3.35,
     attackRange: 1.28,
     attackRate: 1.12,
-    damage: 5,
+    damage: 7,
+    armor: 1,
+    magicResistance: 1,
+    dodgeChance: 0.05,
     knockback: 4.2,
     aggroRange: 11.2,
     weapon: {
@@ -116,12 +116,15 @@ export const UNIT_DEFINITIONS = {
         }
       }
     },
-    maxHealth: 28,
-    maxShield: 14,
+    maxHealth: 38,
+    maxShield: 16,
     speed: 3.25,
     attackRange: 1.32,
     attackRate: 0.96,
-    damage: 5,
+    damage: 8,
+    armor: 1,
+    magicResistance: 1,
+    dodgeChance: 0.04,
     knockback: 4.4,
     aggroRange: 11.2,
     weapon: {
@@ -166,7 +169,10 @@ export const UNIT_DEFINITIONS = {
     speed: 2.85,
     attackRange: 8.4,
     attackRate: 0.72,
-    damage: 4,
+    damage: 5,
+    armor: 1,
+    magicResistance: 1,
+    dodgeChance: 0.05,
     knockback: 1.45,
     aggroRange: 14.7,
     projectileSpeed: 20.25,
@@ -206,7 +212,10 @@ export const UNIT_DEFINITIONS = {
     speed: 2.55,
     attackRange: 8.8,
     attackRate: 1 / 3,
-    damage: 12,
+    damage: 16,
+    armor: 1,
+    magicResistance: 1,
+    dodgeChance: 0.03,
     knockback: 6.3,
     aggroRange: 15.1,
     projectileSpeed: 16.5,
@@ -247,7 +256,11 @@ export const UNIT_DEFINITIONS = {
     speed: 2.65,
     attackRange: 8.2,
     attackRate: 1 / 6,
-    damage: 12,
+    damage: 17,
+    attackDamageType: 'magic',
+    armor: 1,
+    magicResistance: 6,
+    dodgeChance: 0.03,
     knockback: 2.6,
     aggroRange: 14.8,
     projectileSpeed: 5.8,
@@ -290,15 +303,17 @@ export const UNIT_DEFINITIONS = {
         }
       }
     },
-    maxHealth: 16,
-    maxShield: 8,
+    maxHealth: 22,
+    maxShield: 10,
     speed: 3.75,
     attackRange: 1.12,
     attackRate: 1.28,
-    damage: 4,
+    damage: 6,
+    armor: 1,
+    magicResistance: 1,
     knockback: 2.4,
     aggroRange: 13.2,
-    dodgeChance: 0.2,
+    dodgeChance: 0.12,
     weaponAbility: {
       rangedProjectile: {
         key: 'throwDagger',
@@ -346,12 +361,15 @@ export const UNIT_DEFINITIONS = {
         }
       }
     },
-    maxHealth: 18,
-    maxShield: 9,
+    maxHealth: 24,
+    maxShield: 12,
     speed: 3.05,
     attackRange: 1.18,
     attackRate: 0.75,
-    damage: 2,
+    damage: 4,
+    armor: 1,
+    magicResistance: 1,
+    dodgeChance: 0.04,
     knockback: 1.8,
     aggroRange: 9.1,
     support: {
@@ -399,7 +417,11 @@ export const UNIT_DEFINITIONS = {
     speed: 2.76,
     attackRange: 5.9,
     attackRate: 0.5,
-    damage: 1.6,
+    damage: 4,
+    attackDamageType: 'magic',
+    armor: 1,
+    magicResistance: 6,
+    dodgeChance: 0.03,
     knockback: 0.55,
     aggroRange: 12.3,
     projectileSpeed: 10.2,
@@ -456,7 +478,11 @@ export const UNIT_DEFINITIONS = {
     speed: 2.72,
     attackRange: 6.3,
     attackRate: 0.55,
-    damage: 2.2,
+    damage: 5,
+    attackDamageType: 'magic',
+    armor: 1,
+    magicResistance: 6,
+    dodgeChance: 0.03,
     knockback: 0.85,
     aggroRange: 12.6,
     projectileSpeed: 10.5,
@@ -506,7 +532,11 @@ export const UNIT_DEFINITIONS = {
     speed: 2.65,
     attackRange: 6.1,
     attackRate: 0.5,
-    damage: 1.8,
+    damage: 4,
+    attackDamageType: 'magic',
+    armor: 1,
+    magicResistance: 6,
+    dodgeChance: 0.03,
     knockback: 0.7,
     aggroRange: 12.3,
     projectileSpeed: 4.3,
@@ -558,21 +588,24 @@ export const UNIT_DEFINITIONS = {
         }
       }
     },
-    maxHealth: 125,
+    maxHealth: 58,
     maxShield: 0,
     speed: 0,
     attackRange: 9.2,
     attackRate: 1.08,
-    damage: 5,
+    damage: 7,
+    armor: 1,
+    magicResistance: 1,
+    dodgeChance: 0,
     knockback: 0.9,
     aggroRange: 14.3,
     projectileSpeed: 23.25,
     projectileType: 'arrow',
     projectileHitHeight: 3.25,
-    collisionRadius: 0.86,
+    collisionRadius: 0.62,
     weapon: {
       name: '箭塔',
-      maxDurability: 63,
+      maxDurability: 34,
       durabilityCost: 0
     }
   },
@@ -592,25 +625,28 @@ export const UNIT_DEFINITIONS = {
         death: 'Death'
       }
     },
-    maxHealth: 163,
+    maxHealth: 62,
     maxShield: 0,
     speed: 0,
     attackRange: 0,
     attackRate: 0,
     damage: 0,
+    armor: 1,
+    magicResistance: 1,
+    dodgeChance: 0,
     knockback: 0,
     aggroRange: 0,
     projectileHitHeight: 2.1,
-    collisionRadius: 0.95,
+    collisionRadius: 0.68,
     buildingAura: {
       type: 'restoreDurability',
-      radius: 5.6,
-      durabilityPerSecond: 10,
+      radius: 4.4,
+      durabilityPerSecond: 3.6,
       restorePerDurability: 1
     },
     weapon: {
       name: '维修储备',
-      maxDurability: 163,
+      maxDurability: 64,
       durabilityCost: 0
     }
   },
@@ -630,25 +666,28 @@ export const UNIT_DEFINITIONS = {
         death: 'Death'
       }
     },
-    maxHealth: 125,
+    maxHealth: 52,
     maxShield: 0,
     speed: 0,
     attackRange: 0,
     attackRate: 0,
     damage: 0,
+    armor: 1,
+    magicResistance: 1,
+    dodgeChance: 0,
     knockback: 0,
     aggroRange: 0,
     projectileHitHeight: 2.2,
-    collisionRadius: 1.05,
+    collisionRadius: 0.72,
     buildingAura: {
       type: 'restoreHealthFromDurability',
-      radius: 5.8,
-      durabilityPerSecond: 8,
-      healthPerDurability: 2
+      radius: 4.4,
+      durabilityPerSecond: 2.8,
+      healthPerDurability: 1.15
     },
     weapon: {
       name: '食材储备',
-      maxDurability: 125,
+      maxDurability: 46,
       durabilityCost: 0
     }
   },
@@ -670,19 +709,22 @@ export const UNIT_DEFINITIONS = {
         death: 'Death'
       }
     },
-    maxHealth: 113,
+    maxHealth: 44,
     maxShield: 0,
     speed: 0,
     attackRange: 0,
     attackRate: 0,
     damage: 0,
+    armor: 1,
+    magicResistance: 1,
+    dodgeChance: 0,
     knockback: 0,
     aggroRange: 0,
     projectileHitHeight: 2.5,
-    collisionRadius: 0.82,
+    collisionRadius: 0.58,
     weapon: {
       name: '信标核心',
-      maxDurability: 113,
+      maxDurability: 42,
       durabilityCost: 0
     }
   },
@@ -716,12 +758,57 @@ export const UNIT_DEFINITIONS = {
     speed: 2.45,
     attackRange: 1.25,
     attackRate: 0.82,
-    damage: 4,
+    damage: 6,
+    armor: 1,
+    magicResistance: 1,
+    dodgeChance: 0.04,
     knockback: 2.6,
     aggroRange: 9.8,
     weapon: {
       name: '木棒',
       maxDurability: 32,
+      durabilityCost: 0
+    }
+  },
+  enemyRaider: {
+    name: '掠袭蛮兵',
+    role: 'melee',
+    art: {
+      modelKey: 'unit.raider',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Walk',
+        attack: 'Club_Attack',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.5,
+          events: {
+            impact: 0.58
+          }
+        },
+        hit: {
+          duration: 0.22
+        }
+      }
+    },
+    maxHealth: 18,
+    maxShield: 9,
+    speed: 2.55,
+    attackRange: 1.22,
+    attackRate: 0.9,
+    damage: 5.6,
+    armor: 1,
+    magicResistance: 1,
+    dodgeChance: 0.04,
+    knockback: 2.25,
+    aggroRange: 9.8,
+    weapon: {
+      name: '劫掠木棒',
+      maxDurability: 28,
       durabilityCost: 0
     }
   },
@@ -755,8 +842,12 @@ export const UNIT_DEFINITIONS = {
     speed: 1.58,
     attackRange: 1.72,
     attackRate: 0.42,
-    damage: 12,
+    damage: 13,
+    armor: 6,
+    magicResistance: 0,
+    dodgeChance: 0.01,
     knockback: 6.6,
+    knockbackResistance: 0.78,
     aggroRange: 11.5,
     weapon: {
       name: '巨棒',
@@ -795,8 +886,12 @@ export const UNIT_DEFINITIONS = {
     speed: 2.95,
     attackRange: 1.18,
     attackRate: 1.02,
-    damage: 4,
+    damage: 5,
+    armor: 3,
+    magicResistance: 1,
+    dodgeChance: 0.02,
     knockback: 1.9,
+    knockbackResistance: 0.25,
     aggroRange: 10.5,
     weapon: {
       name: '锈剑',
@@ -841,7 +936,10 @@ export const UNIT_DEFINITIONS = {
     speed: 2.82,
     attackRange: 7.6,
     attackRate: 0.7,
-    damage: 3.5,
+    damage: 5,
+    armor: 1,
+    magicResistance: 1,
+    dodgeChance: 0.04,
     knockback: 0.95,
     aggroRange: 13.3,
     projectileSpeed: 12.4,
@@ -888,7 +986,11 @@ export const UNIT_DEFINITIONS = {
     speed: 2.38,
     attackRange: 6.8,
     attackRate: 1 / 6,
-    damage: 2.4,
+    damage: 5,
+    attackDamageType: 'magic',
+    armor: 1,
+    magicResistance: 6,
+    dodgeChance: 0.03,
     knockback: 0.55,
     aggroRange: 13.2,
     projectileSpeed: 9.8,
@@ -937,7 +1039,10 @@ export const UNIT_DEFINITIONS = {
     speed: 2.75,
     attackRange: 1.15,
     attackRate: 0.92,
-    damage: 3.5,
+    damage: 5.5,
+    armor: 1,
+    magicResistance: 1,
+    dodgeChance: 0.05,
     knockback: 2.1,
     aggroRange: 9.8,
     weapon: {
@@ -976,13 +1081,142 @@ export const UNIT_DEFINITIONS = {
     speed: 2.65,
     attackRange: 7.2,
     attackRate: 0.62,
-    damage: 3.1,
+    damage: 5,
+    armor: 1,
+    magicResistance: 1,
+    dodgeChance: 0.06,
     knockback: 1.05,
     aggroRange: 12.9,
     projectileSpeed: 12,
     weapon: {
       name: '短弓',
       maxDurability: 23,
+      durabilityCost: 0
+    }
+  },
+  goblinHunter: {
+    name: '哥布林猎手',
+    role: 'ranged',
+    art: {
+      modelKey: 'unit.goblinHunter',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Walk',
+        attack: 'Bow_Shot',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.76,
+          events: {
+            release: 0.56
+          }
+        },
+        hit: {
+          duration: 0.2
+        }
+      }
+    },
+    maxHealth: 18,
+    maxShield: 8,
+    statusHeight: 1.78,
+    projectileHitHeight: 1.43,
+    speed: 2.92,
+    attackRange: 7.8,
+    attackRate: 0.74,
+    damage: 5.2,
+    armor: 1,
+    magicResistance: 1,
+    dodgeChance: 0.08,
+    knockback: 0.75,
+    aggroRange: 15.4,
+    projectileSpeed: 13.4,
+    projectileColor: '#d8ef9b',
+    targetPriority: {
+      roleWeights: {
+        ranged: 7
+      },
+      supportWeight: 10,
+      magicUserWeight: 4,
+      backlineWeight: 4,
+      woundedHealthRatio: 0.35,
+      woundedWeight: 3,
+      distanceWeight: 0.72
+    },
+    weapon: {
+      name: '猎弓',
+      maxDurability: 24,
+      durabilityCost: 0
+    }
+  },
+  goblinShaman: {
+    name: '哥布林巫师',
+    role: 'ranged',
+    art: {
+      modelKey: 'unit.goblinShaman',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Walk',
+        attack: 'Staff_Cast',
+        support: 'Staff_Cast',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.78,
+          events: {
+            release: 0.54
+          }
+        },
+        support: {
+          duration: 0.78,
+          events: {
+            release: 0.54
+          }
+        },
+        hit: {
+          duration: 0.2
+        }
+      }
+    },
+    maxHealth: 20,
+    maxShield: 14,
+    statusHeight: 2.08,
+    projectileHitHeight: 1.78,
+    speed: 2.35,
+    attackRange: 6.4,
+    attackRate: 0.42,
+    damage: 4.6,
+    attackDamageType: 'magic',
+    armor: 1,
+    magicResistance: 6,
+    dodgeChance: 0.03,
+    knockback: 0.55,
+    aggroRange: 12.8,
+    projectileSpeed: 9.6,
+    projectileType: 'energyOrb',
+    projectileColor: '#9fe06f',
+    support: {
+      heal: {
+        cooldown: 6.2,
+        initialCooldown: 2.4,
+        range: 7.2,
+        amount: 5.5
+      },
+      shield: {
+        cooldown: 7.4,
+        initialCooldown: 3.2,
+        range: 7.4,
+        amount: 5
+      }
+    },
+    weapon: {
+      name: '巫毒杖',
+      maxDurability: 22,
       durabilityCost: 0
     }
   },
@@ -1013,15 +1247,285 @@ export const UNIT_DEFINITIONS = {
     },
     maxHealth: 44,
     maxShield: 22,
-    speed: 2.18,
+    speed: 2.05,
     attackRange: 1.42,
     attackRate: 0.58,
-    damage: 7.2,
+    damage: 8,
+    armor: 5,
+    magicResistance: 0,
+    dodgeChance: 0.01,
     knockback: 4.6,
+    knockbackResistance: 0.62,
     aggroRange: 10.9,
     weapon: {
       name: '巨木棒',
       maxDurability: 38,
+      durabilityCost: 0
+    }
+  },
+  goblinBomber: {
+    name: '哥布林爆破手',
+    role: 'ranged',
+    art: {
+      modelKey: 'unit.goblinBomber',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Walk',
+        attack: 'Bomb_Throw',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.72,
+          events: {
+            release: 0.58
+          }
+        },
+        hit: {
+          duration: 0.2
+        }
+      }
+    },
+    maxHealth: 17,
+    maxShield: 8,
+    statusHeight: 1.74,
+    projectileHitHeight: 1.38,
+    speed: 2.72,
+    attackRange: 4.25,
+    attackRate: 0.62,
+    damage: 5,
+    armor: 1,
+    magicResistance: 1,
+    dodgeChance: 0.04,
+    knockback: 2.45,
+    aggroRange: 11.6,
+    projectileSpeed: 6.7,
+    projectileType: 'bomb',
+    startingBuffs: [
+      {
+        buffId: 'explosion',
+        level: 0,
+        scalesWithDifficulty: true
+      }
+    ],
+    weapon: {
+      name: '炸药包',
+      maxDurability: 24,
+      durabilityCost: 0
+    }
+  },
+  shieldBearer: {
+    name: '哥布林盾卫',
+    role: 'melee',
+    art: {
+      modelKey: 'unit.shieldBearer',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Heavy_Walk',
+        attack: 'Club_Slam',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.62,
+          events: {
+            impact: 0.6
+          }
+        },
+        hit: {
+          duration: 0.26
+        }
+      }
+    },
+    maxHealth: 56,
+    maxShield: 44,
+    statusHeight: 2.02,
+    projectileHitHeight: 1.66,
+    speed: 1.78,
+    attackRange: 1.32,
+    attackRate: 0.52,
+    damage: 5.5,
+    armor: 6,
+    magicResistance: 0,
+    dodgeChance: 0.01,
+    knockback: 4.2,
+    knockbackResistance: 0.72,
+    aggroRange: 10.8,
+    startingBuffs: [
+      {
+        buffId: 'protection',
+        level: 1,
+        scalesWithDifficulty: true
+      },
+      {
+        buffId: 'block',
+        level: 1,
+        scalesWithDifficulty: true
+      }
+    ],
+    weapon: {
+      name: '厚盾',
+      maxDurability: 54,
+      durabilityCost: 0
+    }
+  },
+  venomArcher: {
+    name: '哥布林毒箭手',
+    role: 'ranged',
+    art: {
+      modelKey: 'unit.venomArcher',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Walk',
+        attack: 'Bow_Shot',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.78,
+          events: {
+            release: 0.57
+          }
+        },
+        hit: {
+          duration: 0.2
+        }
+      }
+    },
+    maxHealth: 17,
+    maxShield: 8,
+    statusHeight: 1.88,
+    projectileHitHeight: 1.5,
+    speed: 2.7,
+    attackRange: 7.4,
+    attackRate: 0.56,
+    damage: 4.5,
+    armor: 1,
+    magicResistance: 1,
+    dodgeChance: 0.06,
+    knockback: 0.85,
+    aggroRange: 13.1,
+    projectileSpeed: 12,
+    projectileType: 'venomArrow',
+    projectileColor: '#87c75a',
+    startingBuffs: [
+      {
+        buffId: 'poison',
+        level: 1,
+        scalesWithDifficulty: true
+      }
+    ],
+    weapon: {
+      name: '毒箭',
+      maxDurability: 22,
+      durabilityCost: 0
+    }
+  },
+  elfSniper: {
+    name: '精灵狙击手',
+    role: 'ranged',
+    art: {
+      modelKey: 'unit.elfSniper',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Walk',
+        attack: 'Bow_Shot',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 1.02,
+          events: {
+            release: 0.56
+          }
+        },
+        hit: {
+          duration: 0.2
+        }
+      }
+    },
+    maxHealth: 22,
+    maxShield: 10,
+    statusHeight: 2.08,
+    projectileHitHeight: 1.7,
+    speed: 2.58,
+    attackRange: 10.8,
+    attackRate: 0.34,
+    damage: 9.5,
+    armor: 1,
+    magicResistance: 2,
+    dodgeChance: 0.08,
+    knockback: 1.8,
+    aggroRange: 18,
+    projectileSpeed: 20,
+    projectileType: 'arrow',
+    projectileColor: '#b7e8ff',
+    weapon: {
+      name: '长弓',
+      maxDurability: 26,
+      durabilityCost: 0
+    }
+  },
+  frostAcolyte: {
+    name: '寒霜学徒',
+    role: 'ranged',
+    art: {
+      modelKey: 'unit.frostAcolyte',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Walk',
+        attack: 'Staff_Cast',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.78,
+          events: {
+            release: 0.54
+          }
+        },
+        hit: {
+          duration: 0.2
+        }
+      }
+    },
+    maxHealth: 24,
+    maxShield: 12,
+    statusHeight: 2.24,
+    projectileHitHeight: 1.92,
+    speed: 2.28,
+    attackRange: 6.9,
+    attackRate: 0.32,
+    damage: 5,
+    attackDamageType: 'magic',
+    armor: 1,
+    magicResistance: 6,
+    dodgeChance: 0.03,
+    knockback: 0.7,
+    aggroRange: 13.2,
+    projectileSpeed: 9.2,
+    projectileType: 'iceShard',
+    projectileColor: '#9bdcff',
+    startingBuffs: [
+      {
+        buffId: 'frost',
+        level: 1,
+        scalesWithDifficulty: true
+      }
+    ],
+    weapon: {
+      name: '寒霜杖',
+      maxDurability: 20,
       durabilityCost: 0
     }
   },
@@ -1055,7 +1559,10 @@ export const UNIT_DEFINITIONS = {
     speed: 3.55,
     attackRange: 1.05,
     attackRate: 1.15,
-    damage: 3.8,
+    damage: 5.4,
+    armor: 0,
+    magicResistance: 1,
+    dodgeChance: 0.09,
     knockback: 1.8,
     aggroRange: 9.5,
     weapon: {
@@ -1107,8 +1614,12 @@ export const UNIT_DEFINITIONS = {
     speed: 2.05,
     attackRange: 1.35,
     attackRate: 0.55,
-    damage: 8.5,
+    damage: 10,
+    armor: 4,
+    magicResistance: 0,
+    dodgeChance: 0.01,
     knockback: 5.2,
+    knockbackResistance: 0.68,
     aggroRange: 10.5,
     weapon: {
       name: '巨掌',
@@ -1159,8 +1670,12 @@ export const UNIT_DEFINITIONS = {
     speed: 3.05,
     attackRange: 1.18,
     attackRate: 0.86,
-    damage: 3.4,
+    damage: 4.6,
+    armor: 3,
+    magicResistance: 1,
+    dodgeChance: 0.04,
     knockback: 1.65,
+    knockbackResistance: 0.28,
     aggroRange: 11.3,
     startingBuffs: [
       {
@@ -1205,7 +1720,10 @@ export const UNIT_DEFINITIONS = {
     speed: 3.3,
     attackRange: 1.04,
     attackRate: 1.05,
-    damage: 3.2,
+    damage: 4.8,
+    armor: 0,
+    magicResistance: 1,
+    dodgeChance: 0.08,
     knockback: 1.25,
     aggroRange: 10.6,
     weapon: {
@@ -1245,6 +1763,7 @@ export const UNIT_DEFINITIONS = {
     attackRange: 0,
     attackRate: 1,
     damage: 0,
+    dodgeChance: 0,
     knockback: 0,
     aggroRange: 0,
     weapon: {
@@ -1263,14 +1782,14 @@ export const BUFF_DEFINITIONS = {
     duration: 999,
     level: 1,
     burnSeconds: 3.4,
-    burnDamagePerSecondPerLevel: 2.4,
+    burnDamagePerSecondPerLevel: 2.8,
     effects: [
       {
         event: 'afterDamage',
         op: 'applyBuff',
         buffId: 'burning',
         duration: 3.4,
-        damagePerSecondPerLevel: 2.4,
+        damagePerSecondPerLevel: 2.8,
         vfx: 'fire'
       }
     ]
@@ -1284,7 +1803,7 @@ export const BUFF_DEFINITIONS = {
       {
         event: 'receiveDamage',
         op: 'reflectDamage',
-        amountPerLevel: 3.2,
+        amountPerLevel: 4,
         vfx: 'thorns'
       }
     ]
@@ -1299,7 +1818,7 @@ export const BUFF_DEFINITIONS = {
       {
         event: 'beforeDamage',
         op: 'reduceDamageFlat',
-        amountPerLevel: 0.5
+        amountPerLevel: 0.8
       }
     ]
   },
@@ -1328,8 +1847,8 @@ export const BUFF_DEFINITIONS = {
       {
         event: 'beforeDamage',
         op: 'absorbDamageWithDurability',
-        absorbPerDurability: 2,
-        absorbPerDurabilityPerLevel: 0.5,
+        absorbPerDurability: 2.2,
+        absorbPerDurabilityPerLevel: 0.55,
         vfx: 'block'
       }
     ]
@@ -1344,7 +1863,7 @@ export const BUFF_DEFINITIONS = {
       {
         stat: 'attackDamage',
         type: 'add',
-        amountPerLevel: 1
+        amountPerLevel: 1.5
       }
     ]
   },
@@ -1358,7 +1877,7 @@ export const BUFF_DEFINITIONS = {
       {
         event: 'afterDamage',
         op: 'explodeOnHit',
-        damagePerLevel: 2,
+        damagePerLevel: 3.2,
         radius: 2.65,
         knockback: 0.42,
         color: '#ffb45c'
@@ -1392,7 +1911,7 @@ export const BUFF_DEFINITIONS = {
       {
         event: 'tick',
         op: 'accumulateFocusedRange',
-        amountPerLevel: 0.1,
+        amountPerLevel: 0.2,
         color: '#b7e8ff'
       },
       {
@@ -1412,7 +1931,7 @@ export const BUFF_DEFINITIONS = {
       {
         event: 'receiveDamage',
         op: 'restoreHealthMissingChance',
-        amountPerLevel: 1,
+        amountPerLevel: 1.5,
         color: '#ffb66c'
       }
     ]
@@ -1478,8 +1997,8 @@ export const BUFF_DEFINITIONS = {
         op: 'applyBuff',
         buffId: 'drained',
         duration: 3,
-        damagePerSecondPerLevel: 1,
-        healPerSecondPerLevel: 1,
+        damagePerSecondPerLevel: 1.2,
+        healPerSecondPerLevel: 1.2,
         vfx: 'drain'
       }
     ]
@@ -1496,7 +2015,8 @@ export const BUFF_DEFINITIONS = {
         op: 'applyBuff',
         buffId: 'poisoned',
         duration: 3,
-        damagePerSecondPerLevel: 3,
+        maxHealthDamagePercentPerSecondBase: 0.012,
+        maxHealthDamagePercentPerSecondPerLevel: 0.008,
         vfx: 'poison'
       }
     ]
@@ -1513,7 +2033,7 @@ export const BUFF_DEFINITIONS = {
         op: 'applyBuff',
         buffId: 'bleeding',
         duration: 6,
-        damagePerSecondPerLevel: 0.8,
+        damagePerSecondPerLevel: 1.1,
         vfx: 'bleed'
       }
     ]
@@ -1529,9 +2049,171 @@ export const BUFF_DEFINITIONS = {
         event: 'afterDamage',
         op: 'applyBuff',
         buffId: 'cursed',
-        duration: 15,
-        damagePerSecondPerLevel: 2,
+        duration: 5,
+        damagePerSecondPerLevel: 2.4,
         vfx: 'curse'
+      }
+    ]
+  },
+  frost: {
+    name: '寒霜附加',
+    category: 'enchantment',
+    color: '#9bdcff',
+    duration: 999,
+    level: 1,
+    effects: [
+      {
+        event: 'afterDamage',
+        op: 'applyBuff',
+        buffId: 'chilled',
+        duration: 2.8
+      }
+    ]
+  },
+  waveSwarm: {
+    name: '虫群',
+    category: 'enchantment',
+    color: '#93c86f',
+    duration: 999,
+    level: 1,
+    modifiers: [
+      {
+        stat: 'maxHealth',
+        type: 'multiply',
+        factor: 0.92,
+        factorPerLevel: -0.02
+      },
+      {
+        stat: 'attackDamage',
+        type: 'multiply',
+        factor: 0.97,
+        factorPerLevel: -0.015
+      },
+      {
+        stat: 'attackRate',
+        type: 'multiply',
+        factor: 1.06,
+        factorPerLevel: 0.03
+      },
+      {
+        stat: 'moveSpeed',
+        type: 'multiply',
+        factor: 1.02,
+        factorPerLevel: 0.02
+      }
+    ]
+  },
+  waveArmored: {
+    name: '重甲',
+    category: 'enchantment',
+    color: '#9fb1c1',
+    duration: 999,
+    level: 1,
+    modifiers: [
+      {
+        stat: 'maxHealth',
+        type: 'multiply',
+        factor: 1.1,
+        factorPerLevel: 0.025
+      },
+      {
+        stat: 'maxShield',
+        type: 'multiply',
+        factor: 1.35,
+        factorPerLevel: 0.08
+      },
+      {
+        stat: 'armor',
+        type: 'add',
+        amount: 1.6,
+        amountPerLevel: 0.45
+      },
+      {
+        stat: 'knockbackResistance',
+        type: 'add',
+        amount: 0.16,
+        amountPerLevel: 0.035
+      }
+    ]
+  },
+  waveRush: {
+    name: '冲锋',
+    category: 'enchantment',
+    color: '#ffd166',
+    duration: 999,
+    level: 1,
+    modifiers: [
+      {
+        stat: 'moveSpeed',
+        type: 'multiply',
+        factor: 1.2,
+        factorPerLevel: 0.04
+      },
+      {
+        stat: 'attackRate',
+        type: 'multiply',
+        factor: 1.06,
+        factorPerLevel: 0.025
+      }
+    ]
+  },
+  waveRanged: {
+    name: '远射',
+    category: 'enchantment',
+    color: '#b7e8ff',
+    duration: 999,
+    level: 1,
+    modifiers: [
+      {
+        stat: 'attackRange',
+        type: 'add',
+        amount: 0.55,
+        amountPerLevel: 0.18
+      },
+      {
+        stat: 'projectileSpeed',
+        type: 'multiply',
+        factor: 1.06,
+        factorPerLevel: 0.03
+      },
+      {
+        stat: 'attackDamage',
+        type: 'multiply',
+        factor: 1.03,
+        factorPerLevel: 0.02
+      }
+    ]
+  },
+  waveSiege: {
+    name: '攻城',
+    category: 'enchantment',
+    color: '#ffb45c',
+    duration: 999,
+    level: 1,
+    modifiers: [
+      {
+        stat: 'maxHealth',
+        type: 'multiply',
+        factor: 1.08,
+        factorPerLevel: 0.025
+      },
+      {
+        stat: 'attackDamage',
+        type: 'multiply',
+        factor: 1.14,
+        factorPerLevel: 0.04
+      },
+      {
+        stat: 'knockback',
+        type: 'multiply',
+        factor: 1.06,
+        factorPerLevel: 0.03
+      },
+      {
+        stat: 'knockbackResistance',
+        type: 'add',
+        amount: 0.08,
+        amountPerLevel: 0.02
       }
     ]
   },
@@ -1546,7 +2228,7 @@ export const BUFF_DEFINITIONS = {
       {
         event: 'tick',
         op: 'restoreHealth',
-        amountPerLevel: 0.25
+        amountPerLevel: 0.35
       }
     ]
   },
@@ -1561,14 +2243,14 @@ export const BUFF_DEFINITIONS = {
       {
         stat: 'maxShield',
         type: 'add',
-        amountPerLevel: 0.5
+        amountPerLevel: 0.8
       }
     ],
     effects: [
       {
         event: 'tick',
         op: 'restoreShield',
-        amountPerLevel: 0.15
+        amountPerLevel: 0.22
       }
     ]
   },
@@ -1582,7 +2264,7 @@ export const BUFF_DEFINITIONS = {
       {
         stat: 'attackDamage',
         type: 'add',
-        nearbyAllyAmountPerLevel: 1,
+        nearbyAllyAmountPerLevel: 1.2,
         radius: 6
       }
     ]
@@ -1612,7 +2294,7 @@ export const BUFF_DEFINITIONS = {
     color: '#ff823d',
     duration: 3.4,
     tickInterval: 0.45,
-    damagePerSecond: 2.4,
+    damagePerSecond: 2.8,
     hidden: true,
     negative: true,
     effects: [
@@ -1629,7 +2311,7 @@ export const BUFF_DEFINITIONS = {
     color: '#78b85a',
     duration: 3,
     tickInterval: 1,
-    damagePerSecond: 3,
+    maxHealthDamagePercentPerSecond: 0.02,
     hidden: true,
     negative: true,
     effects: [
@@ -1660,8 +2342,8 @@ export const BUFF_DEFINITIONS = {
     color: '#7fd8b0',
     duration: 3,
     tickInterval: 1,
-    damagePerSecond: 1,
-    healPerSecond: 1,
+    damagePerSecond: 1.2,
+    healPerSecond: 1.2,
     hidden: true,
     negative: true,
     effects: [
@@ -1679,7 +2361,7 @@ export const BUFF_DEFINITIONS = {
     color: '#b54848',
     duration: 6,
     tickInterval: 1,
-    damagePerSecond: 0.8,
+    damagePerSecond: 1.1,
     hidden: true,
     negative: true,
     effects: [
@@ -1694,9 +2376,9 @@ export const BUFF_DEFINITIONS = {
     name: '诅咒',
     category: 'status',
     color: '#9f6bff',
-    duration: 15,
+    duration: 5,
     tickInterval: 1,
-    damagePerSecond: 2,
+    damagePerSecond: 2.4,
     hidden: true,
     negative: true,
     effects: [
@@ -1704,6 +2386,26 @@ export const BUFF_DEFINITIONS = {
         event: 'tick',
         op: 'damageOverTime',
         vfx: 'curse'
+      }
+    ]
+  },
+  chilled: {
+    name: '寒冷',
+    category: 'status',
+    color: '#9bdcff',
+    duration: 2.8,
+    hidden: true,
+    negative: true,
+    modifiers: [
+      {
+        stat: 'moveSpeed',
+        type: 'multiply',
+        amount: 0.78
+      },
+      {
+        stat: 'attackRate',
+        type: 'multiply',
+        amount: 0.9
       }
     ]
   }
@@ -1729,10 +2431,22 @@ export const ENCHANTMENTS = {
   recovery: BUFF_DEFINITIONS.recovery,
   spiritShield: BUFF_DEFINITIONS.spiritShield,
   wolfInstinct: BUFF_DEFINITIONS.wolfInstinct,
-  ursineSpirit: BUFF_DEFINITIONS.ursineSpirit
+  ursineSpirit: BUFF_DEFINITIONS.ursineSpirit,
+  waveSwarm: BUFF_DEFINITIONS.waveSwarm,
+  waveArmored: BUFF_DEFINITIONS.waveArmored,
+  waveRush: BUFF_DEFINITIONS.waveRush,
+  waveRanged: BUFF_DEFINITIONS.waveRanged,
+  waveSiege: BUFF_DEFINITIONS.waveSiege
 };
 
 export const PLAYER_ABILITY_DEFINITIONS = {
+  summonUseBonus: {
+    id: 'summonUseBonus',
+    name: '军团扩编',
+    label: '编',
+    color: '#8fdc9b',
+    summary: '单位卡获得额外使用次数'
+  },
   exhaustEnergy: {
     id: 'exhaustEnergy',
     name: '回收术',
@@ -1783,6 +2497,33 @@ export const PLAYER_ABILITY_DEFINITIONS = {
     summary: '胜利后获得更多金币'
   }
 };
+
+export const WAVE_MONSTER_TYPES = [
+  'enemyRaider',
+  'goblinSoldier',
+  'goblinArcher',
+  'goblinHunter',
+  'goblinShaman',
+  'goblinBomber',
+  'shieldBearer',
+  'venomArcher',
+  'elfSniper',
+  'frostAcolyte',
+  'goblinTroll',
+  'skeletonSoldier',
+  'skeletonArcher',
+  'wizard',
+  'scorpion',
+  'spider',
+  'ogre'
+];
+
+export const WAVE_BOSS_TYPES = [
+  'goblinTroll',
+  'ogre',
+  'scorpion',
+  'wizard'
+];
 
 export const CARD_DEFINITIONS = [
   {
@@ -2011,7 +2752,7 @@ export const CARD_DEFINITIONS = [
     kind: 'building',
     label: '修',
     artKey: 'repairStation',
-    summary: '消耗自身耐久，为周围单位恢复武器耐久',
+    summary: '消耗自身耐久，缓慢恢复周围单位武器耐久',
     target: 'ground',
     radius: 1.45,
     cooldown: 18,
@@ -2031,7 +2772,7 @@ export const CARD_DEFINITIONS = [
     kind: 'building',
     label: '食',
     artKey: 'canteen',
-    summary: '消耗自身耐久，为周围单位恢复 2 倍生命',
+    summary: '消耗自身耐久，缓慢治疗周围受伤单位',
     target: 'ground',
     radius: 1.55,
     cooldown: 18,
@@ -2117,6 +2858,7 @@ export const CARD_DEFINITIONS = [
     cooldown: 8.5,
     energyCost: 6,
     damage: 38,
+    defenseDamageType: 'magic',
     knockback: 7,
     effect: {
       type: 'cast-spell',
@@ -2130,9 +2872,9 @@ export const CARD_DEFINITIONS = [
     kind: 'spell',
     label: '毒',
     artKey: 'poisonFog',
-    summary: '10 秒毒雾，持续给区域内单位施加中毒',
+    summary: '10 秒毒雾，持续给区域内单位施加最大生命值中毒',
     target: 'ground',
-    radius: 3.35,
+    radius: 3.65,
     cooldown: 10.5,
     energyCost: 4,
     effect: {
@@ -2141,12 +2883,12 @@ export const CARD_DEFINITIONS = [
         kind: 'poisonFog',
         target: 'all',
         duration: 10,
-        radius: 3.35,
+        radius: 3.65,
         applyInterval: 0.45,
         buffId: 'poisoned',
-        buffDuration: 1.35,
-        damagePerSecondBase: 1.2,
-        damagePerSecondPerLevel: 1.2,
+        buffDuration: 1.8,
+        maxHealthDamagePercentPerSecondBase: 0.016,
+        maxHealthDamagePercentPerSecondPerLevel: 0.01,
         color: '#78b85a',
         accent: '#dff6a5'
       }
@@ -2223,7 +2965,7 @@ export const CARD_DEFINITIONS = [
     kind: 'tactic',
     label: '研',
     artKey: 'tacticUpgrade',
-    summary: '消耗。选择一张手牌，将其升级 1 次；升级后额外升级次数 +1',
+    summary: '消耗。选择一张手牌，本局同名卡临时升级 1 次；升级后额外升级次数 +1',
     target: 'hand-card',
     radius: 1,
     cooldown: 0,
@@ -2235,24 +2977,6 @@ export const CARD_DEFINITIONS = [
       amountPerLevel: 1
     },
     color: '#8a6fc4'
-  },
-  {
-    id: 'field-exhaust',
-    name: '战术裁撤',
-    kind: 'tactic',
-    label: '裁',
-    artKey: 'tacticExhaust',
-    summary: '选择一张手牌进行消耗；升级后会额外随机消耗手牌',
-    target: 'hand-card',
-    radius: 1,
-    cooldown: 0,
-    energyCost: 5,
-    effect: {
-      type: 'exhaust-hand-card',
-      amountBase: 1,
-      amountPerLevel: 1
-    },
-    color: '#9f6b70'
   },
   {
     id: 'exhaust-energy-ability',
@@ -2645,7 +3369,7 @@ export const CARD_DEFINITIONS = [
     kind: 'enchant',
     label: '毒',
     artKey: 'poison',
-    summary: '命中后造成持续毒伤',
+    summary: '命中后造成最大生命值百分比毒伤',
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 4,
@@ -2712,6 +3436,96 @@ export const CARD_DEFINITIONS = [
     color: '#8fb7dc'
   },
   {
+    id: 'swarm-enchant',
+    name: '虫群附魔',
+    kind: 'enchant',
+    label: '群',
+    artKey: 'waveSwarm',
+    summary: '生命和攻击略降，但移动与攻速提升',
+    target: 'friendly-unit',
+    radius: 1.1,
+    cooldown: 4,
+    energyCost: 2,
+    enchantmentId: 'waveSwarm',
+    effect: {
+      type: 'apply-buff',
+      buffId: 'waveSwarm'
+    },
+    color: '#93c86f'
+  },
+  {
+    id: 'armored-enchant',
+    name: '重甲附魔',
+    kind: 'enchant',
+    label: '甲',
+    artKey: 'waveArmored',
+    summary: '提高最大生命、护盾与护甲，适合前排',
+    target: 'friendly-unit',
+    radius: 1.1,
+    cooldown: 4,
+    energyCost: 4,
+    enchantmentId: 'waveArmored',
+    effect: {
+      type: 'apply-buff',
+      buffId: 'waveArmored'
+    },
+    color: '#9fb1c1'
+  },
+  {
+    id: 'rush-enchant',
+    name: '冲锋附魔',
+    kind: 'enchant',
+    label: '冲',
+    artKey: 'waveRush',
+    summary: '提高移动速度与攻击节奏',
+    target: 'friendly-unit',
+    radius: 1.1,
+    cooldown: 4,
+    energyCost: 3,
+    enchantmentId: 'waveRush',
+    effect: {
+      type: 'apply-buff',
+      buffId: 'waveRush'
+    },
+    color: '#ffd166'
+  },
+  {
+    id: 'ranged-enchant',
+    name: '远射附魔',
+    kind: 'enchant',
+    label: '远',
+    artKey: 'waveRanged',
+    summary: '提高射程、弹速与少量伤害',
+    target: 'friendly-unit',
+    radius: 1.1,
+    cooldown: 4,
+    energyCost: 3,
+    enchantmentId: 'waveRanged',
+    effect: {
+      type: 'apply-buff',
+      buffId: 'waveRanged'
+    },
+    color: '#b7e8ff'
+  },
+  {
+    id: 'siege-enchant',
+    name: '攻城附魔',
+    kind: 'enchant',
+    label: '城',
+    artKey: 'waveSiege',
+    summary: '提高伤害、击退和少量生命',
+    target: 'friendly-unit',
+    radius: 1.1,
+    cooldown: 4,
+    energyCost: 4,
+    enchantmentId: 'waveSiege',
+    effect: {
+      type: 'apply-buff',
+      buffId: 'waveSiege'
+    },
+    color: '#ffb45c'
+  },
+  {
     id: 'wolf-instinct-enchant',
     name: '狼性',
     kind: 'enchant',
@@ -2757,18 +3571,33 @@ export const STARTER_CARD_IDS = [
   'barbarians',
   'archers',
   'swordsmen',
+  'crossbowmen',
   'water-mages',
+  'rogues',
+  'knights',
+  'berserkers',
   'engineers',
   'physicians',
   'arrow-tower',
   'repair-station',
+  'canteen',
+  'beacon',
+  'purifiers',
+  'warders',
   'meteor',
   'poison-fog',
+  'white-smoke',
   'focus-energy',
-  'field-exhaust',
+  'burst-energy',
+  'field-upgrade',
   'exhaust-energy-ability',
+  'periodic-energy-ability',
   'fire-enchant',
-  'recovery-enchant'
+  'recovery-enchant',
+  'spirit-shield-enchant',
+  'power-enchant',
+  'toughness-enchant',
+  'protection-enchant'
 ];
 
 export const CARD_META = {
@@ -2812,6 +3641,26 @@ export const CARD_META = {
     initial: true,
     buyCost: 0,
     upgradeBaseCost: 28
+  },
+  'swarm-enchant': {
+    buyCost: 105,
+    upgradeBaseCost: 30
+  },
+  'armored-enchant': {
+    buyCost: 135,
+    upgradeBaseCost: 38
+  },
+  'rush-enchant': {
+    buyCost: 115,
+    upgradeBaseCost: 34
+  },
+  'ranged-enchant': {
+    buyCost: 125,
+    upgradeBaseCost: 36
+  },
+  'siege-enchant': {
+    buyCost: 145,
+    upgradeBaseCost: 42
   },
   swordsmen: {
     buyCost: 70,
@@ -2876,10 +3725,6 @@ export const CARD_META = {
   'field-upgrade': {
     buyCost: 180,
     upgradeBaseCost: 110
-  },
-  'field-exhaust': {
-    buyCost: 150,
-    upgradeBaseCost: 95
   },
   'exhaust-energy-ability': {
     buyCost: 150,
@@ -2981,10 +3826,12 @@ export const LEVEL_DEFINITIONS = [
     name: '雪原营地',
     subtitle: '教学关：在雪原中熟悉出兵、附魔和基地推进',
     baseDifficulty: 1,
+    waveDifficultyGrowth: 1,
     enemyPool: [
       { type: 'goblinSoldier', weight: 5, minWave: 1, minDifficulty: 1 },
       { type: 'spider', weight: 1, minWave: 2, minDifficulty: 1 },
-      { type: 'goblinArcher', weight: 2, minWave: 3, minDifficulty: 1 }
+      { type: 'goblinArcher', weight: 2, minWave: 3, minDifficulty: 1 },
+      { type: 'goblinHunter', weight: 1, minWave: 5, minDifficulty: 2 }
     ],
     enemyStrategy: {
       profile: 'snow-control',
@@ -3012,10 +3859,13 @@ export const LEVEL_DEFINITIONS = [
     name: '幽暗地牢',
     subtitle: '地牢关：多个石台由狭窄通路连接，争夺平台之间的推进路线',
     baseDifficulty: 2,
+    waveDifficultyGrowth: 1.08,
     enemyPool: [
       { type: 'goblinSoldier', weight: 5, minWave: 1, minDifficulty: 1 },
       { type: 'goblinArcher', weight: 3, minWave: 2, minDifficulty: 1 },
       { type: 'spider', weight: 1, minWave: 2, minDifficulty: 1 },
+      { type: 'goblinHunter', weight: 2, minWave: 4, minDifficulty: 1 },
+      { type: 'goblinShaman', weight: 1, minWave: 5, minDifficulty: 2 },
       { type: 'skeletonSoldier', weight: 2, minWave: 3, minDifficulty: 2 },
       { type: 'goblinTroll', weight: 1, minWave: 4, minDifficulty: 2 }
     ],
@@ -3045,12 +3895,16 @@ export const LEVEL_DEFINITIONS = [
     name: '赤岩沙漠',
     subtitle: '沙漠关：阳光会灼烧友军，利用巨岩阴影推进',
     baseDifficulty: 3,
+    waveDifficultyGrowth: 1.16,
     enemyPool: [
       { type: 'goblinSoldier', weight: 4, minWave: 1, minDifficulty: 1 },
       { type: 'goblinArcher', weight: 3, minWave: 2, minDifficulty: 1 },
       { type: 'skeletonSoldier', weight: 3, minWave: 2, minDifficulty: 1 },
       { type: 'spider', weight: 1, minWave: 2, minDifficulty: 1 },
+      { type: 'goblinHunter', weight: 2, minWave: 3, minDifficulty: 1 },
+      { type: 'goblinShaman', weight: 2, minWave: 4, minDifficulty: 1 },
       { type: 'skeletonArcher', weight: 2, minWave: 4, minDifficulty: 2 },
+      { type: 'elfSniper', weight: 1, minWave: 7, minDifficulty: 3 },
       { type: 'scorpion', weight: 2, minWave: 3, minDifficulty: 1 },
       { type: 'ogre', weight: 1, minWave: 5, minDifficulty: 2 }
     ],

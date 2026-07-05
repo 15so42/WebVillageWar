@@ -43,6 +43,11 @@ export class AreaEffectSystem {
       buffDuration: effect.buffDuration ?? Math.max(0.8, (effect.applyInterval ?? DEFAULT_APPLY_INTERVAL) * 2.5),
       damagePerSecondBase: effect.damagePerSecondBase,
       damagePerSecondPerLevel: effect.damagePerSecondPerLevel,
+      maxHealthDamagePercentPerSecondBase: effect.maxHealthDamagePercentPerSecondBase,
+      maxHealthDamagePercentPerSecondPerLevel: effect.maxHealthDamagePercentPerSecondPerLevel,
+      directDamagePerSecondBase: effect.directDamagePerSecondBase,
+      directDamagePerSecondPerLevel: effect.directDamagePerSecondPerLevel,
+      defenseDamageType: normalizeDefenseDamageType(effect.defenseDamageType ?? effect.damageType),
       visual
     };
     this.zones.push(zone);
@@ -73,8 +78,9 @@ export class AreaEffectSystem {
   }
 
   applyZone(zone) {
-    if (!zone.buffId) return;
     this.getTargets(zone).forEach((unit) => {
+      this.applyZoneDirectDamage(zone, unit);
+      if (!zone.buffId) return;
       const overrides = {
         sourceCard: zone.cardId,
         level: zone.level,
@@ -88,6 +94,14 @@ export class AreaEffectSystem {
       if (Number.isFinite(damagePerSecond)) {
         overrides.damagePerSecond = damagePerSecond;
       }
+      const maxHealthDamagePercentPerSecond = resolveLevelNumber(
+        zone.maxHealthDamagePercentPerSecondBase,
+        zone.maxHealthDamagePercentPerSecondPerLevel,
+        zone.level
+      );
+      if (Number.isFinite(maxHealthDamagePercentPerSecond)) {
+        overrides.maxHealthDamagePercentPerSecond = maxHealthDamagePercentPerSecond;
+      }
       const applied = this.game.buffs.applyBuff(unit, zone.buffId, null, overrides);
       if (applied && zone.kind === 'poisonFog' && Math.random() < 0.38) {
         this.game.effects.spawnPoisonParticles(unit, 1);
@@ -95,6 +109,23 @@ export class AreaEffectSystem {
       if (applied && zone.kind === 'whiteSmoke' && Math.random() < 0.24) {
         this.game.effects.spawnRing(unit.position, '#eef7ff', 0.42, 0.28);
       }
+    });
+  }
+
+  applyZoneDirectDamage(zone, unit) {
+    const damagePerSecond = resolveDirectDamagePerSecond(zone);
+    if (!Number.isFinite(damagePerSecond) || damagePerSecond <= 0) return;
+    const interval = Math.max(0.01, zone.applyInterval);
+    const damage = damagePerSecond * interval;
+    this.game.combat.applyDamage(unit, damage, null, 0, {
+      damage,
+      source: null,
+      target: unit,
+      defenseDamageType: zone.defenseDamageType ?? 'magic',
+      isAttack: false,
+      skipHitAnimation: true,
+      damageNumberHeight: unit.projectileHitHeight ?? 1.45,
+      damageNumberDuration: 0.58
     });
   }
 
@@ -211,4 +242,26 @@ function updateFogVisual(zone, dt) {
 function resolveLevelNumber(base, perLevel, level) {
   if (!Number.isFinite(base) && !Number.isFinite(perLevel)) return null;
   return (Number.isFinite(base) ? base : 0) + (Number.isFinite(perLevel) ? perLevel : 0) * level;
+}
+
+function resolveDirectDamagePerSecond(zone) {
+  if (
+    Number.isFinite(zone.directDamagePerSecondBase) ||
+    Number.isFinite(zone.directDamagePerSecondPerLevel)
+  ) {
+    return resolveLevelNumber(
+      zone.directDamagePerSecondBase,
+      zone.directDamagePerSecondPerLevel,
+      zone.level
+    );
+  }
+  if (!zone.buffId) {
+    return resolveLevelNumber(zone.damagePerSecondBase, zone.damagePerSecondPerLevel, zone.level);
+  }
+  return null;
+}
+
+function normalizeDefenseDamageType(type) {
+  if (type === 'physical' || type === 'magic') return type;
+  return null;
 }
