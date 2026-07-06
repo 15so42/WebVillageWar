@@ -550,6 +550,7 @@ export class Game {
     });
 
     this.world = createWorld(this.scene, this.worldConfig);
+    this.applyInitialCameraConfig();
     this.navDebugEnabled = initialNavDebugEnabled();
     this.perfDebugEnabled = initialPerfDebugEnabled();
     this.perfJsonEnabled = initialPerfJsonEnabled();
@@ -1650,6 +1651,35 @@ export class Game {
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height, false);
+  }
+
+  applyInitialCameraConfig() {
+    const config = this.world?.config?.camera;
+    if (!config) return;
+    if (config.target) {
+      this.cameraTarget.set(
+        config.target.x ?? this.cameraTarget.x,
+        config.target.y ?? this.cameraTarget.y,
+        config.target.z ?? this.cameraTarget.z
+      );
+    }
+    if (config.offsetDirection) {
+      this.cameraOffsetDirection.set(
+        config.offsetDirection.x ?? this.cameraOffsetDirection.x,
+        config.offsetDirection.y ?? this.cameraOffsetDirection.y,
+        config.offsetDirection.z ?? this.cameraOffsetDirection.z
+      ).normalize();
+    }
+    if (Number.isFinite(config.distance)) {
+      this.cameraDistance = config.distance;
+    }
+    if (Number.isFinite(config.minDistance)) {
+      this.cameraMinDistance = config.minDistance;
+    }
+    if (Number.isFinite(config.maxDistance)) {
+      this.cameraMaxDistance = config.maxDistance;
+    }
+    this.updateCamera(0);
   }
 
   updateCamera(dt) {

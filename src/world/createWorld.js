@@ -137,11 +137,198 @@ const WORLD_PRESETS = {
       forest: '#b7c8b8',
       high: '#c6c7bf',
       snow: '#f1f4e8',
-      path: '#d9d8c8',
+      path: '#d7dccf',
       puddle: '#9bc7d1'
     },
-    terrain: DEFAULT_TERRAIN_PROFILE
-    ,
+    ground: {
+      width: 344,
+      depth: 264
+    },
+    navigationBounds: {
+      minX: -50,
+      maxX: 50,
+      minZ: -42,
+      maxZ: 42
+    },
+    pathWidth: 3.9,
+    pathPoints: [
+      { x: 0, z: 30 },
+      { x: 6, z: 25 },
+      { x: 16, z: 19 },
+      { x: 16, z: 12 },
+      { x: 7, z: 6 },
+      { x: -4, z: 0 },
+      { x: -3, z: -8 },
+      { x: 8, z: -15 },
+      { x: 19, z: -21 },
+      { x: 14, z: -27 },
+      { x: 4, z: -31 },
+      { x: 0, z: -30 }
+    ],
+    puddles: [
+      { x: -14, z: 9, rx: 4.8, rz: 2.3, rot: -0.18 },
+      { x: 17, z: 7, rx: 5.6, rz: 2.15, rot: -0.44 },
+      { x: -17, z: 25, rx: 4.2, rz: 1.65, rot: 0.2 },
+      { x: 29, z: -18, rx: 3.1, rz: 1.25, rot: 0.38 }
+    ],
+    iceFloes: [
+      { x: -56, z: 23, rx: 6.8, rz: 2.1, rot: -0.18, irregularity: 0.16 },
+      { x: -51, z: -18, rx: 5.4, rz: 1.7, rot: 0.34, irregularity: 0.2 },
+      { x: 57, z: 8, rx: 6.2, rz: 1.9, rot: 0.12, irregularity: 0.18 },
+      { x: 52, z: -27, rx: 5.2, rz: 1.55, rot: -0.36, irregularity: 0.18 },
+      { x: -28, z: 50, rx: 6.1, rz: 1.85, rot: 0.42, irregularity: 0.18 },
+      { x: 26, z: 50, rx: 6.6, rz: 1.9, rot: -0.24, irregularity: 0.16 }
+    ],
+    altars: [
+      { id: 'energy-altar-west', type: 'energy', position: { x: -31, z: 14 }, rotation: -0.38, clearingRadius: 6.5 },
+      { id: 'shield-altar-east', type: 'shield', position: { x: 28, z: -7 }, rotation: 0.46, clearingRadius: 6.5 },
+      { id: 'respite-altar-northwest', type: 'respite', position: { x: -17, z: -6 }, rotation: 0.16, clearingRadius: 6.2 }
+    ],
+    wildlife: [
+      { type: 'wolf', x: 31, z: -16, radius: 5.4 },
+      { type: 'wolf', x: 37, z: -5, radius: 5.2 },
+      { type: 'bear', x: -34, z: 6, radius: 6.2 },
+      { type: 'wolf', x: -39, z: 18, radius: 5.4 },
+      { type: 'bear', x: 33, z: 21, radius: 6.1 },
+      { type: 'wolf', x: -27, z: -28, radius: 5.3 }
+    ],
+    clearings: [
+      { x: 0, z: 30, r: 12.2 },
+      { x: 9, z: 18, r: 8.8 },
+      { x: 0, z: 1, r: 9.2 },
+      { x: 18, z: -15, r: 8.4 },
+      { x: -25, z: -34, r: 10.2 },
+      { x: 0, z: -30, r: 9.6 }
+    ],
+    forestZones: [
+      { x: -32, z: 8, rx: 16, rz: 19, count: 148, tone: 'deep' },
+      { x: -34, z: 24, rx: 14, rz: 11, count: 78, tone: 'deep' },
+      { x: 34, z: -8, rx: 13, rz: 22, count: 132, tone: 'cool' },
+      { x: 31, z: 23, rx: 14, rz: 12, count: 82, tone: 'warm' },
+      { x: 36, z: 33, rx: 11, rz: 7, count: 42, tone: 'cool' },
+      { x: -19, z: -35, rx: 18, rz: 7, count: 56, tone: 'snow' },
+      { x: 17, z: -36, rx: 17, rz: 7, count: 48, tone: 'snow' }
+    ],
+    deadGrassFields: [
+      { x: -11, z: 19, rx: 9.5, rz: 4.8, count: 20, rot: -0.18 },
+      { x: 12, z: 11, rx: 9, rz: 5, count: 18, rot: 0.28 },
+      { x: -20, z: 1, rx: 8, rz: 5.6, count: 18, rot: 0.12 },
+      { x: 23, z: -2, rx: 8.2, rz: 5.4, count: 18, rot: -0.34 },
+      { x: -25, z: -24, rx: 9.5, rz: 5, count: 20, rot: 0.18 },
+      { x: 28, z: -23, rx: 7.2, rz: 4.2, count: 14, rot: -0.3 },
+      { x: 5, z: 31, rx: 12, rz: 4.2, count: 18, rot: 0.08 },
+      { x: -38, z: 30, rx: 7.2, rz: 4, count: 14, rot: -0.24 },
+      { x: 38, z: 15, rx: 7.6, rz: 4.8, count: 16, rot: 0.2 },
+      { x: 35, z: -34, rx: 7.8, rz: 3.8, count: 12, rot: -0.1 }
+    ],
+    forestPassages: [
+      [new THREE.Vector3(-43, 0, 32), new THREE.Vector3(-24, 0, 28), new THREE.Vector3(-10, 0, 20), new THREE.Vector3(8, 0, 12)],
+      [new THREE.Vector3(43, 0, 26), new THREE.Vector3(30, 0, 18), new THREE.Vector3(20, 0, 9), new THREE.Vector3(9, 0, 1)],
+      [new THREE.Vector3(-44, 0, -21), new THREE.Vector3(-29, 0, -26), new THREE.Vector3(-14, 0, -31), new THREE.Vector3(2, 0, -31)],
+      [new THREE.Vector3(45, 0, -26), new THREE.Vector3(29, 0, -25), new THREE.Vector3(18, 0, -21), new THREE.Vector3(7, 0, -15)]
+    ],
+    boulderClusters: [
+      { x: -44, z: 10, rx: 4.6, rz: 18, count: 13, sizeMin: 1.55, sizeMax: 3.2 },
+      { x: 42, z: 25, rx: 6, rz: 13, count: 16, sizeMin: 1.7, sizeMax: 3.7 },
+      { x: 45, z: -18, rx: 4.5, rz: 16, count: 13, sizeMin: 1.55, sizeMax: 3.05 },
+      { x: -27, z: -41, rx: 15, rz: 3.6, count: 10, sizeMin: 1.45, sizeMax: 2.8 },
+      { x: 20, z: -42, rx: 18, rz: 3.4, count: 9, sizeMin: 1.45, sizeMax: 2.85 },
+      { x: 9, z: 39, rx: 24, rz: 3.6, count: 14, sizeMin: 1.35, sizeMax: 3.15 }
+    ],
+    landmarkBoulders: [
+      { x: -21, z: 11, size: 3.1, sx: 1.3, sy: 0.88, sz: 0.96, rot: 0.42 },
+      { x: 23, z: 10, size: 3, sx: 1.12, sy: 0.92, sz: 1.16, rot: -0.55 },
+      { x: -12, z: 23, size: 2.65, sx: 1.24, sy: 0.88, sz: 0.94, rot: 0.82 },
+      { x: 35, z: -26, size: 2.6, sx: 1.08, sy: 0.78, sz: 1.24, rot: -0.22 },
+      { x: -35, z: -29, size: 2.5, sx: 1.16, sy: 0.84, sz: 1.02, rot: 0.2 }
+    ],
+    cottages: [
+      { x: -35.5, z: -33.8, rot: 0.52, scale: 0.92, roof: '#b64a3d' },
+      { x: -29.4, z: -38.2, rot: -0.18, scale: 0.86, roof: '#a84f39' },
+      { x: -23.2, z: -35.4, rot: 0.76, scale: 0.82, wall: '#a77750', roof: '#744230' },
+      { x: -16.2, z: -38.6, rot: -0.62, scale: 0.76, wall: '#a77750', roof: '#744230' },
+      { x: -10.2, z: -34.8, rot: 0.36, scale: 0.7, wall: '#9f6b45', roof: '#6f3d31' },
+      { x: -3.5, z: -38.2, rot: -0.78, scale: 0.66, wall: '#9f6b45', roof: '#6f3d31' },
+      { x: 12.4, z: 34.5, rot: -0.64, scale: 0.76, wall: '#9f6b45', roof: '#6f3d31' },
+      { x: 31.4, z: 28.4, rot: -0.48, scale: 0.68, wall: '#9f6b45', roof: '#6f3d31' }
+    ],
+    landmass: {
+      waterHeight: -1.28,
+      oceanColor: '#4e9fb4',
+      shoreInner: 0.72,
+      shoreOuter: 1.08,
+      lobes: [
+        { x: -2, z: -1, rx: 41, rz: 34, rot: -0.12, irregularity: 0.16 },
+        { x: -31, z: 8, rx: 23, rz: 24, rot: 0.24, irregularity: 0.2 },
+        { x: -31, z: 27, rx: 24, rz: 15, rot: -0.12, irregularity: 0.18 },
+        { x: 31, z: 21, rx: 22, rz: 18, rot: -0.24, irregularity: 0.2 },
+        { x: 35, z: -8, rx: 17, rz: 28, rot: -0.1, irregularity: 0.18 },
+        { x: -24, z: -34, rx: 28, rz: 13, rot: -0.12, irregularity: 0.14 },
+        { x: 16, z: -36, rx: 31, rz: 11, rot: 0.08, irregularity: 0.12 },
+        { x: 4, z: 38, rx: 34, rz: 10, rot: 0.06, irregularity: 0.12 }
+      ],
+      bays: [
+        { x: -48, z: 34, rx: 14, rz: 9, rot: -0.16, carve: 0.82 },
+        { x: -52, z: -11, rx: 13, rz: 15, rot: 0.22, carve: 0.86 },
+        { x: -3, z: 47, rx: 20, rz: 8, rot: 0.06, carve: 0.72 },
+        { x: 43, z: 35, rx: 13, rz: 9, rot: 0.12, carve: 0.66 },
+        { x: 51, z: 8, rx: 13, rz: 17, rot: -0.2, carve: 0.88 },
+        { x: 47, z: -31, rx: 14, rz: 9, rot: -0.34, carve: 0.78 },
+        { x: 3, z: -47, rx: 21, rz: 8, rot: -0.04, carve: 0.64 }
+      ]
+    },
+    terrain: {
+      ...DEFAULT_TERRAIN_PROFILE,
+      roughnessScale: 0.72,
+      northRise: 1.72,
+      sideRise: 0.74,
+      sideNorthRise: 2.25,
+      valleyFloorBase: 0.28,
+      valleyNorthRise: 1.06,
+      valleySideRise: 0.25,
+      campTerrace: 2.45,
+      campTerraceOutward: 0.54,
+      waterHeight: -1.28,
+      coastRimHeight: 0.58,
+      snowCenter: { x: 8, z: -32 },
+      hills: [
+        { x: -31, z: 9, rx: 22, rz: 27, height: 2.2 },
+        { x: 33, z: -8, rx: 19, rz: 31, height: 2.95 },
+        { x: 31, z: 25, rx: 18, rz: 18, height: 3.25 },
+        { x: -24, z: -34, rx: 23, rz: 12, height: 2.45 },
+        { x: 16, z: -36, rx: 25, rz: 11, height: 2.15 },
+        { x: -18, z: 27, rx: 18, rz: 13, height: 1.4 }
+      ],
+      ridges: [
+        { x: 41, z: 25, rx: 7, rz: 16, height: 4.1 },
+        { x: 45, z: -13, rx: 7, rz: 29, height: 2.9 },
+        { x: -44, z: 3, rx: 7, rz: 33, height: 2.25 },
+        { x: -25, z: -42, rx: 22, rz: 7, height: 3.6 },
+        { x: 20, z: -43, rx: 27, rz: 7, height: 4.25 },
+        { x: 3, z: 41, rx: 31, rz: 5, height: 2.8 }
+      ]
+    },
+    mountainRidge: [],
+    snowPeaks: [],
+    backdropRocks: [
+      { x: -37, z: -41.5, size: 4.1, sx: 1.45, sy: 0.7, sz: 0.92, rot: -0.32, color: '#74848a' },
+      { x: -29, z: -43.2, size: 5.8, sx: 1.28, sy: 0.95, sz: 1.08, rot: 0.14, color: '#6d7d84' },
+      { x: -19, z: -41.6, size: 4.7, sx: 1.42, sy: 0.78, sz: 0.96, rot: -0.08, color: '#849097' },
+      { x: -8, z: -43.4, size: 4.4, sx: 1.22, sy: 0.76, sz: 1.14, rot: 0.38, color: '#75838a' },
+      { x: 11, z: -42.2, size: 5.2, sx: 1.36, sy: 0.86, sz: 1.06, rot: -0.2, color: '#7a878d' },
+      { x: 24, z: -43, size: 4.8, sx: 1.32, sy: 0.8, sz: 1.1, rot: 0.22, color: '#879096' },
+      { x: 35, z: -40.8, size: 3.9, sx: 1.22, sy: 0.68, sz: 0.94, rot: -0.38, color: '#6f7e85' },
+      { x: -13, z: -36.8, size: 2.55, sx: 1.22, sy: 0.62, sz: 0.9, rot: 0.24, color: '#8a9498' },
+      { x: 19, z: -37.4, size: 2.8, sx: 1.18, sy: 0.58, sz: 1.0, rot: -0.16, color: '#7f8a90' }
+    ],
+    monsterCamp: { x: 5, z: -35, rot: -0.36, scale: 1.2 },
+    camera: {
+      target: { x: 2, y: 4, z: 5 },
+      offsetDirection: { x: 0, y: 42, z: 48 },
+      distance: 60,
+      minDistance: 16,
+      maxDistance: 88
+    },
     snowfall: {
       seed: 309,
       countScale: 1,
@@ -658,6 +845,7 @@ export function createWorld(scene, worldOptions = {}) {
     createSky(scene);
     createMountainRidge(scene);
     createSnowMountain(scene);
+    createSnowBackdropRocks(scene);
   }
   if (theme === 'dungeon') {
     createDungeonPath(scene, pathPoints);
@@ -666,6 +854,7 @@ export function createWorld(scene, worldOptions = {}) {
   }
   if (theme === 'snow') {
     createPuddles(scene);
+    createShoreIceFloes(scene);
   }
   const snowfall = createSnowfall(scene);
 
@@ -851,6 +1040,15 @@ export function terrainHeightAt(x, z) {
     smoothstep(0, terrain.campShelfOuter, campDistance) * terrain.campTerraceOutward;
   height = mix(height, campTerrace, campShelf * 0.78);
 
+  if (config.landmass) {
+    const landMask = landmassMaskAt(x, z);
+    const coastRim = smoothstep(0.48, 0.82, landMask) *
+      (1 - smoothstep(0.82, 1, landMask)) *
+      (terrain.coastRimHeight ?? 0.48);
+    const waterHeight = config.landmass.waterHeight ?? terrain.waterHeight ?? -1.2;
+    return mix(waterHeight, height + coastRim, smoothstep(0.38, 0.94, landMask));
+  }
+
   return Math.max(0, height);
 }
 
@@ -977,6 +1175,7 @@ function terrainColorAt(x, z, height) {
   const valleyMask = 1 - smoothstep(7, 22, pathDistance);
   const forestFloor = forestFloorMask(x, z);
   const facet = hash2(x * 0.14, z * 0.14) - 0.5;
+  const landMask = landmassMaskAt(x, z);
 
   color.lerp(new THREE.Color(palette.side), sideRise * 0.28);
   color.lerp(new THREE.Color(palette.north), northMask * 0.22);
@@ -984,6 +1183,11 @@ function terrainColorAt(x, z, height) {
   color.lerp(new THREE.Color(palette.forest), forestFloor * 0.18);
   color.lerp(new THREE.Color(palette.high), smoothstep(4.8, 8.8, height) * 0.24);
   color.lerp(new THREE.Color(palette.snow), 0.48 + snowMask * 0.38);
+  if (worldConfig().landmass) {
+    const water = new THREE.Color(worldConfig().landmass.oceanColor ?? '#2b6b8c');
+    const coastBlend = 1 - smoothstep(0.54, 0.96, landMask);
+    color.lerp(water, coastBlend);
+  }
   color.offsetHSL(0, 0.006 * facet, 0.018 * facet);
   return color;
 }
@@ -1448,13 +1652,12 @@ function pathVectors() {
 
 function createNavigationGrid() {
   const config = worldConfig();
-  const halfWidth = (config.ground.width ?? 84) * 0.5;
-  const halfDepth = (config.ground.depth ?? 84) * 0.5;
+  const bounds = worldNavigationBounds(config);
   return new NavigationGrid({
-    minX: -halfWidth,
-    maxX: halfWidth,
-    minZ: -halfDepth,
-    maxZ: halfDepth,
+    minX: bounds.minX,
+    maxX: bounds.maxX,
+    minZ: bounds.minZ,
+    maxZ: bounds.maxZ,
     cellSize: config.navigationStep ?? config.dungeonNavigationStep ?? (
       config.theme === 'dungeon' ? DUNGEON_NAV_MESH_STEP : WORLD_NAV_MESH_STEP
     ),
@@ -1471,10 +1674,37 @@ function isWorldNavigationWalkableAt(x, z) {
       !isInsideWorldNavigationBlocker(x, z);
   }
 
-  const halfWidth = (config.ground.width ?? BALANCE.world.ground.width) * 0.5 - WORLD_NAV_EDGE_MARGIN;
-  const halfDepth = (config.ground.depth ?? BALANCE.world.ground.depth) * 0.5 - WORLD_NAV_EDGE_MARGIN;
-  if (x < -halfWidth || x > halfWidth || z < -halfDepth || z > halfDepth) return false;
+  const bounds = worldNavigationBounds(config);
+  if (
+    x < bounds.minX + WORLD_NAV_EDGE_MARGIN ||
+    x > bounds.maxX - WORLD_NAV_EDGE_MARGIN ||
+    z < bounds.minZ + WORLD_NAV_EDGE_MARGIN ||
+    z > bounds.maxZ - WORLD_NAV_EDGE_MARGIN
+  ) return false;
+  if (config.landmass && landmassMaskAt(x, z) < 0.5) return false;
   return !isInsideWorldNavigationBlocker(x, z);
+}
+
+function worldNavigationBounds(config = worldConfig()) {
+  const bounds = config.navigationBounds;
+  if (bounds) {
+    const halfWidth = bounds.halfWidth ?? (config.ground.width ?? BALANCE.world.ground.width) * 0.5;
+    const halfDepth = bounds.halfDepth ?? (config.ground.depth ?? BALANCE.world.ground.depth) * 0.5;
+    return {
+      minX: bounds.minX ?? -halfWidth,
+      maxX: bounds.maxX ?? halfWidth,
+      minZ: bounds.minZ ?? -halfDepth,
+      maxZ: bounds.maxZ ?? halfDepth
+    };
+  }
+  const halfWidth = (config.ground.width ?? BALANCE.world.ground.width) * 0.5;
+  const halfDepth = (config.ground.depth ?? BALANCE.world.ground.depth) * 0.5;
+  return {
+    minX: -halfWidth,
+    maxX: halfWidth,
+    minZ: -halfDepth,
+    maxZ: halfDepth
+  };
 }
 
 function canTraverseWorldNavigation(start, end) {
@@ -1804,6 +2034,24 @@ function createPuddles(scene) {
   worldConfig().puddles.forEach((puddle, index) => {
     const mesh = createPuddleMesh(puddle, material);
     mesh.renderOrder = 3 + index;
+    scene.add(mesh);
+  });
+}
+
+function createShoreIceFloes(scene) {
+  const floes = worldConfig().iceFloes ?? [];
+  if (!floes.length) return;
+  const material = overlayMat(worldConfig().palette.snow, {
+    roughness: 0.86,
+    metalness: 0.02,
+    transparent: true,
+    opacity: 0.86,
+    depthWrite: false,
+    side: THREE.DoubleSide
+  });
+  floes.forEach((floe, index) => {
+    const mesh = createTerrainEllipseMesh(floe, material, 0.09, 16);
+    mesh.renderOrder = 3 + index * 0.01;
     scene.add(mesh);
   });
 }
@@ -2147,6 +2395,27 @@ function createSnowMountain(scene) {
   });
 }
 
+function createSnowBackdropRocks(scene) {
+  (worldConfig().backdropRocks ?? []).forEach((item) => {
+    const rock = createRock(item.size ?? 3.6, {
+      color: item.color ?? '#7b878c',
+      snowCap: true,
+      snowColor: item.snowColor ?? '#f0f4ea'
+    });
+    rock.scale.set(item.sx ?? 1, item.sy ?? 1, item.sz ?? 1);
+    rock.rotation.y = item.rot ?? 0;
+    placeOnTerrain(rock, item.x, item.z, item.offset ?? -0.12);
+    enableDecorationShadows(rock);
+    createBakedGroundShadow(scene, item.x, item.z, {
+      rx: (item.size ?? 3.6) * (item.sx ?? 1) * 0.82,
+      rz: (item.size ?? 3.6) * (item.sz ?? 1) * 0.52,
+      opacity: 0.18,
+      yaw: item.rot ?? 0
+    });
+    scene.add(rock);
+  });
+}
+
 function decorate(scene, pathPoints) {
   const random = seededRandom(worldConfig().seed ?? 42);
   placeCottages(scene);
@@ -2156,6 +2425,7 @@ function decorate(scene, pathPoints) {
   placeLandmarkBoulders(scene, pathPoints);
   placeBushes(scene, pathPoints, random);
   placeGrass(scene, pathPoints, random);
+  placeSnowDeadGrass(scene, pathPoints, random);
 }
 
 function createDungeonDecor(scene, pathPoints) {
@@ -3066,6 +3336,78 @@ function placeGrass(scene, pathPoints, random) {
   });
 }
 
+function placeSnowDeadGrass(scene, pathPoints, random) {
+  const colors = ['#c6bea0', '#b4aa86', '#d6d1bb', '#aaa17e'];
+  const fields = worldConfig().deadGrassFields ?? [
+    { x: -24, z: 13, rx: 8, rz: 5, count: 16 },
+    { x: 23, z: 1, rx: 8, rz: 5, count: 16 },
+    { x: -21, z: -23, rx: 8, rz: 4.5, count: 16 },
+    { x: 21, z: -23, rx: 8, rz: 4.5, count: 16 }
+  ];
+
+  fields.forEach((field) => {
+    for (let i = 0; i < field.count; i += 1) {
+      const { x, z } = randomPointInEllipse(field, random);
+      if (!isSnowDeadGrassClear(x, z, pathPoints, field.clearance ?? 1.05)) continue;
+      if (distanceToPath(x, z, pathPoints) < 2.6 && random() > 0.42) continue;
+      if (terrainHeightAt(x, z) > 6.4 && random() > 0.24) continue;
+
+      const size = 0.24 + random() * 0.34;
+      const grass = createSnowDeadGrassTuft(
+        size,
+        colors[Math.floor(random() * colors.length)],
+        random
+      );
+      placeOnTerrain(grass, x, z, 0.12);
+      grass.rotation.y = random() * Math.PI * 2;
+      createBakedGroundShadow(scene, x, z, {
+        rx: 0.22 + size * 0.34,
+        rz: 0.12 + size * 0.2,
+        opacity: 0.09,
+        yaw: grass.rotation.y
+      });
+      scene.add(grass);
+    }
+  });
+}
+
+function createSnowDeadGrassTuft(size, color, random) {
+  const group = createGrassTuft(size, color);
+  const snowMaterial = mat('#edf3e9', { roughness: 0.92 });
+  const capCount = random() > 0.58 ? 2 : 1;
+
+  for (let i = 0; i < capCount; i += 1) {
+    const capSize = size * (0.085 + random() * 0.045);
+    const cap = new THREE.Mesh(new THREE.DodecahedronGeometry(capSize, 0), snowMaterial);
+    cap.position.set(
+      (random() - 0.5) * size * 0.22,
+      size * (0.34 + random() * 0.12),
+      (random() - 0.5) * size * 0.22
+    );
+    cap.scale.set(1.55 + random() * 0.35, 0.45, 1.05 + random() * 0.4);
+    cap.rotation.y = random() * Math.PI * 2;
+    cap.castShadow = true;
+    cap.receiveShadow = true;
+    group.add(cap);
+  }
+
+  return enableDecorationShadows(group);
+}
+
+function isSnowDeadGrassClear(x, z, pathPoints, clearance) {
+  const config = worldConfig();
+  if (config.landmass && landmassMaskAt(x, z) < 0.72) return false;
+  if (distanceToPath(x, z, pathPoints) < clearance) return false;
+  if (isAltarClearing(x, z)) return false;
+  if (Math.hypot(x - config.playerBasePosition.x, z - config.playerBasePosition.z) < 7.8) {
+    return false;
+  }
+  if (Math.hypot(x - config.enemyCampPosition.x, z - config.enemyCampPosition.z) < 5.8) {
+    return false;
+  }
+  return true;
+}
+
 function placeCottages(scene) {
   const cottages = worldConfig().cottages ?? [
     { x: -7.8, z: 34, rot: 0.68, scale: 0.94, roof: '#b64a3d' },
@@ -3655,14 +3997,20 @@ function placeOnTerrain(object, x, z, offset = 0) {
 function randomPointInEllipse(zone, random) {
   const angle = random() * Math.PI * 2;
   const radius = Math.sqrt(random());
+  const localX = Math.cos(angle) * zone.rx * radius;
+  const localZ = Math.sin(angle) * zone.rz * radius;
+  const rot = zone.rot ?? 0;
+  const cos = Math.cos(rot);
+  const sin = Math.sin(rot);
   return {
-    x: zone.x + Math.cos(angle) * zone.rx * radius,
-    z: zone.z + Math.sin(angle) * zone.rz * radius
+    x: zone.x + localX * cos - localZ * sin,
+    z: zone.z + localX * sin + localZ * cos
   };
 }
 
 function isDecorationClear(x, z, pathPoints, clearance) {
   const config = worldConfig();
+  if (config.landmass && landmassMaskAt(x, z) < 0.68) return false;
   if (distanceToPath(x, z, pathPoints) < clearance) return false;
   if (config.clearings.some((clearing) => Math.hypot(x - clearing.x, z - clearing.z) < clearing.r)) {
     return false;
@@ -3693,6 +4041,62 @@ function isForestPassage(x, z, pathPoints) {
 
 function isSnowRegion(x, z) {
   return snowMaskAt(x, z, terrainHeightAt(x, z)) > 0.48;
+}
+
+function landmassMaskAt(x, z) {
+  const config = worldConfig();
+  const landmass = config.landmass;
+  if (!landmass) return 1;
+  const inner = landmass.shoreInner ?? 0.78;
+  const outer = landmass.shoreOuter ?? 1.04;
+  let mask = 0;
+  (landmass.lobes ?? []).forEach((lobe) => {
+    const distance = landmassNormalizedDistanceAt(x, z, lobe);
+    mask = Math.max(mask, 1 - smoothstep(inner, outer, distance));
+  });
+  (landmass.bays ?? []).forEach((bay) => {
+    mask -= ellipseFalloffAt(x, z, bay, 0, 1) * (bay.carve ?? 0.72);
+  });
+
+  const pathDistance = distanceToPath(x, z, rawPathPoints());
+  const roadReserve = 1 - smoothstep(
+    (config.pathWidth ?? BALANCE.world.pathWidth) + 1.7,
+    (config.pathWidth ?? BALANCE.world.pathWidth) + 7.6,
+    pathDistance
+  );
+  const base = config.playerBasePosition;
+  const camp = config.enemyCampPosition;
+  const baseReserve = 1 - smoothstep(9, 16, Math.hypot(x - base.x, z - base.z));
+  const campReserve = 1 - smoothstep(7, 14, Math.hypot(x - camp.x, z - camp.z));
+  const clearingReserve = (config.clearings ?? []).reduce((best, clearing) => (
+    Math.max(best, 1 - smoothstep(clearing.r * 0.72, clearing.r + 3, Math.hypot(x - clearing.x, z - clearing.z)))
+  ), 0);
+
+  return clamp(Math.max(
+    mask,
+    roadReserve * 0.9,
+    baseReserve,
+    campReserve,
+    clearingReserve * 0.72
+  ), 0, 1);
+}
+
+function landmassNormalizedDistanceAt(x, z, ellipse) {
+  const rot = ellipse.rot ?? 0;
+  const cos = Math.cos(-rot);
+  const sin = Math.sin(-rot);
+  const dx = x - ellipse.x;
+  const dz = z - ellipse.z;
+  const localX = dx * cos - dz * sin;
+  const localZ = dx * sin + dz * cos;
+  const rx = Math.max(0.1, ellipse.rx ?? ellipse.radius ?? 1);
+  const rz = Math.max(0.1, ellipse.rz ?? ellipse.radius ?? rx);
+  const angle = Math.atan2(localZ / rz, localX / rx);
+  const edgeScale = irregularEllipseScaleAt(ellipse, angle);
+  return Math.sqrt(
+    (localX * localX) / ((rx * edgeScale) * (rx * edgeScale)) +
+    (localZ * localZ) / ((rz * edgeScale) * (rz * edgeScale))
+  );
 }
 
 function hillHeight(x, z, cx, cz, rx, rz, height) {
