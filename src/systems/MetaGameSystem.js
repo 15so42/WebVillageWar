@@ -12,6 +12,67 @@ const STARTING_COINS = 10000;
 const STARTING_COINS_VERSION = 1;
 const MAX_LEVEL_DIFFICULTY = 10;
 const WAVE_DIFFICULTY_GROWTH_PER_SELECTED_DIFFICULTY = 0.16;
+const TEST_VERSION_LABEL = '测试版本 v0.1.0';
+const CHANGELOG_ENTRIES = [
+  {
+    date: '2026-07-06',
+    title: '三选一卡牌布局贴合',
+    items: [
+      '三选一弹窗宽度改为贴合三张候选卡的实际占用空间，减少左右空白。',
+      '候选卡的卡面图片横向铺满卡牌宽度，强化卡牌感。'
+    ]
+  },
+  {
+    date: '2026-07-06',
+    title: '三选一卡牌宽度调整',
+    items: [
+      '开局选牌和波次奖励的三选一卡牌改为固定卡牌宽度，并在弹窗中居中排列。',
+      '窄屏仍保持单列信息卡布局，避免手机端内容拥挤。'
+    ]
+  },
+  {
+    date: '2026-07-06',
+    title: '局外卡牌视觉收敛',
+    items: [
+      '商店、牌组和升级页面的卡牌改为低饱和深色面板，减少整张卡牌铺色带来的刺眼感。',
+      '卡牌类型颜色保留在符文、细边和插画底色上，让卡牌界面更贴近当前局外 UI。'
+    ]
+  },
+  {
+    date: '2026-07-06',
+    title: '主菜单版式微调',
+    items: [
+      '移除主菜单标题和按钮后方的大背景面板，让入口直接浮在雪原背景上。',
+      '测试版本文字固定到屏幕底部，避免挤在主菜单按钮区域里。'
+    ]
+  },
+  {
+    date: '2026-07-06',
+    title: '牌组开始修复',
+    items: [
+      '出战牌组数量恢复为 30 张，修复选择牌组后开始关卡被错误数量校验挡住的问题。',
+      '初始牌组恢复为 30 张，并保留蛮兵、弓兵及多类型卡牌组合。',
+      '旧存档里不足 30 张的默认出战牌组会在加载时重置为完整初始牌组。'
+    ]
+  },
+  {
+    date: '2026-07-06',
+    title: '恢复普通 UI 风格',
+    items: [
+      '移除生图切片接入的按钮、面板和装饰素材，界面回到普通 CSS 风格。',
+      '保留主菜单、选关、商店、玩法说明和更新日志的独立页面结构。'
+    ]
+  },
+  {
+    date: '2026-07-06',
+    title: '主菜单结构调整',
+    items: [
+      '新增独立主菜单入口，选关、商店、玩法说明、更新日志改为独立页面。',
+      '主菜单底部增加测试版本标识，后续更新需要同步补充更新日志。',
+      '保留当前局外 UI 的游戏化硬边风格，并修正选关与商店混在同一导航中的问题。'
+    ]
+  }
+];
 
 export class MetaGameSystem {
   constructor({ onStartLevel, onStartDebug = null, onStartAnimationPreview = null }) {
@@ -19,7 +80,7 @@ export class MetaGameSystem {
     this.onStartDebug = onStartDebug;
     this.onStartAnimationPreview = onStartAnimationPreview;
     this.progress = loadProgress();
-    this.view = 'levels';
+    this.view = 'menu';
     this.selectedLevelId = this.progress.preferences.selectedLevelId;
     this.selectedDifficulty = this.selectedDifficultyForLevel(this.selectedLevelId);
     this.deckSelection = this.progress.preferences.deckSelection.slice(0, DECK_SIZE);
@@ -32,7 +93,7 @@ export class MetaGameSystem {
     this.root.addEventListener('pointerdown', stopMetaEvent);
     this.root.addEventListener('contextmenu', stopMetaEvent);
     document.addEventListener('keydown', this.onDebugKeyDown);
-    this.show('levels');
+    this.show('menu');
   }
 
   show(view = this.view, options = {}) {
@@ -94,12 +155,28 @@ export class MetaGameSystem {
     event.preventDefault();
     const { action } = actionTarget.dataset;
 
+    if (action === 'menu') {
+      this.show('menu');
+      return;
+    }
     if (action === 'levels') {
       this.show('levels');
       return;
     }
     if (action === 'shop') {
       this.show('shop');
+      return;
+    }
+    if (action === 'upgrades') {
+      this.show('upgrades');
+      return;
+    }
+    if (action === 'guide') {
+      this.show('guide');
+      return;
+    }
+    if (action === 'changelog') {
+      this.show('changelog');
       return;
     }
     if (action === 'debug-scene') {
@@ -174,10 +251,11 @@ export class MetaGameSystem {
   render(options = {}) {
     const scrollTop = options.preserveScroll ? this.root.scrollTop : 0;
     const viewScrollTop = options.preserveScroll
-      ? this.root.querySelector('.meta-deck, .meta-layout, .meta-home')?.scrollTop ?? 0
+      ? this.root.querySelector('.meta-deck, .meta-layout, .meta-home, .meta-menu, .meta-page')?.scrollTop ?? 0
       : 0;
+    const shellClass = `meta-shell ${this.view === 'menu' ? 'is-main-menu' : 'is-subpage'}`;
     this.root.innerHTML = `
-      <div class="meta-shell" role="dialog" aria-modal="true" aria-label="局外菜单">
+      <div class="${shellClass}" role="dialog" aria-modal="true" aria-label="局外菜单">
         ${this.renderHeader()}
         ${this.renderNotice()}
         ${this.renderView()}
@@ -186,7 +264,7 @@ export class MetaGameSystem {
     if (options.preserveScroll) {
       this.root.scrollTop = scrollTop;
       const restoreViewScroll = () => {
-        const viewScroller = this.root.querySelector('.meta-deck, .meta-layout, .meta-home');
+        const viewScroller = this.root.querySelector('.meta-deck, .meta-layout, .meta-home, .meta-menu, .meta-page');
         if (viewScroller) viewScroller.scrollTop = viewScrollTop;
       };
       restoreViewScroll();
@@ -208,29 +286,21 @@ export class MetaGameSystem {
   }
 
   renderHeader() {
-    const tabs = [
-      ['levels', '选关'],
-      ['shop', '商店']
-    ];
+    if (this.view === 'menu') return '';
     const currencyClass = `meta-currency${this.notice ? ' is-pulse' : ''}`;
+    const pageTitle = pageTitleForView(this.view);
     return `
       <header class="meta-header">
         <div>
-          <div class="meta-title">村落战争</div>
-          <div class="meta-subtitle">选择关卡后，在战斗中通过三选一构筑牌组</div>
+          <div class="meta-title">${pageTitle}</div>
+          <div class="meta-subtitle">村落战争 / ${TEST_VERSION_LABEL}</div>
         </div>
+        <button class="meta-back-button" type="button" data-action="menu">返回主菜单</button>
         <div class="${currencyClass}">
           <span>金币</span>
           <strong>${this.progress.coins}</strong>
         </div>
       </header>
-      <nav class="meta-tabs" aria-label="局外导航">
-        ${tabs.map(([view, label]) => `
-          <button class="${view === this.view ? 'is-active' : ''}" type="button" data-action="${view}">
-            ${label}
-          </button>
-        `).join('')}
-      </nav>
     `;
   }
 
@@ -267,12 +337,33 @@ export class MetaGameSystem {
   }
 
   renderView() {
+    if (this.view === 'menu') return this.renderMainMenu();
     if (this.view === 'levels') return this.renderLevels();
     if (this.view === 'deck') return this.renderDeckBuilder();
     if (this.view === 'shop') return this.renderShop();
+    if (this.view === 'guide') return this.renderGuide();
+    if (this.view === 'changelog') return this.renderChangelog();
     if (this.view === 'upgrades') return this.renderUpgrades();
     if (this.view === 'result') return this.renderResult();
-    return this.renderLevels();
+    return this.renderMainMenu();
+  }
+
+  renderMainMenu() {
+    return `
+      <main class="meta-menu">
+        <div class="meta-menu-title">
+          <h1>村落战争</h1>
+          <p>雪原推进 / 卡牌构筑 / 即时战术</p>
+        </div>
+        <nav class="meta-menu-actions" aria-label="主菜单">
+          <button class="meta-menu-button" type="button" data-action="levels">选关</button>
+          <button class="meta-menu-button" type="button" data-action="shop">商店</button>
+          <button class="meta-menu-button" type="button" data-action="guide">玩法说明</button>
+          <button class="meta-menu-button" type="button" data-action="changelog">更新日志</button>
+        </nav>
+        <div class="meta-version-mark">${TEST_VERSION_LABEL}</div>
+      </main>
+    `;
   }
 
   renderLevels() {
@@ -285,8 +376,53 @@ export class MetaGameSystem {
     const baseDifficulty = Math.max(1, Math.floor(selectedLevel.baseDifficulty ?? 1));
     const growthMultiplier = difficultyGrowthMultiplier(selectedLevel, selectedDifficulty);
     return `
-      <main class="meta-layout">
-        <section class="meta-panel">
+      <main class="meta-layout meta-level-select">
+        <section class="meta-panel meta-hero-panel">
+          <div class="meta-panel-kicker">当前战役</div>
+          <h1>${selectedLevel.name}</h1>
+          <p>${selectedLevel.subtitle}</p>
+          <div class="meta-hero-stats">
+            <div>
+              <span>开局难度</span>
+              <strong>${baseDifficulty}</strong>
+            </div>
+            <div>
+              <span>波次成长</span>
+              <strong>x${formatGrowthMultiplier(growthMultiplier)}</strong>
+            </div>
+            <div>
+              <span>解锁难度</span>
+              <strong>${availableDifficulty}/${MAX_LEVEL_DIFFICULTY}</strong>
+            </div>
+          </div>
+          <div class="meta-section-title">选择难度</div>
+          <div class="meta-difficulty-row meta-hero-difficulty" aria-label="关卡难度">
+            ${Array.from({ length: MAX_LEVEL_DIFFICULTY }, (_, index) => {
+              const difficulty = index + 1;
+              const disabled = difficulty > availableDifficulty ? 'disabled' : '';
+              const selected = difficulty === selectedDifficulty ? 'is-selected' : '';
+              return `
+                <button
+                  class="${selected}"
+                  type="button"
+                  data-action="select-difficulty"
+                  data-difficulty="${difficulty}"
+                  ${disabled}
+                >
+                  ${difficulty}
+                </button>
+              `;
+            }).join('')}
+          </div>
+          <div class="meta-victory-goal">
+            <span>胜利目标</span>
+            <strong>击败 3 个 Boss 或击破敌营</strong>
+          </div>
+          <div class="meta-hero-actions">
+            <button class="meta-primary-button" type="button" data-action="deck">选择牌组</button>
+          </div>
+        </section>
+        <section class="meta-panel meta-stage-panel">
           <div class="meta-section-title">关卡</div>
           <div class="meta-level-list">
             ${LEVEL_DEFINITIONS.map((level) => `
@@ -301,44 +437,6 @@ export class MetaGameSystem {
                 <em>基础 ${level.baseDifficulty ?? 1} / 已解锁 ${this.availableDifficulty(level.id)}/${MAX_LEVEL_DIFFICULTY}</em>
               </button>
             `).join('')}
-          </div>
-        </section>
-        <section class="meta-panel">
-          <div class="meta-section-title">关卡预览</div>
-          <div class="meta-level-detail">
-            <h2>${selectedLevel.name}</h2>
-            <p>${selectedLevel.subtitle}</p>
-            <div class="meta-difficulty-row" aria-label="关卡难度">
-              ${Array.from({ length: MAX_LEVEL_DIFFICULTY }, (_, index) => {
-                const difficulty = index + 1;
-                const disabled = difficulty > availableDifficulty ? 'disabled' : '';
-                const selected = difficulty === selectedDifficulty ? 'is-selected' : '';
-                return `
-                  <button
-                    class="${selected}"
-                    type="button"
-                    data-action="select-difficulty"
-                    data-difficulty="${difficulty}"
-                    ${disabled}
-                  >
-                    ${difficulty}
-                  </button>
-                `;
-              }).join('')}
-            </div>
-            <div class="meta-reward-preview">
-              <span>开局难度</span>
-              <strong>${baseDifficulty}</strong>
-            </div>
-            <div class="meta-reward-preview">
-              <span>波次成长</span>
-              <strong>x${formatGrowthMultiplier(growthMultiplier)}</strong>
-            </div>
-            <div class="meta-reward-preview">
-              <span>胜利目标</span>
-              <strong>击败 3 个 Boss 或击破敌营</strong>
-            </div>
-            <button class="meta-primary-button" type="button" data-action="deck">选择牌组</button>
           </div>
         </section>
       </main>
@@ -386,6 +484,7 @@ export class MetaGameSystem {
         <section class="meta-panel">
           <div class="meta-section-title">卡牌商店</div>
           <p>购买后会进入局外卡牌库，并可加入 30 张出战牌组。</p>
+          <button class="meta-secondary-button" type="button" data-action="upgrades">升级已有卡牌</button>
         </section>
         <section class="meta-card-grid">
           ${unowned.length ? unowned.map((card) => {
@@ -396,6 +495,53 @@ export class MetaGameSystem {
               disabled: this.progress.coins < cost
             });
           }).join('') : '<div class="meta-empty">商店已经清空。</div>'}
+        </section>
+      </main>
+    `;
+  }
+
+  renderGuide() {
+    return `
+      <main class="meta-page meta-guide-page">
+        <section class="meta-panel meta-guide-panel">
+          <div class="meta-section-title">核心流程</div>
+          <p>先在选关页面选择关卡和难度，再配置 30 张出战卡牌进入战斗。战斗中通过出牌、移动、驻守和三选一奖励推进基地。</p>
+        </section>
+        <section class="meta-guide-grid">
+          <article class="meta-panel">
+            <div class="meta-section-title">卡牌</div>
+            <p>单位卡会召唤部队；能力、战术、建筑卡会提供即时效果或阵地支援。局内获得的临时卡通常不会带回局外牌库。</p>
+          </article>
+          <article class="meta-panel">
+            <div class="meta-section-title">战斗</div>
+            <p>守住基地耐久，清理敌方波次并击破敌营。不同关卡会有地形、天气或敌营规则差异。</p>
+          </article>
+          <article class="meta-panel">
+            <div class="meta-section-title">成长</div>
+            <p>通关后获得金币并解锁更高难度。商店可购买新卡，也可以升级已拥有卡牌。</p>
+          </article>
+        </section>
+      </main>
+    `;
+  }
+
+  renderChangelog() {
+    return `
+      <main class="meta-page meta-changelog-page">
+        <section class="meta-panel meta-changelog-intro">
+          <div class="meta-section-title">更新日志</div>
+          <p>之后每次功能、数值或界面更新，都在这里补一条记录，方便测试时回看变化。</p>
+        </section>
+        <section class="meta-changelog-list">
+          ${CHANGELOG_ENTRIES.map((entry) => `
+            <article class="meta-panel meta-changelog-entry">
+              <div class="meta-changelog-date">${entry.date}</div>
+              <h2>${entry.title}</h2>
+              <ul>
+                ${entry.items.map((item) => `<li>${item}</li>`).join('')}
+              </ul>
+            </article>
+          `).join('')}
         </section>
       </main>
     `;
@@ -620,6 +766,19 @@ function createMetaRoot() {
   return root;
 }
 
+function pageTitleForView(view) {
+  const titles = {
+    levels: '选关',
+    deck: '选择牌组',
+    shop: '商店',
+    upgrades: '升级卡牌',
+    guide: '玩法说明',
+    changelog: '更新日志',
+    result: '战斗结算'
+  };
+  return titles[view] ?? '村落战争';
+}
+
 function loadProgress() {
   const raw = readStoredProgress();
   const ownedCards = normalizeOwnedCards(raw?.ownedCards);
@@ -671,10 +830,14 @@ function normalizePreferences(rawPreferences, ownedCards, levelDifficulties) {
       clampDifficulty(levelDifficulties[level.id] ?? 1)
     );
   });
+  const savedDeckSelection = normalizeDeckSelection(rawPreferences?.deckSelection, ownedCards);
+  const starterDeckSelection = normalizeDeckSelection(STARTER_CARD_IDS, ownedCards);
   return {
     selectedLevelId,
     selectedDifficulties,
-    deckSelection: normalizeDeckSelection(rawPreferences?.deckSelection, ownedCards)
+    deckSelection: savedDeckSelection.length === DECK_SIZE
+      ? savedDeckSelection
+      : starterDeckSelection
   };
 }
 

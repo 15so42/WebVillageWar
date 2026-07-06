@@ -2177,7 +2177,7 @@ body.is-meta-open .selection-box {
 }
 
 .strategy-event-panel {
-  width: min(920px, calc(100vw - 32px));
+  width: min(732px, calc(100vw - 32px));
   max-height: calc(100vh - 48px);
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
@@ -2275,19 +2275,21 @@ body.is-meta-open .selection-box {
 
 .strategy-event-choices {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(3, 224px);
+  justify-content: center;
   gap: 12px;
   min-height: 0;
   max-height: min(62vh, 640px);
   overflow: auto;
-  padding-right: 4px;
+  padding-right: 0;
 }
 
 .strategy-choice {
   --card-color: #6ea370;
   position: relative;
   min-width: 0;
-  min-height: 260px;
+  width: 100%;
+  min-height: 278px;
   display: grid;
   grid-template-rows: auto 86px 1fr;
   gap: 10px;
@@ -2409,11 +2411,15 @@ body.is-meta-open .selection-box {
 .strategy-choice-art {
   position: relative;
   z-index: 1;
+  margin-inline: -12px;
   min-height: 86px;
 }
 
 .strategy-choice-art .card-art {
   height: 86px;
+  border-right: 0;
+  border-left: 0;
+  border-radius: 0;
 }
 
 .strategy-choice-body {
@@ -2911,15 +2917,26 @@ body.is-meta-open .selection-box {
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid color-mix(in srgb, var(--card-color) 20%, rgba(255, 255, 255, 0.13));
   border-radius: 8px;
   background:
-    radial-gradient(circle at 24% 10%, rgba(255, 255, 255, 0.28), transparent 34%),
-    linear-gradient(145deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.04)),
-    var(--card-color);
+    radial-gradient(circle at 20% 0%, color-mix(in srgb, var(--card-color) 18%, transparent), transparent 36%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.02)),
+    color-mix(in srgb, var(--card-color) 12%, rgba(27, 45, 43, 0.96));
   box-shadow:
-    0 16px 30px rgba(0, 0, 0, 0.22),
-    0 0 18px color-mix(in srgb, var(--card-color) 36%, transparent);
+    0 14px 26px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.055);
+}
+
+.meta-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 4px;
+  z-index: 2;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--card-color) 52%, #9eeedb), transparent);
+  opacity: 0.64;
+  pointer-events: none;
 }
 
 .meta-card.is-selected {
@@ -2927,7 +2944,7 @@ body.is-meta-open .selection-box {
   box-shadow:
     0 16px 30px rgba(0, 0, 0, 0.24),
     0 0 0 2px rgba(158, 238, 219, 0.28),
-    0 0 24px rgba(93, 221, 190, 0.38);
+    0 0 18px rgba(93, 221, 190, 0.2);
 }
 
 .meta-card-cost,
@@ -2944,10 +2961,10 @@ body.is-meta-open .selection-box {
   top: 8px;
   min-width: 26px;
   height: 26px;
-  border: 1px solid rgba(255, 255, 255, 0.36);
+  border: 1px solid rgba(205, 251, 239, 0.52);
   border-radius: 50%;
   color: #12342d;
-  background: #9eeedb;
+  background: color-mix(in srgb, var(--card-color) 18%, #9eeedb);
   font-size: 14px;
 }
 
@@ -2981,7 +2998,7 @@ body.is-meta-open .selection-box {
   align-items: center;
   gap: 7px;
   padding-right: 48px;
-  color: rgba(255, 255, 255, 0.76);
+  color: rgba(247, 244, 232, 0.64);
   font-size: 11px;
   font-weight: 900;
 }
@@ -2991,16 +3008,21 @@ body.is-meta-open .selection-box {
   height: 30px;
   display: grid;
   place-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.28);
+  border: 1px solid color-mix(in srgb, var(--card-color) 42%, rgba(255, 255, 255, 0.18));
   border-radius: 50%;
   color: #fff7db;
-  background: rgba(0, 0, 0, 0.18);
+  background: color-mix(in srgb, var(--card-color) 26%, rgba(8, 18, 17, 0.62));
+  box-shadow: inset 0 0 12px rgba(255, 255, 255, 0.06);
   font-size: 16px;
   font-weight: 900;
 }
 
 .meta-card .card-art {
   min-height: 82px;
+  border-color: rgba(255, 255, 255, 0.1);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(0, 0, 0, 0.13)),
+    color-mix(in srgb, var(--card-color) 28%, #1a302e);
 }
 
 .meta-card-face strong {
@@ -3014,8 +3036,8 @@ body.is-meta-open .selection-box {
   margin: 0;
   padding: 7px 8px;
   border-radius: 6px;
-  color: rgba(255, 255, 255, 0.86);
-  background: rgba(0, 0, 0, 0.14);
+  color: rgba(247, 244, 232, 0.8);
+  background: rgba(8, 18, 17, 0.28);
   font-size: 12px;
   line-height: 1.35;
 }
@@ -3036,7 +3058,8 @@ body.is-meta-open .selection-box {
   margin: 0 10px 10px;
   padding: 9px 10px;
   color: #102c28;
-  background: #fff2c7;
+  background: rgba(255, 242, 199, 0.88);
+  box-shadow: none;
 }
 
 .meta-card-action:disabled {
@@ -3479,11 +3502,14 @@ body.is-meta-open .selection-box {
   }
 
   .strategy-choice-art {
+    margin-inline: 0;
     min-height: 76px;
   }
 
   .strategy-choice-art .card-art {
     height: 76px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 7px;
   }
 
   #selected-name {
@@ -3843,6 +3869,232 @@ body.is-meta-open .selection-box {
 
   .meta-card-face strong {
     font-size: 14px;
+  }
+}
+
+/* Main menu routing layout. Keeps the public UI skin while separating pages. */
+.meta-shell.is-main-menu {
+  width: min(760px, calc(100vw - 28px));
+  min-height: min(640px, calc(100dvh - 28px));
+  grid-template-rows: minmax(0, 1fr);
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.meta-shell.is-subpage {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.meta-menu {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: 1fr auto auto 1fr;
+  gap: clamp(18px, 4vh, 34px);
+  place-items: center;
+  padding: clamp(28px, 7vh, 64px) 24px clamp(62px, 9vh, 86px);
+  overflow: auto;
+}
+
+.meta-menu-title {
+  grid-row: 2;
+  display: grid;
+  gap: 10px;
+  text-align: center;
+}
+
+.meta-menu-title h1 {
+  margin: 0;
+  color: #fff7db;
+  font-size: clamp(42px, 7vw, 72px);
+  line-height: 1;
+  text-shadow: 0 5px 24px rgba(0, 0, 0, 0.48);
+}
+
+.meta-menu-title p {
+  margin: 0;
+  color: rgba(247, 244, 232, 0.72);
+  font-size: 14px;
+  font-weight: 800;
+  text-shadow: 0 3px 14px rgba(0, 0, 0, 0.48);
+}
+
+.meta-menu-actions {
+  grid-row: 3;
+  width: min(340px, 100%);
+  display: grid;
+  gap: 12px;
+}
+
+.meta-menu-button,
+.meta-back-button {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  color: #f7f4e8;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.08);
+  font: inherit;
+  font-weight: 900;
+}
+
+.meta-menu-button {
+  min-height: 54px;
+  padding: 0 18px;
+  font-size: 20px;
+}
+
+.meta-menu-button:hover,
+.meta-back-button:hover {
+  border-color: rgba(158, 238, 219, 0.6);
+  background: rgba(90, 160, 146, 0.34);
+}
+
+.meta-version-mark {
+  position: fixed;
+  left: 50%;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  z-index: 45;
+  transform: translateX(-50%);
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 242, 199, 0.18);
+  border-radius: 999px;
+  color: rgba(247, 244, 232, 0.62);
+  background: rgba(11, 20, 19, 0.32);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.meta-back-button {
+  min-height: 38px;
+  padding: 0 12px;
+}
+
+.meta-page {
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  overflow: auto;
+  padding: 4px 20px 20px;
+}
+
+.meta-guide-grid,
+.meta-changelog-list {
+  display: grid;
+  gap: 14px;
+}
+
+.meta-guide-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.meta-changelog-entry h2 {
+  margin: 8px 0 10px;
+  color: #fff7db;
+  font-size: 22px;
+}
+
+.meta-changelog-date {
+  width: max-content;
+  padding: 5px 8px;
+  border: 1px solid rgba(158, 238, 219, 0.32);
+  border-radius: 6px;
+  color: #102c28;
+  background: #9eeedb;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.meta-changelog-entry ul {
+  margin: 0;
+  padding-left: 22px;
+}
+
+.meta-level-select {
+  grid-template-columns: minmax(300px, 0.92fr) minmax(340px, 1.08fr);
+}
+
+.meta-hero-panel {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.meta-hero-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(126px, 1fr));
+  gap: 10px;
+}
+
+.meta-hero-stats div,
+.meta-victory-goal {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(247, 244, 232, 0.72);
+}
+
+.meta-hero-stats span,
+.meta-victory-goal span {
+  display: block;
+  font-size: 12px;
+}
+
+.meta-hero-stats strong,
+.meta-victory-goal strong {
+  display: block;
+  margin-top: 3px;
+  color: #fff2c7;
+}
+
+.meta-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+@media (max-width: 760px) {
+  .meta-shell.is-main-menu {
+    width: min(1400px, calc((100vw - 20px) / var(--mobile-ui-scale)));
+    min-height: calc((100dvh - 24px) / var(--mobile-ui-scale));
+  }
+
+  .meta-menu {
+    padding: 28px 16px 72px;
+  }
+
+  .meta-menu-title h1 {
+    font-size: 42px;
+  }
+
+  .meta-menu-actions {
+    width: min(310px, 100%);
+  }
+
+  .meta-menu-button {
+    min-height: 50px;
+    font-size: 18px;
+  }
+
+  .meta-header {
+    display: grid;
+    grid-template-columns: 1fr auto;
+  }
+
+  .meta-back-button {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
+  .meta-page {
+    padding: 4px 14px 14px;
+  }
+
+  .meta-guide-grid,
+  .meta-level-select {
+    grid-template-columns: 1fr;
   }
 }
 
