@@ -83,6 +83,7 @@ const WORLD_NAV_EDGE_MARGIN = 0.35;
 const WORLD_NAV_PLAYER_BASE_RADIUS = 2.25;
 const WORLD_NAV_ENEMY_CAMP_RADIUS = 2.65;
 const WORLD_NAV_COTTAGE_RADIUS = 1.35;
+const WORLD_NAV_MONSTER_CAMP_RADIUS = 2.8;
 const DESERT_SHADOW_X_PER_HEIGHT = 0.34;
 const DESERT_SHADOW_Z_PER_HEIGHT = -0.36;
 const SNOWFALL_CENTER = new THREE.Vector3();
@@ -1465,7 +1466,10 @@ function createNavigationGrid() {
 
 function isWorldNavigationWalkableAt(x, z) {
   const config = worldConfig();
-  if (config.theme === 'dungeon') return isDungeonNavigationWalkableAt(x, z);
+  if (config.theme === 'dungeon') {
+    return isDungeonNavigationWalkableAt(x, z) &&
+      !isInsideWorldNavigationBlocker(x, z);
+  }
 
   const halfWidth = (config.ground.width ?? BALANCE.world.ground.width) * 0.5 - WORLD_NAV_EDGE_MARGIN;
   const halfDepth = (config.ground.depth ?? BALANCE.world.ground.depth) * 0.5 - WORLD_NAV_EDGE_MARGIN;
@@ -1475,10 +1479,12 @@ function isWorldNavigationWalkableAt(x, z) {
 
 function canTraverseWorldNavigation(start, end) {
   if (worldConfig().theme === 'dungeon') {
-    return canTraverseDungeonNavigation(start, end);
+    return canTraverseDungeonNavigation(start, end) &&
+      !doesWorldNavigationSegmentHitBlocker(start, end);
   }
   return isWorldNavigationWalkableAt(start.x, start.z) &&
-    isWorldNavigationWalkableAt(end.x, end.z);
+    isWorldNavigationWalkableAt(end.x, end.z) &&
+    !doesWorldNavigationSegmentHitBlocker(start, end);
 }
 
 function isInsideWorldNavigationBlocker(x, z) {
@@ -1487,9 +1493,14 @@ function isInsideWorldNavigationBlocker(x, z) {
   ));
 }
 
+function doesWorldNavigationSegmentHitBlocker(start, end) {
+  return worldNavigationBlockers().some((blocker) => (
+    distanceToSegment2D(blocker.x, blocker.z, start, end) <= blocker.radius
+  ));
+}
+
 function worldNavigationBlockers() {
   const config = worldConfig();
-  if (config.theme === 'dungeon') return [];
   return [
     {
       x: config.playerBasePosition.x,
@@ -1507,7 +1518,6 @@ function worldNavigationBlockers() {
 
 function registerWorldNavigationBlocker(x, z, radius, kind = 'decor') {
   const config = worldConfig();
-  if (config.theme === 'dungeon') return;
   const blockers = config.navigationBlockers;
   if (!Array.isArray(blockers)) return;
   blockers.push({
@@ -3085,12 +3095,18 @@ function placeCottages(scene) {
 }
 
 function createSnowMonsterCamp(scene) {
+  const config = worldConfig().monsterCamp ?? { x: 4, z: -34, rot: -0.34, scale: 1.18 };
+  registerWorldNavigationBlocker(
+    config.x,
+    config.z,
+    WORLD_NAV_MONSTER_CAMP_RADIUS * (config.scale ?? 1),
+    'monster-camp'
+  );
   if (worldConfig().theme === 'dungeon') {
     createDungeonEnemyGate(scene);
     return;
   }
   const camp = createMonsterCampModel();
-  const config = worldConfig().monsterCamp ?? { x: 4, z: -34, rot: -0.34, scale: 1.18 };
   placeOnTerrain(camp, config.x, config.z, config.offset ?? 0.28);
   camp.rotation.y = config.rot ?? -0.34;
   camp.scale.setScalar(config.scale ?? 1.18);

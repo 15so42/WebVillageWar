@@ -2896,7 +2896,7 @@ export const CARD_DEFINITIONS = [
     target: 'ground',
     radius: 1.45,
     cooldown: 18,
-    energyCost: 7,
+    energyCost: 5,
     unitType: 'repairStation',
     buildSeconds: 30,
     effect: {
@@ -2916,7 +2916,7 @@ export const CARD_DEFINITIONS = [
     target: 'ground',
     radius: 1.55,
     cooldown: 18,
-    energyCost: 7,
+    energyCost: 5,
     unitType: 'canteen',
     buildSeconds: 30,
     effect: {
@@ -2936,7 +2936,7 @@ export const CARD_DEFINITIONS = [
     target: 'ground',
     radius: 1.25,
     cooldown: 14,
-    energyCost: 4,
+    energyCost: 5,
     unitType: 'beacon',
     buildSeconds: 30,
     effect: {
