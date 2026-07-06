@@ -2274,6 +2274,22 @@ export const BUFF_DEFINITIONS = {
       }
     ]
   },
+  immortality: {
+    name: '不朽',
+    category: 'enchantment',
+    color: '#f1e7a8',
+    duration: 999,
+    level: 1,
+    tickInterval: 1,
+    effects: [
+      {
+        event: 'tick',
+        op: 'restoreHealthPercent',
+        percent: 0.02,
+        color: '#f1e7a8'
+      }
+    ]
+  },
   spiritShield: {
     name: '灵盾',
     category: 'enchantment',
@@ -2552,6 +2568,7 @@ export const ENCHANTMENTS = {
   poison: BUFF_DEFINITIONS.poison,
   bleed: BUFF_DEFINITIONS.bleed,
   recovery: BUFF_DEFINITIONS.recovery,
+  immortality: BUFF_DEFINITIONS.immortality,
   spiritShield: BUFF_DEFINITIONS.spiritShield,
   wolfInstinct: BUFF_DEFINITIONS.wolfInstinct,
   ursineSpirit: BUFF_DEFINITIONS.ursineSpirit,
@@ -2603,7 +2620,7 @@ export const PLAYER_ABILITY_DEFINITIONS = {
     name: '加固工法',
     label: '固',
     color: '#d8c58d',
-    summary: '之后新建建筑获得额外耐久'
+    summary: '之后新建建筑获得额外生命和耐久'
   },
   randomHealOnCard: {
     id: 'randomHealOnCard',
@@ -3183,7 +3200,7 @@ export const CARD_DEFINITIONS = [
     kind: 'ability',
     label: '固',
     artKey: 'abilityBuildingDurability',
-    summary: '之后新建建筑获得额外耐久',
+    summary: '之后新建建筑获得额外生命和耐久',
     target: 'none',
     radius: 1,
     cooldown: 0,

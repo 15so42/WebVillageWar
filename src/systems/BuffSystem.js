@@ -595,6 +595,19 @@ export class BuffSystem {
       return;
     }
 
+    if (effect.op === 'restoreHealthPercent') {
+      if (!context.target?.alive) return;
+      const percent = Math.max(0, resolveEffectNumber(effect, 'percent', context, effect.percent ?? 0));
+      const amount = Math.max(0, context.target.maxHealth ?? 0) * percent;
+      const healed = context.target.restoreHealth?.(amount) ?? 0;
+      this.game.effects.spawnHealNumber(context.target.position, healed, {
+        displayAmount: amount,
+        color: effect.color ?? '#9dffb0',
+        height: context.target.projectileHitHeight ?? 1.45
+      });
+      return;
+    }
+
     if (effect.op === 'restoreShield') {
       if (!context.target?.alive) return;
       const amount = resolveEffectNumber(effect, 'amount', context, 0);

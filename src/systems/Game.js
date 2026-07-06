@@ -169,48 +169,217 @@ const WAVE_BOSS_UNLOCKS = {
   wizard: { minBoss: 2 },
   ogre: { minBoss: 2 }
 };
+const TEMPORARY_IMMORTALITY_CARD = {
+  id: 'temporary-immortality-enchant',
+  name: '不朽附魔',
+  kind: 'enchant',
+  label: '朽',
+  artKey: 'recovery',
+  summary: '特殊临时牌。使目标每秒恢复 2% 最大生命值。',
+  target: 'friendly-unit',
+  radius: 1.1,
+  cooldown: 4,
+  energyCost: 2,
+  maxUses: 1,
+  remainingUses: 1,
+  lootOnly: true,
+  enchantmentId: 'immortality',
+  effect: {
+    type: 'apply-buff',
+    buffId: 'immortality'
+  },
+  color: '#f1e7a8'
+};
+const TEMPORARY_MANA_SURGE_CARD = {
+  id: 'temporary-mana-surge-enchant',
+  name: '魔力涌动',
+  kind: 'enchant',
+  label: '涌',
+  artKey: 'abilityEnchantEcho',
+  summary: '特殊临时牌。拖拽给单位后，随机进行 10 次附魔。',
+  target: 'friendly-unit',
+  radius: 1.1,
+  cooldown: 4,
+  energyCost: 5,
+  maxUses: 1,
+  remainingUses: 1,
+  lootOnly: true,
+  effect: {
+    type: 'apply-random-enchantments',
+    count: 10
+  },
+  color: '#b68cff'
+};
+const STRATEGY_REWARD_OPTION_DEFINITIONS = [
+  {
+    id: 'choose-summon-card',
+    action: 'open-card-kind-choice',
+    cardKind: 'summon',
+    title: '选择单位卡',
+    description: '从本局出战单位牌中选择一张加入抽牌堆。',
+    artKey: 'raider',
+    color: '#8fdc9b'
+  },
+  {
+    id: 'choose-spell-card',
+    action: 'open-card-kind-choice',
+    cardKind: 'spell',
+    title: '选择法术卡',
+    description: '从本局出战法术牌中选择一张加入抽牌堆。',
+    artKey: 'meteor',
+    color: '#9a3f35'
+  },
+  {
+    id: 'choose-enchant-card',
+    action: 'open-card-kind-choice',
+    cardKind: 'enchant',
+    title: '选择附魔卡',
+    description: '从本局出战附魔牌中选择一张加入抽牌堆。',
+    artKey: 'power',
+    color: '#b97d2c'
+  },
+  {
+    id: 'choose-tactic-card',
+    action: 'open-card-kind-choice',
+    cardKind: 'tactic',
+    title: '选择战术卡',
+    description: '从本局出战战术牌中选择一张加入抽牌堆。',
+    artKey: 'tacticUpgrade',
+    color: '#8a6fc4'
+  },
+  {
+    id: 'choose-ability-card',
+    action: 'open-card-kind-choice',
+    cardKind: 'ability',
+    title: '选择能力卡',
+    description: '从本局出战能力牌中选择一张加入抽牌堆。',
+    artKey: 'abilityPeriodicEnergy',
+    color: '#7f8fc7'
+  },
+  {
+    id: 'choose-building-card',
+    action: 'open-card-kind-choice',
+    cardKind: 'building',
+    title: '选择建筑卡',
+    description: '从本局出战建筑牌中选择一张加入抽牌堆。',
+    artKey: 'arrowTower',
+    color: '#8f6a3f'
+  },
+  {
+    id: 'upgrade-existing-card',
+    action: 'open-card-upgrade-choice',
+    title: '升级一张已有卡',
+    description: '选择一张已有卡，同名卡牌等级 +1，并补满所有同名卡使用次数。',
+    artKey: 'tacticUpgrade',
+    color: '#d8c58d'
+  },
+  {
+    id: 'copy-existing-card',
+    action: 'open-card-copy-choice',
+    title: '复制一张已有卡',
+    description: '选择一张已有卡，先补满使用次数，再复制一张满次数副本。',
+    artKey: 'copy',
+    color: '#9eeedb'
+  },
+  {
+    id: 'temporary-immortality-card',
+    action: 'grant-temporary-card',
+    title: '获得不朽附魔',
+    description: '获得一张特殊临时牌：每秒恢复目标 2% 最大生命值。',
+    temporaryCard: TEMPORARY_IMMORTALITY_CARD
+  },
+  {
+    id: 'temporary-mana-surge-card',
+    action: 'grant-temporary-card',
+    title: '获得魔力涌动',
+    description: '获得一张特殊临时牌：对目标随机进行 10 次附魔。',
+    temporaryCard: TEMPORARY_MANA_SURGE_CARD
+  }
+];
 const BOSS_CORE_REWARDS = [
   {
     abilityId: 'summonUseBonus',
-    stacks: 1,
+    stacks: 2,
     title: '军团扩编',
-    description: '所有现有和之后获得的单位卡使用次数 +1。',
+    description: '所有现有和之后获得的单位卡使用次数 +2。',
     cardId: 'barbarians'
   },
   {
     abilityId: 'periodicEnergy',
-    stacks: 2,
+    stacks: 3,
     title: '魔力泉涌',
-    description: '每 10 秒获得 2 点能量，支撑法术和高费牌。',
+    description: '每 10 秒获得 3 点能量，支撑法术和高费牌。',
     cardId: 'periodic-energy-ability'
   },
   {
     abilityId: 'buildingDurability',
-    stacks: 2,
+    stacks: 3,
     title: '阵地工法',
-    description: '之后新建建筑获得 40% 额外耐久。',
+    description: '之后新建建筑获得 60% 额外生命和耐久。',
     cardId: 'building-durability-ability'
   },
   {
     abilityId: 'enchantEcho',
-    stacks: 2,
+    stacks: 3,
     title: '双重附魔',
-    description: '使用附魔牌时有 40% 概率额外生效一次。',
+    description: '使用附魔牌时有 60% 概率额外生效一次。',
     cardId: 'enchant-echo-ability'
   },
   {
     abilityId: 'randomHealOnCard',
-    stacks: 1,
+    stacks: 2,
     title: '生机循环',
-    description: '每次打出牌时治疗一名随机友军。',
+    description: '每次打出牌时治疗两名随机友军。',
     cardId: 'random-heal-ability'
   },
   {
     abilityId: 'deathExplosion',
-    stacks: 2,
+    stacks: 3,
     title: '殉爆阵线',
     description: '友方单位死亡时爆炸，适合人海和消耗流。',
     cardId: 'death-explosion-ability'
+  },
+  {
+    abilityId: 'exhaustEnergy',
+    stacks: 3,
+    title: '节能律令',
+    description: '打出有能量消耗的牌时，最高约 48% 概率返还 1 点能量。',
+    cardId: 'exhaust-energy-ability'
+  },
+  {
+    abilityId: 'victoryGold',
+    stacks: 3,
+    title: '凯旋契约',
+    description: '胜利后金币奖励 +60%，适合追求局外成长。',
+    cardId: 'victory-gold-ability'
+  },
+  {
+    abilityId: 'summonUseBonus',
+    stacks: 4,
+    title: '无尽征召',
+    description: '所有单位卡使用次数 +4，直接支撑大规模铺场。',
+    cardId: 'barbarians'
+  },
+  {
+    abilityId: 'periodicEnergy',
+    stacks: 5,
+    title: '奥术潮汐',
+    description: '每 10 秒获得 5 点能量，让高费组合持续运转。',
+    cardId: 'burst-energy'
+  },
+  {
+    abilityId: 'enchantEcho',
+    stacks: 5,
+    title: '附魔共鸣',
+    description: '附魔牌必定额外生效一次，附魔构筑核心。',
+    cardId: 'enchant-echo-ability'
+  },
+  {
+    abilityId: 'randomHealOnCard',
+    stacks: 4,
+    title: '复苏矩阵',
+    description: '每次打牌治疗四名随机友军，显著提高持续作战能力。',
+    cardId: 'random-heal-ability'
   }
 ];
 const SUMMON_DEPLOY_RADIUS = 7.5;
@@ -719,7 +888,7 @@ export class Game {
       this.openStrategyEvent('boss-reward', { wave });
       return;
     }
-    this.openStrategyEvent(this.nextBasicStrategyEventType(wave), { wave });
+    this.openStrategyEvent('wave-reward', { wave });
   }
 
   nextBasicStrategyEventType(wave = null) {
@@ -804,6 +973,46 @@ export class Game {
         choices: this.createBossCoreChoices()
       };
     }
+    if (type === 'wave-reward') {
+      return {
+        type,
+        kicker: waveEventKicker(options.wave),
+        title: '选择本波奖励',
+        summary: '从奖励池随机出现 3 个方向，选择后进入对应奖励或直接获得临时牌。',
+        choices: this.createWaveRewardOptionChoices(options.wave)
+      };
+    }
+    if (type === 'card-kind-choice') {
+      return {
+        type,
+        kicker: waveEventKicker(options.wave),
+        title: options.title ?? '选择一张新卡',
+        summary: options.summary ?? '从本局出战牌组中选择一张加入抽牌堆。',
+        choices: this.randomCardChoices({
+          pool: this.selectedCardPool({ kind: options.cardKind }),
+          action: 'add-card',
+          actionLabel: '加入牌堆'
+        })
+      };
+    }
+    if (type === 'existing-card-upgrade') {
+      return {
+        type,
+        kicker: waveEventKicker(options.wave),
+        title: '升级一张已有卡',
+        summary: '升级的是同名卡牌：所有同名卡等级 +1，并补满使用次数。',
+        choices: this.createExistingCardUpgradeChoices()
+      };
+    }
+    if (type === 'existing-card-copy') {
+      return {
+        type,
+        kicker: waveEventKicker(options.wave),
+        title: '复制一张已有卡',
+        summary: '先补满目标卡使用次数，再复制一张同等级、满使用次数的副本。',
+        choices: this.createExistingCardCopyChoices()
+      };
+    }
     if (type === 'card-maintenance') {
       return {
         type,
@@ -844,12 +1053,18 @@ export class Game {
           : options.fallbackFrom
             ? '当前事件没有可用目标，改为选择一张新卡作为本波奖励。'
             : '候选牌只来自本局出战牌组，会作为新实例加入抽牌堆。',
-      choices: this.weightedCardChoices({
-        pool: this.selectedCardPool(),
-        action: 'add-card',
-        actionLabel: '加入牌堆',
-        wave: this.nextUpcomingWave()
-      })
+      choices: isOpeningSupport
+        ? this.randomCardChoices({
+            pool: this.selectedCardPool(),
+            action: 'add-card',
+            actionLabel: '加入牌堆'
+          })
+        : this.weightedCardChoices({
+            pool: this.selectedCardPool(),
+            action: 'add-card',
+            actionLabel: '加入牌堆',
+            wave: this.nextUpcomingWave()
+          })
     };
   }
 
@@ -933,6 +1148,50 @@ export class Game {
       title: card.name,
       description: card.summary
     }));
+  }
+
+  createWaveRewardOptionChoices(wave = null) {
+    const options = STRATEGY_REWARD_OPTION_DEFINITIONS.filter((option) => (
+      this.isWaveRewardOptionAvailable(option)
+    ));
+    return pickRandomItems(options, STRATEGY_CHOICE_COUNT).map((option) => {
+      const card = option.temporaryCard
+        ? option.temporaryCard
+        : {
+            id: `reward-option-${option.id}`,
+            name: option.title,
+            kind: rewardOptionCardKind(option),
+            label: rewardOptionLabel(option),
+            artKey: option.artKey ?? 'tacticUpgrade',
+            summary: option.description,
+            target: 'none',
+            radius: 1,
+            cooldown: 0,
+            energyCost: 0,
+            color: option.color ?? '#9eeedb'
+          };
+      return {
+        action: option.action,
+        actionLabel: option.action === 'grant-temporary-card' ? '获得临时牌' : '选择方向',
+        title: option.title,
+        description: option.description,
+        metaText: rewardOptionMetaText(option),
+        card,
+        cardKind: option.cardKind,
+        wave,
+        temporaryCard: option.temporaryCard
+      };
+    });
+  }
+
+  isWaveRewardOptionAvailable(option) {
+    if (option.action === 'open-card-kind-choice') {
+      return this.selectedCardPool({ kind: option.cardKind }).length > 0;
+    }
+    if (option.action === 'open-card-upgrade-choice' || option.action === 'open-card-copy-choice') {
+      return this.uniqueRuntimeCards().length > 0;
+    }
+    return true;
   }
 
   nextUpcomingWave() {
@@ -1052,6 +1311,30 @@ export class Game {
     }));
   }
 
+  createExistingCardUpgradeChoices() {
+    return pickRandomItems(this.uniqueRuntimeCards(), STRATEGY_CHOICE_COUNT).map((card) => ({
+      action: 'upgrade-existing-copies',
+      actionLabel: '同名升级',
+      title: `升级 ${card.name}`,
+      description: '所有同名卡牌等级 +1，并补满使用次数。',
+      metaText: `${strategyKindLabel(card.kind)} / 同名卡牌`,
+      card,
+      targetCard: card,
+      upgradeAmount: 1
+    }));
+  }
+
+  createExistingCardCopyChoices() {
+    return pickRandomItems(this.uniqueRuntimeCards(), STRATEGY_CHOICE_COUNT).map((card) => ({
+      action: 'copy-card',
+      actionLabel: '复制',
+      title: `复制 ${card.name}`,
+      description: '先补满这张卡使用次数，再加入一张同等级、满使用次数的复制牌。',
+      card,
+      targetCard: card
+    }));
+  }
+
   renderStrategyEvent() {
     const event = this.strategyEvent;
     if (!event) return;
@@ -1076,6 +1359,18 @@ export class Game {
     const eventType = this.strategyEvent.type;
     const choice = this.strategyEvent.choices[index];
     if (!choice || button.disabled) return;
+    if (choice.action === 'open-card-kind-choice') {
+      this.handleCardKindRewardSelection(choice);
+      return;
+    }
+    if (choice.action === 'open-card-upgrade-choice') {
+      this.handleExistingCardUpgradeSelection(choice);
+      return;
+    }
+    if (choice.action === 'open-card-copy-choice') {
+      this.handleExistingCardCopySelection(choice);
+      return;
+    }
     if (choice.action === 'select-upgrade-card') {
       this.handleUpgradeCardSelection(choice);
       return;
@@ -1087,6 +1382,36 @@ export class Game {
       return;
     }
     this.startNextWave();
+  }
+
+  handleCardKindRewardSelection(choice) {
+    const event = this.createStrategyEvent('card-kind-choice', {
+      wave: choice.wave,
+      cardKind: choice.cardKind,
+      title: choice.title,
+      summary: `从本局出战${strategyKindLabel(choice.cardKind)}中随机出现 3 张，选择 1 张加入抽牌堆。`
+    });
+    if (!event?.choices?.length) return;
+    this.strategyEvent = event;
+    this.renderStrategyEvent();
+  }
+
+  handleExistingCardUpgradeSelection(choice) {
+    const event = this.createStrategyEvent('existing-card-upgrade', {
+      wave: choice.wave
+    });
+    if (!event?.choices?.length) return;
+    this.strategyEvent = event;
+    this.renderStrategyEvent();
+  }
+
+  handleExistingCardCopySelection(choice) {
+    const event = this.createStrategyEvent('existing-card-copy', {
+      wave: choice.wave
+    });
+    if (!event?.choices?.length) return;
+    this.strategyEvent = event;
+    this.renderStrategyEvent();
   }
 
   handleUpgradeCardSelection(choice) {
@@ -1130,7 +1455,7 @@ export class Game {
     } else if (choice.action === 'apply-card-upgrade') {
       applied = this.cardSystem.applyRuntimeUpgrade(choice.targetCard, choice.upgrade);
     } else if (choice.action === 'upgrade-existing-copies') {
-      applied = this.cardSystem.upgradeExistingCardCopies(choice.targetCard, choice.upgradeAmount ?? 2);
+      applied = this.cardSystem.upgradeExistingCardCopies(choice.targetCard, choice.upgradeAmount ?? 1);
     } else if (choice.action === 'copy-card') {
       applied = this.cardSystem.copyCardInstance(choice.targetCard, {
         prefix: `event-copy-${choice.targetCard.id}-${Date.now()}`
@@ -1144,6 +1469,11 @@ export class Game {
         remainingUses: copiedUses
       }, {
         prefix: `event-overload-${choice.targetCard.id}-${Date.now()}`,
+        applyRuntimeLevelBonus: false
+      }).added;
+    } else if (choice.action === 'grant-temporary-card') {
+      applied = this.cardSystem.addCardToDrawPile(choice.temporaryCard ?? choice.card, {
+        prefix: `event-temporary-${choice.card.id}-${Date.now()}`,
         applyRuntimeLevelBonus: false
       }).added;
     }
@@ -4005,6 +4335,18 @@ function strategyEventTypeMeta(type) {
   if (type === 'opening-unit') {
     return { key: 'opening', mark: '初', label: '开局选牌' };
   }
+  if (type === 'wave-reward') {
+    return { key: 'choice', mark: '奖', label: '波次奖励' };
+  }
+  if (type === 'card-kind-choice') {
+    return { key: 'choice', mark: '选', label: '选牌奖励' };
+  }
+  if (type === 'existing-card-upgrade') {
+    return { key: 'upgrade', mark: '升', label: '同名升级' };
+  }
+  if (type === 'existing-card-copy') {
+    return { key: 'copy', mark: '复', label: '复制奖励' };
+  }
   if (type === 'boss-reward') {
     return { key: 'boss', mark: '核', label: 'Boss 奖励' };
   }
@@ -4021,6 +4363,10 @@ function strategyEventTypeMeta(type) {
 }
 
 function strategyChoiceActionMeta(choice) {
+  if (choice.action === 'open-card-kind-choice') return { key: 'select-upgrade', label: '选卡方向' };
+  if (choice.action === 'open-card-upgrade-choice') return { key: 'upgrade-card', label: '升级入口' };
+  if (choice.action === 'open-card-copy-choice') return { key: 'copy-card', label: '复制入口' };
+  if (choice.action === 'grant-temporary-card') return { key: 'restore-card', label: '临时奖励' };
   if (choice.action === 'add-card') return { key: 'add-card', label: '新卡奖励' };
   if (choice.action === 'add-card-limited-uses') return { key: 'add-card', label: '代价新卡' };
   if (choice.action === 'select-upgrade-card') return { key: 'select-upgrade', label: '选择升级对象' };
@@ -4041,6 +4387,32 @@ function strategyKindLabel(kind) {
   if (kind === 'tactic') return '战术卡';
   if (kind === 'ability') return '能力卡';
   return '附魔卡';
+}
+
+function rewardOptionCardKind(option) {
+  if (option.cardKind) return option.cardKind;
+  if (option.action === 'open-card-upgrade-choice') return 'tactic';
+  if (option.action === 'open-card-copy-choice') return 'ability';
+  return 'tactic';
+}
+
+function rewardOptionLabel(option) {
+  if (option.cardKind === 'summon') return '兵';
+  if (option.cardKind === 'spell') return '法';
+  if (option.cardKind === 'enchant') return '附';
+  if (option.cardKind === 'tactic') return '策';
+  if (option.cardKind === 'ability') return '能';
+  if (option.cardKind === 'building') return '建';
+  if (option.action === 'open-card-upgrade-choice') return '升';
+  if (option.action === 'open-card-copy-choice') return '复';
+  return '奖';
+}
+
+function rewardOptionMetaText(option) {
+  if (option.cardKind) return `${strategyKindLabel(option.cardKind)} / 三选一`;
+  if (option.action === 'open-card-upgrade-choice') return '已有卡牌 / 同名升级';
+  if (option.action === 'open-card-copy-choice') return '已有卡牌 / 满次数复制';
+  return '特殊临时牌 / 本局限定';
 }
 
 function cardUsesText(card) {

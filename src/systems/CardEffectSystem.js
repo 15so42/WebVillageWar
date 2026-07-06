@@ -9,6 +9,7 @@ export class CardEffectSystem {
       'create-area-effect': (context) => this.createAreaEffect(context),
       'cast-spell': (context) => this.castSpell(context),
       'apply-buff': (context) => this.applyBuff(context),
+      'apply-random-enchantments': (context) => this.applyRandomEnchantments(context),
       'acquire-ability': (context) => this.acquireAbility(context),
       'gain-energy': (context) => this.gainEnergy(context),
       'draw-temporary-cards': (context) => this.drawTemporaryCards(context)
@@ -89,6 +90,38 @@ export class CardEffectSystem {
     this.game.effects.spawnRing(targetUnit.position, visualDefinition?.color ?? card.color, 0.85, 0.6);
     this.game.selectUnit(targetUnit);
     return Boolean(buff);
+  }
+
+  applyRandomEnchantments({ card, effect, targetUnit }) {
+    if (!targetUnit) return false;
+    const count = Math.max(1, Math.floor(resolveCardEffectNumber(card, effect, 'count', 1)));
+    const enchantmentIds = Object.entries(BUFF_DEFINITIONS)
+      .filter(([, definition]) => definition.category === 'enchantment')
+      .map(([id]) => id);
+    if (!enchantmentIds.length) return false;
+    const cardLevel = Math.max(1, Math.floor(card.level ?? 1));
+    let applied = 0;
+    for (let index = 0; index < count; index += 1) {
+      const buffId = enchantmentIds[Math.floor(Math.random() * enchantmentIds.length)];
+      const buff = this.game.buffs.applyBuff(targetUnit, buffId, null, {
+        sourceCard: card.id,
+        level: cardLevel + 1
+      });
+      if (buff) applied += 1;
+    }
+    if (applied <= 0) return false;
+    this.game.effects.spawnRing(targetUnit.position, card.color ?? '#b68cff', 1.1, 0.75);
+    this.game.effects.spawnDamageNumber(targetUnit.position, 1, {
+      text: `随机附魔x${applied}`,
+      color: card.color ?? '#d8b7ff',
+      stroke: '#21132f',
+      height: targetUnit.projectileHitHeight ?? 1.55,
+      duration: 0.8,
+      fontSize: 72,
+      baseHeight: 0.48
+    });
+    this.game.selectUnit(targetUnit);
+    return true;
   }
 
   acquireAbility({ card, effect }) {

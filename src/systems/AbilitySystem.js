@@ -6,7 +6,7 @@ const CARD_ENERGY_REFUND_CHANCE_PER_STACK = 0.16;
 const ENCHANT_ECHO_CHANCE_PER_STACK = 0.2;
 const DEATH_EXPLOSION_DAMAGE_PER_STACK = 10;
 const DEATH_EXPLOSION_RADIUS = 3.2;
-const BUILDING_DURABILITY_PER_STACK = 0.2;
+const BUILDING_STAT_PER_STACK = 0.2;
 const RANDOM_HEAL_PERCENT = 0.16;
 const VICTORY_GOLD_PER_STACK = 0.2;
 
@@ -100,11 +100,20 @@ export class AbilitySystem {
     if (stacks <= 0 || !unit?.isBuilding || !unit.attributes) return;
     const source = 'ability:buildingDurability';
     unit.attributes.removeModifiersBySource(source);
-    unit.attributes.addModifier({
-      stat: 'maxDurability',
-      type: 'multiply',
-      percent: BUILDING_DURABILITY_PER_STACK * stacks
-    }, source);
+    const percent = BUILDING_STAT_PER_STACK * stacks;
+    unit.attributes.addModifiers([
+      {
+        stat: 'maxHealth',
+        type: 'multiply',
+        percent
+      },
+      {
+        stat: 'maxDurability',
+        type: 'multiply',
+        percent
+      }
+    ], source);
+    unit.health = unit.maxHealth;
     unit.weapon.durability = unit.weapon.maxDurability;
   }
 

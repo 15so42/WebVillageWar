@@ -1004,6 +1004,8 @@ export class CardSystem {
     this.allDeckCards().forEach((candidate) => {
       if (candidate.id !== card.id) return;
       candidate.level = Math.max(1, Math.floor(candidate.level ?? 1)) + levels;
+      ensureCardUses(candidate);
+      candidate.remainingUses = candidate.maxUses;
       this.pendingDrawAnimations.add(candidate);
       upgraded = true;
     });
@@ -1078,6 +1080,24 @@ export class CardSystem {
     return true;
   }
 
+  restoreCardFamilyUses(card) {
+    if (!card?.id) return false;
+    let restored = false;
+    this.allDeckCards().forEach((candidate) => {
+      if (candidate.id !== card.id) return;
+      ensureCardUses(candidate);
+      candidate.remainingUses = candidate.maxUses;
+      this.pendingDrawAnimations.add(candidate);
+      restored = true;
+    });
+    if (restored) {
+      this.renderHand();
+      this.renderTemporaryCards();
+      this.updatePileUi();
+    }
+    return restored;
+  }
+
   removeCardInstance(card) {
     if (!card) return false;
     const locations = [
@@ -1101,6 +1121,8 @@ export class CardSystem {
   copyCardInstance(card, options = {}) {
     if (!card || !this.allDeckCards().includes(card)) return { added: false, location: 'none' };
     ensureCardUses(card);
+    card.remainingUses = card.maxUses;
+    this.pendingDrawAnimations.add(card);
     return this.addCardToDrawPile({
       ...card,
       instanceId: undefined,
