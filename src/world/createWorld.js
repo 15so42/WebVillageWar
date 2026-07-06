@@ -1501,19 +1501,24 @@ function doesWorldNavigationSegmentHitBlocker(start, end) {
 
 function worldNavigationBlockers() {
   const config = worldConfig();
-  return [
+  const blockers = [
     {
       x: config.playerBasePosition.x,
       z: config.playerBasePosition.z,
       radius: WORLD_NAV_PLAYER_BASE_RADIUS
-    },
-    {
+    }
+  ];
+  if (config.theme !== 'dungeon') {
+    blockers.push({
       x: config.enemyCampPosition.x,
       z: config.enemyCampPosition.z,
       radius: WORLD_NAV_ENEMY_CAMP_RADIUS
-    },
+    });
+  }
+  blockers.push(
     ...(config.navigationBlockers ?? [])
-  ];
+  );
+  return blockers;
 }
 
 function registerWorldNavigationBlocker(x, z, radius, kind = 'decor') {
@@ -3096,13 +3101,16 @@ function placeCottages(scene) {
 
 function createSnowMonsterCamp(scene) {
   const config = worldConfig().monsterCamp ?? { x: 4, z: -34, rot: -0.34, scale: 1.18 };
-  registerWorldNavigationBlocker(
-    config.x,
-    config.z,
-    WORLD_NAV_MONSTER_CAMP_RADIUS * (config.scale ?? 1),
-    'monster-camp'
-  );
-  if (worldConfig().theme === 'dungeon') {
+  const theme = worldConfig().theme;
+  if (theme !== 'dungeon') {
+    registerWorldNavigationBlocker(
+      config.x,
+      config.z,
+      WORLD_NAV_MONSTER_CAMP_RADIUS * (config.scale ?? 1),
+      'monster-camp'
+    );
+  }
+  if (theme === 'dungeon') {
     createDungeonEnemyGate(scene);
     return;
   }
