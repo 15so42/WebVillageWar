@@ -721,9 +721,9 @@ const WORLD_PRESETS = {
       north: '#c96f48',
       valley: '#b56a4d',
       forest: '#8f6048',
-      high: '#d18652',
+      high: '#e0a852',
       snow: '#d99458',
-      path: '#d18a5a',
+      path: '#dda16a',
       puddle: '#6c514a'
     },
     ground: {
@@ -775,13 +775,13 @@ const WORLD_PRESETS = {
     terrain: {
       ...DEFAULT_TERRAIN_PROFILE,
       baseHeight: 0.24,
-      northRise: 0.75,
-      sideRise: 0.55,
-      sideNorthRise: 0.9,
-      roughnessScale: 0.78,
+      northRise: 0.95,
+      sideRise: 0.78,
+      sideNorthRise: 1.12,
+      roughnessScale: 0.94,
       valleyFloorBase: 0.22,
-      valleyNorthRise: 0.32,
-      valleySideRise: 0.28,
+      valleyNorthRise: 0.42,
+      valleySideRise: 0.36,
       campTerrace: 0.42,
       campTerraceOutward: 0.18,
       hills: [
@@ -809,6 +809,41 @@ const WORLD_PRESETS = {
       { kind: 'mushroom', x: 31, z: -27, radius: 1.35, height: 9.4, rot: -0.48, sx: 0.92, sz: 1.12 },
       { kind: 'mesa', x: -19, z: 24, radius: 3.1, height: 4.8, rot: 0.92, sx: 1.25, sz: 0.72 }
     ],
+    canyonWalls: [
+      { x: -43, z: -31, width: 8.8, depth: 14.2, height: 10.8, rot: -0.06 },
+      { x: -44, z: -17, width: 9.4, depth: 15.8, height: 12.6, rot: 0.08 },
+      { x: -43, z: -2, width: 8.2, depth: 14.6, height: 9.8, rot: -0.11 },
+      { x: -43.5, z: 14, width: 9.8, depth: 15.2, height: 12.2, rot: 0.04 },
+      { x: -42.5, z: 31, width: 9.2, depth: 13.4, height: 10.4, rot: -0.16 },
+      { x: 43, z: -32, width: 9.6, depth: 14.8, height: 12.4, rot: 0.18 },
+      { x: 44, z: -18, width: 8.6, depth: 15.4, height: 10.6, rot: -0.07 },
+      { x: 43.5, z: -3, width: 9.2, depth: 14.4, height: 11.7, rot: 0.1 },
+      { x: 43, z: 13, width: 8.4, depth: 15.2, height: 9.9, rot: -0.14 },
+      { x: 44, z: 29, width: 9.8, depth: 13.8, height: 12.8, rot: 0.13 },
+      { x: -30, z: -43, width: 13.4, depth: 8.4, height: 9.8, rot: 0.12 },
+      { x: -15, z: -44, width: 15.6, depth: 9.2, height: 12.1, rot: -0.04 },
+      { x: 2, z: -43.5, width: 14.8, depth: 8.6, height: 10.7, rot: 0.07 },
+      { x: 19, z: -44, width: 15.2, depth: 9, height: 12.5, rot: -0.12 },
+      { x: 34, z: -42.5, width: 12.8, depth: 8.2, height: 9.6, rot: 0.15 },
+      { x: -32, z: 42.5, width: 13, depth: 7.8, height: 8.2, rot: -0.1 },
+      { x: 31, z: 42.5, width: 13.8, depth: 7.8, height: 8.6, rot: 0.09 }
+    ],
+    desertPebbleFields: [
+      { x: -18, z: 4, rx: 13, rz: 17, count: 42 },
+      { x: 17, z: -12, rx: 14, rz: 18, count: 46 },
+      { x: -4, z: -24, rx: 17, rz: 8, count: 34 },
+      { x: 23, z: 18, rx: 11, rz: 9, count: 34 },
+      { x: -26, z: 23, rx: 10, rz: 9, count: 26 }
+    ],
+    cactusZones: [
+      { x: -34, z: 18, rx: 7, rz: 11, count: 14 },
+      { x: 34, z: 8, rx: 6, rz: 12, count: 13 },
+      { x: -30, z: -19, rx: 7, rz: 9, count: 11 },
+      { x: 31, z: -24, rx: 7, rz: 8, count: 11 },
+      { x: 10, z: 13, rx: 6, rz: 6, count: 7 },
+      { x: -8, z: -8, rx: 8, rz: 7, count: 6 }
+    ],
+    desertScrubCount: 72,
     shadeZones: [
       { x: -22.2, z: 10.4, rx: 6.4, rz: 3.4 },
       { x: 26.9, z: -8.7, rx: 6.8, rz: 3.6 },
@@ -1061,6 +1096,10 @@ export function terrainHeightAt(x, z) {
   const campTerrace = terrain.campTerrace +
     smoothstep(0, terrain.campShelfOuter, campDistance) * terrain.campTerraceOutward;
   height = mix(height, campTerrace, campShelf * 0.78);
+
+  if (config.theme === 'red-desert') {
+    height += desertValleySurfaceRippleAt(x, z, pathDistance);
+  }
 
   if (config.landmass) {
     const landMask = landmassMaskAt(x, z);
@@ -1618,17 +1657,44 @@ function desertTerrainColorAt(x, z, height, palette) {
   const pathMask = 1 - smoothstep(0, worldConfig().pathWidth * 0.95, pathDistance);
   const sideRise = smoothstep(14, 40, Math.abs(x));
   const ridgeMask = northMaskAt(z) * 0.42 + sideRise * 0.28;
+  const lowFloor = 1 - smoothstep(0.32, 1.1, height);
+  const highShelf = smoothstep(0.88, 3.4, height);
   const dune = Math.sin(x * 0.15 + z * 0.09) * 0.5 + Math.cos(x * 0.09 - z * 0.17) * 0.5;
   const strata = Math.sin(height * 5.8 + x * 0.08 - z * 0.035);
   const facet = hash2(x * 0.08, z * 0.08) - 0.5;
+  color.lerp(new THREE.Color('#f2d8a8'), lowFloor * 0.34);
   color.lerp(new THREE.Color(palette.side), sideRise * 0.28);
   color.lerp(new THREE.Color(palette.north), ridgeMask * 0.22);
-  color.lerp(new THREE.Color(palette.high), smoothstep(1.2, 3.2, height) * 0.22);
+  color.lerp(new THREE.Color(palette.high), highShelf * 0.3);
+  color.lerp(new THREE.Color('#f1c268'), highShelf * 0.12);
   color.lerp(new THREE.Color('#f0a05d'), Math.max(0, strata) * 0.045);
   color.lerp(new THREE.Color('#833a30'), Math.max(0, -strata) * 0.035);
   color.lerp(new THREE.Color(palette.path), pathMask * 0.36);
   color.offsetHSL(0.004 * dune, 0.012 * dune, 0.024 * facet + 0.018 * dune);
   return color;
+}
+
+function desertValleySurfaceRippleAt(x, z, pathDistance) {
+  const config = worldConfig();
+  const routeKeepFlat = smoothstep(3.6, 11.5, pathDistance);
+  const baseKeepFlat = smoothstep(6.5, 13, Math.hypot(x - config.playerBasePosition.x, z - config.playerBasePosition.z));
+  const campKeepFlat = smoothstep(5.8, 12, Math.hypot(x - config.enemyCampPosition.x, z - config.enemyCampPosition.z));
+  const altarKeepFlat = 1 - (config.altars ?? []).reduce((best, altar) => {
+    const position = altar.position ?? altar;
+    return Math.max(best, 1 - smoothstep(altar.clearingRadius ?? 5.4, (altar.clearingRadius ?? 5.4) + 4, Math.hypot(x - position.x, z - position.z)));
+  }, 0);
+  const edgeLift = smoothstep(25, 43, Math.max(Math.abs(x), Math.abs(z)));
+  const broadDune = (
+    Math.sin(x * 0.075 - z * 0.055) * 0.18 +
+    Math.cos(x * 0.052 + z * 0.082) * 0.16
+  );
+  const crossRipple = (
+    Math.sin(x * 0.23 + z * 0.14) * 0.08 +
+    Math.cos(x * 0.17 - z * 0.2) * 0.07
+  );
+  const terrace = Math.max(0, Math.sin((x - z) * 0.055 + 1.2)) * 0.12;
+  const mask = (0.35 + routeKeepFlat * 0.65) * baseKeepFlat * campKeepFlat * altarKeepFlat;
+  return clamp(broadDune + crossRipple + terrace, -0.16, 0.5) * mask * (0.72 + edgeLift * 0.38);
 }
 
 function desertSandstoneTerrainHeightAt(x, z, pathDistance) {
@@ -3023,10 +3089,12 @@ function createDungeonCampfires(scene) {
 function createDesertDecor(scene, pathPoints) {
   const random = seededRandom(worldConfig().seed ?? 904);
   worldConfig().sunlightShadeZones = [];
+  placeDesertCanyonWalls(scene, random);
   placeDesertSandstoneLandmarks(scene, pathPoints, random);
   placeDesertSandstoneFields(scene, pathPoints, random);
   placeDesertLandmarkBoulders(scene, pathPoints);
   placeDesertBoulderClusters(scene, pathPoints, random);
+  placeDesertPebbles(scene, pathPoints, random);
   placeCacti(scene, pathPoints, random);
   placeDesertScrub(scene, pathPoints, random);
 }
@@ -3338,8 +3406,103 @@ function createLayeredSandstoneMesa(radius, height, random) {
   return enableDecorationShadows(group);
 }
 
+function placeDesertCanyonWalls(scene, random) {
+  (worldConfig().canyonWalls ?? []).forEach((wall, index) => {
+    const width = wall.width ?? 9;
+    const depth = wall.depth ?? 10;
+    const height = wall.height ?? 8;
+    const column = createLayeredDesertCanyonColumn(width, depth, height, random);
+    column.name = 'DesertCanyonWall';
+    placeOnTerrain(column, wall.x, wall.z, -0.08);
+    column.rotation.y = (wall.rot ?? 0) + (hash2(index * 0.61, 18.4) - 0.5) * 0.08;
+    scene.add(column);
+    createBakedGroundShadow(scene, wall.x, wall.z, {
+      rx: width * 0.46,
+      rz: depth * 0.4,
+      opacity: 0.18,
+      yaw: column.rotation.y,
+      offsetX: 0.8,
+      offsetZ: -0.75
+    });
+    registerWorldNavigationBlocker(
+      wall.x,
+      wall.z,
+      Math.max(width, depth) * 0.38,
+      'desert-canyon-wall'
+    );
+  });
+}
+
+function createLayeredDesertCanyonColumn(width, depth, height, random) {
+  const group = new THREE.Group();
+  const colors = ['#994735', '#b95b3c', '#d97948', '#e79b58', '#c86942'];
+  const topMat = mat('#f0b762', { roughness: 0.98 });
+  const layers = Math.max(7, Math.round(height * 1.15));
+  let y = 0;
+
+  for (let i = 0; i < layers; i += 1) {
+    const t = i / Math.max(1, layers - 1);
+    const layerHeight = height * (0.055 + random() * 0.04);
+    const taper = 1.05 - t * 0.28 + Math.sin(t * Math.PI * 3.2) * 0.08 + (random() - 0.5) * 0.08;
+    const shelf = i % 3 === 0 ? 1.08 + random() * 0.1 : 0.92 + random() * 0.1;
+    const layer = new THREE.Mesh(
+      new THREE.CylinderGeometry(1, 1, 1, 10),
+      mat(colors[i % colors.length], { roughness: 0.98 })
+    );
+    layer.name = 'DesertCanyonWallLayer';
+    layer.position.set(
+      (random() - 0.5) * width * 0.08,
+      y + layerHeight * 0.5,
+      (random() - 0.5) * depth * 0.08
+    );
+    layer.scale.set(
+      width * taper * shelf * (0.48 + random() * 0.08),
+      layerHeight,
+      depth * taper * (0.42 + random() * 0.1)
+    );
+    layer.rotation.y = random() * Math.PI * 2;
+    group.add(layer);
+    y += layerHeight * (0.78 + random() * 0.14);
+  }
+
+  const cap = new THREE.Mesh(
+    new THREE.CylinderGeometry(1, 1, 0.46, 10),
+    topMat
+  );
+  cap.name = 'DesertCanyonWallCap';
+  cap.position.y = y + 0.12;
+  cap.scale.set(width * 0.48, 1, depth * 0.42);
+  cap.rotation.y = random() * Math.PI * 2;
+  group.add(cap);
+
+  return enableDecorationShadows(group);
+}
+
+function placeDesertPebbles(scene, pathPoints, random) {
+  const colors = ['#7b3f34', '#9f5138', '#b96542', '#d0834f', '#ecd099'];
+  (worldConfig().desertPebbleFields ?? []).forEach((field) => {
+    for (let i = 0; i < field.count; i += 1) {
+      const { x, z } = randomPointInEllipse(field, random);
+      if (!isDecorationClear(x, z, pathPoints, 2.1)) continue;
+      if (distanceToPath(x, z, pathPoints) < 4.6 && random() > 0.18) continue;
+      const size = 0.14 + random() * 0.42;
+      const pebble = new THREE.Mesh(
+        new THREE.DodecahedronGeometry(size, 0),
+        mat(colors[Math.floor(random() * colors.length)], { roughness: 0.96 })
+      );
+      pebble.name = 'DesertPebble';
+      pebble.scale.set(1.1 + random() * 1.2, 0.45 + random() * 0.55, 0.9 + random() * 1.1);
+      pebble.rotation.set((random() - 0.5) * 0.38, random() * Math.PI * 2, (random() - 0.5) * 0.28);
+      placeOnTerrain(pebble, x, z, 0.045);
+      pebble.castShadow = true;
+      pebble.receiveShadow = true;
+      scene.add(pebble);
+    }
+  });
+}
+
 function placeCacti(scene, pathPoints, random) {
-  const zones = [
+  const zones = worldConfig().cactusZones ?? [
     { x: -33, z: 18, rx: 6, rz: 10, count: 10 },
     { x: 33, z: 6, rx: 5, rz: 11, count: 9 },
     { x: -29, z: -19, rx: 6, rz: 8, count: 8 },
@@ -3351,6 +3514,7 @@ function placeCacti(scene, pathPoints, random) {
       const { x, z } = randomPointInEllipse(zone, random);
       if (!isDecorationClear(x, z, pathPoints, 3.2)) continue;
       const cactus = createCactusModel(0.75 + random() * 0.95);
+      cactus.name = 'DesertCactus';
       placeOnTerrain(cactus, x, z);
       cactus.rotation.y = random() * Math.PI * 2;
       createBakedGroundShadow(scene, x, z, {
@@ -3368,7 +3532,7 @@ function placeCacti(scene, pathPoints, random) {
 
 function placeDesertScrub(scene, pathPoints, random) {
   const scrubColors = ['#75683f', '#877048', '#6b6038'];
-  for (let i = 0; i < 42; i += 1) {
+  for (let i = 0; i < (worldConfig().desertScrubCount ?? 42); i += 1) {
     const x = -36 + random() * 72;
     const z = -34 + random() * 68;
     if (!isDecorationClear(x, z, pathPoints, 2.3)) continue;
