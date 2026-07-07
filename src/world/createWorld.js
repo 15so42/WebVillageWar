@@ -274,11 +274,11 @@ const WORLD_PRESETS = {
       cliffColor: '#c5cfca',
       cliffDarkColor: '#9aacad',
       cliffSkirt: {
-        segments: 76,
+        segments: 136,
         threshold: 0.82,
-        overhang: 3.25,
-        drop: 1.35,
-        jitter: 0.34
+        overhang: 2.38,
+        drop: 1.5,
+        jitter: 0.48
       },
       shoreInner: 0.72,
       shoreOuter: 1.08,
@@ -2476,9 +2476,6 @@ function createSnowCliffSkirt(scene) {
   const maxRadius = skirt.maxRadius ?? Math.max(config.ground.width, config.ground.depth) * 0.24;
   const minRadius = skirt.minRadius ?? 16;
   const waterHeight = landmass.waterHeight ?? config.terrain.waterHeight ?? -1.2;
-  const positions = [];
-  const colors = [];
-  const indices = [];
   const ring = [];
 
   for (let i = 0; i < segments; i += 1) {
@@ -2493,77 +2490,128 @@ function createSnowCliffSkirt(scene) {
     const drop = (skirt.drop ?? 0.45) + noise * 0.34;
     const topY = terrainHeightAt(point.x, point.z) + 0.04;
     const bottomY = waterHeight - drop;
-    const ledgeShift = overhang * (0.36 + hash2(i * 0.41, 3.3) * 0.18);
-    const ledgeY = mix(topY, bottomY, 0.42) + (hash2(i * 0.7, 4.2) - 0.5) * 0.18;
-    const topColor = new THREE.Color('#dae2db').lerp(new THREE.Color('#c3cfcb'), noise * 0.28);
-    const ledgeColor = new THREE.Color('#b8c6c2').lerp(new THREE.Color('#9dafaf'), noise * 0.24);
-    const bottomColor = new THREE.Color('#94a7a8').lerp(new THREE.Color('#acbbb7'), noise * 0.18);
+    const shade = cliffLightAt(normalX, normalZ, noise);
 
     ring.push({
+      normalX,
+      normalZ,
+      noise,
+      shade,
       top: { x: point.x, y: topY, z: point.z },
-      ledge: {
-        x: point.x + normalX * ledgeShift,
-        y: ledgeY,
-        z: point.z + normalZ * ledgeShift
-      },
       bottom: {
         x: point.x + normalX * overhang,
         y: bottomY,
         z: point.z + normalZ * overhang
-      },
-      topColor,
-      ledgeColor,
-      bottomColor
+      }
     });
   }
 
   if (ring.length < 3) return;
-  ring.forEach((point) => {
-    positions.push(
-      point.top.x, point.top.y, point.top.z,
-      point.ledge.x, point.ledge.y, point.ledge.z,
-      point.bottom.x, point.bottom.y, point.bottom.z
-    );
-    pushColor(colors, point.topColor);
-    pushColor(colors, point.ledgeColor);
-    pushColor(colors, point.bottomColor);
-  });
+  const group = new THREE.Group();
+  group.name = 'SnowCliffPillarSkirt';
 
   for (let i = 0; i < ring.length; i += 1) {
     const next = (i + 1) % ring.length;
     if (Math.hypot(ring[i].top.x - ring[next].top.x, ring[i].top.z - ring[next].top.z) > 16) {
       continue;
     }
-    const base = i * 3;
-    const nextBase = next * 3;
-    indices.push(
-      base, base + 1, nextBase,
-      nextBase, base + 1, nextBase + 1,
-      base + 1, base + 2, nextBase + 1,
-      nextBase + 1, base + 2, nextBase + 2
-    );
+    const pillar = createCliffPillar(ring[i], ring[next], i);
+    if (pillar) group.add(pillar);
   }
 
-  if (!indices.length) return;
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  geometry.setIndex(indices);
-  geometry.computeVertexNormals();
-  const mesh = new THREE.Mesh(
-    geometry,
-    new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      roughness: 0.94,
+  if (!group.children.length) return;
+  scene.add(group);
+}
+
+function createCliffPillar(a, b, index) {
+  const primaryNoise = hash2(index * 0.53, 12.7);
+  const stagger = index % 2 === 0 ? -1 : 1;
+  const topY = Math.min(a.top.y, b.top.y) + 0.06 + primaryNoise * 0.07;
+  const rawBottomY = Math.max(a.bottom.y, b.bottom.y);
+  const height = clamp(topY - rawBottomY, 1.35, 3.25);
+  const bottomY = topY - height;
+  const tangentX = b.top.x - a.top.x;
+  const tangentZ = b.top.z - a.top.z;
+  const span = Math.max(1, Math.hypot(tangentX, tangentZ));
+  const centerX = (a.top.x + b.top.x + a.bottom.x + b.bottom.x) * 0.25;
+  const centerZ = (a.top.z + b.top.z + a.bottom.z + b.bottom.z) * 0.25;
+  const normalX = (a.normalX + b.normalX) * 0.5;
+  const normalZ = (a.normalZ + b.normalZ) * 0.5;
+  const tangentLength = Math.max(0.001, Math.hypot(tangentX, tangentZ));
+  const tangentUnitX = tangentX / tangentLength;
+  const tangentUnitZ = tangentZ / tangentLength;
+  const width = span * (1.04 + primaryNoise * 0.46);
+  const depth = 1.52 + primaryNoise * 0.78;
+  const shade = (a.shade + b.shade) * 0.5;
+  const radialSegments = 5 + Math.floor(hash2(index * 0.61, 4.4) * 3);
+  const tangentOffset = (hash2(index * 0.77, 5.9) - 0.5) * span * 0.22;
+  const normalOffset = 0.22 + primaryNoise * 0.24 + stagger * (0.1 + hash2(index * 0.43, 8.2) * 0.12);
+  const group = new THREE.Group();
+  const rock = new THREE.Mesh(
+    new THREE.CylinderGeometry(1, 1.06 + primaryNoise * 0.12, 1, radialSegments, 1, false),
+    mat(cliffRockHex('#a9bab7', shade - 0.08, primaryNoise, -0.03), {
+      roughness: 0.9,
       metalness: 0.02,
-      flatShading: false,
-      side: THREE.DoubleSide
+      flatShading: true
     })
   );
-  mesh.name = 'SnowCliffSkirt';
-  mesh.castShadow = true;
-  mesh.receiveShadow = false;
-  scene.add(mesh);
+  rock.name = 'SnowCliffPillar';
+  rock.position.set(
+    centerX + normalX * normalOffset + tangentUnitX * tangentOffset,
+    bottomY + height * 0.5,
+    centerZ + normalZ * normalOffset + tangentUnitZ * tangentOffset
+  );
+  rock.rotation.y = Math.atan2(-tangentZ, tangentX) + (primaryNoise - 0.5) * 0.32;
+  rock.scale.set(width * 0.58, height * (0.96 + hash2(index * 0.8, 2.1) * 0.08), depth * 0.52);
+  rock.castShadow = true;
+  rock.receiveShadow = false;
+  group.add(rock);
+
+  const cap = new THREE.Mesh(
+    new THREE.CylinderGeometry(1, 1, 1, radialSegments, 1, false),
+    mat('#edf3e9', {
+      roughness: 0.92,
+      metalness: 0.01,
+      flatShading: true
+    })
+  );
+  cap.name = 'SnowCliffCap';
+  cap.position.set(
+    rock.position.x - normalX * (0.05 + primaryNoise * 0.1),
+    topY + 0.04 + hash2(index * 0.92, 3.6) * 0.05,
+    rock.position.z - normalZ * (0.05 + primaryNoise * 0.1)
+  );
+  cap.rotation.y = rock.rotation.y + (hash2(index * 0.29, 10.1) - 0.5) * 0.24;
+  cap.scale.set(width * (0.58 + hash2(index * 0.35, 12.2) * 0.1), 0.14, depth * (0.5 + hash2(index * 0.39, 14.2) * 0.08));
+  cap.castShadow = false;
+  cap.receiveShadow = false;
+  group.add(cap);
+
+  return group;
+}
+
+function cliffLightAt(normalX, normalZ, noise) {
+  const sun = new THREE.Vector3(-44, 82, 46).normalize();
+  const normal = new THREE.Vector3(normalX * 0.88, 0.28, normalZ * 0.88).normalize();
+  return clamp(0.72 + normal.dot(sun) * 0.34 + (noise - 0.5) * 0.16, 0.48, 1.08);
+}
+
+function cliffRockHex(hex, shade, variation, lift = 0) {
+  const color = new THREE.Color(hex);
+  const shadow = new THREE.Color('#667c7f');
+  const snowLight = new THREE.Color('#f3f7ef');
+  const shadeDelta = shade - 1;
+  if (shadeDelta < 0) {
+    color.lerp(shadow, Math.min(0.58, -shadeDelta * 0.9));
+  } else {
+    color.lerp(snowLight, Math.min(0.34, shadeDelta * 0.65));
+  }
+  color.offsetHSL(
+    (variation - 0.5) * 0.012,
+    -0.012,
+    lift + (variation - 0.5) * 0.035
+  );
+  return `#${color.getHexString()}`;
 }
 
 function coastBoundaryPointAt(angle, threshold, minRadius, maxRadius) {
@@ -2596,10 +2644,6 @@ function coastBoundaryPointAt(angle, threshold, minRadius, maxRadius) {
     x: cos * radius,
     z: sin * radius
   };
-}
-
-function pushColor(colors, color) {
-  colors.push(color.r, color.g, color.b);
 }
 
 function decorate(scene, pathPoints) {
