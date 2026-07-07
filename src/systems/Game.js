@@ -681,7 +681,7 @@ export class Game {
     window.addEventListener('resize', () => this.resize(), { signal });
     window.addEventListener('popstate', (event) => this.onReturnNavigation(event), { signal });
     this.strategyEventUi.root.addEventListener('click', (event) => this.onStrategyEventClick(event), { signal });
-    this.strategyEventUi.root.addEventListener('pointerdown', stopUiEvent, { signal });
+    this.strategyEventUi.root.addEventListener('pointerdown', stopUiPropagation, { signal });
     this.strategyEventUi.root.addEventListener('contextmenu', stopUiEvent, { signal });
     this.dom.settingsButton?.addEventListener('click', (event) => {
       event.preventDefault();
@@ -1340,6 +1340,7 @@ export class Game {
     const event = this.strategyEvent;
     if (!event) return;
     const typeMeta = strategyEventTypeMeta(event.type);
+    event.choices = Array.isArray(event.choices) ? event.choices.filter(Boolean) : [];
     this.strategyEventUi.root.dataset.eventType = typeMeta.key;
     this.strategyEventUi.typeMark.textContent = typeMeta.mark;
     this.strategyEventUi.typeLabel.textContent = typeMeta.label;
@@ -3180,27 +3181,43 @@ export class Game {
   isMobileSelectionDoubleTap(event) {
     const tap = this.lastMobileTap;
     if (!tap) return false;
+    if (tap.kind !== 'select') return false;
+    if (this.hasMovablePlayerSelection()) return false;
     const elapsed = performance.now() - tap.time;
     const distance = Math.hypot(event.clientX - tap.x, event.clientY - tap.y);
     return elapsed <= MOBILE_DOUBLE_TAP_MS && distance <= MOBILE_DOUBLE_TAP_DISTANCE;
   }
 
-  pickSelectableUnit(clientX, clientY) {
-    return this.pickUnitFromList(this.friendlyUnits, clientX, clientY) ??
-      this.pickUnitFromList(this.enemyUnits, clientX, clientY);
+  hasMovablePlayerSelection() {
+    return this.selectedUnits.some((unit) => (
+      unit?.alive &&
+      unit.team === TEAMS.PLAYER &&
+      !unit.isBuilding &&
+      unit.definition?.canMove !== false
+    ));
   }
 
-  pickUnitFromList(units, clientX, clientY) {
+  pickSelectableUnit(clientX, clientY, options = {}) {
+    const friendly = this.pickUnitFromList(this.friendlyUnits, clientX, clientY, options);
+    if (friendly) return friendly;
+    if (options.includeEnemies === false) return null;
+    return this.pickUnitFromList(this.enemyUnits, clientX, clientY, options);
+  }
+
+  pickUnitFromList(units, clientX, clientY, options = {}) {
     this.setPointerFromClient(clientX, clientY);
     this.raycaster.setFromCamera(this.pointer, this.camera);
-    const objects = units.flatMap((unit) => unit.mesh.children);
+    const objects = units
+      .filter((unit) => unit?.alive && unit.mesh?.children?.length)
+      .flatMap((unit) => unit.mesh.children);
     const hit = this.raycaster
       .intersectObjects(objects, true)
       .find((entry) => entry.object.userData.entity?.alive);
     if (hit?.object.userData.entity) return hit.object.userData.entity;
 
+    if (options.allowScreenFallback === false) return null;
     let best = null;
-    let bestDistance = 42;
+    let bestDistance = options.screenRadius ?? 42;
     units.forEach((unit) => {
       if (!unit.alive) return;
       const screen = this.worldToScreen(unit.position);
@@ -3214,18 +3231,37 @@ export class Game {
   }
 
   handleMobileTapCommand(event) {
-    if (this.lootDrops?.tryOpenPickup(event)) return;
-    const unit = this.pickSelectableUnit(event.clientX, event.clientY);
+    if (this.lootDrops?.tryOpenPickup(event)) {
+      this.lastMobileTap = null;
+      return;
+    }
+
+    const hasCommandableSelection = this.hasMovablePlayerSelection();
+    const unit = hasCommandableSelection
+      ? this.pickSelectableUnit(event.clientX, event.clientY, {
+          allowScreenFallback: false,
+          includeEnemies: false
+        })
+      : this.pickSelectableUnit(event.clientX, event.clientY);
     if (unit) {
       this.selectUnit(unit);
+      this.lastMobileTap = {
+        x: event.clientX,
+        y: event.clientY,
+        time: performance.now(),
+        kind: 'select'
+      };
     } else {
-      this.issueMoveCommand(event);
+      const moved = this.issueMoveCommand(event);
+      this.lastMobileTap = moved
+        ? null
+        : {
+            x: event.clientX,
+            y: event.clientY,
+            time: performance.now(),
+            kind: 'empty'
+          };
     }
-    this.lastMobileTap = {
-      x: event.clientX,
-      y: event.clientY,
-      time: performance.now()
-    };
   }
 
   unitsInScreenRect(drag) {
@@ -3242,8 +3278,8 @@ export class Game {
 
   issueMoveCommand(event) {
     const point = this.groundPointFromClient(event.clientX, event.clientY);
-    if (!point || !this.selectedUnits.length) return;
-    this.commandSelectedUnits(point);
+    if (!point || !this.selectedUnits.length) return false;
+    return this.commandSelectedUnits(point);
   }
 
   commandSelectedUnits(point) {
@@ -3253,16 +3289,18 @@ export class Game {
       !unit.isBuilding &&
       unit.definition?.canMove !== false
     ));
-    if (!units.length) return;
+    if (!units.length) return false;
     const commandCenter = this.resolveCommandPoint(point);
-    if (!commandCenter) return;
+    if (!commandCenter) return false;
     const formationRadius = Math.min(2.4, 0.55 + Math.sqrt(units.length) * 0.42);
     const forceMoveUnits = [];
+    let commanded = false;
     units.forEach((unit, index) => {
       const destination = this.resolveCommandPoint(
         commandCenter.clone().add(commandFormationOffset(index, units.length, formationRadius))
       );
       if (!destination) return;
+      commanded = true;
       const forceMove = this.isUnitEngaged(unit);
       unit.commandMoveGoal = forceMove ? destination.clone() : null;
       unit.moveGoal = destination.clone();
@@ -3277,8 +3315,10 @@ export class Game {
       unit.guardRadius = null;
       if (forceMove) forceMoveUnits.push(unit);
     });
+    if (!commanded) return false;
     this.attacks.cancelPendingAttacksFor(forceMoveUnits);
     this.effects.spawnMoveDestination(commandCenter, formationRadius);
+    return true;
   }
 
   isUnitEngaged(unit) {
@@ -4338,7 +4378,16 @@ function randomItem(items) {
 }
 
 function strategyChoiceMarkup(choice, index) {
-  const card = choice.card;
+  const card = choice.card ?? {
+    id: `strategy-choice-${index}`,
+    name: choice.title ?? '奖励',
+    kind: rewardOptionCardKind(choice),
+    label: rewardOptionLabel(choice),
+    artKey: choice.artKey ?? 'tacticUpgrade',
+    summary: choice.description ?? '',
+    energyCost: 0,
+    color: choice.color ?? '#9eeedb'
+  };
   const color = cardThemeColor(card);
   const metaText = choice.metaText ?? `${strategyKindLabel(card.kind)} / ${cardUsesText(card)}`;
   const actionMeta = strategyChoiceActionMeta(choice);
