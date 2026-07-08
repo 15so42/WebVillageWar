@@ -90,7 +90,13 @@ const SNOWFALL_CENTER = new THREE.Vector3();
 const BAKED_SHADOW_CHUNK_SIZE = 18;
 const BAKED_SHADOW_SURFACE_OFFSET = 0.055;
 const BAKED_SHADOW_MIN_TRIANGLE_AREA = 0.0008;
-const SHADOW_MASK_SCENE_KEYS = new Set(['snow-valley']);
+const SHADOW_MASK_SCENE_KEYS = new Set([
+  'snow-valley',
+  'pine-pass',
+  'frozen-ridge',
+  'dungeon-halls',
+  'red-desert'
+]);
 const SHADOW_MASK_WIDTH = 1536;
 const SHADOW_MASK_MAX_HEIGHT = 1536;
 const SHADOW_MASK_COLOR = '#68717d';
@@ -175,6 +181,8 @@ const WORLD_PRESETS = {
       shadowRadius: 2,
       shadowBias: -0.0006,
       shadowNormalBias: 0.018,
+      realtimeShadows: false,
+      bakedShadows: true,
       toneMapping: 'neutral',
       exposure: 1.1
     },
@@ -416,7 +424,9 @@ const WORLD_PRESETS = {
       fogFar: 205,
       sun: '#ffe7b7',
       hemiSky: '#ccefff',
-      hemiGround: '#334f3e'
+      hemiGround: '#334f3e',
+      realtimeShadows: false,
+      bakedShadows: true
     },
     palette: {
       base: '#edf1e6',
@@ -518,7 +528,9 @@ const WORLD_PRESETS = {
       fogFar: 190,
       sun: '#fff1d6',
       hemiSky: '#d8f2ff',
-      hemiGround: '#3d5361'
+      hemiGround: '#3d5361',
+      realtimeShadows: false,
+      bakedShadows: true
     },
     palette: {
       base: '#eef3ee',
@@ -641,12 +653,19 @@ const WORLD_PRESETS = {
     seed: 611,
     sky: {
       background: '#0b0d13',
+      skyGradient: {
+        top: '#020103',
+        middle: '#140407',
+        horizon: '#6c1608'
+      },
       fog: '#15121d',
       fogNear: 54,
       fogFar: 138,
       sun: '#f6ad62',
       hemiSky: '#262233',
-      hemiGround: '#0a090b'
+      hemiGround: '#0a090b',
+      realtimeShadows: false,
+      bakedShadows: true
     },
     palette: {
       base: '#443e46',
@@ -754,6 +773,11 @@ const WORLD_PRESETS = {
     seed: 904,
     sky: {
       background: '#eda466',
+      skyGradient: {
+        top: '#ffe997',
+        middle: '#ffc64d',
+        horizon: '#f08d2f'
+      },
       fog: '#e6a66d',
       fogNear: 74,
       fogFar: 210,
@@ -762,6 +786,8 @@ const WORLD_PRESETS = {
       hemiSky: '#ffd9a0',
       hemiGround: '#7d4636',
       hemiIntensity: 1.18,
+      realtimeShadows: false,
+      bakedShadows: true,
       shadowMapSize: 2048
     },
     palette: {
@@ -1258,7 +1284,7 @@ function createGroundMesh() {
 
   const ground = new THREE.Mesh(geometry, createGroundMaterial());
   ground.rotation.x = -Math.PI / 2;
-  ground.receiveShadow = true;
+  ground.receiveShadow = worldConfig().sky?.realtimeShadows !== false;
   return ground;
 }
 

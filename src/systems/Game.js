@@ -496,8 +496,9 @@ export class Game {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1;
     this.renderer.setPixelRatio(this.renderQuality.pixelRatio);
-    this.renderer.shadowMap.enabled = this.renderQuality.realtimeShadows;
-    this.renderer.shadowMap.autoUpdate = this.renderQuality.realtimeShadows;
+    const useRealtimeShadows = this.renderQuality.realtimeShadows && this.worldConfig.sky?.realtimeShadows !== false;
+    this.renderer.shadowMap.enabled = useRealtimeShadows;
+    this.renderer.shadowMap.autoUpdate = useRealtimeShadows;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.worldUi = ensureWorldUiElement();
     this.cameraTarget = new THREE.Vector3(0, 4, 18);
