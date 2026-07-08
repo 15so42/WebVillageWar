@@ -155,39 +155,39 @@ const WORLD_PRESETS = {
     sceneKey: 'snow-valley',
     seed: 42,
     sky: {
-      background: '#e9eff4',
+      background: '#f0f8fc',
       skyGradient: {
-        top: '#9bb8df',
-        middle: '#e9eff4',
-        horizon: '#f4d3ad'
+        top: '#7fc5f7',
+        middle: '#f0f8fc',
+        horizon: '#f9ead8'
       },
-      fog: '#f1e2cf',
-      fogNear: 96,
-      fogFar: 252,
-      sun: '#ffc47c',
-      sunIntensity: 4.68,
+      fog: '#f7f8f2',
+      fogNear: 110,
+      fogFar: 282,
+      sun: '#ffd3a0',
+      sunIntensity: 4.36,
       sunPosition: { x: -88, y: 48, z: 48 },
       sunTarget: { x: 0, y: 0, z: -4 },
-      hemiSky: '#dfe3f0',
-      hemiGround: '#aaa5ad',
-      hemiIntensity: 1.34,
+      hemiSky: '#e8f4ff',
+      hemiGround: '#bebbc5',
+      hemiIntensity: 1.52,
       shadowMapSize: 2048,
       shadowRadius: 2,
       shadowBias: -0.0006,
       shadowNormalBias: 0.018,
       toneMapping: 'neutral',
-      exposure: 1.04
+      exposure: 1.1
     },
     palette: {
-      base: '#f8f7ef',
-      side: '#e9e8df',
-      north: '#edf0ee',
-      valley: '#f2ede3',
+      base: '#fffef8',
+      side: '#efeee8',
+      north: '#f3f7f4',
+      valley: '#f6f1e9',
       forest: '#b9c4b9',
-      high: '#ebe9df',
-      snow: '#fffdf6',
-      path: '#e4ddd1',
-      puddle: '#cce0e3'
+      high: '#f1f0e9',
+      snow: '#fffef9',
+      path: '#e8e1d6',
+      puddle: '#d2eef5'
     },
     ground: {
       width: 344,
@@ -320,8 +320,8 @@ const WORLD_PRESETS = {
     landmass: {
       waterHeight: -1.28,
       oceanColor: '#4e9fb4',
-      cliffColor: '#c5cfca',
-      cliffDarkColor: '#9aacad',
+      cliffColor: '#b6c0ba',
+      cliffDarkColor: '#849490',
       cliffSkirt: {
         segments: 136,
         threshold: 0.82,
@@ -2728,7 +2728,7 @@ function createCliffPillar(a, b, index) {
   const group = new THREE.Group();
   const rock = new THREE.Mesh(
     new THREE.CylinderGeometry(1, 1.06 + primaryNoise * 0.12, 1, radialSegments, 1, false),
-    mat(cliffRockHex('#a9bab7', shade - 0.08, primaryNoise, -0.03), {
+    mat(cliffRockHex('#8f9d99', shade - 0.16, primaryNoise, -0.05), {
       roughness: 0.9,
       metalness: 0.02,
       flatShading: true
@@ -2748,7 +2748,7 @@ function createCliffPillar(a, b, index) {
 
   const cap = new THREE.Mesh(
     new THREE.CylinderGeometry(1, 1, 1, radialSegments, 1, false),
-    mat('#edf3e9', {
+    mat(cliffRockHex('#e2e7dc', shade - 0.06, primaryNoise, -0.015), {
       roughness: 0.92,
       metalness: 0.01,
       flatShading: true
