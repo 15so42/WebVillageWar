@@ -494,7 +494,7 @@ export class Game {
     });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 0.92;
+    this.renderer.toneMappingExposure = 1;
     this.renderer.setPixelRatio(this.renderQuality.pixelRatio);
     this.renderer.shadowMap.enabled = this.renderQuality.realtimeShadows;
     this.renderer.shadowMap.autoUpdate = this.renderQuality.realtimeShadows;

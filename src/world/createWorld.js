@@ -155,34 +155,39 @@ const WORLD_PRESETS = {
     sceneKey: 'snow-valley',
     seed: 42,
     sky: {
-      background: '#a8d7e8',
-      fog: '#dbeaf7',
-      fogNear: 88,
-      fogFar: 238,
-      sun: '#fff2d0',
-      sunIntensity: 4.25,
-      sunPosition: { x: -78, y: 58, z: 46 },
+      background: '#dcecf5',
+      skyGradient: {
+        top: '#93bfe8',
+        middle: '#dcecf5',
+        horizon: '#e9c79a'
+      },
+      fog: '#e8d7c3',
+      fogNear: 96,
+      fogFar: 252,
+      sun: '#efc083',
+      sunIntensity: 4.42,
+      sunPosition: { x: -88, y: 48, z: 48 },
       sunTarget: { x: 0, y: 0, z: -4 },
-      hemiSky: '#cfe4ff',
-      hemiGround: '#6d7c8f',
-      hemiIntensity: 1.48,
+      hemiSky: '#bfd8ee',
+      hemiGround: '#8997aa',
+      hemiIntensity: 1.46,
       shadowMapSize: 2048,
       shadowRadius: 2,
       shadowBias: -0.0006,
       shadowNormalBias: 0.018,
       toneMapping: 'aces',
-      exposure: 0.95
+      exposure: 1
     },
     palette: {
       base: '#e9eddc',
       side: '#d4d8c8',
       north: '#dce4e4',
       valley: '#e4e3cf',
-      forest: '#b7c8b8',
+      forest: '#b9c4b9',
       high: '#c6c7bf',
       snow: '#f1f4e8',
-      path: '#d7dccf',
-      puddle: '#b9eaf2'
+      path: '#e4dccc',
+      puddle: '#cce0e3'
     },
     ground: {
       width: 344,
@@ -300,17 +305,17 @@ const WORLD_PRESETS = {
       { x: -35, z: -29, size: 2.5, sx: 1.16, sy: 0.84, sz: 1.02, rot: 0.2 }
     ],
     cottages: [
-      { x: -40.5, z: -36.2, rot: 0.55, scale: 1.86, roof: '#b64a3d' },
-      { x: -35.1, z: -40.1, rot: -0.18, scale: 1.72, roof: '#a84f39' },
-      { x: -30.2, z: -33.4, rot: 0.86, scale: 1.58, wall: '#a77750', roof: '#744230' },
-      { x: -25.6, z: -39.4, rot: -0.54, scale: 1.52, wall: '#a77750', roof: '#744230' },
-      { x: -20.6, z: -34.9, rot: 0.38, scale: 1.42, wall: '#9f6b45', roof: '#6f3d31' },
-      { x: -15.1, z: -39.2, rot: -0.75, scale: 1.34, wall: '#9f6b45', roof: '#6f3d31' },
-      { x: -9.4, z: -35.6, rot: 0.44, scale: 1.26, wall: '#9f6b45', roof: '#6f3d31' },
-      { x: -34.1, z: -30.5, rot: 1.18, scale: 1.38, wall: '#a77750', roof: '#7a4332' },
-      { x: -27.6, z: -29.8, rot: -1.1, scale: 1.24, wall: '#9f6b45', roof: '#6f3d31' },
-      { x: 12.4, z: 34.5, rot: -0.64, scale: 1.42, wall: '#9f6b45', roof: '#6f3d31' },
-      { x: 31.4, z: 28.4, rot: -0.48, scale: 1.28, wall: '#9f6b45', roof: '#6f3d31' }
+      { x: -40.5, z: -36.2, rot: 0.55, scale: 1.86, roof: '#b86649' },
+      { x: -35.1, z: -40.1, rot: -0.18, scale: 1.72, roof: '#ad6449' },
+      { x: -30.2, z: -33.4, rot: 0.86, scale: 1.58, wall: '#b88a64', roof: '#80523e' },
+      { x: -25.6, z: -39.4, rot: -0.54, scale: 1.52, wall: '#b88a64', roof: '#80523e' },
+      { x: -20.6, z: -34.9, rot: 0.38, scale: 1.42, wall: '#ac7d5a', roof: '#7a4d3e' },
+      { x: -15.1, z: -39.2, rot: -0.75, scale: 1.34, wall: '#ac7d5a', roof: '#7a4d3e' },
+      { x: -9.4, z: -35.6, rot: 0.44, scale: 1.26, wall: '#ac7d5a', roof: '#7a4d3e' },
+      { x: -34.1, z: -30.5, rot: 1.18, scale: 1.38, wall: '#b88a64', roof: '#85543e' },
+      { x: -27.6, z: -29.8, rot: -1.1, scale: 1.24, wall: '#ac7d5a', roof: '#7a4d3e' },
+      { x: 12.4, z: 34.5, rot: -0.64, scale: 1.42, wall: '#ac7d5a', roof: '#7a4d3e' },
+      { x: 31.4, z: 28.4, rot: -0.48, scale: 1.28, wall: '#ac7d5a', roof: '#7a4d3e' }
     ],
     landmass: {
       waterHeight: -1.28,
@@ -919,7 +924,7 @@ export function createWorld(scene, worldOptions = {}) {
   updateBakedShadowLightRay(config);
   config.navigationBlockers = [];
   activeStaticCullables = [];
-  scene.background = new THREE.Color(config.sky.background);
+  scene.background = new THREE.Color(config.sky.skyGradient?.middle ?? config.sky.background);
   scene.fog = new THREE.Fog(config.sky.fog, config.sky.fogNear, config.sky.fogFar);
 
   const sun = new THREE.DirectionalLight(config.sky.sun, config.sky.sunIntensity ?? 3.55);
@@ -2284,6 +2289,7 @@ function createPuddleMesh(puddle, material) {
 }
 
 function createSky(scene) {
+  createSkyGradient(scene);
   const clouds = worldConfig().clouds ?? [
     { x: -32, y: 62, z: -38, scale: 3.5, rot: 0.08 },
     { x: -12, y: 69, z: -44, scale: 2.6, rot: -0.18 },
@@ -2298,6 +2304,41 @@ function createSky(scene) {
     cloud.rotation.y = item.rot;
     scene.add(cloud);
   });
+}
+
+function createSkyGradient(scene) {
+  const gradient = worldConfig().sky?.skyGradient;
+  if (!gradient) return;
+  const geometry = new THREE.SphereGeometry(190, 24, 12);
+  const position = geometry.attributes.position;
+  const colors = [];
+  const top = new THREE.Color(gradient.top);
+  const middle = new THREE.Color(gradient.middle);
+  const horizon = new THREE.Color(gradient.horizon);
+
+  for (let i = 0; i < position.count; i += 1) {
+    const y = position.getY(i) / 190;
+    const color = new THREE.Color();
+    if (y < 0.18) {
+      color.copy(horizon).lerp(middle, clamp((y + 0.18) / 0.36, 0, 1));
+    } else {
+      color.copy(middle).lerp(top, clamp((y - 0.18) / 0.82, 0, 1));
+    }
+    colors.push(color.r, color.g, color.b);
+  }
+
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  const material = new THREE.MeshBasicMaterial({
+    vertexColors: true,
+    side: THREE.BackSide,
+    depthWrite: false,
+    fog: false,
+    toneMapped: false
+  });
+  const sky = new THREE.Mesh(geometry, material);
+  sky.name = 'StylizedSunsetSky';
+  sky.renderOrder = -1000;
+  scene.add(sky);
 }
 
 function createSnowfall(scene) {

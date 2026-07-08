@@ -3339,9 +3339,9 @@ export function createEnemyCampModel() {
 
 export function createCottageModel(options = {}) {
   const group = new THREE.Group();
-  const wall = mat(options.wall ?? '#b88b5c');
-  const roof = mat(options.roof ?? '#8f3f35');
-  const wood = mat('#6d4a2c');
+  const wall = mat(options.wall ?? '#bd8f68');
+  const roof = mat(options.roof ?? '#a9573f');
+  const wood = mat('#76533a');
   const dark = mat('#2d2520');
 
   const cabin = mesh(
@@ -3468,13 +3468,13 @@ export function createSnowPine(height = 1) {
   );
   const lower = mesh(
     new THREE.ConeGeometry(0.88 * height, 1.22 * height, 7),
-    mat('#2c6757'),
+    mat('#376858'),
     new THREE.Vector3(0, 1.22 * height, 0),
     new THREE.Vector3(1, 1, 1)
   );
   const upper = mesh(
     new THREE.ConeGeometry(0.58 * height, 1.05 * height, 7),
-    mat('#347566'),
+    mat('#427360'),
     new THREE.Vector3(0, 1.9 * height, 0),
     new THREE.Vector3(1, 1, 1)
   );
