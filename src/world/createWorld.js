@@ -87,7 +87,40 @@ const WORLD_NAV_MONSTER_CAMP_RADIUS = 2.8;
 const DESERT_SHADOW_X_PER_HEIGHT = 0.34;
 const DESERT_SHADOW_Z_PER_HEIGHT = -0.36;
 const SNOWFALL_CENTER = new THREE.Vector3();
+const BAKED_SHADOW_CHUNK_SIZE = 18;
+const BAKED_SHADOW_SURFACE_OFFSET = 0.055;
+const BAKED_SHADOW_MIN_TRIANGLE_AREA = 0.0008;
+const SHADOW_MASK_SCENE_KEYS = new Set(['snow-valley']);
+const SHADOW_MASK_WIDTH = 1536;
+const SHADOW_MASK_MAX_HEIGHT = 1536;
+const SHADOW_MASK_COLOR = '#68717d';
+const SHADOW_MASK_BLUR_PX = 0;
+const SHADOW_MASK_SOFT_ALPHA = 0;
+const SHADOW_MASK_CONTACT_ALPHA = 0.28;
+const BAKED_SHADOW_LIGHT_RAY = new THREE.Vector3(44, -82, -46).normalize();
+const BAKED_SHADOW_TO_SUN = BAKED_SHADOW_LIGHT_RAY.clone().multiplyScalar(-1);
+const BAKED_SHADOW_BOX = new THREE.Box3();
+const BAKED_SHADOW_CENTER = new THREE.Vector3();
+const BAKED_SHADOW_WORLD_A = new THREE.Vector3();
+const BAKED_SHADOW_WORLD_B = new THREE.Vector3();
+const BAKED_SHADOW_WORLD_C = new THREE.Vector3();
+const BAKED_SHADOW_PROJECTED_A = new THREE.Vector3();
+const BAKED_SHADOW_PROJECTED_B = new THREE.Vector3();
+const BAKED_SHADOW_PROJECTED_C = new THREE.Vector3();
+const BAKED_SHADOW_EDGE_A = new THREE.Vector3();
+const BAKED_SHADOW_EDGE_B = new THREE.Vector3();
+const BAKED_SHADOW_NORMAL = new THREE.Vector3();
+const STATIC_WORLD_CULL_UPDATE_SECONDS = 0.16;
+const STATIC_WORLD_CULL_RADIUS_PADDING = 8;
+const STATIC_WORLD_CULL_MIN_RADIUS = 0.8;
+const STATIC_CULL_BOX = new THREE.Box3();
+const STATIC_CULL_CENTER = new THREE.Vector3();
+const STATIC_CULL_SIZE = new THREE.Vector3();
+const STATIC_CULL_MATRIX = new THREE.Matrix4();
+const STATIC_CULL_FRUSTUM = new THREE.Frustum();
+const STATIC_CULL_SPHERE = new THREE.Sphere();
 let activeBakedShadowBatch = null;
+let activeStaticCullables = null;
 
 const DEFAULT_TERRAIN_PROFILE = {
   baseHeight: 0.25,
@@ -873,6 +906,7 @@ export function createWorld(scene, worldOptions = {}) {
   activeWorldConfig = resolveWorldConfig(worldOptions);
   const config = activeWorldConfig;
   config.navigationBlockers = [];
+  activeStaticCullables = [];
   scene.background = new THREE.Color(config.sky.background);
   scene.fog = new THREE.Fog(config.sky.fog, config.sky.fogNear, config.sky.fogFar);
 
@@ -920,23 +954,13 @@ export function createWorld(scene, worldOptions = {}) {
   const base = createBaseModel();
   placeOnTerrain(base, basePosition.x, basePosition.z);
   base.userData.aura.scale.setScalar(BALANCE.playerBase.recoveryRadius / 5.75);
-  createBakedGroundShadow(scene, basePosition.x, basePosition.z, {
-    rx: 2.9,
-    rz: 1.75,
-    opacity: 0.2,
-    yaw: 0.08
-  });
+  bakeObjectGroundShadow(base);
   scene.add(base);
 
   const enemyCamp = createEnemyCampModel();
   placeOnTerrain(enemyCamp, enemyCampPosition.x, enemyCampPosition.z);
   enemyCamp.scale.setScalar(1.35);
-  createBakedGroundShadow(scene, enemyCampPosition.x, enemyCampPosition.z, {
-    rx: 3.1,
-    rz: 1.95,
-    opacity: 0.22,
-    yaw: -0.28
-  });
+  bakeObjectGroundShadow(enemyCamp);
   scene.add(enemyCamp);
 
   if (theme === 'dungeon') {
@@ -947,7 +971,10 @@ export function createWorld(scene, worldOptions = {}) {
     decorate(scene, pathPoints);
   }
   createSnowMonsterCamp(scene);
-  flushBakedGroundShadows();
+  const bakedShadowResult = flushBakedGroundShadows(ground);
+  const staticCullables = activeStaticCullables;
+  activeStaticCullables = null;
+  const staticCulling = createStaticWorldCulling(staticCullables);
   const navGrid = createNavigationGrid();
 
   return {
@@ -971,8 +998,14 @@ export function createWorld(scene, worldOptions = {}) {
     playerBaseModel: base,
     enemyCampModel: enemyCamp,
     recoveryAura: base.userData.aura,
-    update: (dt, cameraTarget) => {
+    bakedShadowMeshes: bakedShadowResult.meshes,
+    shadowMaskTexture: bakedShadowResult.texture,
+    shadowMaskTriangleCount: bakedShadowResult.triangleCount,
+    staticCullables,
+    staticCulling,
+    update: (dt, cameraTarget, camera, options = {}) => {
       snowfall.update(dt, cameraTarget);
+      staticCulling.update(dt, camera, options);
     },
     findPath: (start, end, options = {}) => navGrid?.findPath(start, end, options) ?? [],
     hasNavigationLine: (start, end) => navGrid?.hasLine(start, end) ?? true,
@@ -1096,7 +1129,6 @@ export function terrainHeightAt(x, z) {
   const campTerrace = terrain.campTerrace +
     smoothstep(0, terrain.campShelfOuter, campDistance) * terrain.campTerraceOutward;
   height = mix(height, campTerrace, campShelf * 0.78);
-
   if (config.theme === 'red-desert') {
     height += desertValleySurfaceRippleAt(x, z, pathDistance);
   }
@@ -1188,6 +1220,7 @@ function createGroundMesh() {
     position.setZ(i, terrainHeightAt(x, z));
   }
   position.needsUpdate = true;
+  setGroundUvFromWorldXZ(geometry, config.ground.width, config.ground.depth);
   colorGroundGeometry(geometry);
   geometry.computeVertexNormals();
 
@@ -1195,6 +1228,23 @@ function createGroundMesh() {
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
   return ground;
+}
+
+function setGroundUvFromWorldXZ(geometry, width, depth) {
+  const position = geometry.attributes.position;
+  const uvs = new Array(position.count * 2);
+  const halfWidth = width / 2;
+  const halfDepth = depth / 2;
+
+  for (let i = 0; i < position.count; i += 1) {
+    const x = position.getX(i);
+    const z = -position.getY(i);
+    const offset = i * 2;
+    uvs[offset] = clamp((x + halfWidth) / width, 0, 1);
+    uvs[offset + 1] = clamp((z + halfDepth) / depth, 0, 1);
+  }
+
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
 }
 
 function createGroundMaterial() {
@@ -2522,12 +2572,7 @@ function createSnowBackdropRocks(scene) {
     rock.rotation.y = item.rot ?? 0;
     placeOnTerrain(rock, item.x, item.z, item.offset ?? -0.12);
     enableDecorationShadows(rock);
-    createBakedGroundShadow(scene, item.x, item.z, {
-      rx: (item.size ?? 3.6) * (item.sx ?? 1) * 0.82,
-      rz: (item.size ?? 3.6) * (item.sz ?? 1) * 0.52,
-      opacity: 0.18,
-      yaw: item.rot ?? 0
-    });
+    bakeObjectGroundShadow(rock);
     scene.add(rock);
   });
 }
@@ -3126,12 +3171,7 @@ function placeDesertLandmarkBoulders(scene, pathPoints) {
     rock.scale.set(item.sx, item.sy, item.sz);
     placeOnTerrain(rock, item.x, item.z, 0.02);
     rock.rotation.y = item.rot;
-    createBakedGroundShadow(scene, item.x, item.z, {
-      rx: 1.15 + item.size * 0.38 * (item.sx ?? 1),
-      rz: 0.62 + item.size * 0.24 * (item.sz ?? 1),
-      opacity: 0.18,
-      yaw: item.rot
-    });
+    bakeObjectGroundShadow(rock);
     scene.add(rock);
   });
 }
@@ -3151,12 +3191,7 @@ function placeDesertBoulderClusters(scene, pathPoints, random) {
       rock.scale.z *= 0.8 + random() * 0.56;
       placeOnTerrain(rock, x, z, 0.02);
       rock.rotation.y = random() * Math.PI * 2;
-      createBakedGroundShadow(scene, x, z, {
-        rx: 0.75 + size * 0.35 * rock.scale.x,
-        rz: 0.42 + size * 0.24 * rock.scale.z,
-        opacity: 0.15,
-        yaw: rock.rotation.y
-      });
+      bakeObjectGroundShadow(rock);
       scene.add(rock);
     }
   });
@@ -3181,14 +3216,7 @@ function placeDesertSandstoneLandmarks(scene, pathPoints, random) {
     landmark.rotation.y = item.rot ?? 0;
     landmark.scale.x *= item.sx ?? 1;
     landmark.scale.z *= item.sz ?? 1;
-    createBakedGroundShadow(scene, item.x, item.z, {
-      rx: item.kind === 'arch' ? (item.span ?? 4.8) * 0.62 : (item.radius ?? 1.3) * 1.5,
-      rz: item.kind === 'mesa' ? (item.radius ?? 2.8) * 0.72 : (item.radius ?? 1.3) * 0.82,
-      opacity: 0.22,
-      yaw: item.rot ?? 0,
-      offsetX: 0.52,
-      offsetZ: -0.42
-    });
+    bakeObjectGroundShadow(landmark);
     scene.add(landmark);
     registerDesertSandstoneNavigationBlockers(item);
   });
@@ -3415,15 +3443,8 @@ function placeDesertCanyonWalls(scene, random) {
     column.name = 'DesertCanyonWall';
     placeOnTerrain(column, wall.x, wall.z, -0.08);
     column.rotation.y = (wall.rot ?? 0) + (hash2(index * 0.61, 18.4) - 0.5) * 0.08;
+    bakeObjectGroundShadow(column);
     scene.add(column);
-    createBakedGroundShadow(scene, wall.x, wall.z, {
-      rx: width * 0.46,
-      rz: depth * 0.4,
-      opacity: 0.18,
-      yaw: column.rotation.y,
-      offsetX: 0.8,
-      offsetZ: -0.75
-    });
     registerWorldNavigationBlocker(
       wall.x,
       wall.z,
@@ -3517,14 +3538,7 @@ function placeCacti(scene, pathPoints, random) {
       cactus.name = 'DesertCactus';
       placeOnTerrain(cactus, x, z);
       cactus.rotation.y = random() * Math.PI * 2;
-      createBakedGroundShadow(scene, x, z, {
-        rx: 0.48,
-        rz: 0.28,
-        opacity: 0.14,
-        yaw: cactus.rotation.y,
-        offsetX: 0.42,
-        offsetZ: -0.42
-      });
+      bakeObjectGroundShadow(cactus);
       scene.add(cactus);
     }
   });
@@ -3563,13 +3577,7 @@ function placeForests(scene, pathPoints, random) {
       const tree = createSnowPine(height);
       placeOnTerrain(tree, x, z);
       tree.rotation.y = random() * Math.PI * 2;
-      createBakedGroundShadow(scene, x, z, {
-        rx: 0.72 + height * 0.42,
-        rz: 0.42 + height * 0.24,
-        opacity: 0.18,
-        yaw: tree.rotation.y + 0.2
-      });
-      scene.add(tree);
+      addStaticCulledObject(scene, tree);
       registerWorldNavigationBlocker(x, z, 0.42 + height * 0.24, 'snow-tree');
     }
   });
@@ -3613,13 +3621,7 @@ function placeRocks(scene, pathPoints, random) {
     if (z < -24) {
       rock.scale.y *= 1.2;
     }
-    createBakedGroundShadow(scene, x, z, {
-      rx: 0.52 + rock.scale.x * 0.36,
-      rz: 0.34 + rock.scale.z * 0.28,
-      opacity: 0.13,
-      yaw: rock.rotation.y
-    });
-    scene.add(rock);
+    addStaticCulledObject(scene, rock);
   }
 }
 
@@ -3644,13 +3646,7 @@ function placeBoulderClusters(scene, pathPoints, random) {
         random() * Math.PI * 2,
         (random() - 0.5) * 0.1
       );
-      createBakedGroundShadow(scene, x, z, {
-        rx: 0.78 + size * 0.36 * rock.scale.x,
-        rz: 0.45 + size * 0.24 * rock.scale.z,
-        opacity: 0.16,
-        yaw: rock.rotation.y
-      });
-      scene.add(rock);
+      addStaticCulledObject(scene, rock);
     }
   });
 }
@@ -3666,13 +3662,7 @@ function placeLandmarkBoulders(scene, pathPoints) {
     rock.scale.set(item.sx, item.sy, item.sz);
     placeOnTerrain(rock, item.x, item.z, 0.02);
     rock.rotation.y = item.rot;
-    createBakedGroundShadow(scene, item.x, item.z, {
-      rx: 1.05 + item.size * 0.34 * (item.sx ?? 1),
-      rz: 0.62 + item.size * 0.22 * (item.sz ?? 1),
-      opacity: 0.18,
-      yaw: item.rot
-    });
-    scene.add(rock);
+    addStaticCulledObject(scene, rock);
   });
 }
 
@@ -3706,7 +3696,7 @@ function placeBushes(scene, pathPoints, random) {
       bush.scale.y *= 0.72;
       placeOnTerrain(bush, x, z);
       bush.rotation.y = random() * Math.PI * 2;
-      scene.add(bush);
+      addStaticCulledObject(scene, bush);
     }
   });
 }
@@ -3740,7 +3730,7 @@ function placeGrass(scene, pathPoints, random) {
       );
       placeOnTerrain(grass, x, z, 0.15);
       grass.rotation.y = random() * Math.PI * 2;
-      scene.add(grass);
+      addStaticCulledObject(scene, grass);
     }
   });
 }
@@ -3782,13 +3772,7 @@ function placeSnowDeadGrass(scene, pathPoints, random) {
         );
         placeOnTerrain(grass, x, z, 0.1 + 0.02 * scale);
         grass.rotation.y = random() * Math.PI * 2;
-        createBakedGroundShadow(scene, x, z, {
-          rx: 0.22 + size * 0.42,
-          rz: 0.12 + size * 0.28,
-          opacity: 0.11,
-          yaw: grass.rotation.y
-        });
-        scene.add(grass);
+        addStaticCulledObject(scene, grass);
       }
     }
   });
@@ -3854,13 +3838,7 @@ function placeCottages(scene) {
       (item.navRadius ?? WORLD_NAV_COTTAGE_RADIUS) * (item.scale ?? 1),
       'cottage'
     );
-    createBakedGroundShadow(scene, item.x, item.z, {
-      rx: 1.75 * item.scale,
-      rz: 1.16 * item.scale,
-      opacity: 0.19,
-      yaw: item.rot
-    });
-    scene.add(cottage);
+    addStaticCulledObject(scene, cottage);
   });
 }
 
@@ -3883,13 +3861,7 @@ function createSnowMonsterCamp(scene) {
   placeOnTerrain(camp, config.x, config.z, config.offset ?? 0.28);
   camp.rotation.y = config.rot ?? -0.34;
   camp.scale.setScalar(config.scale ?? 1.18);
-  createBakedGroundShadow(scene, config.x, config.z, {
-    rx: 2.4 * (config.scale ?? 1.18),
-    rz: 1.45 * (config.scale ?? 1.18),
-    opacity: 0.2,
-    yaw: config.rot ?? -0.34
-  });
-  scene.add(camp);
+  addStaticCulledObject(scene, camp);
 }
 
 function createDungeonEnemyGate(scene) {
@@ -3916,6 +3888,67 @@ function createDungeonEnemyGate(scene) {
   placeOnTerrain(group, config.x, config.z, config.offset ?? 0.08);
   enableDecorationShadows(group);
   scene.add(group);
+}
+
+function addStaticCulledObject(scene, object, radiusPadding = STATIC_WORLD_CULL_RADIUS_PADDING) {
+  bakeObjectGroundShadow(object);
+  scene.add(object);
+  registerStaticCullable(object, radiusPadding);
+  return object;
+}
+
+function registerStaticCullable(object, radiusPadding = STATIC_WORLD_CULL_RADIUS_PADDING) {
+  const list = activeStaticCullables;
+  if (!list || !object) return;
+
+  object.updateWorldMatrix(true, true);
+  STATIC_CULL_BOX.setFromObject(object);
+  if (STATIC_CULL_BOX.isEmpty()) return;
+
+  STATIC_CULL_BOX.getCenter(STATIC_CULL_CENTER);
+  STATIC_CULL_BOX.getSize(STATIC_CULL_SIZE);
+  const radius = Math.max(
+    STATIC_WORLD_CULL_MIN_RADIUS,
+    STATIC_CULL_SIZE.length() * 0.5 + radiusPadding
+  );
+  list.push({
+    object,
+    center: STATIC_CULL_CENTER.clone(),
+    radius,
+    visible: true
+  });
+}
+
+function createStaticWorldCulling(cullables = []) {
+  return {
+    cullables,
+    visibleCount: cullables.length,
+    timer: 0,
+    update(dt = 0, camera = null, { forceStaticCulling = false } = {}) {
+      if (!camera || cullables.length === 0) return;
+      this.timer -= dt;
+      if (!forceStaticCulling && this.timer > 0) return;
+      this.timer = STATIC_WORLD_CULL_UPDATE_SECONDS;
+
+      camera.updateMatrixWorld();
+      STATIC_CULL_MATRIX.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+      STATIC_CULL_FRUSTUM.setFromProjectionMatrix(STATIC_CULL_MATRIX);
+
+      let visibleCount = 0;
+      for (let i = 0; i < cullables.length; i += 1) {
+        const item = cullables[i];
+        STATIC_CULL_SPHERE.center.copy(item.center);
+        STATIC_CULL_SPHERE.radius = item.radius;
+        const visible = STATIC_CULL_FRUSTUM.intersectsSphere(STATIC_CULL_SPHERE);
+        if (item.visible !== visible) {
+          item.object.visible = visible;
+          item.visible = visible;
+        }
+        if (visible) visibleCount += 1;
+      }
+      this.visibleCount = visibleCount;
+    }
+  };
 }
 
 function createSpikeTrapModel(trap) {
@@ -4315,40 +4348,55 @@ function beginBakedGroundShadows(scene) {
   activeBakedShadowBatch = {
     scene,
     enabled: worldConfig().sky?.bakedShadows === true,
-    positions: [],
-    indices: []
+    shadowMaskEnabled: shouldUseGroundShadowMask(),
+    shadowMaskTexture: null,
+    chunks: new Map()
   };
 }
 
-function addBakedShadowEllipse(zone, offset = 0.058, segments = 18) {
+function bakeObjectGroundShadow(object) {
   const batch = activeBakedShadowBatch;
-  if (!batch?.enabled) return;
-  const baseIndex = batch.positions.length / 3;
-  batch.positions.push(
-    zone.x,
-    terrainHeightAt(zone.x, zone.z) + offset,
-    zone.z
-  );
+  if (!batch?.enabled || !object) return null;
 
-  for (let i = 0; i <= segments; i += 1) {
-    const angle = (i / segments) * Math.PI * 2;
-    const point = ellipseBoundaryPoint(zone, angle);
-    batch.positions.push(
-      point.x,
-      terrainHeightAt(point.x, point.z) + offset,
-      point.z
-    );
-  }
+  object.updateWorldMatrix(true, true);
+  BAKED_SHADOW_BOX.setFromObject(object);
+  if (BAKED_SHADOW_BOX.isEmpty()) return null;
+  BAKED_SHADOW_BOX.getCenter(BAKED_SHADOW_CENTER);
+  const chunk = bakedShadowChunkFor(BAKED_SHADOW_CENTER.x, BAKED_SHADOW_CENTER.z);
 
-  for (let i = 1; i <= segments; i += 1) {
-    batch.indices.push(baseIndex, baseIndex + i, baseIndex + i + 1);
-  }
+  object.traverse((node) => {
+    if (!node.isMesh || node.userData?.skipBakedShadow) return;
+    const geometry = node.geometry;
+    const position = geometry?.attributes?.position;
+    if (!position) return;
+    const index = geometry.index;
+    const triangleCount = index ? Math.floor(index.count / 3) : Math.floor(position.count / 3);
+    for (let triangle = 0; triangle < triangleCount; triangle += 1) {
+      const ia = index ? index.getX(triangle * 3) : triangle * 3;
+      const ib = index ? index.getX(triangle * 3 + 1) : triangle * 3 + 1;
+      const ic = index ? index.getX(triangle * 3 + 2) : triangle * 3 + 2;
+      addBakedShadowTriangle(chunk, node, position, ia, ib, ic);
+    }
+  });
+
+  return batch;
 }
 
-function flushBakedGroundShadows() {
+function flushBakedGroundShadows(ground = null) {
   const batch = activeBakedShadowBatch;
   activeBakedShadowBatch = null;
-  if (!batch?.enabled || batch.positions.length === 0) return null;
+  const triangleCount = countBakedShadowTriangles(batch);
+  if (!batch?.enabled || batch.chunks.size === 0) {
+    return { meshes: [], texture: null, triangleCount };
+  }
+  if (batch.shadowMaskEnabled && ground) {
+    const texture = createGroundShadowMaskTexture(batch);
+    if (texture) {
+      ground.material.map = texture;
+      ground.material.needsUpdate = true;
+      return { meshes: [], texture, triangleCount };
+    }
+  }
   const theme = worldConfig().theme ?? 'snow';
   const color = theme === 'red-desert'
     ? '#2a1412'
@@ -4356,46 +4404,191 @@ function flushBakedGroundShadows() {
       ? '#050407'
       : '#263233';
   const opacity = theme === 'dungeon' ? 0.24 : theme === 'red-desert' ? 0.2 : 0.17;
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(batch.positions, 3));
-  geometry.setIndex(batch.indices);
   const material = basicMat(color, {
     transparent: true,
     opacity,
     side: THREE.DoubleSide,
     depthWrite: false
   });
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.name = 'BakedGroundShadows';
-  mesh.renderOrder = 1;
-  batch.scene.add(mesh);
-  return mesh;
+  const meshes = [];
+  batch.chunks.forEach((chunk, key) => {
+    if (chunk.positions.length === 0) return;
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(chunk.positions, 3));
+    geometry.setIndex(chunk.indices);
+    geometry.computeBoundingSphere();
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.name = `BakedProjectedShadows:${key}`;
+    mesh.renderOrder = 1;
+    batch.scene.add(mesh);
+    meshes.push(mesh);
+  });
+  return { meshes, texture: null, triangleCount };
 }
 
-function createBakedGroundShadow(scene, x, z, {
-  rx = 1,
-  rz = 0.55,
-  opacity = 0.16,
-  yaw = 0,
-  offsetX = null,
-  offsetZ = null
-} = {}) {
-  if (!activeBakedShadowBatch?.enabled) return null;
-  const sunOffsetX = offsetX ?? 0.28;
-  const sunOffsetZ = offsetZ ?? -0.32;
-  addBakedShadowEllipse(
-    {
-      x: x + sunOffsetX * rx,
-      z: z + sunOffsetZ * rz,
-      rx,
-      rz,
-      rot: yaw - 0.2,
-      opacity
-    },
-    0.058,
-    18
+function countBakedShadowTriangles(batch) {
+  if (!batch?.enabled) return 0;
+  let count = 0;
+  batch.chunks.forEach((chunk) => {
+    count += chunk.triangles?.length ?? 0;
+  });
+  return count;
+}
+
+function shouldUseGroundShadowMask() {
+  const config = worldConfig();
+  return SHADOW_MASK_SCENE_KEYS.has(config.sceneKey);
+}
+
+function createGroundShadowMaskTexture(batch) {
+  const config = worldConfig();
+  const width = SHADOW_MASK_WIDTH;
+  const height = Math.min(
+    SHADOW_MASK_MAX_HEIGHT,
+    Math.max(256, Math.round(width * (config.ground.depth / Math.max(1, config.ground.width))))
   );
-  return activeBakedShadowBatch;
+  const maskCanvas = document.createElement('canvas');
+  maskCanvas.width = width;
+  maskCanvas.height = height;
+  const maskCtx = maskCanvas.getContext('2d');
+  if (!maskCtx) return null;
+
+  maskCtx.clearRect(0, 0, width, height);
+  maskCtx.fillStyle = SHADOW_MASK_COLOR;
+  maskCtx.globalAlpha = 1;
+  batch.chunks.forEach((chunk) => {
+    for (let i = 0; i < chunk.triangles.length; i += 1) {
+      drawShadowMaskTriangle(maskCtx, chunk.triangles[i], width, height, config);
+    }
+  });
+
+  const finalCanvas = document.createElement('canvas');
+  finalCanvas.width = width;
+  finalCanvas.height = height;
+  const finalCtx = finalCanvas.getContext('2d');
+  if (!finalCtx) return null;
+
+  finalCtx.fillStyle = '#fff';
+  finalCtx.fillRect(0, 0, width, height);
+  finalCtx.save();
+  finalCtx.globalAlpha = SHADOW_MASK_SOFT_ALPHA;
+  finalCtx.filter = `blur(${SHADOW_MASK_BLUR_PX}px)`;
+  finalCtx.drawImage(maskCanvas, 0, 0);
+  finalCtx.restore();
+  finalCtx.globalAlpha = SHADOW_MASK_CONTACT_ALPHA;
+  finalCtx.drawImage(maskCanvas, 0, 0);
+  finalCtx.globalAlpha = 1;
+
+  const texture = new THREE.CanvasTexture(finalCanvas);
+  texture.name = `${config.sceneKey}-shadow-mask`;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.generateMipmaps = true;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function drawShadowMaskTriangle(ctx, triangle, width, height, config) {
+  const a = shadowMaskCanvasPoint(triangle.ax, triangle.az, width, height, config);
+  const b = shadowMaskCanvasPoint(triangle.bx, triangle.bz, width, height, config);
+  const c = shadowMaskCanvasPoint(triangle.cx, triangle.cz, width, height, config);
+  if (
+    (a.x < -2 && b.x < -2 && c.x < -2) ||
+    (a.x > width + 2 && b.x > width + 2 && c.x > width + 2) ||
+    (a.y < -2 && b.y < -2 && c.y < -2) ||
+    (a.y > height + 2 && b.y > height + 2 && c.y > height + 2)
+  ) {
+    return;
+  }
+  ctx.beginPath();
+  ctx.moveTo(a.x, a.y);
+  ctx.lineTo(b.x, b.y);
+  ctx.lineTo(c.x, c.y);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function shadowMaskCanvasPoint(x, z, width, height, config) {
+  const u = clamp((x + config.ground.width * 0.5) / config.ground.width, 0, 1);
+  const v = clamp((z + config.ground.depth * 0.5) / config.ground.depth, 0, 1);
+  return {
+    x: u * width,
+    y: (1 - v) * height
+  };
+}
+
+function bakedShadowChunkFor(x, z) {
+  const batch = activeBakedShadowBatch;
+  const cx = Math.floor(x / BAKED_SHADOW_CHUNK_SIZE);
+  const cz = Math.floor(z / BAKED_SHADOW_CHUNK_SIZE);
+  const key = `${cx}:${cz}`;
+  let chunk = batch.chunks.get(key);
+  if (!chunk) {
+    chunk = {
+      positions: [],
+      indices: [],
+      triangles: []
+    };
+    batch.chunks.set(key, chunk);
+  }
+  return chunk;
+}
+
+function addBakedShadowTriangle(chunk, node, position, ia, ib, ic) {
+  BAKED_SHADOW_WORLD_A.fromBufferAttribute(position, ia).applyMatrix4(node.matrixWorld);
+  BAKED_SHADOW_WORLD_B.fromBufferAttribute(position, ib).applyMatrix4(node.matrixWorld);
+  BAKED_SHADOW_WORLD_C.fromBufferAttribute(position, ic).applyMatrix4(node.matrixWorld);
+
+  BAKED_SHADOW_EDGE_A.subVectors(BAKED_SHADOW_WORLD_B, BAKED_SHADOW_WORLD_A);
+  BAKED_SHADOW_EDGE_B.subVectors(BAKED_SHADOW_WORLD_C, BAKED_SHADOW_WORLD_A);
+  BAKED_SHADOW_NORMAL.crossVectors(BAKED_SHADOW_EDGE_A, BAKED_SHADOW_EDGE_B);
+  if (BAKED_SHADOW_NORMAL.lengthSq() <= 0.000001) return;
+  BAKED_SHADOW_NORMAL.normalize();
+  if (BAKED_SHADOW_NORMAL.dot(BAKED_SHADOW_TO_SUN) <= 0.05) return;
+
+  projectBakedShadowPoint(BAKED_SHADOW_WORLD_A, BAKED_SHADOW_PROJECTED_A);
+  projectBakedShadowPoint(BAKED_SHADOW_WORLD_B, BAKED_SHADOW_PROJECTED_B);
+  projectBakedShadowPoint(BAKED_SHADOW_WORLD_C, BAKED_SHADOW_PROJECTED_C);
+
+  BAKED_SHADOW_EDGE_A.subVectors(BAKED_SHADOW_PROJECTED_B, BAKED_SHADOW_PROJECTED_A);
+  BAKED_SHADOW_EDGE_B.subVectors(BAKED_SHADOW_PROJECTED_C, BAKED_SHADOW_PROJECTED_A);
+  if (BAKED_SHADOW_EDGE_A.cross(BAKED_SHADOW_EDGE_B).lengthSq() < BAKED_SHADOW_MIN_TRIANGLE_AREA) return;
+
+  const baseIndex = chunk.positions.length / 3;
+  chunk.positions.push(
+    BAKED_SHADOW_PROJECTED_A.x,
+    BAKED_SHADOW_PROJECTED_A.y,
+    BAKED_SHADOW_PROJECTED_A.z,
+    BAKED_SHADOW_PROJECTED_B.x,
+    BAKED_SHADOW_PROJECTED_B.y,
+    BAKED_SHADOW_PROJECTED_B.z,
+    BAKED_SHADOW_PROJECTED_C.x,
+    BAKED_SHADOW_PROJECTED_C.y,
+    BAKED_SHADOW_PROJECTED_C.z
+  );
+  chunk.indices.push(baseIndex, baseIndex + 1, baseIndex + 2);
+  chunk.triangles.push({
+    ax: BAKED_SHADOW_PROJECTED_A.x,
+    az: BAKED_SHADOW_PROJECTED_A.z,
+    bx: BAKED_SHADOW_PROJECTED_B.x,
+    bz: BAKED_SHADOW_PROJECTED_B.z,
+    cx: BAKED_SHADOW_PROJECTED_C.x,
+    cz: BAKED_SHADOW_PROJECTED_C.z
+  });
+}
+
+function projectBakedShadowPoint(source, target) {
+  target.copy(source);
+  for (let i = 0; i < 3; i += 1) {
+    const groundY = terrainHeightAt(target.x, target.z) + BAKED_SHADOW_SURFACE_OFFSET;
+    const t = Math.max(0, (groundY - source.y) / BAKED_SHADOW_LIGHT_RAY.y);
+    target.copy(source).addScaledVector(BAKED_SHADOW_LIGHT_RAY, t);
+  }
+  target.y = terrainHeightAt(target.x, target.z) + BAKED_SHADOW_SURFACE_OFFSET;
+  return target;
 }
 
 function cylinderBetween(start, end, radiusStart, radiusEnd, material) {

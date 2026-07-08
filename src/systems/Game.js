@@ -451,7 +451,6 @@ const COMBAT_PROFILE_LABELS = {
 };
 const DESKTOP_RENDER_PIXEL_RATIO = 1.5;
 const MOBILE_RENDER_PIXEL_RATIO = 1;
-const ENABLE_REALTIME_SHADOWS = true;
 const DEFAULT_FPS_LIMIT = 60;
 const MIN_FPS_LIMIT = 30;
 const MAX_FPS_LIMIT = 90;
@@ -482,6 +481,7 @@ export class Game {
       ...(this.levelSession.level.world ?? BALANCE.world),
       altars: []
     };
+    this.worldConfig = applyRenderQualityToWorldConfig(this.worldConfig, this.renderQuality);
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(48, 1, 0.1, 240);
     this.camera.position.set(0, 34, 47.2);
@@ -493,9 +493,9 @@ export class Game {
       preserveDrawingBuffer: false
     });
     this.renderer.setPixelRatio(this.renderQuality.pixelRatio);
-    this.renderer.shadowMap.enabled = ENABLE_REALTIME_SHADOWS;
-    this.renderer.shadowMap.autoUpdate = ENABLE_REALTIME_SHADOWS;
-    if (ENABLE_REALTIME_SHADOWS) {
+    this.renderer.shadowMap.enabled = this.renderQuality.realtimeShadows;
+    this.renderer.shadowMap.autoUpdate = this.renderQuality.realtimeShadows;
+    if (this.renderQuality.realtimeShadows) {
       this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     }
     this.worldUi = ensureWorldUiElement();
@@ -551,6 +551,7 @@ export class Game {
 
     this.world = createWorld(this.scene, this.worldConfig);
     this.applyInitialCameraConfig();
+    this.world.update?.(0, this.cameraTarget, this.camera, { forceStaticCulling: true });
     this.navDebugEnabled = initialNavDebugEnabled();
     this.perfDebugEnabled = initialPerfDebugEnabled();
     this.perfJsonEnabled = initialPerfJsonEnabled();
@@ -777,6 +778,7 @@ export class Game {
     this.updateFpsMeter(rawDt);
     if (this.paused) {
       this.updateCamera(0);
+      this.world.update?.(0, this.cameraTarget, this.camera, { forceStaticCulling: true });
       this.updateHud(0);
       this.renderer.render(this.scene, this.camera);
       return;
@@ -806,7 +808,7 @@ export class Game {
       runPerfStep('effects', () => this.effects.update(dt));
       runPerfStep('structure', () => this.updateStructureFeedback(dt));
       runPerfStep('camera', () => this.updateCamera(dt));
-      runPerfStep('world', () => this.world.update?.(dt, this.cameraTarget));
+      runPerfStep('world', () => this.world.update?.(dt, this.cameraTarget, this.camera));
       runPerfStep('selection', () => this.updateSelection());
       runPerfStep('guardVisuals', () => this.updateGuardVisuals(dt));
       runPerfStep('unitVisuals', () => this.updateUnitVisuals(dt));
@@ -833,7 +835,7 @@ export class Game {
       runStep('effects', () => this.effects.update(dt));
       runStep('structure', () => this.updateStructureFeedback(dt));
       runStep('camera', () => this.updateCamera(dt));
-      runStep('world', () => this.world.update?.(dt, this.cameraTarget));
+      runStep('world', () => this.world.update?.(dt, this.cameraTarget, this.camera));
       runStep('selection', () => this.updateSelection());
       runStep('guardVisuals', () => this.updateGuardVisuals(dt));
       runStep('unitVisuals', () => this.updateUnitVisuals(dt));
@@ -1636,6 +1638,11 @@ export class Game {
       navDistanceCache: this.combat?.navDistanceCache?.size ?? 0,
       combatProfile: this.unitLogic?.lastProfile ?? this.combat?.lastProfile ?? null,
       sceneChildren: this.scene.children.length,
+      bakedShadowMeshes: this.world?.bakedShadowMeshes?.length ?? 0,
+      shadowMaskTexture: this.world?.shadowMaskTexture ? 1 : 0,
+      shadowMaskTriangles: this.world?.shadowMaskTriangleCount ?? 0,
+      staticCullables: this.world?.staticCullables?.length ?? 0,
+      staticVisibleCullables: this.world?.staticCulling?.visibleCount ?? 0,
       rendererGeometries: rendererInfo?.memory?.geometries ?? 0,
       rendererTextures: rendererInfo?.memory?.textures ?? 0,
       renderCalls: rendererInfo?.render?.calls ?? 0,
@@ -1652,6 +1659,7 @@ export class Game {
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height, false);
+    this.world?.update?.(0, this.cameraTarget, this.camera, { forceStaticCulling: true });
   }
 
   applyInitialCameraConfig() {
@@ -4816,7 +4824,21 @@ function createRenderQualityProfile(settings = loadRenderSettings()) {
     mode: mobile ? 'mobile' : 'desktop',
     pixelRatio: clamp(pixelRatio, MIN_DPR, MAX_DPR),
     nativePixelRatio: rawPixelRatio,
-    antialias: true
+    antialias: !mobile,
+    realtimeShadows: false
+  };
+}
+
+function applyRenderQualityToWorldConfig(worldConfig, renderQuality) {
+  const sky = worldConfig.sky ?? {};
+  const realtimeShadows = renderQuality.realtimeShadows && sky.realtimeShadows !== false;
+  return {
+    ...worldConfig,
+    sky: {
+      ...sky,
+      realtimeShadows,
+      bakedShadows: sky.bakedShadows ?? !realtimeShadows
+    }
   };
 }
 
