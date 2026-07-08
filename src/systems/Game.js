@@ -731,6 +731,7 @@ export class Game {
     const sky = this.world?.config?.sky ?? this.worldConfig?.sky ?? {};
     const toneMapping = {
       aces: THREE.ACESFilmicToneMapping,
+      neutral: THREE.NeutralToneMapping,
       reinhard: THREE.ReinhardToneMapping,
       linear: THREE.LinearToneMapping,
       none: THREE.NoToneMapping
