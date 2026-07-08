@@ -1587,8 +1587,32 @@ export function cardThemeColor(cardOrKind) {
   return CARD_KIND_COLORS[kind] ?? CARD_KIND_COLORS.enchant;
 }
 
+const BITMAP_CARD_ART = {
+  raider: 'card-art/raider.png',
+  archer: 'card-art/archer.png',
+  swordsman: 'card-art/swordsman.png',
+  crossbowman: 'card-art/crossbowman.png',
+  waterMage: 'card-art/waterMage.png',
+  rogue: 'card-art/rogue.png',
+  knight: 'card-art/knight.png',
+  berserker: 'card-art/berserker.png'
+};
+
+function resolveCardArtAsset(path) {
+  const base = import.meta.env.BASE_URL || '/';
+  return `${base}${path}`.replace(/([^:]\/)\/+/g, '$1');
+}
+
 export function createCardArtMarkup(card) {
   const key = safeArtKey(card.artKey ?? card.id ?? card.kind);
+  const assetPath = BITMAP_CARD_ART[key];
+  if (assetPath) {
+    return `
+      <div class="card-art card-art-${key} has-bitmap-art" aria-hidden="true">
+        <img class="card-art-image" src="${resolveCardArtAsset(assetPath)}" alt="" draggable="false" loading="lazy" />
+      </div>
+    `;
+  }
   const renderer = CARD_ART_RENDERERS[key] ?? CARD_ART_RENDERERS.default;
   return `<div class="card-art card-art-${key}" aria-hidden="true">${renderer()}</div>`;
 }

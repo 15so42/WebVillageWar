@@ -16,6 +16,16 @@ const TEST_VERSION_LABEL = '测试版本 v0.1.0';
 const CHANGELOG_ENTRIES = [
   {
     date: '2026-07-07',
+    title: '局外卡牌界面收敛',
+    items: [
+      '牌库、商店和升级页的卡牌改为更轻的半透明牌面，降低实心深色面板和发光描边。',
+      '卡面插画区域放大，描述区去掉深色盒子，为后续卡面美术调整预留空间。',
+      '出战牌组已加入状态改为卡面状态章，底部按钮降权为加入或移出操作。',
+      '基础单位卡试接入 AI 生成的低多边形横向卡面，用于验证卡面美术方向。'
+    ]
+  },
+  {
+    date: '2026-07-07',
     title: '赤岩沙漠峡谷化',
     items: [
       '第三关地面增加轻微沙丘起伏，低处偏浅沙色，高处偏黄橙色。',
@@ -493,7 +503,8 @@ export class MetaGameSystem {
             const isSelected = selected.has(id);
             return this.renderMetaCard(card, {
               action: 'toggle-deck-card',
-              stateText: isSelected ? '已加入' : '加入',
+              stateText: isSelected ? '移出' : '加入',
+              statusText: isSelected ? '已加入' : '',
               selected: isSelected,
               disabled: !isSelected && selectedCount >= DECK_SIZE
             });
@@ -625,10 +636,15 @@ export class MetaGameSystem {
   renderMetaCard(card, options) {
     const disabled = options.disabled ? 'disabled' : '';
     const selected = options.selected ? ' is-selected' : '';
+    const actionClass = options.action ? ` is-${options.action}` : '';
+    const statusMarkup = options.statusText
+      ? `<div class="meta-card-status">${options.statusText}</div>`
+      : '';
     return `
-      <article class="meta-card${selected}" style="--card-color:${cardThemeColor(card)}">
+      <article class="meta-card is-kind-${card.kind}${selected}" style="--card-color:${cardThemeColor(card)}">
         <div class="meta-card-cost">${cardEnergyCost(card)}</div>
         <div class="meta-card-level">Lv.${card.level ?? 1}</div>
+        ${statusMarkup}
         <div class="meta-card-face">
           <div class="meta-card-header">
             <span class="meta-card-rune">${card.label}</span>
@@ -640,7 +656,7 @@ export class MetaGameSystem {
           ${options.footer ? `<div class="meta-card-footer">${options.footer}</div>` : ''}
         </div>
         <button
-          class="meta-card-action"
+          class="meta-card-action${actionClass}"
           type="button"
           data-action="${options.action}"
           data-card-id="${card.id}"

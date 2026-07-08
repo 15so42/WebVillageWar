@@ -13,6 +13,7 @@ let deferredInstallPrompt = null;
 let feedbackTimer = 0;
 const UI_SCALE_STORAGE_KEY = 'village-war-ui-scale';
 const UI_SCALE_OPTIONS = [0.8, 0.9, 1];
+const APP_BASE_URL = new URL(import.meta.env.BASE_URL || './', window.location.href);
 
 applyStoredUiScale();
 
@@ -45,13 +46,26 @@ mobileActionDock?.addEventListener('click', (event) => {
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {});
+    const workerUrl = new URL('sw.js', APP_BASE_URL);
+    navigator.serviceWorker.register(workerUrl.href, { scope: APP_BASE_URL.href }).catch(() => {});
   });
 }
 
 try {
   let activeGame = null;
   let meta = null;
+  const recordLaunchError = (error, source) => {
+    window.__VILLAGE_WAR_LAST_LAUNCH_ERROR__ = {
+      source,
+      message: error?.message ? String(error.message) : String(error),
+      stack: error?.stack ?? null
+    };
+    if (debugState) {
+      debugState.hidden = true;
+      debugState.textContent = error?.stack ?? String(error);
+    }
+    console.error(error);
+  };
   const startSession = (session) => {
     activeGame?.destroy?.();
     try {
@@ -80,12 +94,9 @@ try {
     } catch (error) {
       activeGame?.destroy?.();
       activeGame = null;
-      if (debugState) {
-        debugState.hidden = false;
-        debugState.textContent = error?.stack ?? String(error);
-      }
-      console.error(error);
+      recordLaunchError(error, 'level');
       meta.show('levels');
+      meta.setNotice?.('关卡启动失败，请刷新页面或降低画质后重试');
     }
   };
   const startDebugScene = () => {
@@ -116,12 +127,9 @@ try {
     } catch (error) {
       activeGame?.destroy?.();
       activeGame = null;
-      if (debugState) {
-        debugState.hidden = false;
-        debugState.textContent = error?.stack ?? String(error);
-      }
-      console.error(error);
+      recordLaunchError(error, 'debug-scene');
       meta.show('levels');
+      meta.setNotice?.('测试场景启动失败，请刷新页面后重试');
     }
   };
   const startAnimationPreview = () => {
@@ -143,12 +151,9 @@ try {
     } catch (error) {
       activeGame?.destroy?.();
       activeGame = null;
-      if (debugState) {
-        debugState.hidden = false;
-        debugState.textContent = error?.stack ?? String(error);
-      }
-      console.error(error);
+      recordLaunchError(error, 'animation-preview');
       meta.show('levels');
+      meta.setNotice?.('动画预览启动失败，请刷新页面后重试');
     }
   };
   meta = new MetaGameSystem({
