@@ -159,13 +159,13 @@ const WORLD_PRESETS = {
       skyGradient: {
         top: '#9bb8df',
         middle: '#e9eff4',
-        horizon: '#f2e4d2'
+        horizon: '#f4d3ad'
       },
-      fog: '#f2ece2',
+      fog: '#f1e2cf',
       fogNear: 96,
       fogFar: 252,
-      sun: '#f4d4aa',
-      sunIntensity: 4.55,
+      sun: '#ffc47c',
+      sunIntensity: 4.68,
       sunPosition: { x: -88, y: 48, z: 48 },
       sunTarget: { x: 0, y: 0, z: -4 },
       hemiSky: '#dfe3f0',
