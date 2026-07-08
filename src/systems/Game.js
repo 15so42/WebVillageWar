@@ -492,12 +492,13 @@ export class Game {
       alpha: false,
       preserveDrawingBuffer: false
     });
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 0.92;
     this.renderer.setPixelRatio(this.renderQuality.pixelRatio);
     this.renderer.shadowMap.enabled = this.renderQuality.realtimeShadows;
     this.renderer.shadowMap.autoUpdate = this.renderQuality.realtimeShadows;
-    if (this.renderQuality.realtimeShadows) {
-      this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    }
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.worldUi = ensureWorldUiElement();
     this.cameraTarget = new THREE.Vector3(0, 4, 18);
     this.cameraOffsetDirection = new THREE.Vector3(0, 30, 37.2).normalize();
@@ -550,6 +551,7 @@ export class Game {
     });
 
     this.world = createWorld(this.scene, this.worldConfig);
+    this.applyWorldRenderTone();
     this.applyInitialCameraConfig();
     this.world.update?.(0, this.cameraTarget, this.camera, { forceStaticCulling: true });
     this.navDebugEnabled = initialNavDebugEnabled();
@@ -723,6 +725,18 @@ export class Game {
       snapshot: () => this.snapshot(),
       samplePixels: () => this.samplePixels()
     };
+  }
+
+  applyWorldRenderTone() {
+    const sky = this.world?.config?.sky ?? this.worldConfig?.sky ?? {};
+    const toneMapping = {
+      aces: THREE.ACESFilmicToneMapping,
+      reinhard: THREE.ReinhardToneMapping,
+      linear: THREE.LinearToneMapping,
+      none: THREE.NoToneMapping
+    }[sky.toneMapping ?? 'none'] ?? THREE.NoToneMapping;
+    this.renderer.toneMapping = toneMapping;
+    this.renderer.toneMappingExposure = Number.isFinite(sky.exposure) ? sky.exposure : 1;
   }
 
   start() {
@@ -4825,7 +4839,7 @@ function createRenderQualityProfile(settings = loadRenderSettings()) {
     pixelRatio: clamp(pixelRatio, MIN_DPR, MAX_DPR),
     nativePixelRatio: rawPixelRatio,
     antialias: !mobile,
-    realtimeShadows: false
+    realtimeShadows: true
   };
 }
 

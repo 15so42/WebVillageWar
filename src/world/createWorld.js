@@ -97,8 +97,9 @@ const SHADOW_MASK_COLOR = '#68717d';
 const SHADOW_MASK_BLUR_PX = 0;
 const SHADOW_MASK_SOFT_ALPHA = 0;
 const SHADOW_MASK_CONTACT_ALPHA = 0.28;
-const BAKED_SHADOW_LIGHT_RAY = new THREE.Vector3(44, -82, -46).normalize();
-const BAKED_SHADOW_TO_SUN = BAKED_SHADOW_LIGHT_RAY.clone().multiplyScalar(-1);
+const DEFAULT_SUN_POSITION = { x: -44, y: 82, z: 46 };
+const BAKED_SHADOW_LIGHT_RAY = new THREE.Vector3();
+const BAKED_SHADOW_TO_SUN = new THREE.Vector3();
 const BAKED_SHADOW_BOX = new THREE.Box3();
 const BAKED_SHADOW_CENTER = new THREE.Vector3();
 const BAKED_SHADOW_WORLD_A = new THREE.Vector3();
@@ -154,13 +155,23 @@ const WORLD_PRESETS = {
     sceneKey: 'snow-valley',
     seed: 42,
     sky: {
-      background: '#91cbef',
-      fog: '#b6d8e9',
-      fogNear: 82,
-      fogFar: 230,
-      sun: '#fff1c3',
-      hemiSky: '#cdefff',
-      hemiGround: '#45653d'
+      background: '#a8d7e8',
+      fog: '#dbeaf7',
+      fogNear: 88,
+      fogFar: 238,
+      sun: '#fff2d0',
+      sunIntensity: 4.25,
+      sunPosition: { x: -78, y: 58, z: 46 },
+      sunTarget: { x: 0, y: 0, z: -4 },
+      hemiSky: '#cfe4ff',
+      hemiGround: '#6d7c8f',
+      hemiIntensity: 1.48,
+      shadowMapSize: 2048,
+      shadowRadius: 2,
+      shadowBias: -0.0006,
+      shadowNormalBias: 0.018,
+      toneMapping: 'aces',
+      exposure: 0.95
     },
     palette: {
       base: '#e9eddc',
@@ -905,13 +916,17 @@ let activeWorldConfig = resolveWorldConfig();
 export function createWorld(scene, worldOptions = {}) {
   activeWorldConfig = resolveWorldConfig(worldOptions);
   const config = activeWorldConfig;
+  updateBakedShadowLightRay(config);
   config.navigationBlockers = [];
   activeStaticCullables = [];
   scene.background = new THREE.Color(config.sky.background);
   scene.fog = new THREE.Fog(config.sky.fog, config.sky.fogNear, config.sky.fogFar);
 
   const sun = new THREE.DirectionalLight(config.sky.sun, config.sky.sunIntensity ?? 3.55);
-  sun.position.set(-44, 82, 46);
+  const sunPosition = config.sky.sunPosition ?? DEFAULT_SUN_POSITION;
+  sun.position.set(sunPosition.x, sunPosition.y, sunPosition.z);
+  const sunTarget = config.sky.sunTarget ?? { x: 0, y: 0, z: 0 };
+  sun.target.position.set(sunTarget.x, sunTarget.y, sunTarget.z);
   sun.castShadow = config.sky.realtimeShadows !== false;
   if (sun.castShadow) {
     const shadowMapSize = config.sky.shadowMapSize ?? 1024;
@@ -920,8 +935,14 @@ export function createWorld(scene, worldOptions = {}) {
     sun.shadow.camera.right = 86;
     sun.shadow.camera.top = 86;
     sun.shadow.camera.bottom = -86;
+    sun.shadow.camera.near = 1;
+    sun.shadow.camera.far = 190;
+    sun.shadow.radius = config.sky.shadowRadius ?? 1;
+    sun.shadow.bias = config.sky.shadowBias ?? -0.0004;
+    sun.shadow.normalBias = config.sky.shadowNormalBias ?? 0.012;
   }
   scene.add(sun);
+  scene.add(sun.target);
   scene.add(new THREE.HemisphereLight(config.sky.hemiSky, config.sky.hemiGround, config.sky.hemiIntensity ?? 1.85));
 
   const ground = createGroundMesh();
@@ -1081,6 +1102,12 @@ function worldConfig() {
 
 function rawPathPoints() {
   return worldConfig().rawPathPoints;
+}
+
+function updateBakedShadowLightRay(config = worldConfig()) {
+  const sunPosition = config.sky?.sunPosition ?? DEFAULT_SUN_POSITION;
+  BAKED_SHADOW_TO_SUN.set(sunPosition.x, sunPosition.y, sunPosition.z).normalize();
+  BAKED_SHADOW_LIGHT_RAY.copy(BAKED_SHADOW_TO_SUN).multiplyScalar(-1);
 }
 
 export function terrainHeightAt(x, z) {
