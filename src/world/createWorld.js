@@ -161,6 +161,8 @@ const WORLD_PRESETS = {
     sceneKey: 'snow-valley',
     seed: 42,
     sky: {
+      toneMapping: 'linear',
+      exposure: 1.1,
       background: '#f0f8fc',
       skyGradient: {
         top: '#7fc5f7',
@@ -170,8 +172,8 @@ const WORLD_PRESETS = {
       fog: '#f7f8f2',
       fogNear: 110,
       fogFar: 282,
-      sun: '#ffd3a0',
-      sunIntensity: 4.36,
+      sun: '#fde2e2',
+      sunIntensity: 2.12,
       sunPosition: { x: -88, y: 48, z: 48 },
       sunTarget: { x: 0, y: 0, z: -4 },
       hemiSky: '#e8f4ff',
@@ -652,18 +654,23 @@ const WORLD_PRESETS = {
     theme: 'dungeon',
     seed: 611,
     sky: {
-      background: '#0b0d13',
+      toneMapping: 'linear',
+      exposure: 1.1,
+      background: '#d1d1d1',
       skyGradient: {
-        top: '#020103',
-        middle: '#140407',
-        horizon: '#6c1608'
+        top: '#d1d1d1',
+        middle: '#d1d1d1',
+        horizon: '#d1d1d1'
       },
-      fog: '#15121d',
-      fogNear: 54,
-      fogFar: 138,
-      sun: '#f6ad62',
-      hemiSky: '#262233',
-      hemiGround: '#0a090b',
+      fog: '#c05454',
+      fogNear: 20,
+      fogFar: 127,
+      sun: '#ffa852',
+      sunIntensity: 2.12,
+      sunPosition: { x: -88, y: 48, z: 48 },
+      hemiSky: '#ac6262',
+      hemiGround: '#ff8080',
+      hemiIntensity: 1.52,
       realtimeShadows: false,
       bakedShadows: true
     },
@@ -772,20 +779,23 @@ const WORLD_PRESETS = {
     theme: 'red-desert',
     seed: 904,
     sky: {
-      background: '#eda466',
+      toneMapping: 'linear',
+      exposure: 1.1,
+      background: '#ff8847',
       skyGradient: {
-        top: '#ffe997',
-        middle: '#ffc64d',
-        horizon: '#f08d2f'
+        top: '#ff8847',
+        middle: '#ff8847',
+        horizon: '#ff8847'
       },
-      fog: '#e6a66d',
-      fogNear: 74,
-      fogFar: 210,
-      sun: '#fff0a8',
-      sunIntensity: 4.15,
-      hemiSky: '#ffd9a0',
-      hemiGround: '#7d4636',
-      hemiIntensity: 1.18,
+      fog: '#ffc87a',
+      fogNear: 20,
+      fogFar: 117,
+      sun: '#fbb99d',
+      sunIntensity: 3.3,
+      sunPosition: { x: -88, y: 48, z: 48 },
+      hemiSky: '#ffd79e',
+      hemiGround: '#902c2c',
+      hemiIntensity: 0.77,
       realtimeShadows: false,
       bakedShadows: true,
       shadowMapSize: 2048
@@ -984,8 +994,11 @@ export function createWorld(scene, worldOptions = {}) {
   const pathPoints = pathVectors();
   const pathGraph = config.theme === 'dungeon' ? createDungeonNavigationGraph() : null;
   const theme = config.theme ?? 'snow';
+  let skyGradient = null;
+  if (config.sky?.skyGradient) {
+    skyGradient = createSky(scene, { includeClouds: theme === 'snow' });
+  }
   if (theme === 'snow') {
-    createSky(scene);
     createMountainRidge(scene);
     createSnowMountain(scene);
     createSnowBackdropRocks(scene);
@@ -1061,6 +1074,7 @@ export function createWorld(scene, worldOptions = {}) {
     staticCullables,
     staticCulling,
     update: (dt, cameraTarget, camera, options = {}) => {
+      updateSkyGradientPosition(skyGradient, camera);
       snowfall.update(dt, cameraTarget);
       staticCulling.update(dt, camera, options);
     },
@@ -1087,6 +1101,16 @@ function resolveWorldConfig(worldOptions = {}) {
 }
 
 function mergeWorldPreset(preset, worldOptions) {
+  const sky = {
+    ...WORLD_PRESETS['snow-valley'].sky,
+    ...(preset.sky ?? {}),
+    ...(worldOptions.sky ?? {})
+  };
+  const presetHasSkyGradient = Object.hasOwn(preset.sky ?? {}, 'skyGradient');
+  const optionsHasSkyGradient = Object.hasOwn(worldOptions.sky ?? {}, 'skyGradient');
+  if (preset.sceneKey !== 'snow-valley' && !presetHasSkyGradient && !optionsHasSkyGradient) {
+    delete sky.skyGradient;
+  }
   return {
     ...BALANCE.world,
     ...preset,
@@ -1096,11 +1120,7 @@ function mergeWorldPreset(preset, worldOptions) {
       ...(preset.ground ?? {}),
       ...(worldOptions.ground ?? {})
     },
-    sky: {
-      ...WORLD_PRESETS['snow-valley'].sky,
-      ...(preset.sky ?? {}),
-      ...(worldOptions.sky ?? {})
-    },
+    sky,
     palette: {
       ...WORLD_PRESETS['snow-valley'].palette,
       ...(preset.palette ?? {}),
@@ -1303,6 +1323,23 @@ function setGroundUvFromWorldXZ(geometry, width, depth) {
   for (let i = 0; i < position.count; i += 1) {
     const x = position.getX(i);
     const z = -position.getY(i);
+    const offset = i * 2;
+    uvs[offset] = clamp((x + halfWidth) / width, 0, 1);
+    uvs[offset + 1] = clamp((z + halfDepth) / depth, 0, 1);
+  }
+
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+}
+
+function setRibbonUvFromWorldXZ(geometry, width, depth) {
+  const position = geometry.attributes.position;
+  const uvs = new Array(position.count * 2);
+  const halfWidth = width / 2;
+  const halfDepth = depth / 2;
+
+  for (let i = 0; i < position.count; i += 1) {
+    const x = position.getX(i);
+    const z = position.getZ(i);
     const offset = i * 2;
     uvs[offset] = clamp((x + halfWidth) / width, 0, 1);
     uvs[offset + 1] = clamp((z + halfDepth) / depth, 0, 1);
@@ -2242,10 +2279,12 @@ function buildPathRibbon(scene, points, material, width = worldConfig().pathWidt
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geometry.setIndex(indices);
+  setRibbonUvFromWorldXZ(geometry, worldConfig().ground.width, worldConfig().ground.depth);
   geometry.computeVertexNormals();
-  const path = new THREE.Mesh(geometry, material);
+  const path = new THREE.Mesh(geometry, material.clone());
   path.receiveShadow = true;
   path.renderOrder = renderOrder;
+  registerShadowMaskReceiver(path);
   scene.add(path);
 }
 
@@ -2320,8 +2359,9 @@ function createPuddleMesh(puddle, material) {
   return mesh;
 }
 
-function createSky(scene) {
-  createSkyGradient(scene);
+function createSky(scene, { includeClouds = true } = {}) {
+  const skyGradient = createSkyGradient(scene);
+  if (!includeClouds) return skyGradient;
   const clouds = worldConfig().clouds ?? [
     { x: -32, y: 62, z: -38, scale: 3.5, rot: 0.08 },
     { x: -12, y: 69, z: -44, scale: 2.6, rot: -0.18 },
@@ -2336,11 +2376,12 @@ function createSky(scene) {
     cloud.rotation.y = item.rot;
     scene.add(cloud);
   });
+  return skyGradient;
 }
 
 function createSkyGradient(scene) {
   const gradient = worldConfig().sky?.skyGradient;
-  if (!gradient) return;
+  if (!gradient) return null;
   const geometry = new THREE.SphereGeometry(190, 24, 12);
   const position = geometry.attributes.position;
   const colors = [];
@@ -2364,13 +2405,22 @@ function createSkyGradient(scene) {
     vertexColors: true,
     side: THREE.BackSide,
     depthWrite: false,
+    depthTest: false,
     fog: false,
     toneMapped: false
   });
   const sky = new THREE.Mesh(geometry, material);
   sky.name = 'StylizedSunsetSky';
   sky.renderOrder = -1000;
+  sky.frustumCulled = false;
   scene.add(sky);
+  return sky;
+}
+
+function updateSkyGradientPosition(sky, camera) {
+  if (!sky || !camera) return;
+  sky.position.copy(camera.position);
+  sky.updateMatrixWorld(true);
 }
 
 function createSnowfall(scene) {
@@ -3345,6 +3395,7 @@ function placeDesertSandstoneFields(scene, pathPoints, random) {
       pillar.rotation.y = random() * Math.PI * 2;
       pillar.scale.x *= 0.86 + random() * 0.34;
       pillar.scale.z *= 0.82 + random() * 0.4;
+      bakeObjectGroundShadow(pillar);
       scene.add(pillar);
       registerWorldNavigationBlocker(
         point.x,
@@ -4449,8 +4500,15 @@ function beginBakedGroundShadows(scene) {
     enabled: worldConfig().sky?.bakedShadows === true,
     shadowMaskEnabled: shouldUseGroundShadowMask(),
     shadowMaskTexture: null,
+    shadowMaskReceivers: [],
     chunks: new Map()
   };
+}
+
+function registerShadowMaskReceiver(object) {
+  const batch = activeBakedShadowBatch;
+  if (!batch?.enabled || !batch.shadowMaskEnabled || !object) return;
+  batch.shadowMaskReceivers.push(object);
 }
 
 function bakeObjectGroundShadow(object) {
@@ -4491,8 +4549,10 @@ function flushBakedGroundShadows(ground = null) {
   if (batch.shadowMaskEnabled && ground) {
     const texture = createGroundShadowMaskTexture(batch);
     if (texture) {
-      ground.material.map = texture;
-      ground.material.needsUpdate = true;
+      applyShadowMaskTexture(ground, texture);
+      batch.shadowMaskReceivers.forEach((receiver) => {
+        applyShadowMaskTexture(receiver, texture);
+      });
       return { meshes: [], texture, triangleCount };
     }
   }
@@ -4523,6 +4583,19 @@ function flushBakedGroundShadows(ground = null) {
     meshes.push(mesh);
   });
   return { meshes, texture: null, triangleCount };
+}
+
+function applyShadowMaskTexture(object, texture) {
+  if (!object?.material || !texture) return;
+  const materials = Array.isArray(object.material) ? object.material : [object.material];
+  const nextMaterials = materials.map((material) => {
+    if (!material) return material;
+    const next = material.clone();
+    next.map = texture;
+    next.needsUpdate = true;
+    return next;
+  });
+  object.material = Array.isArray(object.material) ? nextMaterials : nextMaterials[0];
 }
 
 function countBakedShadowTriangles(batch) {

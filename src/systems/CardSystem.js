@@ -997,24 +997,6 @@ export class CardSystem {
     return upgraded;
   }
 
-  upgradeExistingCardCopies(card, amount = 1) {
-    if (!card?.id) return false;
-    const levels = Math.max(1, Math.floor(amount));
-    let upgraded = false;
-    this.allDeckCards().forEach((candidate) => {
-      if (candidate.id !== card.id) return;
-      candidate.level = Math.max(1, Math.floor(candidate.level ?? 1)) + levels;
-      ensureCardUses(candidate);
-      candidate.remainingUses = candidate.maxUses;
-      this.pendingDrawAnimations.add(candidate);
-      upgraded = true;
-    });
-    this.renderHand();
-    this.renderTemporaryCards();
-    this.updatePileUi();
-    return upgraded;
-  }
-
   applyRuntimeUpgrade(card, upgrade) {
     if (!card?.id || !upgrade?.id) return false;
     const record = this.ensureRuntimeUpgradeRecord(card.id);

@@ -196,7 +196,7 @@ const TEMPORARY_MANA_SURGE_CARD = {
   kind: 'enchant',
   label: '涌',
   artKey: 'abilityEnchantEcho',
-  summary: '特殊临时牌。拖拽给单位后，随机进行 10 次附魔。',
+  summary: '特殊临时牌。拖拽给单位后，随机进行 6 次附魔。',
   target: 'friendly-unit',
   radius: 1.1,
   cooldown: 4,
@@ -206,7 +206,7 @@ const TEMPORARY_MANA_SURGE_CARD = {
   lootOnly: true,
   effect: {
     type: 'apply-random-enchantments',
-    count: 10
+    count: 6
   },
   color: '#b68cff'
 };
@@ -292,7 +292,7 @@ const STRATEGY_REWARD_OPTION_DEFINITIONS = [
     id: 'temporary-mana-surge-card',
     action: 'grant-temporary-card',
     title: '获得魔力涌动',
-    description: '获得一张特殊临时牌：对目标随机进行 10 次附魔。',
+    description: '获得一张特殊临时牌：对目标随机进行 6 次附魔。',
     temporaryCard: TEMPORARY_MANA_SURGE_CARD
   }
 ];
@@ -458,7 +458,6 @@ const DEFAULT_DPR = 1;
 const MIN_DPR = 1;
 const MAX_DPR = 2;
 const SETTINGS_STORAGE_KEY = 'village-war-render-settings-v1';
-const RENDER_TUNING_STORAGE_KEY = 'village-war-render-tuning-v2';
 const RENDER_TONE_MAPPING_OPTIONS = ['neutral', 'aces', 'reinhard', 'linear', 'none'];
 const RENDER_TONE_MAPPING_LABELS = {
   neutral: 'Neutral',
@@ -468,15 +467,15 @@ const RENDER_TONE_MAPPING_LABELS = {
   none: 'None'
 };
 const SNOW_VALLEY_HEAD_RENDER_TUNING = Object.freeze({
-  toneMapping: 'neutral',
+  toneMapping: 'linear',
   exposure: 1.1,
-  brightness: 1,
-  contrast: 1,
-  saturation: 1,
+  brightness: 1.02,
+  contrast: 1.22,
+  saturation: 0.81,
   hue: 0,
   warmth: 0,
-  sunColor: '#ffd3a0',
-  sunIntensity: 4.36,
+  sunColor: '#fde2e2',
+  sunIntensity: 2.12,
   sunX: -88,
   sunY: 48,
   sunZ: 48,
@@ -488,6 +487,63 @@ const SNOW_VALLEY_HEAD_RENDER_TUNING = Object.freeze({
   fogNear: 110,
   fogFar: 282
 });
+const DUNGEON_HALLS_HEAD_RENDER_TUNING = Object.freeze({
+  toneMapping: 'linear',
+  exposure: 1.1,
+  brightness: 1,
+  contrast: 1.12,
+  saturation: 1.07,
+  hue: 0,
+  warmth: 0,
+  sunColor: '#ffa852',
+  sunIntensity: 2.12,
+  sunX: -88,
+  sunY: 48,
+  sunZ: 48,
+  hemiIntensity: 1.52,
+  hemiSky: '#ac6262',
+  hemiGround: '#ff8080',
+  background: '#d1d1d1',
+  fogColor: '#c05454',
+  fogNear: 20,
+  fogFar: 127
+});
+const RED_DESERT_HEAD_RENDER_TUNING = Object.freeze({
+  toneMapping: 'linear',
+  exposure: 1.1,
+  brightness: 1,
+  contrast: 1,
+  saturation: 1,
+  hue: 0,
+  warmth: 0,
+  sunColor: '#fbb99d',
+  sunIntensity: 3.3,
+  sunX: -88,
+  sunY: 48,
+  sunZ: 48,
+  hemiIntensity: 0.77,
+  hemiSky: '#ffd79e',
+  hemiGround: '#902c2c',
+  background: '#ff8847',
+  fogColor: '#ffc87a',
+  fogNear: 20,
+  fogFar: 117
+});
+const BOUNCE_LIGHTMAP_WIDTH = 384;
+const BOUNCE_LIGHTMAP_MIN_HEIGHT = 256;
+const BOUNCE_LIGHTMAP_MAX_HEIGHT = 384;
+const BOUNCE_LIGHTMAP_INTENSITY = 1.45;
+const BOUNCE_LIGHTMAP_MAX_EMITTERS = 180;
+const BOUNCE_LIGHTMAP_EMITTER_RADIUS_MIN = 3.6;
+const BOUNCE_LIGHTMAP_EMITTER_RADIUS_MAX = 12;
+const BOUNCE_LIGHTMAP_SHADOW_LIFT = 0.1;
+const BOUNCE_LIGHTMAP_SNOW_REFLECTANCE = 0.82;
+const BOUNCE_OBJECT_VERTEX_SCALE = 0.34;
+const BOUNCE_OBJECT_SAMPLE_RADIUS_MIN = 1.15;
+const BOUNCE_OBJECT_SAMPLE_RADIUS_MAX = 5.8;
+const CAMERA_FOG_COMPENSATION_START = 0.46;
+const CAMERA_FOG_COMPENSATION_NEAR_SCALE = 0.34;
+const CAMERA_FOG_COMPENSATION_FAR_SCALE = 2.4;
 
 export class Game {
   constructor({ canvas, session = null, onLevelComplete = null, onRestart = null, onExitToMenu = null } = {}) {
@@ -512,7 +568,11 @@ export class Game {
       altars: []
     };
     this.worldConfig = applyRenderQualityToWorldConfig(this.worldConfig, this.renderQuality);
-    this.renderTuning = loadRenderTuningSettings(this.worldConfig);
+    this.renderTuning = null;
+    this.bounceLightMapTexture = null;
+    this.bounceLightBakeStats = null;
+    this.bounceLightGroundRecord = null;
+    this.bounceLightMaterialRecords = [];
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(48, 1, 0.1, 240);
     this.camera.position.set(0, 34, 47.2);
@@ -583,6 +643,11 @@ export class Game {
     });
 
     this.world = createWorld(this.scene, this.worldConfig);
+    this.worldConfig = this.world.config ?? this.worldConfig;
+    const useResolvedRealtimeShadows = this.renderQuality.realtimeShadows && this.worldConfig.sky?.realtimeShadows !== false;
+    this.renderer.shadowMap.enabled = useResolvedRealtimeShadows;
+    this.renderer.shadowMap.autoUpdate = useResolvedRealtimeShadows;
+    this.renderTuning = defaultRenderTuningForWorld(this.worldConfig);
     this.applyWorldRenderTone();
     this.applyRenderTuning();
     this.applyInitialCameraConfig();
@@ -675,6 +740,7 @@ export class Game {
       wavePreview: document.querySelector('#wave-preview'),
       battleTime: document.querySelector('#battle-time'),
       unitCount: document.querySelector('#unit-count'),
+      selectedPanel: document.querySelector('#selected-panel'),
       selectedName: document.querySelector('#selected-name'),
       selectedStats: document.querySelector('#selected-stats'),
       selectedEnchants: document.querySelector('#selected-enchants'),
@@ -682,6 +748,7 @@ export class Game {
       commandDock: document.querySelector('#game-command-dock'),
       pauseOverlay: document.querySelector('#pause-overlay'),
       pauseReason: document.querySelector('#pause-reason'),
+      pauseErrorCopyButton: document.querySelector('[data-pause-action="copy-error"]'),
       fpsMeter: document.querySelector('#fps-meter'),
       fpsLimitSlider: document.querySelector('#fps-limit-slider'),
       fpsLimitValue: document.querySelector('#fps-limit-value'),
@@ -698,6 +765,7 @@ export class Game {
     this.strategyEventUi = createStrategyEventUi();
     this.syncSettingsControls();
     this.syncRenderTuningPanel();
+    this.syncPauseErrorControls();
 
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
@@ -815,6 +883,7 @@ export class Game {
     this.pathWorker = null;
     this.pendingPathRequests.clear();
     this.disposeNavDebug();
+    this.clearBakedBounceLight();
     this.renderer.dispose();
     this.selectionBox?.remove();
     this.strategyEventUi?.root?.remove();
@@ -974,12 +1043,25 @@ export class Game {
       ? Math.max(0, this.currentWave.index - 1)
       : this.waveIndex;
     const waves = this.waveSchedule.slice(startIndex, startIndex + WAVE_PREVIEW_COUNT);
-    root.innerHTML = waves.map((wave) => `
-      <div class="wave-preview-cell is-${wave.kind}${this.currentWave === wave ? ' is-active' : ''}">
-        <span>第 ${wave.index} 波 / 难度 ${wave.effectiveDifficulty ?? this.effectiveDifficultyForWave(wave.index)}</span>
-        <strong>${waveKindLabel(wave)} · ${waveAffixLabel(wave.affixId)}</strong>
+    if (!waves.length) {
+      root.innerHTML = '';
+      return;
+    }
+    root.innerHTML = `
+      <div class="wave-preview-track" style="--wave-node-count: ${waves.length}">
+        ${waves.map((wave) => {
+          const difficulty = wave.effectiveDifficulty ?? this.effectiveDifficultyForWave(wave.index);
+          const isActive = this.currentWave === wave;
+          return `
+            <div class="wave-preview-node is-${cssKey(wave.kind)}${isActive ? ' is-active' : ''}">
+              <span class="wave-node-dot">${escapeHtml(wave.index)}</span>
+              <strong>${escapeHtml(waveKindLabel(wave))}</strong>
+              <span>${escapeHtml(waveAffixLabel(wave.affixId))} / 难度 ${escapeHtml(difficulty)}</span>
+            </div>
+          `;
+        }).join('')}
       </div>
-    `).join('');
+    `;
   }
 
   openStrategyEvent(type, options = {}) {
@@ -1061,15 +1143,6 @@ export class Game {
           action: 'add-card',
           actionLabel: '加入牌堆'
         })
-      };
-    }
-    if (type === 'existing-card-upgrade') {
-      return {
-        type,
-        kicker: waveEventKicker(options.wave),
-        title: '升级一张已有卡',
-        summary: '升级的是同名卡牌：所有同名卡等级 +1，并补满使用次数。',
-        choices: this.createExistingCardUpgradeChoices()
       };
     }
     if (type === 'existing-card-copy') {
@@ -1223,6 +1296,9 @@ export class Game {
       this.isWaveRewardOptionAvailable(option)
     ));
     return pickRandomItems(options, STRATEGY_CHOICE_COUNT).map((option) => {
+      const optionDescription = option.action === 'open-card-upgrade-choice'
+        ? '选择一张已有卡，然后选择这张卡对应的升级倾向。'
+        : option.description;
       const card = option.temporaryCard
         ? option.temporaryCard
         : {
@@ -1231,7 +1307,7 @@ export class Game {
             kind: rewardOptionCardKind(option),
             label: rewardOptionLabel(option),
             artKey: option.artKey ?? 'tacticUpgrade',
-            summary: option.description,
+            summary: optionDescription,
             target: 'none',
             radius: 1,
             cooldown: 0,
@@ -1242,8 +1318,10 @@ export class Game {
         action: option.action,
         actionLabel: option.action === 'grant-temporary-card' ? '获得临时牌' : '选择方向',
         title: option.title,
-        description: option.description,
-        metaText: rewardOptionMetaText(option),
+        description: optionDescription,
+        metaText: option.action === 'open-card-upgrade-choice'
+          ? '已有卡牌 / 升级倾向'
+          : rewardOptionMetaText(option),
         card,
         cardKind: option.cardKind,
         wave,
@@ -1379,19 +1457,6 @@ export class Game {
     }));
   }
 
-  createExistingCardUpgradeChoices() {
-    return pickRandomItems(this.uniqueRuntimeCards(), STRATEGY_CHOICE_COUNT).map((card) => ({
-      action: 'upgrade-existing-copies',
-      actionLabel: '同名升级',
-      title: `升级 ${card.name}`,
-      description: '所有同名卡牌等级 +1，并补满使用次数。',
-      metaText: `${strategyKindLabel(card.kind)} / 同名卡牌`,
-      card,
-      targetCard: card,
-      upgradeAmount: 1
-    }));
-  }
-
   createExistingCardCopyChoices() {
     return pickRandomItems(this.uniqueRuntimeCards(), STRATEGY_CHOICE_COUNT).map((card) => ({
       action: 'copy-card',
@@ -1433,7 +1498,7 @@ export class Game {
       return;
     }
     if (choice.action === 'open-card-upgrade-choice') {
-      this.handleExistingCardUpgradeSelection(choice);
+      this.handleCardUpgradeSelection(choice);
       return;
     }
     if (choice.action === 'open-card-copy-choice') {
@@ -1465,8 +1530,8 @@ export class Game {
     this.renderStrategyEvent();
   }
 
-  handleExistingCardUpgradeSelection(choice) {
-    const event = this.createStrategyEvent('existing-card-upgrade', {
+  handleCardUpgradeSelection(choice) {
+    const event = this.createStrategyEvent('card-maintenance', {
       wave: choice.wave
     });
     if (!event?.choices?.length) return;
@@ -1523,8 +1588,6 @@ export class Game {
       applied = this.cardSystem.upgradeCardInstance(choice.targetCard, 1);
     } else if (choice.action === 'apply-card-upgrade') {
       applied = this.cardSystem.applyRuntimeUpgrade(choice.targetCard, choice.upgrade);
-    } else if (choice.action === 'upgrade-existing-copies') {
-      applied = this.cardSystem.upgradeExistingCardCopies(choice.targetCard, choice.upgradeAmount ?? 1);
     } else if (choice.action === 'copy-card') {
       applied = this.cardSystem.copyCardInstance(choice.targetCard, {
         prefix: `event-copy-${choice.targetCard.id}-${Date.now()}`
@@ -1621,6 +1684,7 @@ export class Game {
     if (this.dom.pauseOverlay) {
       this.dom.pauseOverlay.hidden = false;
     }
+    this.syncPauseErrorControls();
   }
 
   shouldSkipFrame(time) {
@@ -1711,7 +1775,6 @@ export class Game {
     }
     this.renderTuning = normalizeRenderTuning(next, this.worldConfig);
     this.applyRenderTuning();
-    saveRenderTuningSettings(this.renderTuning);
     this.syncRenderTuningPanel();
   }
 
@@ -1723,17 +1786,26 @@ export class Game {
     if (action === 'reset') {
       this.renderTuning = defaultRenderTuningForWorld(this.worldConfig);
       this.applyRenderTuning();
-      saveRenderTuningSettings(this.renderTuning);
       this.syncRenderTuningPanel();
       return;
     }
     if (action === 'copy') {
       this.copyRenderTuningParameters();
+      return;
+    }
+    if (action === 'bake-bounce') {
+      this.bakeStaticBounceLight();
+      return;
+    }
+    if (action === 'clear-bounce') {
+      this.clearBakedBounceLight();
+      this.setRenderTuningBakeStatus('已清除');
+      this.syncRenderTuningPanel();
     }
   }
 
   async copyRenderTuningParameters() {
-    const text = renderTuningExportText(this.renderTuning);
+    const text = renderTuningExportText(this.renderTuning, this.worldConfig);
     try {
       if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
       await navigator.clipboard.writeText(text);
@@ -1742,6 +1814,135 @@ export class Game {
       this.setRenderTuningCopyStatus('复制失败');
     }
     console.info('[VillageWar] Render tuning parameters', this.renderTuning);
+  }
+
+  bakeStaticBounceLight() {
+    if (!this.world?.ground?.material) return;
+    this.applyRenderTuning();
+    this.setRenderTuningBakeStatus('烘焙中');
+    window.requestAnimationFrame(() => {
+      if (this.destroyed) return;
+      try {
+        const result = createStaticBounceLightMap({
+          world: this.world,
+          worldConfig: this.world.config ?? this.worldConfig,
+          settings: this.renderTuning
+        });
+        this.applyBakedBounceLight(result);
+        const { width, height, emitterCount, receiverCount } = this.bounceLightBakeStats ?? result;
+        this.setRenderTuningBakeStatus(`已烘焙 ${width}x${height} / ${emitterCount} 面源 / ${receiverCount ?? 0} 接收`);
+        this.syncRenderTuningPanel();
+      } catch (error) {
+        console.warn('[VillageWar] Bounce light bake failed', error);
+        this.setRenderTuningBakeStatus('烘焙失败');
+      }
+    });
+  }
+
+  applyBakedBounceLight(result) {
+    const ground = this.world?.ground;
+    const material = ground?.material;
+    if (!ground?.geometry || !material || !result?.texture) return;
+    const uv = ground.geometry.attributes?.uv;
+    if (uv && !ground.geometry.attributes?.uv2) {
+      ground.geometry.setAttribute('uv2', uv.clone());
+    }
+    this.clearBakedBounceLight({ updatePanel: false });
+    this.bounceLightGroundRecord = {
+      material,
+      lightMap: material.lightMap ?? null,
+      lightMapIntensity: material.lightMapIntensity ?? 1
+    };
+    material.lightMap = result.texture;
+    material.lightMapIntensity = result.intensity;
+    material.needsUpdate = true;
+    const receiverCount = this.applyStaticObjectBounceLight(result);
+    this.bounceLightMapTexture = result.texture;
+    this.bounceLightBakeStats = {
+      width: result.width,
+      height: result.height,
+      emitterCount: result.emitterCount,
+      receiverCount
+    };
+    if (this.world) {
+      this.world.bounceLightMapTexture = result.texture;
+      this.world.bounceLightMapEmitterCount = result.emitterCount;
+      this.world.bounceLightMapReceiverCount = receiverCount;
+    }
+  }
+
+  applyStaticObjectBounceLight(result) {
+    const objects = staticBounceObjectsForWorld(this.world);
+    const settings = normalizeRenderTuning(this.renderTuning, this.world?.config ?? this.worldConfig);
+    const config = this.world?.config ?? this.worldConfig;
+    const shadowMask = readShadowMaskData(this.world?.shadowMaskTexture);
+    const groundSampler = createGroundBounceSampler(this.world, config, shadowMask);
+    const materialRecords = [];
+    let receiverCount = 0;
+
+    objects.forEach((object) => {
+      object.updateWorldMatrix(true, true);
+      object.traverse((node) => {
+        if (!node.isMesh || node.userData?.skipBakedShadow || !node.material || !node.geometry) return;
+        const baked = bakeBounceIntoMesh(node, settings, config, groundSampler);
+        if (!baked) return;
+        materialRecords.push({
+          node,
+          originalGeometry: node.geometry,
+          originalMaterial: node.material,
+          bakedGeometry: baked.geometry,
+          bakedMaterials: baked.materials
+        });
+        node.geometry = baked.geometry;
+        node.material = Array.isArray(node.material) ? baked.materials : baked.materials[0];
+        receiverCount += baked.vertexCount;
+      });
+    });
+
+    this.bounceLightMaterialRecords = materialRecords;
+    return receiverCount;
+  }
+
+  clearBakedBounceLight({ updatePanel = true } = {}) {
+    const material = this.world?.ground?.material;
+    if (this.bounceLightGroundRecord) {
+      const record = this.bounceLightGroundRecord;
+      record.material.lightMap = record.lightMap;
+      record.material.lightMapIntensity = record.lightMapIntensity;
+      record.material.needsUpdate = true;
+      this.bounceLightGroundRecord = null;
+    } else if (material?.lightMap === this.bounceLightMapTexture) {
+      material.lightMap = null;
+      material.lightMapIntensity = 1;
+      material.needsUpdate = true;
+    }
+    this.bounceLightMaterialRecords.forEach((record) => {
+      record.node.geometry = record.originalGeometry;
+      record.node.material = record.originalMaterial;
+      record.bakedGeometry?.dispose?.();
+      record.bakedMaterials.forEach((bakedMaterial) => {
+        const originals = Array.isArray(record.originalMaterial) ? record.originalMaterial : [record.originalMaterial];
+        if (!originals.includes(bakedMaterial)) bakedMaterial.dispose?.();
+      });
+    });
+    this.bounceLightMaterialRecords = [];
+    this.bounceLightMapTexture?.dispose?.();
+    this.bounceLightMapTexture = null;
+    this.bounceLightBakeStats = null;
+    if (this.world) {
+      this.world.bounceLightMapTexture = null;
+      this.world.bounceLightMapEmitterCount = 0;
+      this.world.bounceLightMapReceiverCount = 0;
+    }
+    if (updatePanel) {
+      this.setRenderTuningBakeStatus('未烘焙');
+    }
+  }
+
+  setRenderTuningBakeStatus(text) {
+    if (this.renderTuningUi?.bakeStatus) {
+      this.renderTuningUi.bakeStatus.textContent = text;
+    }
   }
 
   setRenderTuningCopyStatus(text) {
@@ -1785,8 +1986,7 @@ export class Game {
       this.scene.background = new THREE.Color(settings.background);
       if (this.scene.fog) {
         this.scene.fog.color.set(settings.fogColor);
-        this.scene.fog.near = settings.fogNear;
-        this.scene.fog.far = settings.fogFar;
+        this.applyCameraFogRange(settings);
       }
     }
     if (this.world?.config?.sky) {
@@ -1814,6 +2014,16 @@ export class Game {
     ].join(' ');
   }
 
+  applyCameraFogRange(settings = this.renderTuning) {
+    if (!this.scene?.fog || !settings) return;
+    const normalized = normalizeRenderTuning(settings, this.worldConfig);
+    const zoomSpan = Math.max(1, this.cameraMaxDistance - this.cameraMinDistance);
+    const zoomT = smoothstep01((this.cameraDistance - this.cameraMinDistance) / zoomSpan, CAMERA_FOG_COMPENSATION_START, 1);
+    const stretch = this.cameraDistance * zoomT;
+    this.scene.fog.near = normalized.fogNear + stretch * CAMERA_FOG_COMPENSATION_NEAR_SCALE;
+    this.scene.fog.far = normalized.fogFar + stretch * CAMERA_FOG_COMPENSATION_FAR_SCALE;
+  }
+
   syncRenderTuningPanel() {
     const ui = this.renderTuningUi;
     if (!ui?.root) return;
@@ -1828,7 +2038,12 @@ export class Game {
       value.textContent = formatRenderTuningValue(key, settings[key]);
     });
     if (ui.exportText) {
-      ui.exportText.textContent = renderTuningExportText(settings);
+      ui.exportText.textContent = renderTuningExportText(settings, this.worldConfig);
+    }
+    if (ui.bakeStatus) {
+      ui.bakeStatus.textContent = this.bounceLightBakeStats
+        ? `已烘焙 ${this.bounceLightBakeStats.width}x${this.bounceLightBakeStats.height} / ${this.bounceLightBakeStats.emitterCount} 面源 / ${this.bounceLightBakeStats.receiverCount ?? 0} 接收`
+        : '未烘焙';
     }
   }
 
@@ -1908,6 +2123,7 @@ export class Game {
       this.cameraDistance
     );
     this.camera.lookAt(this.cameraTarget);
+    this.applyCameraFogRange();
   }
 
   applyCameraDragDelta() {
@@ -3070,6 +3286,7 @@ export class Game {
       if (this.dom.pauseOverlay) this.dom.pauseOverlay.hidden = true;
       this.clock.getDelta();
     }
+    this.syncPauseErrorControls();
   }
 
   onPauseOverlayClick(event) {
@@ -3088,6 +3305,10 @@ export class Game {
       this.setPaused(false);
       return;
     }
+    if (action === 'copy-error') {
+      this.copyRuntimeErrorInfo();
+      return;
+    }
     if (action === 'fullscreen') {
       this.requestFullscreen();
       return;
@@ -3098,6 +3319,36 @@ export class Game {
     }
     if (action === 'menu') {
       this.onExitToMenu?.();
+    }
+  }
+
+  syncPauseErrorControls() {
+    if (!this.dom.pauseErrorCopyButton) return;
+    this.dom.pauseErrorCopyButton.hidden = !this.runtimeError;
+    if (this.runtimeError) {
+      this.dom.pauseErrorCopyButton.textContent = '复制错误信息';
+    }
+  }
+
+  async copyRuntimeErrorInfo() {
+    if (!this.runtimeError) return;
+    const button = this.dom.pauseErrorCopyButton;
+    const text = formatRuntimeErrorInfo(this.runtimeError, this);
+    try {
+      await writeClipboardText(text);
+      if (button) button.textContent = '已复制错误信息';
+    } catch {
+      if (button) button.textContent = '复制失败';
+      if (this.dom.debug) {
+        this.dom.debug.hidden = true;
+        this.dom.debug.textContent = text;
+      }
+    }
+    if (button) {
+      window.setTimeout(() => {
+        if (!this.runtimeError || button.hidden) return;
+        button.textContent = '复制错误信息';
+      }, 1400);
     }
   }
 
@@ -3905,14 +4156,22 @@ export class Game {
     this.dom.battleTime.textContent = formatBattleTime(this.elapsedTime);
     this.dom.unitCount.textContent = String(this.friendlyUnits.length);
     if (this.selectedUnits.length > 1) {
+      if (this.dom.selectedPanel) this.dom.selectedPanel.hidden = false;
       const totalHealth = Math.round(
         this.selectedUnits.reduce((sum, unit) => sum + unit.health, 0)
       );
+      const totalDurability = Math.round(
+        this.selectedUnits.reduce((sum, unit) => sum + unit.weapon.durability, 0)
+      );
+      const totalMaxDurability = Math.round(
+        this.selectedUnits.reduce((sum, unit) => sum + unit.weapon.maxDurability, 0)
+      );
       const types = countBy(this.selectedUnits, (unit) => unit.name);
       this.dom.selectedName.textContent = `已选中 ${this.selectedUnits.length} 个单位`;
-      this.dom.selectedStats.textContent = `总 HP ${totalHealth} / ${formatCounts(types)}`;
+      this.dom.selectedStats.textContent = `总 HP ${totalHealth} / 总耐久 ${totalDurability}/${totalMaxDurability} / ${formatCounts(types)}`;
       this.dom.selectedEnchants.textContent = '右键地面移动，遇敌自动战斗';
     } else if (this.selectedUnit) {
+      if (this.dom.selectedPanel) this.dom.selectedPanel.hidden = false;
       const unit = this.selectedUnit;
       const hp = Math.round(unit.health);
       const shield = Math.round(unit.shield);
@@ -3927,10 +4186,11 @@ export class Game {
       const knockbackResistance = Math.round(this.modifiers.getKnockbackResistance(unit) * 100);
       this.dom.selectedName.textContent = `${teamLabel} ${unit.name} #${unit.id}`;
       this.dom.selectedStats.textContent =
-        `HP ${hp}/${Math.round(unit.maxHealth)} / 护盾 ${shield}/${Math.round(unit.maxShield)} / ${unit.weapon.name} ${durability}/${maxDurability}`;
+        `HP ${hp}/${Math.round(unit.maxHealth)} / 护盾 ${shield}/${Math.round(unit.maxShield)} / 武器 ${unit.weapon.name} / 耐久 ${durability}/${maxDurability}`;
       this.dom.selectedEnchants.textContent =
         `${attackDamageTypeLabel(unit.definition.attackDamageType)}攻 ${attack} / 护甲 ${armor} / 魔抗 ${magicResistance} / 闪避 ${dodgeChance}% / 抗击退 ${knockbackResistance}% / 附魔 ${enchantments || '-'}`;
     } else {
+      if (this.dom.selectedPanel) this.dom.selectedPanel.hidden = true;
       this.dom.selectedName.textContent = '未选中';
       this.dom.selectedStats.textContent = 'HP - / 武器 -';
       this.dom.selectedEnchants.textContent = '附魔 -';
@@ -4669,9 +4929,6 @@ function strategyEventTypeMeta(type) {
   if (type === 'card-kind-choice') {
     return { key: 'choice', mark: '选', label: '选牌奖励' };
   }
-  if (type === 'existing-card-upgrade') {
-    return { key: 'upgrade', mark: '升', label: '同名升级' };
-  }
   if (type === 'existing-card-copy') {
     return { key: 'copy', mark: '复', label: '复制奖励' };
   }
@@ -4700,7 +4957,6 @@ function strategyChoiceActionMeta(choice) {
   if (choice.action === 'select-upgrade-card') return { key: 'select-upgrade', label: '选择升级对象' };
   if (choice.action === 'apply-card-upgrade') return { key: 'apply-upgrade', label: '升级倾向' };
   if (choice.action === 'upgrade-card') return { key: 'upgrade-card', label: '等级提升' };
-  if (choice.action === 'upgrade-existing-copies') return { key: 'upgrade-card', label: '同名升级' };
   if (choice.action === 'copy-card') return { key: 'copy-card', label: '复制奖励' };
   if (choice.action === 'copy-card-limited') return { key: 'copy-card', label: '代价复制' };
   if (choice.action === 'restore-card') return { key: 'restore-card', label: '补充次数' };
@@ -4738,7 +4994,7 @@ function rewardOptionLabel(option) {
 
 function rewardOptionMetaText(option) {
   if (option.cardKind) return `${strategyKindLabel(option.cardKind)} / 三选一`;
-  if (option.action === 'open-card-upgrade-choice') return '已有卡牌 / 同名升级';
+  if (option.action === 'open-card-upgrade-choice') return '已有卡牌 / 升级倾向';
   if (option.action === 'open-card-copy-choice') return '已有卡牌 / 满次数复制';
   return '特殊临时牌 / 本局限定';
 }
@@ -5065,6 +5321,7 @@ function createRenderTuningPanel() {
   button.setAttribute('title', '渲染调参');
   button.setAttribute('aria-pressed', 'false');
   button.textContent = '☼';
+  button.hidden = true;
   document.body.appendChild(button);
 
   const root = document.createElement('section');
@@ -5078,6 +5335,8 @@ function createRenderTuningPanel() {
       <div class="render-tuning-actions">
         <button type="button" data-render-action="reset">重置</button>
         <button type="button" data-render-action="copy">复制参数</button>
+        <button type="button" data-render-action="bake-bounce">烘焙反射光</button>
+        <button type="button" data-render-action="clear-bounce">清除反射光</button>
       </div>
     </div>
     <div class="render-tuning-grid">
@@ -5113,6 +5372,7 @@ function createRenderTuningPanel() {
         ${renderSliderControl('fogFar', '远端', 80, 480, 1)}
       </fieldset>
     </div>
+    <div class="render-tuning-bake-status" data-render-bake-status>未烘焙</div>
     <pre class="render-tuning-export" data-render-export></pre>
   `;
   document.body.appendChild(root);
@@ -5131,6 +5391,7 @@ function createRenderTuningPanel() {
     controls,
     values,
     exportText: root.querySelector('[data-render-export]'),
+    bakeStatus: root.querySelector('[data-render-bake-status]'),
     copyButton: root.querySelector('[data-render-action="copy"]'),
     copyStatusTimer: null
   };
@@ -5165,6 +5426,373 @@ function renderSelectControl(key, label, options) {
   `;
 }
 
+function createStaticBounceLightMap({ world, worldConfig = BALANCE.world, settings }) {
+  const config = worldConfig ?? BALANCE.world;
+  const groundWidth = config.ground?.width ?? BALANCE.world.ground.width;
+  const groundDepth = config.ground?.depth ?? BALANCE.world.ground.depth;
+  const width = BOUNCE_LIGHTMAP_WIDTH;
+  const height = Math.min(
+    BOUNCE_LIGHTMAP_MAX_HEIGHT,
+    Math.max(BOUNCE_LIGHTMAP_MIN_HEIGHT, Math.round(width * (groundDepth / Math.max(1, groundWidth))))
+  );
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) throw new Error('Bounce light canvas unavailable');
+
+  const image = ctx.createImageData(width, height);
+  const data = image.data;
+  const normalized = normalizeRenderTuning(settings, config);
+  const shadowMask = readShadowMaskData(world?.shadowMaskTexture);
+  const groundSampler = createGroundBounceSampler(world, config, shadowMask);
+  const sunColor = new THREE.Color(normalized.sunColor);
+  const hemiSky = new THREE.Color(normalized.hemiSky);
+  const emitters = collectStaticBounceEmitters(world, normalized);
+  const halfWidth = groundWidth * 0.5;
+  const halfDepth = groundDepth * 0.5;
+  const sunBounce = normalized.sunIntensity * BOUNCE_LIGHTMAP_SHADOW_LIFT * BOUNCE_LIGHTMAP_SNOW_REFLECTANCE;
+  const skyBounce = normalized.hemiIntensity * 0.018;
+
+  for (let py = 0; py < height; py += 1) {
+    const v = (py + 0.5) / height;
+    const z = (1 - v) * groundDepth - halfDepth;
+    for (let px = 0; px < width; px += 1) {
+      const u = (px + 0.5) / width;
+      const x = u * groundWidth - halfWidth;
+      const groundSample = groundSampler.sample(x, z);
+      const shadow = groundSample.shadow;
+      const shadeLift = 0.28 + shadow * 0.95;
+      const sourceLit = clamp(1 - shadow * 0.45, 0.22, 1);
+      let r = sunColor.r * groundSample.color.r * sunBounce * shadeLift * sourceLit + hemiSky.r * skyBounce * (0.55 + shadow);
+      let g = sunColor.g * groundSample.color.g * sunBounce * shadeLift * sourceLit + hemiSky.g * skyBounce * (0.55 + shadow);
+      let b = sunColor.b * groundSample.color.b * sunBounce * shadeLift * sourceLit + hemiSky.b * skyBounce * (0.55 + shadow);
+
+      for (let i = 0; i < emitters.length; i += 1) {
+        const emitter = emitters[i];
+        const dx = x - emitter.x;
+        const dz = z - emitter.z;
+        const distanceSq = dx * dx + dz * dz;
+        if (distanceSq >= emitter.radiusSq) continue;
+        const falloff = 1 - distanceSq / emitter.radiusSq;
+        const contribution = emitter.strength * falloff * falloff * (0.45 + shadow * 0.85);
+        r += emitter.color.r * contribution;
+        g += emitter.color.g * contribution;
+        b += emitter.color.b * contribution;
+      }
+
+      const offset = (py * width + px) * 4;
+      data[offset] = Math.round(clamp(r, 0, 0.78) * 255);
+      data[offset + 1] = Math.round(clamp(g, 0, 0.78) * 255);
+      data[offset + 2] = Math.round(clamp(b, 0, 0.78) * 255);
+      data[offset + 3] = 255;
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.name = `${config.sceneKey ?? 'world'}-bounce-lightmap`;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.generateMipmaps = true;
+  texture.needsUpdate = true;
+  return {
+    texture,
+    width,
+    height,
+    emitterCount: emitters.length,
+    intensity: BOUNCE_LIGHTMAP_INTENSITY
+  };
+}
+
+function staticBounceObjectsForWorld(world) {
+  const unique = new Set();
+  [
+    ...(world?.staticCullables ?? []).map((item) => item.object),
+    world?.playerBaseModel,
+    world?.enemyCampModel
+  ].forEach((object) => {
+    if (object) unique.add(object);
+  });
+  return [...unique];
+}
+
+function createGroundBounceSampler(world, config, shadowMask = null) {
+  const groundWidth = config.ground?.width ?? BALANCE.world.ground.width;
+  const groundDepth = config.ground?.depth ?? BALANCE.world.ground.depth;
+  const halfWidth = groundWidth * 0.5;
+  const halfDepth = groundDepth * 0.5;
+  const fallbackColor = new THREE.Color(config.palette?.snow ?? config.palette?.base ?? '#fffef8');
+  const geometry = world?.ground?.geometry;
+  const position = geometry?.attributes?.position;
+  const color = geometry?.attributes?.color;
+  const widthSegments = geometry?.parameters?.widthSegments ?? 106;
+  const heightSegments = geometry?.parameters?.heightSegments ?? 102;
+  const columns = widthSegments + 1;
+  const rows = heightSegments + 1;
+  const samples = new Array(columns * rows);
+
+  if (position) {
+    for (let i = 0; i < position.count; i += 1) {
+      const x = position.getX(i);
+      const z = -position.getY(i);
+      const u = clamp((x + halfWidth) / groundWidth, 0, 1);
+      const v = clamp((z + halfDepth) / groundDepth, 0, 1);
+      const col = clamp(Math.round(u * widthSegments), 0, widthSegments);
+      const row = clamp(Math.round(v * heightSegments), 0, heightSegments);
+      const sampleColor = color
+        ? new THREE.Color(color.getX(i), color.getY(i), color.getZ(i))
+        : fallbackColor.clone();
+      samples[row * columns + col] = {
+        color: sampleColor,
+        height: position.getZ(i)
+      };
+    }
+  }
+
+  return {
+    sample(x, z) {
+      const u = clamp((x + halfWidth) / groundWidth, 0, 1);
+      const groundV = clamp((z + halfDepth) / groundDepth, 0, 1);
+      const col = clamp(Math.round(u * widthSegments), 0, widthSegments);
+      const row = clamp(Math.round(groundV * heightSegments), 0, heightSegments);
+      const item = samples[row * columns + col];
+      return {
+        color: item?.color ?? fallbackColor,
+        height: item?.height ?? 0,
+        shadow: sampleShadowMaskAt(shadowMask, u, 1 - groundV)
+      };
+    }
+  };
+}
+
+function bakeBounceIntoMesh(node, settings, config, groundSampler) {
+  const sourceGeometry = node.geometry;
+  const position = sourceGeometry?.attributes?.position;
+  if (!position) return null;
+
+  const bakedGeometry = sourceGeometry.clone();
+  if (!bakedGeometry.attributes?.normal) {
+    bakedGeometry.computeVertexNormals();
+  }
+  const bakedPosition = bakedGeometry.attributes.position;
+  const bakedNormal = bakedGeometry.attributes.normal;
+  const originalColor = sourceGeometry.attributes?.color ?? null;
+  const vertexColors = new Float32Array(bakedPosition.count * 3);
+  const materials = Array.isArray(node.material) ? node.material : [node.material];
+  const receiverColor = averageMaterialsColor(materials);
+  const receiverTint = receiverColor.clone();
+  const worldPosition = new THREE.Vector3();
+  const worldNormal = new THREE.Vector3(0, 1, 0);
+  const normalMatrix = new THREE.Matrix3().getNormalMatrix(node.matrixWorld);
+  let changedVertices = 0;
+
+  for (let i = 0; i < bakedPosition.count; i += 1) {
+    worldPosition.fromBufferAttribute(bakedPosition, i).applyMatrix4(node.matrixWorld);
+    if (bakedNormal) {
+      worldNormal.fromBufferAttribute(bakedNormal, i).applyMatrix3(normalMatrix).normalize();
+    }
+    const existingColor = originalColor
+      ? new THREE.Color(originalColor.getX(i), originalColor.getY(i), originalColor.getZ(i))
+      : new THREE.Color(1, 1, 1);
+    const baseColor = receiverTint.clone().multiply(existingColor);
+    const bounce = sampleGroundReflectedLight(worldPosition, worldNormal, settings, groundSampler);
+    const finalColor = baseColor.clone().add(bounce.multiply(receiverTint).multiplyScalar(BOUNCE_OBJECT_VERTEX_SCALE));
+    clampColorComponents(finalColor, 0, 1.18);
+    const offset = i * 3;
+    vertexColors[offset] = finalColor.r;
+    vertexColors[offset + 1] = finalColor.g;
+    vertexColors[offset + 2] = finalColor.b;
+    if (colorDistanceSquared(finalColor, baseColor) > 0.0001) changedVertices += 1;
+  }
+
+  if (changedVertices <= 0) {
+    bakedGeometry.dispose?.();
+    return null;
+  }
+
+  bakedGeometry.setAttribute('color', new THREE.Float32BufferAttribute(vertexColors, 3));
+  const bakedMaterials = materials.map((material) => {
+    if (!material) return material;
+    const baked = material.clone();
+    baked.vertexColors = true;
+    if (baked.color && !baked.map) {
+      baked.color.set('#ffffff');
+    }
+    baked.needsUpdate = true;
+    return baked;
+  });
+  return {
+    geometry: bakedGeometry,
+    materials: bakedMaterials,
+    vertexCount: changedVertices
+  };
+}
+
+function sampleGroundReflectedLight(worldPosition, worldNormal, settings, groundSampler) {
+  const sunColor = new THREE.Color(settings.sunColor);
+  const skyColor = new THREE.Color(settings.hemiSky);
+  const sunXZ = new THREE.Vector2(settings.sunX, settings.sunZ);
+  if (sunXZ.lengthSq() <= 0.0001) sunXZ.set(1, 0);
+  sunXZ.normalize();
+  const centerSample = groundSampler.sample(worldPosition.x, worldPosition.z);
+  const heightAboveGround = Math.max(0, worldPosition.y - centerSample.height);
+  const radius = clamp(
+    heightAboveGround * 0.72 + 1.15,
+    BOUNCE_OBJECT_SAMPLE_RADIUS_MIN,
+    BOUNCE_OBJECT_SAMPLE_RADIUS_MAX
+  );
+  const sampleOffsets = [
+    { x: 0, z: 0, weight: 1 },
+    { x: -sunXZ.x * radius * 0.7, z: -sunXZ.y * radius * 0.7, weight: 0.78 },
+    { x: sunXZ.x * radius * 0.45, z: sunXZ.y * radius * 0.45, weight: 0.42 },
+    { x: -sunXZ.y * radius * 0.46, z: sunXZ.x * radius * 0.46, weight: 0.34 },
+    { x: sunXZ.y * radius * 0.46, z: -sunXZ.x * radius * 0.46, weight: 0.34 }
+  ];
+  const incoming = new THREE.Color(0, 0, 0);
+  const toHit = new THREE.Vector3();
+  const hitPosition = new THREE.Vector3();
+
+  sampleOffsets.forEach((offset) => {
+    const sx = worldPosition.x + offset.x;
+    const sz = worldPosition.z + offset.z;
+    const sample = groundSampler.sample(sx, sz);
+    hitPosition.set(sx, sample.height, sz);
+    toHit.copy(hitPosition).sub(worldPosition);
+    const distanceSq = Math.max(0.05, toHit.lengthSq());
+    toHit.normalize();
+    const facing = clamp(0.12 + Math.max(0, worldNormal.dot(toHit)) * 0.92, 0, 1);
+    const attenuation = offset.weight / (1 + distanceSq * 0.22);
+    const sourceLit = clamp(1 - sample.shadow * 0.72, 0.18, 1);
+    const sourceColor = sample.color.clone()
+      .multiply(sunColor)
+      .multiplyScalar(settings.sunIntensity * BOUNCE_LIGHTMAP_SNOW_REFLECTANCE * sourceLit)
+      .add(skyColor.clone().multiplyScalar(settings.hemiIntensity * 0.045));
+    incoming.add(sourceColor.multiplyScalar(attenuation * facing));
+  });
+
+  clampColorComponents(incoming, 0, 0.95);
+  return incoming;
+}
+
+function collectStaticBounceEmitters(world, settings) {
+  const objects = staticBounceObjectsForWorld(world);
+  const emitters = [];
+  const sunDirection = new THREE.Vector3(settings.sunX, settings.sunY, settings.sunZ).normalize();
+  const sunFacing = clamp(sunDirection.y * 1.2, 0.2, 1);
+  const box = new THREE.Box3();
+  const center = new THREE.Vector3();
+  const size = new THREE.Vector3();
+
+  for (let i = 0; i < objects.length; i += 1) {
+    const object = objects[i];
+    object.updateWorldMatrix(true, true);
+    box.setFromObject(object);
+    if (box.isEmpty()) continue;
+    box.getCenter(center);
+    box.getSize(size);
+    const color = averageObjectMaterialColor(object);
+    if (!color) continue;
+    const reflectance = bounceReflectanceForColor(color);
+    const radius = clamp(
+      Math.max(size.x, size.z) * 1.35 + size.y * 0.45,
+      BOUNCE_LIGHTMAP_EMITTER_RADIUS_MIN,
+      BOUNCE_LIGHTMAP_EMITTER_RADIUS_MAX
+    );
+    const surfaceScale = clamp(size.length() / 8, 0.42, 1.55);
+    emitters.push({
+      x: center.x,
+      z: center.z,
+      radius,
+      radiusSq: radius * radius,
+      color,
+      strength: settings.sunIntensity * reflectance * sunFacing * surfaceScale * 0.012
+    });
+  }
+
+  emitters.sort((a, b) => b.strength * b.radius - a.strength * a.radius);
+  return emitters.slice(0, BOUNCE_LIGHTMAP_MAX_EMITTERS);
+}
+
+function averageObjectMaterialColor(object) {
+  const color = new THREE.Color(0, 0, 0);
+  let count = 0;
+  object.traverse((node) => {
+    if (!node.isMesh || node.userData?.skipBakedShadow) return;
+    const materials = Array.isArray(node.material) ? node.material : [node.material];
+    materials.forEach((material) => {
+      if (!material?.color) return;
+      color.add(material.color);
+      count += 1;
+    });
+  });
+  if (count <= 0) return null;
+  color.multiplyScalar(1 / count);
+  return color;
+}
+
+function bounceReflectanceForColor(color) {
+  const luminance = color.r * 0.2126 + color.g * 0.7152 + color.b * 0.0722;
+  const greenBias = Math.max(0, color.g - Math.max(color.r, color.b));
+  if (luminance > 0.78) return 0.42;
+  if (greenBias > 0.08) return 0.24;
+  if (color.r > color.g * 1.15 && color.r > color.b * 1.2) return 0.28;
+  return clamp(0.2 + luminance * 0.28, 0.18, 0.38);
+}
+
+function averageMaterialsColor(materials) {
+  const color = new THREE.Color(0, 0, 0);
+  let count = 0;
+  materials.forEach((material) => {
+    if (!material?.color) return;
+    color.add(material.color);
+    count += 1;
+  });
+  if (count <= 0) return new THREE.Color(1, 1, 1);
+  return color.multiplyScalar(1 / count);
+}
+
+function colorDistanceSquared(a, b) {
+  const dr = a.r - b.r;
+  const dg = a.g - b.g;
+  const db = a.b - b.b;
+  return dr * dr + dg * dg + db * db;
+}
+
+function clampColorComponents(color, min = 0, max = 1) {
+  color.r = clamp(color.r, min, max);
+  color.g = clamp(color.g, min, max);
+  color.b = clamp(color.b, min, max);
+  return color;
+}
+
+function readShadowMaskData(texture) {
+  const canvas = texture?.image;
+  if (!canvas?.getContext || !canvas.width || !canvas.height) return null;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+  try {
+    return {
+      width: canvas.width,
+      height: canvas.height,
+      data: ctx.getImageData(0, 0, canvas.width, canvas.height).data
+    };
+  } catch {
+    return null;
+  }
+}
+
+function sampleShadowMaskAt(mask, u, v) {
+  if (!mask?.data) return 0.22;
+  const x = clamp(Math.round(u * (mask.width - 1)), 0, mask.width - 1);
+  const y = clamp(Math.round(v * (mask.height - 1)), 0, mask.height - 1);
+  const offset = (y * mask.width + x) * 4;
+  return clamp(1 - mask.data[offset] / 255, 0, 1);
+}
+
 function createRenderQualityProfile(settings = loadRenderSettings()) {
   const override = readRenderQualityOverride();
   const mobile = override === 'low' || (override !== 'high' && isProbablyMobileDevice());
@@ -5175,12 +5803,15 @@ function createRenderQualityProfile(settings = loadRenderSettings()) {
     pixelRatio: clamp(pixelRatio, MIN_DPR, MAX_DPR),
     nativePixelRatio: rawPixelRatio,
     antialias: !mobile,
-    realtimeShadows: true
+    realtimeShadows: false
   };
 }
 
 function applyRenderQualityToWorldConfig(worldConfig, renderQuality) {
-  const sky = worldConfig.sky ?? {};
+  if (!worldConfig.sky) {
+    return { ...worldConfig };
+  }
+  const sky = worldConfig.sky;
   const realtimeShadows = renderQuality.realtimeShadows && sky.realtimeShadows !== false;
   return {
     ...worldConfig,
@@ -5219,7 +5850,7 @@ function saveRenderSettings(settings) {
 
 function defaultRenderTuningForWorld(worldConfig = BALANCE.world) {
   const sky = worldConfig.sky ?? {};
-  const headDefaults = worldConfig.sceneKey === 'snow-valley' ? SNOW_VALLEY_HEAD_RENDER_TUNING : null;
+  const headDefaults = renderTuningHeadDefaultsForWorld(worldConfig);
   const sunPosition = sky.sunPosition ?? (
     headDefaults
       ? { x: headDefaults.sunX, y: headDefaults.sunY, z: headDefaults.sunZ }
@@ -5250,25 +5881,11 @@ function defaultRenderTuningForWorld(worldConfig = BALANCE.world) {
   };
 }
 
-function loadRenderTuningSettings(worldConfig = BALANCE.world) {
-  let saved = null;
-  try {
-    saved = JSON.parse(localStorage.getItem(RENDER_TUNING_STORAGE_KEY) || 'null');
-  } catch {
-    saved = null;
-  }
-  return normalizeRenderTuning({
-    ...defaultRenderTuningForWorld(worldConfig),
-    ...(saved ?? {})
-  }, worldConfig);
-}
-
-function saveRenderTuningSettings(settings) {
-  try {
-    localStorage.setItem(RENDER_TUNING_STORAGE_KEY, JSON.stringify(normalizeRenderTuning(settings)));
-  } catch {
-    // Storage can be unavailable in private or embedded browsers.
-  }
+function renderTuningHeadDefaultsForWorld(worldConfig = BALANCE.world) {
+  if (worldConfig.sceneKey === 'snow-valley') return SNOW_VALLEY_HEAD_RENDER_TUNING;
+  if (worldConfig.sceneKey === 'dungeon-halls') return DUNGEON_HALLS_HEAD_RENDER_TUNING;
+  if (worldConfig.sceneKey === 'red-desert') return RED_DESERT_HEAD_RENDER_TUNING;
+  return null;
 }
 
 function normalizeRenderTuning(settings = {}, worldConfig = BALANCE.world) {
@@ -5305,8 +5922,8 @@ function normalizeRenderTuning(settings = {}, worldConfig = BALANCE.world) {
   };
 }
 
-function renderTuningExportText(settings) {
-  const normalized = normalizeRenderTuning(settings);
+function renderTuningExportText(settings, worldConfig = BALANCE.world) {
+  const normalized = normalizeRenderTuning(settings, worldConfig);
   return JSON.stringify({
     toneMapping: normalized.toneMapping,
     exposure: normalized.exposure,
@@ -5351,6 +5968,12 @@ function formatRenderTuningValue(key, value) {
 function finiteNumber(value, fallback) {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
+}
+
+function smoothstep01(value, edge0 = 0, edge1 = 1) {
+  if (edge0 === edge1) return value >= edge1 ? 1 : 0;
+  const t = clamp((value - edge0) / (edge1 - edge0), 0, 1);
+  return t * t * (3 - 2 * t);
 }
 
 function colorToHex(value, fallback = '#ffffff') {
@@ -5515,6 +6138,49 @@ function formatPerfSeconds(seconds) {
   const minutes = Math.floor(seconds / 60);
   const remainder = Math.floor(seconds % 60);
   return minutes > 0 ? `${minutes}m ${remainder}s` : `${remainder}s`;
+}
+
+function formatRuntimeErrorInfo(error, game) {
+  const level = game?.levelSession?.level ?? {};
+  const sceneKey = game?.world?.config?.sceneKey ?? game?.worldConfig?.sceneKey ?? level.world?.sceneKey ?? 'unknown';
+  return [
+    'Village War Runtime Error',
+    `time: ${new Date().toISOString()}`,
+    `step: ${error.step ?? 'unknown'}`,
+    `message: ${error.message ?? 'unknown error'}`,
+    `elapsed: ${formatBattleTime(error.time ?? game?.elapsedTime ?? 0)}`,
+    `wave: ${game?.wave ?? '-'}`,
+    `level: ${level.id ?? '-'} / ${level.name ?? '-'}`,
+    `scene: ${sceneKey}`,
+    `url: ${typeof window !== 'undefined' ? window.location.href : '-'}`,
+    `userAgent: ${typeof navigator !== 'undefined' ? navigator.userAgent : '-'}`,
+    '',
+    'Stack:',
+    error.stack || error.message || 'No stack'
+  ].join('\n');
+}
+
+async function writeClipboardText(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.left = '-9999px';
+  textarea.style.top = '0';
+  document.body.appendChild(textarea);
+  textarea.select();
+  textarea.setSelectionRange(0, textarea.value.length);
+  try {
+    if (!document.execCommand('copy')) {
+      throw new Error('copy command failed');
+    }
+  } finally {
+    textarea.remove();
+  }
 }
 
 function historyMax(history, readValue) {

@@ -13,13 +13,14 @@
     <div id="app">
       <canvas id="game-canvas"></canvas>
       <div id="world-ui" class="world-ui" aria-hidden="true"></div>
-      <button id="game-settings-button" class="game-settings-button" type="button" aria-label="设置" title="设置" hidden>
-        ⚙
-      </button>
-      <div id="fps-meter" class="fps-meter" aria-label="frame rate" hidden>FPS --</div>
-
       <section class="hud hud-primary" aria-label="battle status">
         <div class="brand">村落战争</div>
+        <div class="hud-toolbar" aria-label="快捷状态">
+          <button id="game-settings-button" class="game-settings-button" type="button" aria-label="设置" title="设置" hidden>
+            ⚙
+          </button>
+          <div id="fps-meter" class="fps-meter" aria-label="frame rate" hidden>FPS --</div>
+        </div>
         <div class="control-hints">
           <span class="desktop-hint">滚轮缩放</span>
           <span class="desktop-hint">中键拖动视野</span>
@@ -50,7 +51,7 @@
 
       <section id="wave-preview" class="wave-preview" aria-label="即将到来的波次"></section>
 
-      <section class="hud hud-selected" aria-label="selected unit">
+      <section id="selected-panel" class="hud hud-selected" aria-label="selected unit" hidden>
         <div id="selected-name">未选中</div>
         <div id="selected-stats">HP - / 武器 -</div>
         <div id="selected-enchants">附魔 -</div>
@@ -93,6 +94,7 @@
           </div>
           <div class="pause-actions">
             <button class="pause-primary-button" type="button" data-pause-action="continue">继续</button>
+            <button class="pause-secondary-button" type="button" data-pause-action="copy-error" hidden>复制错误信息</button>
             <button class="pause-secondary-button" type="button" data-pause-action="fullscreen">全屏</button>
             <button class="pause-secondary-button" type="button" data-pause-action="restart">重玩</button>
             <button class="pause-secondary-button" type="button" data-pause-action="menu">回到主菜单</button>
