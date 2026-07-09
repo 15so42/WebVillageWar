@@ -278,6 +278,34 @@ body.is-meta-open .selection-box {
   display: none;
 }
 
+.render-tuning-button {
+  position: fixed;
+  top: 14px;
+  right: 154px;
+  z-index: 12;
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 8px;
+  color: #fff2c7;
+  background: rgba(18, 28, 29, 0.72);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(12px);
+  cursor: pointer;
+  font: inherit;
+  font-size: 21px;
+  font-weight: 1000;
+  line-height: 1;
+}
+
+.render-tuning-button:hover,
+.render-tuning-button[aria-pressed="true"] {
+  border-color: rgba(158, 238, 219, 0.58);
+  background: rgba(54, 91, 86, 0.82);
+}
+
 .fps-meter {
   position: fixed;
   top: 44px;
@@ -651,6 +679,154 @@ body.is-meta-open .selection-box {
   border: 1px solid rgba(255, 255, 255, 0.11);
   border-radius: 6px;
   background: rgba(9, 14, 15, 0.74);
+}
+
+.render-tuning-panel {
+  position: fixed;
+  top: 86px;
+  right: 18px;
+  z-index: 31;
+  width: min(390px, calc(100vw - 36px));
+  max-height: calc(100vh - 112px);
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  color: rgba(247, 244, 232, 0.92);
+  background: rgba(15, 22, 23, 0.88);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.36);
+  backdrop-filter: blur(14px);
+}
+
+.render-tuning-panel[hidden] {
+  display: none;
+}
+
+.render-tuning-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.render-tuning-header strong {
+  color: #fff2c7;
+  font-size: 15px;
+  font-weight: 1000;
+}
+
+.render-tuning-actions {
+  display: flex;
+  gap: 7px;
+}
+
+.render-tuning-actions button {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgba(158, 238, 219, 0.28);
+  border-radius: 6px;
+  color: #dff8ee;
+  background: rgba(67, 114, 104, 0.32);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.render-tuning-actions button:hover {
+  border-color: rgba(158, 238, 219, 0.62);
+  background: rgba(76, 135, 122, 0.5);
+}
+
+.render-tuning-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.render-tuning-panel fieldset {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.render-tuning-panel legend {
+  padding: 0 5px;
+  color: #9eeedb;
+  font-size: 12px;
+  font-weight: 1000;
+}
+
+.render-tuning-row {
+  display: grid;
+  grid-template-columns: minmax(86px, 0.45fr) minmax(130px, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.render-tuning-row span {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  color: rgba(247, 244, 232, 0.78);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.render-tuning-row strong {
+  color: rgba(255, 242, 199, 0.86);
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.render-tuning-row input[type="range"] {
+  width: 100%;
+  accent-color: #9eeedb;
+}
+
+.render-tuning-row input[type="color"] {
+  width: 100%;
+  height: 30px;
+  padding: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.render-tuning-row select {
+  min-width: 0;
+  height: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  color: #f7f4e8;
+  background: rgba(18, 28, 29, 0.92);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.render-tuning-export {
+  max-height: 132px;
+  margin: 0;
+  padding: 9px;
+  overflow: auto;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: rgba(222, 248, 238, 0.86);
+  background: rgba(8, 13, 14, 0.72);
+  font-size: 10px;
+  line-height: 1.45;
+  white-space: pre-wrap;
 }
 
 .perf-stats {
@@ -3244,6 +3420,7 @@ body.is-meta-open .selection-box {
   }
 
   .game-settings-button,
+  .render-tuning-button,
   .fps-meter,
   .hud-primary,
   .hud-selected,
@@ -3267,6 +3444,7 @@ body.is-meta-open .selection-box {
   }
 
   .game-settings-button,
+  .render-tuning-button,
   .hud-selected,
   .fps-meter,
   .pile-button.is-discard,
@@ -3507,6 +3685,21 @@ body.is-meta-open .selection-box {
     width: 38px;
     height: 38px;
     font-size: 19px;
+  }
+
+  .render-tuning-button {
+    top: 10px;
+    right: 56px;
+    width: 38px;
+    height: 38px;
+    font-size: 19px;
+  }
+
+  .render-tuning-panel {
+    top: 58px;
+    right: 10px;
+    width: calc(100vw - 20px);
+    max-height: calc(100vh - 76px);
   }
 
   .hud-primary {
@@ -3760,6 +3953,16 @@ body.is-meta-open .selection-box {
     top: auto;
     bottom: 68px;
     left: 8px;
+    width: 34px;
+    height: 34px;
+    font-size: 17px;
+  }
+
+  .render-tuning-button {
+    top: auto;
+    bottom: 68px;
+    left: 48px;
+    right: auto;
     width: 34px;
     height: 34px;
     font-size: 17px;
@@ -4213,6 +4416,15 @@ body.is-meta-open .selection-box {
   .game-settings-button {
     top: 108px;
     left: 8px;
+    width: 34px;
+    height: 34px;
+    font-size: 17px;
+  }
+
+  .render-tuning-button {
+    top: 148px;
+    left: 8px;
+    right: auto;
     width: 34px;
     height: 34px;
     font-size: 17px;

@@ -974,7 +974,8 @@ export function createWorld(scene, worldOptions = {}) {
   }
   scene.add(sun);
   scene.add(sun.target);
-  scene.add(new THREE.HemisphereLight(config.sky.hemiSky, config.sky.hemiGround, config.sky.hemiIntensity ?? 1.85));
+  const hemisphere = new THREE.HemisphereLight(config.sky.hemiSky, config.sky.hemiGround, config.sky.hemiIntensity ?? 1.85);
+  scene.add(hemisphere);
 
   const ground = createGroundMesh();
   scene.add(ground);
@@ -1053,6 +1054,10 @@ export function createWorld(scene, worldOptions = {}) {
     bakedShadowMeshes: bakedShadowResult.meshes,
     shadowMaskTexture: bakedShadowResult.texture,
     shadowMaskTriangleCount: bakedShadowResult.triangleCount,
+    lights: {
+      sun,
+      hemisphere
+    },
     staticCullables,
     staticCulling,
     update: (dt, cameraTarget, camera, options = {}) => {

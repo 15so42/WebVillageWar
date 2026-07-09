@@ -458,6 +458,36 @@ const DEFAULT_DPR = 1;
 const MIN_DPR = 1;
 const MAX_DPR = 2;
 const SETTINGS_STORAGE_KEY = 'village-war-render-settings-v1';
+const RENDER_TUNING_STORAGE_KEY = 'village-war-render-tuning-v2';
+const RENDER_TONE_MAPPING_OPTIONS = ['neutral', 'aces', 'reinhard', 'linear', 'none'];
+const RENDER_TONE_MAPPING_LABELS = {
+  neutral: 'Neutral',
+  aces: 'ACES',
+  reinhard: 'Reinhard',
+  linear: 'Linear',
+  none: 'None'
+};
+const SNOW_VALLEY_HEAD_RENDER_TUNING = Object.freeze({
+  toneMapping: 'neutral',
+  exposure: 1.1,
+  brightness: 1,
+  contrast: 1,
+  saturation: 1,
+  hue: 0,
+  warmth: 0,
+  sunColor: '#ffd3a0',
+  sunIntensity: 4.36,
+  sunX: -88,
+  sunY: 48,
+  sunZ: 48,
+  hemiIntensity: 1.52,
+  hemiSky: '#e8f4ff',
+  hemiGround: '#bebbc5',
+  background: '#f0f8fc',
+  fogColor: '#f7f8f2',
+  fogNear: 110,
+  fogFar: 282
+});
 
 export class Game {
   constructor({ canvas, session = null, onLevelComplete = null, onRestart = null, onExitToMenu = null } = {}) {
@@ -482,6 +512,7 @@ export class Game {
       altars: []
     };
     this.worldConfig = applyRenderQualityToWorldConfig(this.worldConfig, this.renderQuality);
+    this.renderTuning = loadRenderTuningSettings(this.worldConfig);
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(48, 1, 0.1, 240);
     this.camera.position.set(0, 34, 47.2);
@@ -553,6 +584,7 @@ export class Game {
 
     this.world = createWorld(this.scene, this.worldConfig);
     this.applyWorldRenderTone();
+    this.applyRenderTuning();
     this.applyInitialCameraConfig();
     this.world.update?.(0, this.cameraTarget, this.camera, { forceStaticCulling: true });
     this.navDebugEnabled = initialNavDebugEnabled();
@@ -661,9 +693,11 @@ export class Game {
       perfStatus: document.querySelector('#perf-panel-status'),
       perfStats: document.querySelector('#perf-stats')
     };
+    this.renderTuningUi = createRenderTuningPanel();
     if (this.dom.fpsMeter) this.dom.fpsMeter.hidden = false;
     this.strategyEventUi = createStrategyEventUi();
     this.syncSettingsControls();
+    this.syncRenderTuningPanel();
 
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
@@ -702,6 +736,18 @@ export class Game {
     this.dom.dprSlider?.addEventListener('input', (event) => this.onRenderSettingInput(event), { signal });
     this.dom.fpsLimitSlider?.addEventListener('pointerdown', stopUiPropagation, { signal });
     this.dom.dprSlider?.addEventListener('pointerdown', stopUiPropagation, { signal });
+    this.renderTuningUi.root.addEventListener('input', (event) => this.onRenderTuningInput(event), { signal });
+    this.renderTuningUi.root.addEventListener('change', (event) => this.onRenderTuningInput(event), { signal });
+    this.renderTuningUi.root.addEventListener('click', (event) => this.onRenderTuningPanelClick(event), { signal });
+    this.renderTuningUi.root.addEventListener('pointerdown', stopUiPropagation, { signal });
+    this.renderTuningUi.root.addEventListener('contextmenu', stopUiEvent, { signal });
+    this.renderTuningUi.button.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      this.toggleRenderTuningPanel();
+    }, { signal });
+    this.renderTuningUi.button.addEventListener('pointerdown', stopUiPropagation, { signal });
+    this.renderTuningUi.button.addEventListener('contextmenu', stopUiEvent, { signal });
     this.resize();
     document.body.classList.add('is-game-active');
     if (this.dom.settingsButton) this.dom.settingsButton.hidden = false;
@@ -777,6 +823,9 @@ export class Game {
     if (this.dom.fpsMeter) this.dom.fpsMeter.hidden = true;
     if (this.dom.pauseOverlay) this.dom.pauseOverlay.hidden = true;
     if (this.dom.perfPanel) this.dom.perfPanel.hidden = true;
+    this.renderTuningUi?.root?.remove();
+    this.renderTuningUi?.button?.remove();
+    this.canvas.style.filter = '';
     this.guardVisuals.forEach((visuals) => {
       this.scene.remove(visuals.flag, visuals.rangeRing);
     });
@@ -1636,6 +1685,150 @@ export class Game {
     }
     if (this.dom.dprValue) {
       this.dom.dprValue.textContent = this.renderSettings.dpr.toFixed(1);
+    }
+  }
+
+  toggleRenderTuningPanel(force = null) {
+    if (!this.renderTuningUi?.root) return;
+    const shouldShow = force == null ? this.renderTuningUi.root.hidden : Boolean(force);
+    this.renderTuningUi.root.hidden = !shouldShow;
+    this.renderTuningUi.button?.setAttribute('aria-pressed', shouldShow ? 'true' : 'false');
+    if (!this.renderTuningUi.root.hidden) {
+      this.syncRenderTuningPanel();
+    }
+  }
+
+  onRenderTuningInput(event) {
+    const field = event.target?.dataset?.renderTuning;
+    if (!field) return;
+    if (event.type === 'change' && event.target?.type === 'range') return;
+    event.stopPropagation();
+    const next = { ...this.renderTuning };
+    if (event.target.type === 'color' || event.target.tagName?.toLowerCase() === 'select') {
+      next[field] = event.target.value;
+    } else {
+      next[field] = Number(event.target.value);
+    }
+    this.renderTuning = normalizeRenderTuning(next, this.worldConfig);
+    this.applyRenderTuning();
+    saveRenderTuningSettings(this.renderTuning);
+    this.syncRenderTuningPanel();
+  }
+
+  onRenderTuningPanelClick(event) {
+    const action = event.target?.closest?.('[data-render-action]')?.dataset?.renderAction;
+    if (!action) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (action === 'reset') {
+      this.renderTuning = defaultRenderTuningForWorld(this.worldConfig);
+      this.applyRenderTuning();
+      saveRenderTuningSettings(this.renderTuning);
+      this.syncRenderTuningPanel();
+      return;
+    }
+    if (action === 'copy') {
+      this.copyRenderTuningParameters();
+    }
+  }
+
+  async copyRenderTuningParameters() {
+    const text = renderTuningExportText(this.renderTuning);
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+      await navigator.clipboard.writeText(text);
+      this.setRenderTuningCopyStatus('已复制');
+    } catch {
+      this.setRenderTuningCopyStatus('复制失败');
+    }
+    console.info('[VillageWar] Render tuning parameters', this.renderTuning);
+  }
+
+  setRenderTuningCopyStatus(text) {
+    const button = this.renderTuningUi?.copyButton;
+    if (!button) return;
+    button.textContent = text;
+    window.clearTimeout(this.renderTuningUi.copyStatusTimer);
+    this.renderTuningUi.copyStatusTimer = window.setTimeout(() => {
+      button.textContent = '复制参数';
+    }, 1200);
+  }
+
+  applyRenderTuning() {
+    if (!this.renderTuning || !this.renderer) return;
+    const settings = normalizeRenderTuning(this.renderTuning, this.worldConfig);
+    this.renderTuning = settings;
+    const toneMapping = {
+      aces: THREE.ACESFilmicToneMapping,
+      neutral: THREE.NeutralToneMapping,
+      reinhard: THREE.ReinhardToneMapping,
+      linear: THREE.LinearToneMapping,
+      none: THREE.NoToneMapping
+    }[settings.toneMapping] ?? THREE.NoToneMapping;
+    this.renderer.toneMapping = toneMapping;
+    this.renderer.toneMappingExposure = settings.exposure;
+
+    const sun = this.world?.lights?.sun;
+    if (sun) {
+      sun.color.set(settings.sunColor);
+      sun.intensity = settings.sunIntensity;
+      sun.position.set(settings.sunX, settings.sunY, settings.sunZ);
+      sun.target?.updateMatrixWorld?.();
+    }
+    const hemisphere = this.world?.lights?.hemisphere;
+    if (hemisphere) {
+      hemisphere.color.set(settings.hemiSky);
+      hemisphere.groundColor.set(settings.hemiGround);
+      hemisphere.intensity = settings.hemiIntensity;
+    }
+    if (this.scene) {
+      this.scene.background = new THREE.Color(settings.background);
+      if (this.scene.fog) {
+        this.scene.fog.color.set(settings.fogColor);
+        this.scene.fog.near = settings.fogNear;
+        this.scene.fog.far = settings.fogFar;
+      }
+    }
+    if (this.world?.config?.sky) {
+      Object.assign(this.world.config.sky, {
+        toneMapping: settings.toneMapping,
+        exposure: settings.exposure,
+        sun: settings.sunColor,
+        sunIntensity: settings.sunIntensity,
+        sunPosition: { x: settings.sunX, y: settings.sunY, z: settings.sunZ },
+        hemiSky: settings.hemiSky,
+        hemiGround: settings.hemiGround,
+        hemiIntensity: settings.hemiIntensity,
+        fog: settings.fogColor,
+        fogNear: settings.fogNear,
+        fogFar: settings.fogFar,
+        background: settings.background
+      });
+    }
+    this.canvas.style.filter = [
+      `brightness(${settings.brightness})`,
+      `contrast(${settings.contrast})`,
+      `saturate(${settings.saturation})`,
+      `hue-rotate(${settings.hue}deg)`,
+      `sepia(${settings.warmth})`
+    ].join(' ');
+  }
+
+  syncRenderTuningPanel() {
+    const ui = this.renderTuningUi;
+    if (!ui?.root) return;
+    const settings = normalizeRenderTuning(this.renderTuning, this.worldConfig);
+    this.renderTuning = settings;
+    Object.entries(ui.controls).forEach(([key, input]) => {
+      if (!input) return;
+      input.value = String(settings[key]);
+    });
+    Object.entries(ui.values).forEach(([key, value]) => {
+      if (!value) return;
+      value.textContent = formatRenderTuningValue(key, settings[key]);
+    });
+    if (ui.exportText) {
+      ui.exportText.textContent = renderTuningExportText(settings);
     }
   }
 
@@ -2776,7 +2969,29 @@ export class Game {
     this.spells.cast('meteor', { point, card });
   }
 
+  setPlayerBaseInvincible(enabled = true) {
+    if (!this.playerBase) return;
+    this.playerBase.invincible = Boolean(enabled);
+    if (!this.playerBase.invincible) return;
+    this.playerBase.health = this.playerBase.maxHealth;
+    this.playerBase.alive = true;
+    this.playerBase.healthLagRatio = 1;
+    this.playerBase.healthLagDelay = 0;
+    this.updateStructureStatusElement(this.playerBase, 0);
+    if (this.dom?.baseHealth) {
+      this.dom.baseHealth.textContent = '无敌';
+    }
+  }
+
   damagePlayerBase(amount) {
+    if (this.playerBase.invincible) {
+      this.playerBase.health = this.playerBase.maxHealth;
+      this.playerBase.alive = true;
+      this.playerBase.healthLagRatio = 1;
+      this.playerBase.healthLagDelay = 0;
+      this.updateStructureStatusElement(this.playerBase, 0);
+      return;
+    }
     const previousHealth = this.playerBase.health;
     this.playerBase.health = Math.max(0, this.playerBase.health - amount);
     registerStructureHealthLoss(this.playerBase, previousHealth, this.elapsedTime);
@@ -3012,6 +3227,12 @@ export class Game {
     if (key === 'f2') {
       event.preventDefault();
       this.togglePerfChart();
+      return;
+    }
+    if (key === 'f4') {
+      event.preventDefault();
+      this.setPlayerBaseInvincible(true);
+      this.toggleRenderTuningPanel();
       return;
     }
     if (key === 'escape') {
@@ -3670,10 +3891,14 @@ export class Game {
     if (this.hudUpdateTimer > 0) return;
     this.hudUpdateTimer = 0.1;
 
-    const baseRatio = Math.round(
-      (this.playerBase.health / this.playerBase.maxHealth) * 100
-    );
-    this.dom.baseHealth.textContent = `${baseRatio}%`;
+    if (this.playerBase.invincible) {
+      this.dom.baseHealth.textContent = '无敌';
+    } else {
+      const baseRatio = Math.round(
+        (this.playerBase.health / this.playerBase.maxHealth) * 100
+      );
+      this.dom.baseHealth.textContent = `${baseRatio}%`;
+    }
     this.dom.waveLabel.textContent = this.currentWave
       ? `${this.wave}/${this.waveSchedule.length}`
       : (this.wave > 0 ? '整备' : '准备');
@@ -4617,8 +4842,8 @@ function createSelectionBoxElement() {
 
 function isGameUiTarget(target) {
   return Boolean(target?.closest?.(
-    '.hud, .card, .energy-panel, .card-pile-dock, .pile-viewer, .loot-confirm, .drag-ghost, .game-settings-button, .game-command-dock, .mobile-action-dock, .pause-overlay'
-      + ', .strategy-event-overlay, .debug-scene-panel'
+    '.hud, .card, .energy-panel, .card-pile-dock, .pile-viewer, .loot-confirm, .drag-ghost, .game-settings-button, .render-tuning-button, .game-command-dock, .mobile-action-dock, .pause-overlay'
+      + ', .strategy-event-overlay, .debug-scene-panel, .render-tuning-panel'
   ));
 }
 
@@ -4831,6 +5056,115 @@ function initialPerfJsonEnabled() {
   }
 }
 
+function createRenderTuningPanel() {
+  const button = document.createElement('button');
+  button.id = 'render-tuning-button';
+  button.className = 'render-tuning-button';
+  button.type = 'button';
+  button.setAttribute('aria-label', '渲染调参');
+  button.setAttribute('title', '渲染调参');
+  button.setAttribute('aria-pressed', 'false');
+  button.textContent = '☼';
+  document.body.appendChild(button);
+
+  const root = document.createElement('section');
+  root.id = 'render-tuning-panel';
+  root.className = 'render-tuning-panel';
+  root.hidden = true;
+  root.setAttribute('aria-label', '渲染调参');
+  root.innerHTML = `
+    <div class="render-tuning-header">
+      <strong>渲染调参</strong>
+      <div class="render-tuning-actions">
+        <button type="button" data-render-action="reset">重置</button>
+        <button type="button" data-render-action="copy">复制参数</button>
+      </div>
+    </div>
+    <div class="render-tuning-grid">
+      <fieldset>
+        <legend>调色</legend>
+        ${renderSelectControl('toneMapping', '映射', RENDER_TONE_MAPPING_OPTIONS)}
+        ${renderSliderControl('exposure', '曝光', 0.4, 1.8, 0.01)}
+        ${renderSliderControl('brightness', '亮度', 0.65, 1.35, 0.01)}
+        ${renderSliderControl('contrast', '对比', 0.65, 1.55, 0.01)}
+        ${renderSliderControl('saturation', '饱和', 0.45, 1.8, 0.01)}
+        ${renderSliderControl('hue', '色相', -32, 32, 1)}
+        ${renderSliderControl('warmth', '暖调', 0, 0.42, 0.01)}
+      </fieldset>
+      <fieldset>
+        <legend>阳光</legend>
+        ${renderColorControl('sunColor', '颜色')}
+        ${renderSliderControl('sunIntensity', '强度', 0, 8, 0.01)}
+        ${renderSliderControl('sunX', 'X', -140, 140, 1)}
+        ${renderSliderControl('sunY', 'Y', 8, 140, 1)}
+        ${renderSliderControl('sunZ', 'Z', -140, 140, 1)}
+      </fieldset>
+      <fieldset>
+        <legend>环境</legend>
+        ${renderSliderControl('hemiIntensity', '半球光', 0, 3.2, 0.01)}
+        ${renderColorControl('hemiSky', '天空色')}
+        ${renderColorControl('hemiGround', '地面色')}
+        ${renderColorControl('background', '背景色')}
+      </fieldset>
+      <fieldset>
+        <legend>雾</legend>
+        ${renderColorControl('fogColor', '颜色')}
+        ${renderSliderControl('fogNear', '近端', 20, 220, 1)}
+        ${renderSliderControl('fogFar', '远端', 80, 480, 1)}
+      </fieldset>
+    </div>
+    <pre class="render-tuning-export" data-render-export></pre>
+  `;
+  document.body.appendChild(root);
+
+  const controls = {};
+  root.querySelectorAll('[data-render-tuning]').forEach((input) => {
+    controls[input.dataset.renderTuning] = input;
+  });
+  const values = {};
+  root.querySelectorAll('[data-render-value]').forEach((value) => {
+    values[value.dataset.renderValue] = value;
+  });
+  return {
+    root,
+    button,
+    controls,
+    values,
+    exportText: root.querySelector('[data-render-export]'),
+    copyButton: root.querySelector('[data-render-action="copy"]'),
+    copyStatusTimer: null
+  };
+}
+
+function renderSliderControl(key, label, min, max, step) {
+  return `
+    <label class="render-tuning-row">
+      <span>${label}<strong data-render-value="${key}"></strong></span>
+      <input data-render-tuning="${key}" type="range" min="${min}" max="${max}" step="${step}" />
+    </label>
+  `;
+}
+
+function renderColorControl(key, label) {
+  return `
+    <label class="render-tuning-row render-tuning-row-color">
+      <span>${label}<strong data-render-value="${key}"></strong></span>
+      <input data-render-tuning="${key}" type="color" />
+    </label>
+  `;
+}
+
+function renderSelectControl(key, label, options) {
+  return `
+    <label class="render-tuning-row render-tuning-row-select">
+      <span>${label}<strong data-render-value="${key}"></strong></span>
+      <select data-render-tuning="${key}">
+        ${options.map((option) => `<option value="${option}">${RENDER_TONE_MAPPING_LABELS[option] ?? option}</option>`).join('')}
+      </select>
+    </label>
+  `;
+}
+
 function createRenderQualityProfile(settings = loadRenderSettings()) {
   const override = readRenderQualityOverride();
   const mobile = override === 'low' || (override !== 'high' && isProbablyMobileDevice());
@@ -4880,6 +5214,150 @@ function saveRenderSettings(settings) {
     }));
   } catch {
     // Storage can be unavailable in private or embedded browsers.
+  }
+}
+
+function defaultRenderTuningForWorld(worldConfig = BALANCE.world) {
+  const sky = worldConfig.sky ?? {};
+  const headDefaults = worldConfig.sceneKey === 'snow-valley' ? SNOW_VALLEY_HEAD_RENDER_TUNING : null;
+  const sunPosition = sky.sunPosition ?? (
+    headDefaults
+      ? { x: headDefaults.sunX, y: headDefaults.sunY, z: headDefaults.sunZ }
+      : { x: -44, y: 82, z: 46 }
+  );
+  return {
+    toneMapping: RENDER_TONE_MAPPING_OPTIONS.includes(headDefaults?.toneMapping ?? sky.toneMapping)
+      ? (headDefaults?.toneMapping ?? sky.toneMapping)
+      : 'neutral',
+    exposure: finiteNumber(headDefaults?.exposure ?? sky.exposure, 1),
+    brightness: finiteNumber(headDefaults?.brightness, 1),
+    contrast: finiteNumber(headDefaults?.contrast, 1),
+    saturation: finiteNumber(headDefaults?.saturation, 1),
+    hue: finiteNumber(headDefaults?.hue, 0),
+    warmth: finiteNumber(headDefaults?.warmth, 0),
+    sunColor: colorToHex(headDefaults?.sunColor ?? sky.sun, '#ffffff'),
+    sunIntensity: finiteNumber(headDefaults?.sunIntensity ?? sky.sunIntensity, 3.55),
+    sunX: finiteNumber(headDefaults?.sunX ?? sunPosition.x, -44),
+    sunY: finiteNumber(headDefaults?.sunY ?? sunPosition.y, 82),
+    sunZ: finiteNumber(headDefaults?.sunZ ?? sunPosition.z, 46),
+    hemiIntensity: finiteNumber(headDefaults?.hemiIntensity ?? sky.hemiIntensity, 1.85),
+    hemiSky: colorToHex(headDefaults?.hemiSky ?? sky.hemiSky, '#e8f4ff'),
+    hemiGround: colorToHex(headDefaults?.hemiGround ?? sky.hemiGround, '#bebbc5'),
+    background: colorToHex(headDefaults?.background ?? sky.skyGradient?.middle ?? sky.background, '#f0f8fc'),
+    fogColor: colorToHex(headDefaults?.fogColor ?? sky.fog, '#f7f8f2'),
+    fogNear: finiteNumber(headDefaults?.fogNear ?? sky.fogNear, 110),
+    fogFar: finiteNumber(headDefaults?.fogFar ?? sky.fogFar, 282)
+  };
+}
+
+function loadRenderTuningSettings(worldConfig = BALANCE.world) {
+  let saved = null;
+  try {
+    saved = JSON.parse(localStorage.getItem(RENDER_TUNING_STORAGE_KEY) || 'null');
+  } catch {
+    saved = null;
+  }
+  return normalizeRenderTuning({
+    ...defaultRenderTuningForWorld(worldConfig),
+    ...(saved ?? {})
+  }, worldConfig);
+}
+
+function saveRenderTuningSettings(settings) {
+  try {
+    localStorage.setItem(RENDER_TUNING_STORAGE_KEY, JSON.stringify(normalizeRenderTuning(settings)));
+  } catch {
+    // Storage can be unavailable in private or embedded browsers.
+  }
+}
+
+function normalizeRenderTuning(settings = {}, worldConfig = BALANCE.world) {
+  const defaults = defaultRenderTuningForWorld(worldConfig);
+  const fogNear = clamp(finiteNumber(settings.fogNear, defaults.fogNear), 20, 220);
+  const fogFar = clamp(
+    Math.max(fogNear + 24, finiteNumber(settings.fogFar, defaults.fogFar)),
+    fogNear + 24,
+    480
+  );
+  const toneMapping = RENDER_TONE_MAPPING_OPTIONS.includes(settings.toneMapping)
+    ? settings.toneMapping
+    : defaults.toneMapping;
+  return {
+    toneMapping,
+    exposure: clamp(finiteNumber(settings.exposure, defaults.exposure), 0.4, 1.8),
+    brightness: clamp(finiteNumber(settings.brightness, defaults.brightness), 0.65, 1.35),
+    contrast: clamp(finiteNumber(settings.contrast, defaults.contrast), 0.65, 1.55),
+    saturation: clamp(finiteNumber(settings.saturation, defaults.saturation), 0.45, 1.8),
+    hue: clamp(finiteNumber(settings.hue, defaults.hue), -32, 32),
+    warmth: clamp(finiteNumber(settings.warmth, defaults.warmth), 0, 0.42),
+    sunColor: colorToHex(settings.sunColor, defaults.sunColor),
+    sunIntensity: clamp(finiteNumber(settings.sunIntensity, defaults.sunIntensity), 0, 8),
+    sunX: clamp(finiteNumber(settings.sunX, defaults.sunX), -140, 140),
+    sunY: clamp(finiteNumber(settings.sunY, defaults.sunY), 8, 140),
+    sunZ: clamp(finiteNumber(settings.sunZ, defaults.sunZ), -140, 140),
+    hemiIntensity: clamp(finiteNumber(settings.hemiIntensity, defaults.hemiIntensity), 0, 3.2),
+    hemiSky: colorToHex(settings.hemiSky, defaults.hemiSky),
+    hemiGround: colorToHex(settings.hemiGround, defaults.hemiGround),
+    background: colorToHex(settings.background, defaults.background),
+    fogColor: colorToHex(settings.fogColor, defaults.fogColor),
+    fogNear,
+    fogFar
+  };
+}
+
+function renderTuningExportText(settings) {
+  const normalized = normalizeRenderTuning(settings);
+  return JSON.stringify({
+    toneMapping: normalized.toneMapping,
+    exposure: normalized.exposure,
+    colorGrade: {
+      brightness: normalized.brightness,
+      contrast: normalized.contrast,
+      saturation: normalized.saturation,
+      hue: normalized.hue,
+      warmth: normalized.warmth
+    },
+    sun: {
+      color: normalized.sunColor,
+      intensity: normalized.sunIntensity,
+      position: {
+        x: normalized.sunX,
+        y: normalized.sunY,
+        z: normalized.sunZ
+      }
+    },
+    hemisphere: {
+      intensity: normalized.hemiIntensity,
+      sky: normalized.hemiSky,
+      ground: normalized.hemiGround
+    },
+    fog: {
+      color: normalized.fogColor,
+      near: normalized.fogNear,
+      far: normalized.fogFar
+    },
+    background: normalized.background
+  }, null, 2);
+}
+
+function formatRenderTuningValue(key, value) {
+  if (key === 'toneMapping') return RENDER_TONE_MAPPING_LABELS[value] ?? value;
+  if (typeof value === 'string') return value.toUpperCase();
+  if (key === 'hue') return `${Math.round(value)}°`;
+  if (['sunX', 'sunY', 'sunZ', 'fogNear', 'fogFar'].includes(key)) return `${Math.round(value)}`;
+  return Number(value).toFixed(2);
+}
+
+function finiteNumber(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function colorToHex(value, fallback = '#ffffff') {
+  try {
+    return `#${new THREE.Color(value ?? fallback).getHexString()}`;
+  } catch {
+    return fallback;
   }
 }
 
