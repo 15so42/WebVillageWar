@@ -1108,6 +1108,7 @@ function mergeWorldPreset(preset, worldOptions) {
     },
     snowfall: {
       seed: 309,
+      enabled: false,
       countScale: 1,
       gustScale: 1,
       windScale: 1,
@@ -2493,9 +2494,8 @@ function updateSnowLayer(layer, dt, center, random) {
     const x = layer.positions[offset];
     const y = layer.positions[offset + 1];
     const z = layer.positions[offset + 2];
-    const groundY = terrainHeightAt(x, z) + layer.minY;
     if (
-      y < groundY ||
+      y < layer.minY ||
       x < center.x - layer.radiusX * 0.5 ||
       x > center.x + layer.radiusX * 0.5 ||
       z < center.z - layer.radiusZ * 0.5 ||
@@ -2574,7 +2574,7 @@ function updateSnowGustLayer(layer, dt, center, random) {
     const y = layer.positions[offset + 1];
     const z = layer.positions[offset + 2];
     if (
-      y < terrainHeightAt(x, z) + layer.minY ||
+      y < layer.minY ||
       x < center.x - layer.radiusX * 0.5 ||
       x > center.x + layer.radiusX * 0.5 ||
       z < center.z - layer.radiusZ * 0.5 ||
@@ -2754,7 +2754,7 @@ function createCliffPillar(a, b, index) {
   const group = new THREE.Group();
   const rock = new THREE.Mesh(
     new THREE.CylinderGeometry(1, 1.06 + primaryNoise * 0.12, 1, radialSegments, 1, false),
-    mat(cliffRockHex('#8f9d99', shade - 0.16, primaryNoise, -0.05), {
+    mat(cliffRockHex('#666d6b', shade - 0.24, primaryNoise, -0.09), {
       roughness: 0.9,
       metalness: 0.02,
       flatShading: true
@@ -2774,7 +2774,7 @@ function createCliffPillar(a, b, index) {
 
   const cap = new THREE.Mesh(
     new THREE.CylinderGeometry(1, 1, 1, radialSegments, 1, false),
-    mat(cliffRockHex('#e2e7dc', shade - 0.06, primaryNoise, -0.015), {
+    mat(cliffRockHex('#fffef9', shade - 0.02, primaryNoise, 0.02), {
       roughness: 0.92,
       metalness: 0.01,
       flatShading: true
