@@ -3547,6 +3547,48 @@ body.is-meta-open .selection-box {
     transform: translateX(-50%) scale(var(--mobile-ui-scale));
     transform-origin: bottom center;
   }
+
+  .wave-preview {
+    left: 50%;
+    right: auto;
+    width: min(620px, calc(100vw - 216px));
+    min-width: 280px;
+    min-height: 40px;
+    padding: 3px 8px 4px;
+    overflow: hidden;
+    transform: translateX(-50%);
+  }
+
+  .wave-preview-track {
+    grid-template-columns: repeat(var(--wave-node-count, 5), minmax(0, 1fr));
+    min-width: 0;
+    padding: 0 6px;
+  }
+
+  .wave-preview-track::before {
+    top: 11px;
+    left: 24px;
+    right: 24px;
+    height: 3px;
+  }
+
+  .wave-node-dot {
+    width: 24px;
+    height: 24px;
+    font-size: 10px;
+  }
+
+  .wave-preview-node {
+    gap: 1px;
+  }
+
+  .wave-preview-node strong {
+    font-size: 10px;
+  }
+
+  .wave-preview-node span:not(.wave-node-dot) {
+    font-size: 8px;
+  }
 }
 
 @media (pointer: coarse) and (max-height: 430px) {
@@ -3668,6 +3710,12 @@ body.is-meta-open .selection-box {
   #selected-stats,
   #selected-enchants {
     line-height: 1.28;
+  }
+
+  .wave-preview {
+    top: 8px;
+    width: clamp(300px, calc(100vw - 430px), 620px);
+    min-width: 0;
   }
 
   .card-hand {
@@ -3810,35 +3858,38 @@ body.is-meta-open .selection-box {
 
   .wave-preview {
     top: 128px;
-    left: 10px;
-    right: 10px;
-    min-height: 52px;
-    overflow-x: auto;
+    left: 50%;
+    right: auto;
+    width: calc(100vw - 20px);
+    min-width: 0;
+    min-height: 46px;
+    overflow: hidden;
+    transform: translateX(-50%);
     pointer-events: none;
   }
 
   .wave-preview-track {
-    min-width: 430px;
-    padding-inline: 12px;
+    min-width: 0;
+    padding-inline: 8px;
   }
 
   .wave-preview-track::before {
-    left: 36px;
-    right: 36px;
+    left: 26px;
+    right: 26px;
   }
 
   .wave-node-dot {
-    width: 30px;
-    height: 30px;
-    font-size: 12px;
+    width: 26px;
+    height: 26px;
+    font-size: 11px;
   }
 
   .wave-preview-node strong {
-    font-size: 12px;
+    font-size: 10px;
   }
 
   .wave-preview-node span:not(.wave-node-dot) {
-    font-size: 9px;
+    font-size: 8px;
   }
 
   .strategy-event-overlay {
@@ -4088,6 +4139,12 @@ body.is-meta-open .selection-box {
     min-width: 150px;
     padding: 8px;
     font-size: 10px;
+  }
+
+  .wave-preview {
+    top: 8px;
+    width: clamp(300px, calc(100vw - 430px), 620px);
+    min-width: 0;
   }
 
   .meter {

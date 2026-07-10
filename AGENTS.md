@@ -8,7 +8,7 @@
 - 当前场景、单位、武器、卡牌图、特效基本都是代码生成的低多边形风格，不是导入 `.glb/.fbx` 资产。不要默认引入外部美术导入流程。
 - 主要数据入口在 `src/data/gameData.js`：单位、卡牌、附魔、Buff、基础数值都优先从这里扩展。
 - 单位模型在 `src/art/lowpoly.js` 里用 Three.js 几何体拼出来，模型注册和动画姿态在 `src/art/visualRegistry.js`。
-- 卡牌 UI 和卡面图在 `src/systems/CardSystem.js`，新增卡牌时记得配 `artKey`，并保持当前低多边形卡面 SVG 风格。
+- 卡牌 UI 和卡面图在 `src/systems/CardSystem.js`，新增卡牌时记得配 `artKey`。卡面制作遵循 `docs/CARD_ART_STYLE.md`：使用 ImageGen 生成低面数、块面、透明 PNG 卡面；旧 SVG 只作为 fallback。
 - 属性要走 `AttributeSet` 的加法/乘法修改器模式。元素效果不要硬塞成属性修改器，例如火焰是命中后燃烧，毒是命中后真实伤害 DoT。
 - 现在的持盾单位叫 `knight` / 骑士；无盾拿剑单位才是 `swordsman` / 剑士。
 - 世界血条是 DOM UI 投影，不是 Three.js 模型血条。血条有护盾层、耐久条、黄色扣血延迟条和附魔文字。

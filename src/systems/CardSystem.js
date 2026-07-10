@@ -1570,14 +1570,14 @@ export function cardThemeColor(cardOrKind) {
 }
 
 const BITMAP_CARD_ART = {
-  raider: 'card-art/raider.png',
-  archer: 'card-art/archer.png',
-  swordsman: 'card-art/swordsman.png',
-  crossbowman: 'card-art/crossbowman.png',
-  waterMage: 'card-art/waterMage.png',
-  rogue: 'card-art/rogue.png',
-  knight: 'card-art/knight.png',
-  berserker: 'card-art/berserker.png'
+  raider: 'card-art/raider-imagegen-lowpoly-v3.png',
+  archer: 'card-art/archer-imagegen-lowpoly-v3.png',
+  swordsman: 'card-art/swordsman-imagegen-lowpoly-v3.png',
+  crossbowman: 'card-art/crossbowman-imagegen-lowpoly-v3.png',
+  waterMage: 'card-art/waterMage-imagegen-lowpoly-v3.png',
+  rogue: 'card-art/rogue-imagegen-lowpoly-v3.png',
+  knight: 'card-art/knight-imagegen-lowpoly-v3.png',
+  berserker: 'card-art/berserker-imagegen-lowpoly-v3.png'
 };
 
 function resolveCardArtAsset(path) {
@@ -1604,122 +1604,113 @@ function safeArtKey(value) {
 }
 
 const CARD_ART_RENDERERS = {
-  raider: () => artSvg(`
-    <polygon fill="#372f28" points="0,51 18,42 43,44 68,38 96,49 96,64 0,64" />
-    <polygon fill="#c18b62" points="47,12 56,24 41,24" />
-    <polygon fill="#8f3b34" points="40,24 59,24 62,44 37,44" />
-    <polygon fill="#221f1d" points="39,44 49,44 47,58 38,58" />
-    <polygon fill="#211d1c" points="51,44 61,44 62,58 53,58" />
-    <polygon fill="#c18b62" points="33,29 40,30 44,43 38,46" />
-    <polygon fill="#bd845d" points="62,28 69,30 59,43 53,41" />
-    <polygon fill="#6d4a2c" points="27,16 34,13 76,54 69,58" />
-    <polygon fill="#8b6037" points="24,14 34,9 40,17 29,22" />
-    <polygon fill="#fff2c7" opacity="0.38" points="58,37 77,53 73,55" />
+  raider: () => symbolicUnitSvg(`
+    <ellipse fill="#10231f" opacity="0.24" cx="48" cy="56" rx="31" ry="6" />
+    <polygon fill="#5b3b2d" points="18,43 25,36 63,57 58,63" />
+    <polygon fill="#7a5237" points="17,25 31,17 40,34 23,41" />
+    <polygon fill="#d8d0c2" points="19,23 14,17 24,20" />
+    <polygon fill="#d8d0c2" points="31,18 31,9 38,19" />
+    <polygon fill="#d8d0c2" points="39,32 48,32 42,39" />
+    <polygon fill="#6f4735" points="28,52 34,35 48,28 62,35 69,52 57,59 39,59" />
+    <polygon fill="#b9825f" points="36,27 48,14 60,27 56,40 40,40" />
+    <polygon fill="#2c211d" points="36,26 48,12 61,26 55,30 48,24 41,30" />
+    <polygon fill="#e1b48a" points="42,33 54,33 52,40 44,40" />
+    <polygon fill="#8f4b36" points="39,41 57,41 60,51 48,57 36,51" />
+    <path fill="none" stroke="#f5c978" stroke-width="2.4" d="M34 48 L48 57 L62 48" />
   `),
-  swordsman: () => artSvg(`
-    <polygon fill="#234034" points="0,49 18,39 44,43 67,36 96,46 96,64 0,64" />
-    <polygon fill="#c7a06f" points="48,13 55,25 43,25" />
-    <polygon fill="#2e6b5a" points="42,25 57,25 61,44 39,44" />
-    <polygon fill="#172323" points="41,44 49,44 47,57 39,57" />
-    <polygon fill="#162421" points="51,44 59,44 61,57 53,57" />
-    <polygon fill="#e6bb81" points="32,29 39,30 44,42 39,45" />
-    <polygon fill="#dcae72" points="61,28 67,31 58,44 53,41" />
-    <polygon fill="#d6dde0" points="33,15 78,53 74,57 29,19" />
-    <polygon fill="#7a4c30" points="26,16 34,13 39,19 30,22" />
-    <polygon fill="#fff2c7" opacity="0.55" points="58,33 79,49 76,52" />
+  swordsman: () => symbolicUnitSvg(`
+    <ellipse fill="#10231f" opacity="0.23" cx="48" cy="56" rx="29" ry="6" />
+    <polygon fill="#e9edf0" points="49,5 56,30 50,58 44,30" />
+    <polygon fill="#9fb3bc" points="49,5 50,58 44,30" />
+    <rect fill="#7b5836" x="37" y="31" width="23" height="5" rx="1" />
+    <polygon fill="#253954" points="29,53 35,30 47,20 61,30 68,53 56,60 40,60" />
+    <polygon fill="#426f98" points="36,34 48,26 60,34 57,51 48,57 39,51" />
+    <polygon fill="#c69b6d" points="42,24 48,15 55,24 52,33 44,33" />
+    <polygon fill="#242829" points="40,24 48,12 57,24 52,27 48,24 44,28" />
+    <polygon fill="#d8e6ee" opacity="0.72" points="51,9 54,29 50,44" />
+    <path fill="none" stroke="#f1c778" stroke-width="2.2" d="M35 50 L48 57 L61 50" />
   `),
-  knight: () => artSvg(`
-    <polygon fill="#293b31" points="0,50 18,39 45,42 70,37 96,47 96,64 0,64" />
-    <polygon fill="#dac087" points="47,11 56,24 41,24" />
-    <polygon fill="#335e69" points="41,24 58,24 62,45 38,45" />
-    <polygon fill="#182322" points="40,45 49,45 47,58 39,58" />
-    <polygon fill="#141e20" points="51,45 60,45 62,58 53,58" />
-    <polygon fill="#d7a878" points="32,29 39,31 44,43 38,45" />
-    <polygon fill="#d7a878" points="62,28 68,30 59,43 53,41" />
-    <polygon fill="#d8dde0" points="25,17 64,53 60,57 22,21" />
-    <polygon fill="#755033" points="20,16 28,13 34,19 24,22" />
-    <polygon fill="#d9d2a2" points="62,29 77,35 74,52 58,48" />
-    <polygon fill="#766b45" points="64,32 74,36 72,47 61,45" />
-    <polyline fill="none" stroke="#fff2c7" stroke-width="2" points="65,34 69,40 70,48" />
+  knight: () => symbolicUnitSvg(`
+    <ellipse fill="#10231f" opacity="0.24" cx="49" cy="56" rx="31" ry="6" />
+    <polygon fill="#cfd8dc" points="30,21 48,9 66,21 62,38 48,46 34,38" />
+    <polygon fill="#7f929b" points="35,23 48,15 61,23 58,34 48,40 38,34" />
+    <rect fill="#232d31" x="39" y="25" width="18" height="4" rx="1" />
+    <polygon fill="#315a77" points="30,37 48,29 66,37 62,55 48,62 34,55" />
+    <polygon fill="#d8c278" points="48,34 56,42 48,55 40,42" />
+    <polygon fill="#fff1bf" points="47,34 49,34 49,55 47,55" />
+    <polygon fill="#e7eef0" points="23,16 30,17 27,57 21,57" />
+    <rect fill="#795a35" x="19" y="37" width="13" height="5" rx="1" />
+    <path fill="none" stroke="#f4d98f" stroke-width="2.2" d="M34 55 L48 62 L62 55" />
   `),
-  berserker: () => artSvg(`
-    <polygon fill="#32272a" points="0,51 17,41 43,44 70,37 96,48 96,64 0,64" />
-    <polygon fill="#c18a64" points="47,11 57,24 39,24" />
-    <polygon fill="#8f3240" points="38,24 60,24 65,45 48,55 31,45" />
-    <polygon fill="#261e22" points="39,45 49,45 47,58 38,58" />
-    <polygon fill="#241d21" points="51,45 61,45 62,58 53,58" />
-    <polygon fill="#c99368" points="30,28 39,30 44,43 37,46" />
-    <polygon fill="#bd845d" points="65,28 72,31 60,43 53,40" />
-    <polygon fill="#5b3a28" points="22,15 29,12 74,54 68,58" />
-    <polygon fill="#cbd3d6" points="55,23 77,31 71,44 50,36" />
-    <polygon fill="#aeb9bd" points="72,28 86,37 72,45" />
-    <polygon fill="#fff2c7" opacity="0.46" points="55,25 73,32 69,35" />
-    <path fill="none" stroke="#ff9a62" stroke-width="2" opacity="0.7" d="M30 15 C42 6 57 6 69 15" />
+  berserker: () => symbolicUnitSvg(`
+    <ellipse fill="#10231f" opacity="0.25" cx="48" cy="56" rx="32" ry="6" />
+    <polygon fill="#5d3a2b" points="20,44 27,36 70,56 66,63" />
+    <polygon fill="#d4dce0" points="60,16 83,25 74,42 51,32" />
+    <polygon fill="#a6b2b8" points="77,23 89,34 73,43" />
+    <polygon fill="#71342e" points="28,52 34,34 48,27 63,34 70,52 56,60 40,60" />
+    <polygon fill="#ca7b55" points="37,26 48,13 60,26 56,38 40,38" />
+    <polygon fill="#2c211f" points="36,25 48,11 61,25 56,29 48,24 40,30" />
+    <polygon fill="#f06d3f" points="42,39 54,39 60,51 48,59 36,51" />
+    <polygon fill="#efe6cf" points="37,24 29,17 39,18" />
+    <polygon fill="#efe6cf" points="59,24 67,17 57,18" />
+    <path fill="none" stroke="#ffd18a" stroke-width="2.4" d="M33 48 L48 59 L63 48" />
   `),
-  archer: () => artSvg(`
-    <polygon fill="#254232" points="0,51 16,40 41,43 67,37 96,48 96,64 0,64" />
-    <polygon fill="#d9aa78" points="47,12 55,23 41,23" />
-    <polygon fill="#2f805f" points="40,23 58,23 61,44 37,44" />
-    <polygon fill="#172325" points="39,44 49,44 47,57 39,57" />
-    <polygon fill="#13201f" points="51,44 60,44 62,57 53,57" />
-    <polygon fill="#e0b27b" points="59,28 67,29 70,35 63,37" />
-    <polygon fill="#e0b27b" points="36,29 44,29 56,34 52,39" />
-    <path fill="none" stroke="#4a3026" stroke-width="4" stroke-linecap="round" d="M69 15 C86 28 85 48 68 58" />
-    <path fill="none" stroke="#f8e5b2" stroke-width="1.6" d="M69 15 L68 58" />
-    <polygon fill="#efe8ca" points="34,34 72,33 72,36 34,37" />
-    <polygon fill="#efe8ca" points="72,33 80,35 72,37" />
+  archer: () => symbolicUnitSvg(`
+    <ellipse fill="#10231f" opacity="0.23" cx="48" cy="56" rx="30" ry="6" />
+    <path fill="none" stroke="#5c3e2a" stroke-width="4.5" d="M68 12 C87 26 87 46 68 58" />
+    <path fill="none" stroke="#f4e7bd" stroke-width="1.7" d="M68 12 L68 58" />
+    <polygon fill="#f5e7bd" points="24,35 76,33 76,37 24,39" />
+    <polygon fill="#f5e7bd" points="76,33 86,35 76,38" />
+    <polygon fill="#274c37" points="30,54 35,31 48,20 62,31 67,54 56,60 40,60" />
+    <polygon fill="#5f8e55" points="36,30 48,14 61,30 56,40 40,40" />
+    <polygon fill="#d1a171" points="42,29 48,21 54,29 52,38 44,38" />
+    <polygon fill="#203f31" points="38,29 48,16 59,29 54,32 48,28 42,33" />
+    <polygon fill="#9ec77b" points="38,42 58,42 62,52 48,58 34,52" />
+    <path fill="none" stroke="#f1d28e" stroke-width="2.2" d="M35 50 L48 58 L61 50" />
   `),
-  crossbowman: () => artSvg(`
-    <polygon fill="#263941" points="0,51 17,41 42,44 68,37 96,48 96,64 0,64" />
-    <polygon fill="#d9aa78" points="47,12 55,23 41,23" />
-    <polygon fill="#4f6f78" points="38,24 60,24 64,46 49,55 34,46" />
-    <polygon fill="#172325" points="39,46 49,46 47,58 39,58" />
-    <polygon fill="#13201f" points="51,46 61,46 62,58 53,58" />
-    <polygon fill="#d9aa78" points="63,28 70,31 59,42 54,39" />
-    <polygon fill="#d9aa78" points="31,29 38,30 44,39 39,43" />
-    <polygon fill="#6a4a30" points="25,39 72,36 72,42 25,45" />
-    <polygon fill="#3a2a24" points="23,31 78,31 82,36 19,37" />
-    <polygon fill="#3a2a24" points="18,34 30,29 28,39" />
-    <polygon fill="#3a2a24" points="80,34 68,29 70,39" />
-    <polygon fill="#d8dde0" points="41,34 80,33 80,36 41,37" />
-    <polygon fill="#d8dde0" points="80,33 88,35 80,37" />
-    <polygon fill="#8f9a9b" points="45,12 57,16 52,23 39,20" />
-    <path fill="none" stroke="#fff2c7" stroke-width="2" opacity="0.55" d="M22 35 L80 35" />
+  crossbowman: () => symbolicUnitSvg(`
+    <ellipse fill="#10231f" opacity="0.24" cx="49" cy="56" rx="31" ry="6" />
+    <polygon fill="#364b55" points="31,52 36,31 49,22 63,31 69,52 56,60 41,60" />
+    <polygon fill="#7c8b91" points="39,22 49,13 60,22 57,34 42,34" />
+    <rect fill="#222b2e" x="40" y="25" width="18" height="4" rx="1" />
+    <polygon fill="#5f3f28" points="20,39 76,36 76,43 20,46" />
+    <polygon fill="#2d2621" points="17,30 80,30 87,36 10,37" />
+    <polygon fill="#2d2621" points="12,34 30,27 27,41" />
+    <polygon fill="#2d2621" points="85,34 67,27 70,41" />
+    <polygon fill="#dce6e8" points="39,34 84,33 84,37 39,38" />
+    <polygon fill="#dce6e8" points="84,33 93,35 84,38" />
+    <polygon fill="#8aa1a7" points="39,39 58,39 63,51 49,58 35,51" />
+    <path fill="none" stroke="#f5d98e" stroke-width="2" d="M18 35 L82 35" />
   `),
-  waterMage: () => artSvg(`
-    <polygon fill="#1f3440" points="0,51 18,42 42,44 69,38 96,49 96,64 0,64" />
-    <ellipse fill="#65d8ff" opacity="0.22" cx="62" cy="34" rx="29" ry="19" />
-    <polygon fill="#d9aa78" points="47,11 55,23 41,23" />
-    <polygon fill="#235f83" points="35,24 61,24 66,51 49,58 30,51" />
-    <polygon fill="#3e8fb3" points="40,28 58,28 61,48 49,54 37,48" />
-    <polygon fill="#dff8ff" points="35,36 62,36 61,40 36,40" />
-    <polygon fill="#17212a" points="40,50 49,50 47,59 39,59" />
-    <polygon fill="#17212a" points="51,50 60,50 61,59 53,59" />
-    <polygon fill="#d9aa78" points="28,30 36,31 44,42 39,46" />
-    <polygon fill="#d9aa78" points="64,30 71,32 60,43 55,40" />
-    <polygon fill="#6a4a30" points="72,10 78,10 70,59 65,59" />
-    <circle fill="#65d8ff" cx="76" cy="10" r="7" />
-    <circle fill="#dff8ff" opacity="0.74" cx="76" cy="10" r="3" />
-    <circle fill="#65d8ff" opacity="0.72" cx="64" cy="36" r="15" />
-    <circle fill="#dff8ff" opacity="0.34" cx="60" cy="31" r="7" />
-    <path fill="none" stroke="#dff8ff" stroke-width="2" opacity="0.8" d="M49 39 C58 26 73 26 83 37" />
-    <path fill="none" stroke="#8feaff" stroke-width="2" opacity="0.7" d="M43 45 C56 55 73 54 86 42" />
+  waterMage: () => symbolicUnitSvg(`
+    <ellipse fill="#10231f" opacity="0.22" cx="48" cy="56" rx="31" ry="6" />
+    <circle fill="#65d8ff" opacity="0.18" cx="63" cy="35" r="22" />
+    <path fill="none" stroke="#8feaff" stroke-width="2.4" d="M39 45 C51 56 72 55 84 42" />
+    <path fill="none" stroke="#dff8ff" stroke-width="2" opacity="0.82" d="M45 38 C55 27 72 28 82 39" />
+    <polygon fill="#214e78" points="30,54 36,29 48,17 62,29 68,54 56,61 40,61" />
+    <polygon fill="#4b9fc4" points="38,31 48,21 58,31 57,49 48,57 39,49" />
+    <polygon fill="#d5a878" points="43,30 48,23 54,30 52,37 44,37" />
+    <polygon fill="#1e3f64" points="37,30 48,15 60,30 55,33 48,29 42,34" />
+    <rect fill="#6b4b2f" x="72" y="9" width="5" height="50" rx="2" transform="rotate(8 74.5 34)" />
+    <circle fill="#66dcff" cx="76" cy="12" r="7" />
+    <circle fill="#e5fbff" opacity="0.85" cx="76" cy="12" r="3" />
+    <circle fill="#66dcff" opacity="0.65" cx="64" cy="38" r="9" />
+    <path fill="none" stroke="#f2fbff" stroke-width="1.8" d="M59 38 C64 33 70 34 73 39" />
   `),
-  rogue: () => artSvg(`
-    <polygon fill="#1f2c35" points="0,51 18,42 42,44 68,38 96,49 96,64 0,64" />
-    <ellipse fill="#dff8ff" opacity="0.16" cx="50" cy="42" rx="33" ry="16" />
-    <polygon fill="#d9aa78" points="47,12 55,23 41,23" />
-    <polygon fill="#29384a" points="35,24 60,24 66,52 49,59 31,52" />
-    <polygon fill="#4f5f7c" points="39,28 57,28 60,46 49,54 37,46" />
-    <polygon fill="#17212a" points="40,50 49,50 47,59 39,59" />
-    <polygon fill="#17212a" points="51,50 60,50 61,59 53,59" />
-    <polygon fill="#26303b" points="39,13 57,13 63,26 33,26" />
-    <polygon fill="#d8dce2" points="28,45 45,31 49,35 33,51" />
-    <polygon fill="#d8dce2" points="68,45 51,31 47,35 63,51" />
-    <polygon fill="#7b5a38" points="24,49 32,43 36,48 28,54" />
-    <polygon fill="#7b5a38" points="72,49 64,43 60,48 68,54" />
-    <polygon fill="#dff8ff" points="61,15 82,11 70,25" />
-    <path fill="none" stroke="#dff8ff" stroke-width="2" opacity="0.72" d="M24 51 C44 37 58 26 81 11" />
+  rogue: () => symbolicUnitSvg(`
+    <ellipse fill="#10231f" opacity="0.25" cx="48" cy="56" rx="31" ry="6" />
+    <path fill="none" stroke="#dce8ee" stroke-width="2.4" opacity="0.74" d="M19 52 C39 37 58 23 80 11" />
+    <path fill="none" stroke="#89a2b5" stroke-width="2" opacity="0.6" d="M77 52 C58 37 39 23 17 12" />
+    <polygon fill="#dce6ea" points="60,17 83,10 69,27" />
+    <polygon fill="#dce6ea" points="36,17 13,10 27,27" />
+    <polygon fill="#202a35" points="29,54 35,30 48,18 62,30 69,54 56,61 40,61" />
+    <polygon fill="#4a5670" points="38,32 48,22 58,32 56,49 48,57 40,49" />
+    <polygon fill="#d3a477" points="43,30 48,24 53,30 51,37 45,37" />
+    <polygon fill="#1c2631" points="36,29 48,14 61,29 55,33 48,28 41,34" />
+    <polygon fill="#aebdc5" points="25,47 44,31 48,35 30,53" />
+    <polygon fill="#aebdc5" points="71,47 52,31 48,35 66,53" />
+    <rect fill="#6d4b31" x="21" y="49" width="12" height="5" rx="1" transform="rotate(-42 27 51)" />
+    <rect fill="#6d4b31" x="63" y="49" width="12" height="5" rx="1" transform="rotate(42 69 51)" />
   `),
   engineer: () => artSvg(`
     <polygon fill="#342d27" points="0,51 18,42 42,44 68,38 96,49 96,64 0,64" />
@@ -2267,6 +2258,16 @@ const CARD_ART_RENDERERS = {
     <polygon fill="#6ea370" points="48,17 61,32 48,47 35,32" />
   `)
 };
+
+function symbolicUnitSvg(content) {
+  return `
+    <svg class="card-art-svg card-art-symbolic-svg" viewBox="0 0 96 64" focusable="false" aria-hidden="true">
+      <g stroke-linejoin="round" stroke-linecap="round">
+        ${content}
+      </g>
+    </svg>
+  `;
+}
 
 function artSvg(content) {
   return `

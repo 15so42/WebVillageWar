@@ -390,6 +390,7 @@ const SPIDER_EGG_HATCH_SECONDS = 15;
 const TOUCH_TAP_THRESHOLD = 7;
 const MOBILE_DOUBLE_TAP_MS = 360;
 const MOBILE_DOUBLE_TAP_DISTANCE = 38;
+const MOBILE_PINCH_MIN_DISTANCE = 24;
 const STRUCTURE_HEALTH_LAG_DELAY = 0.4;
 const STRUCTURE_HEALTH_LAG_RAPID_DELAY = 0.08;
 const STRUCTURE_HEALTH_LAG_RAPID_WINDOW = 0.18;
@@ -601,6 +602,8 @@ export class Game {
     this.pointerScreen = new THREE.Vector2(window.innerWidth * 0.5, window.innerHeight * 0.5);
     this.edgePanActive = false;
     this.cameraDrag = null;
+    this.activeTouchPointers = new Map();
+    this.touchGesture = null;
     this.lastMobileTap = null;
     this.updateCamera(0);
 
@@ -779,7 +782,11 @@ export class Game {
     canvas.addEventListener('auxclick', (event) => this.onCanvasAuxClick(event), { signal });
     window.addEventListener('mousemove', (event) => this.onCanvasPointerMove(event), { signal });
     window.addEventListener('mouseup', (event) => this.onCanvasPointerUp(event), { signal });
-    window.addEventListener('blur', () => this.cancelCameraDrag(), { signal });
+    window.addEventListener('blur', () => {
+      this.cancelCameraDrag();
+      this.cancelTouchGesture();
+      this.activeTouchPointers.clear();
+    }, { signal });
     canvas.addEventListener('wheel', (event) => this.onCanvasWheel(event), { passive: false, signal });
     window.addEventListener('pointermove', (event) => this.onWindowPointerMove(event), { signal });
     window.addEventListener('contextmenu', (event) => this.onGameContextMenu(event), { capture: true, signal });
@@ -3412,6 +3419,11 @@ export class Game {
 
     if (event.pointerType === 'touch') {
       event.preventDefault();
+      this.trackTouchPointer(event);
+      if (this.activeTouchPointers.size >= 2) {
+        this.beginTouchGesture(event);
+        return;
+      }
       if (this.isMobileSelectionDoubleTap(event)) {
         this.lastMobileTap = null;
         this.beginSelectionDrag(event);
@@ -3509,6 +3521,10 @@ export class Game {
 
   onCanvasPointerMove(event) {
     this.pointerScreen.set(event.clientX, event.clientY);
+    if (event.pointerType === 'touch') {
+      this.trackTouchPointer(event);
+      if (this.updateTouchGesture(event)) return;
+    }
     if (this.updateCameraDrag(event)) return;
     if (!this.isCurrentSelectionEvent(event)) return;
     this.selectionDrag.currentX = event.clientX;
@@ -3523,6 +3539,10 @@ export class Game {
   }
 
   onCanvasPointerUp(event) {
+    if (event.pointerType === 'touch') {
+      if (this.endTouchGesturePointer(event)) return;
+      this.forgetTouchPointer(event);
+    }
     if (this.endCameraDrag(event)) return;
     if (!this.isCurrentSelectionEvent(event)) return;
     const drag = this.selectionDrag;
@@ -3541,6 +3561,10 @@ export class Game {
   }
 
   onCanvasPointerCancel(event) {
+    if (event.pointerType === 'touch') {
+      if (this.endTouchGesturePointer(event)) return;
+      this.forgetTouchPointer(event);
+    }
     if (this.endCameraDrag(event)) return;
     if (!this.isCurrentSelectionEvent(event)) return;
     this.selectionDrag = null;
@@ -3646,6 +3670,128 @@ export class Game {
     this.canvas.classList.remove('is-camera-dragging');
   }
 
+  trackTouchPointer(event) {
+    if (event.pointerType !== 'touch' || event.pointerId == null) return;
+    this.activeTouchPointers.set(event.pointerId, {
+      id: event.pointerId,
+      x: event.clientX,
+      y: event.clientY
+    });
+  }
+
+  forgetTouchPointer(event) {
+    if (event.pointerType !== 'touch' || event.pointerId == null) return;
+    this.activeTouchPointers.delete(event.pointerId);
+  }
+
+  beginTouchGesture(event) {
+    if (this.activeTouchPointers.size < 2) return false;
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    if (this.cameraDrag?.pointerId != null) {
+      safeReleasePointerCapture(this.canvas, this.cameraDrag.pointerId);
+    }
+    this.cancelCameraDrag();
+    this.cancelSelectionDrag();
+    const points = this.currentTouchGesturePoints();
+    if (points.length < 2) return false;
+    const metrics = touchGestureMetrics(points);
+    this.touchGesture = {
+      pointerIds: points.map((point) => point.id),
+      startDistance: Math.max(metrics.distance, MOBILE_PINCH_MIN_DISTANCE),
+      startCameraDistance: this.cameraDistance,
+      lastCenterX: metrics.centerX,
+      lastCenterY: metrics.centerY
+    };
+    this.lastMobileTap = null;
+    this.edgePanActive = false;
+    this.canvas.classList.add('is-camera-dragging');
+    points.forEach((point) => safeSetPointerCapture(this.canvas, point.id));
+    return true;
+  }
+
+  updateTouchGesture(event) {
+    if (!this.touchGesture) return false;
+    const points = this.currentTouchGesturePoints();
+    if (points.length < 2) return false;
+    event.preventDefault();
+    event.stopPropagation?.();
+    const metrics = touchGestureMetrics(points);
+    const distance = Math.max(metrics.distance, MOBILE_PINCH_MIN_DISTANCE);
+    this.cameraDistance = clamp(
+      this.touchGesture.startCameraDistance * (this.touchGesture.startDistance / distance),
+      this.cameraMinDistance,
+      this.cameraMaxDistance
+    );
+
+    const dx = metrics.centerX - this.touchGesture.lastCenterX;
+    const dy = metrics.centerY - this.touchGesture.lastCenterY;
+    if (dx !== 0 || dy !== 0) {
+      const dragScale = 0.018 + this.cameraDistance * 0.001;
+      this.cameraTarget.x -= dx * dragScale;
+      this.cameraTarget.z -= dy * dragScale;
+      this.clampCameraTarget();
+      this.touchGesture.lastCenterX = metrics.centerX;
+      this.touchGesture.lastCenterY = metrics.centerY;
+    }
+    this.updateCamera(0);
+    return true;
+  }
+
+  endTouchGesturePointer(event) {
+    if (!this.touchGesture || event.pointerType !== 'touch') return false;
+    const pointerId = event.pointerId;
+    const wasGesturePointer = this.touchGesture.pointerIds.includes(pointerId);
+    this.forgetTouchPointer(event);
+    if (!wasGesturePointer) return false;
+    event.preventDefault?.();
+    event.stopPropagation?.();
+    safeReleasePointerCapture(this.canvas, pointerId);
+    if (this.activeTouchPointers.size >= 2) {
+      this.restartTouchGestureFromCurrent();
+    } else {
+      this.cancelTouchGesture();
+    }
+    return true;
+  }
+
+  restartTouchGestureFromCurrent() {
+    const points = this.currentTouchGesturePoints();
+    if (points.length < 2) {
+      this.cancelTouchGesture();
+      return;
+    }
+    const metrics = touchGestureMetrics(points);
+    this.touchGesture = {
+      pointerIds: points.map((point) => point.id),
+      startDistance: Math.max(metrics.distance, MOBILE_PINCH_MIN_DISTANCE),
+      startCameraDistance: this.cameraDistance,
+      lastCenterX: metrics.centerX,
+      lastCenterY: metrics.centerY
+    };
+    points.forEach((point) => safeSetPointerCapture(this.canvas, point.id));
+  }
+
+  currentTouchGesturePoints() {
+    const ids = this.touchGesture?.pointerIds ?? [];
+    const selected = ids
+      .map((id) => this.activeTouchPointers.get(id))
+      .filter(Boolean);
+    if (selected.length >= 2) return selected.slice(0, 2);
+    return [...this.activeTouchPointers.values()].slice(0, 2);
+  }
+
+  cancelTouchGesture() {
+    if (!this.touchGesture) return;
+    this.touchGesture.pointerIds.forEach((pointerId) => {
+      safeReleasePointerCapture(this.canvas, pointerId);
+    });
+    this.touchGesture = null;
+    if (!this.cameraDrag) {
+      this.canvas.classList.remove('is-camera-dragging');
+    }
+  }
+
   cancelSelectionDrag() {
     if (!this.selectionDrag) return;
     if (this.selectionDrag.pointerId != null) {
@@ -3677,8 +3823,7 @@ export class Game {
   isMobileSelectionDoubleTap(event) {
     const tap = this.lastMobileTap;
     if (!tap) return false;
-    if (tap.kind !== 'select') return false;
-    if (this.hasMovablePlayerSelection()) return false;
+    if (tap.kind !== 'select' && tap.kind !== 'empty') return false;
     const elapsed = performance.now() - tap.time;
     const distance = Math.hypot(event.clientX - tap.x, event.clientY - tap.y);
     return elapsed <= MOBILE_DOUBLE_TAP_MS && distance <= MOBILE_DOUBLE_TAP_DISTANCE;
@@ -5127,6 +5272,17 @@ function commandFormationOffset(index, total, radius) {
   const ringIndex = index - 1;
   const angle = (ringIndex / Math.max(1, total - 1)) * Math.PI * 2;
   return new THREE.Vector3(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
+}
+
+function touchGestureMetrics(points) {
+  const [a, b] = points;
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  return {
+    centerX: (a.x + b.x) * 0.5,
+    centerY: (a.y + b.y) * 0.5,
+    distance: Math.hypot(dx, dy)
+  };
 }
 
 function enemyEnchantmentLevel(wave, difficulty) {
