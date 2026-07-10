@@ -5835,7 +5835,7 @@ function sampleGroundReflectedLight(worldPosition, worldNormal, settings, ground
 }
 
 function collectStaticBounceEmitters(world, settings) {
-  const objects = staticBounceObjectsForWorld(world);
+  const sources = staticBounceEmitterSourcesForWorld(world);
   const emitters = [];
   const sunDirection = new THREE.Vector3(settings.sunX, settings.sunY, settings.sunZ).normalize();
   const sunFacing = clamp(sunDirection.y * 1.2, 0.2, 1);
@@ -5843,14 +5843,20 @@ function collectStaticBounceEmitters(world, settings) {
   const center = new THREE.Vector3();
   const size = new THREE.Vector3();
 
-  for (let i = 0; i < objects.length; i += 1) {
-    const object = objects[i];
-    object.updateWorldMatrix(true, true);
-    box.setFromObject(object);
-    if (box.isEmpty()) continue;
-    box.getCenter(center);
-    box.getSize(size);
-    const color = averageObjectMaterialColor(object);
+  for (let i = 0; i < sources.length; i += 1) {
+    const source = sources[i];
+    let color = source.color ?? null;
+    if (source.object) {
+      source.object.updateWorldMatrix(true, true);
+      box.setFromObject(source.object);
+      if (box.isEmpty()) continue;
+      box.getCenter(center);
+      box.getSize(size);
+      color = averageObjectMaterialColor(source.object);
+    } else {
+      center.copy(source.center);
+      size.copy(source.size);
+    }
     if (!color) continue;
     const reflectance = bounceReflectanceForColor(color);
     const radius = clamp(
@@ -5871,6 +5877,23 @@ function collectStaticBounceEmitters(world, settings) {
 
   emitters.sort((a, b) => b.strength * b.radius - a.strength * a.radius);
   return emitters.slice(0, BOUNCE_LIGHTMAP_MAX_EMITTERS);
+}
+
+function staticBounceEmitterSourcesForWorld(world) {
+  const unique = new Set();
+  [
+    ...(world?.staticCullables ?? [])
+      .map((item) => item.object)
+      .filter((object) => !object?.userData?.isStaticDecorationBatch),
+    world?.playerBaseModel,
+    world?.enemyCampModel
+  ].forEach((object) => {
+    if (object) unique.add(object);
+  });
+  return [
+    ...(world?.staticDecorationBounceSources ?? []),
+    ...[...unique].map((object) => ({ object }))
+  ];
 }
 
 function averageObjectMaterialColor(object) {

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { BALANCE } from '../data/gameData.js';
 import {
   basicMat,
@@ -120,14 +121,18 @@ const BAKED_SHADOW_NORMAL = new THREE.Vector3();
 const STATIC_WORLD_CULL_UPDATE_SECONDS = 0.16;
 const STATIC_WORLD_CULL_RADIUS_PADDING = 8;
 const STATIC_WORLD_CULL_MIN_RADIUS = 0.8;
+const STATIC_DECORATION_BATCH_CHUNK_SIZE = 24;
 const STATIC_CULL_BOX = new THREE.Box3();
 const STATIC_CULL_CENTER = new THREE.Vector3();
 const STATIC_CULL_SIZE = new THREE.Vector3();
 const STATIC_CULL_MATRIX = new THREE.Matrix4();
 const STATIC_CULL_FRUSTUM = new THREE.Frustum();
 const STATIC_CULL_SPHERE = new THREE.Sphere();
+const STATIC_BATCH_BOX = new THREE.Box3();
+const STATIC_BATCH_CENTER = new THREE.Vector3();
 let activeBakedShadowBatch = null;
 let activeStaticCullables = null;
+let activeStaticDecorationBatch = null;
 
 const DEFAULT_TERRAIN_PROFILE = {
   baseHeight: 0.25,
@@ -960,6 +965,7 @@ export function createWorld(scene, worldOptions = {}) {
   updateBakedShadowLightRay(config);
   config.navigationBlockers = [];
   activeStaticCullables = [];
+  activeStaticDecorationBatch = createStaticDecorationBatch();
   scene.background = new THREE.Color(config.sky.skyGradient?.middle ?? config.sky.background);
   scene.fog = new THREE.Fog(config.sky.fog, config.sky.fogNear, config.sky.fogFar);
 
@@ -1037,6 +1043,7 @@ export function createWorld(scene, worldOptions = {}) {
     decorate(scene, pathPoints);
   }
   createSnowMonsterCamp(scene);
+  const staticDecorationResult = flushStaticDecorationBatch(scene);
   const bakedShadowResult = flushBakedGroundShadows(ground);
   const staticCullables = activeStaticCullables;
   activeStaticCullables = null;
@@ -1073,6 +1080,8 @@ export function createWorld(scene, worldOptions = {}) {
     },
     staticCullables,
     staticCulling,
+    staticDecorationMeshes: staticDecorationResult.meshes,
+    staticDecorationBounceSources: staticDecorationResult.bounceSources,
     update: (dt, cameraTarget, camera, options = {}) => {
       updateSkyGradientPosition(skyGradient, camera);
       snowfall.update(dt, cameraTarget);
@@ -4042,9 +4051,251 @@ function createDungeonEnemyGate(scene) {
 
 function addStaticCulledObject(scene, object, radiusPadding = STATIC_WORLD_CULL_RADIUS_PADDING) {
   bakeObjectGroundShadow(object);
+  if (queueStaticDecoration(object, radiusPadding)) {
+    return object;
+  }
   scene.add(object);
   registerStaticCullable(object, radiusPadding);
   return object;
+}
+
+function createStaticDecorationBatch() {
+  return {
+    buckets: new Map(),
+    sourceEntries: [],
+    bounceSources: []
+  };
+}
+
+function queueStaticDecoration(object, radiusPadding = STATIC_WORLD_CULL_RADIUS_PADDING) {
+  const batch = activeStaticDecorationBatch;
+  if (!batch || !object || object.userData?.skipStaticBatch) return false;
+
+  object.updateWorldMatrix(true, true);
+  if (!canBatchStaticDecoration(object)) return false;
+
+  STATIC_BATCH_BOX.setFromObject(object);
+  if (STATIC_BATCH_BOX.isEmpty()) return false;
+  STATIC_BATCH_BOX.getCenter(STATIC_BATCH_CENTER);
+  const chunkX = Math.floor(STATIC_BATCH_CENTER.x / STATIC_DECORATION_BATCH_CHUNK_SIZE);
+  const chunkZ = Math.floor(STATIC_BATCH_CENTER.z / STATIC_DECORATION_BATCH_CHUNK_SIZE);
+
+  const queued = [];
+  object.traverse((node) => {
+    if (!node.isMesh) return;
+    const geometry = node.geometry.clone();
+    geometry.clearGroups();
+    geometry.applyMatrix4(node.matrixWorld);
+    const key = [
+      chunkX,
+      chunkZ,
+      node.material.uuid,
+      staticGeometrySignature(node.geometry),
+      node.castShadow ? 1 : 0,
+      node.receiveShadow ? 1 : 0,
+      node.renderOrder,
+      node.layers.mask
+    ].join(':');
+    queued.push({ key, geometry, node });
+  });
+
+  if (queued.length === 0) return false;
+  queued.forEach(({ key, geometry, node }) => {
+    let bucket = batch.buckets.get(key);
+    if (!bucket) {
+      bucket = {
+        chunkX,
+        chunkZ,
+        material: node.material,
+        geometries: [],
+        castShadow: node.castShadow,
+        receiveShadow: node.receiveShadow,
+        renderOrder: node.renderOrder,
+        layersMask: node.layers.mask,
+        radiusPadding,
+        sourceMeshCount: 0,
+        sourceObjects: new Set()
+      };
+      batch.buckets.set(key, bucket);
+    }
+    bucket.geometries.push(geometry);
+    bucket.radiusPadding = Math.max(bucket.radiusPadding, radiusPadding);
+    bucket.sourceMeshCount += 1;
+    bucket.sourceObjects.add(object);
+  });
+  batch.sourceEntries.push({ object, radiusPadding });
+  batch.bounceSources.push(createStaticDecorationBounceSource(object));
+  return true;
+}
+
+function canBatchStaticDecoration(object) {
+  if (!object.visible) return false;
+  let meshCount = 0;
+  let batchable = true;
+  object.traverse((node) => {
+    if (!batchable) return;
+    if (
+      !node.visible
+      || node.userData?.skipBakedShadow
+      || node.isLight
+      || node.isSprite
+      || node.isLine
+      || node.isPoints
+      || node.isLOD
+      || (!node.isMesh && node.renderOrder !== 0)
+    ) {
+      batchable = false;
+      return;
+    }
+    if (!node.isMesh) return;
+    meshCount += 1;
+    const geometry = node.geometry;
+    const material = node.material;
+    const morphAttributes = geometry?.morphAttributes ?? {};
+    const hasMorphTargets = Object.values(morphAttributes).some((attributes) => attributes?.length > 0);
+    const hasInterleavedAttributes = Object.values(geometry?.attributes ?? {}).some(
+      (attribute) => attribute?.isInterleavedBufferAttribute
+    );
+    if (
+      node.isSkinnedMesh
+      || node.isInstancedMesh
+      || !geometry?.attributes?.position
+      || !material
+      || Array.isArray(material)
+      || material.visible === false
+      || material.transparent
+      || material.opacity < 1
+      || material.alphaTest > 0
+      || hasMorphTargets
+      || hasInterleavedAttributes
+      || geometry.drawRange.start !== 0
+      || Number.isFinite(geometry.drawRange.count)
+      || node.frustumCulled === false
+      || node.matrixWorld.determinant() <= 0
+      || node.customDepthMaterial
+      || node.customDistanceMaterial
+      || node.onBeforeRender !== THREE.Object3D.prototype.onBeforeRender
+      || node.onAfterRender !== THREE.Object3D.prototype.onAfterRender
+      || node.onBeforeShadow !== THREE.Object3D.prototype.onBeforeShadow
+      || node.onAfterShadow !== THREE.Object3D.prototype.onAfterShadow
+    ) {
+      batchable = false;
+    }
+  });
+  return batchable && meshCount > 0;
+}
+
+function createStaticDecorationBounceSource(object) {
+  const size = new THREE.Vector3();
+  STATIC_BATCH_BOX.getSize(size);
+  const color = new THREE.Color(0, 0, 0);
+  let materialCount = 0;
+  object.traverse((node) => {
+    if (!node.isMesh || node.userData?.skipBakedShadow) return;
+    const materials = Array.isArray(node.material) ? node.material : [node.material];
+    materials.forEach((material) => {
+      if (!material?.color) return;
+      color.add(material.color);
+      materialCount += 1;
+    });
+  });
+  if (materialCount > 0) color.multiplyScalar(1 / materialCount);
+  return {
+    center: STATIC_BATCH_CENTER.clone(),
+    size,
+    color: materialCount > 0 ? color : null
+  };
+}
+
+function staticGeometrySignature(geometry) {
+  const index = geometry.index;
+  const indexSignature = index
+    ? `${index.array.constructor.name},${index.itemSize},${index.normalized ? 1 : 0}`
+    : 'none';
+  const attributeSignature = Object.entries(geometry.attributes)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, attribute]) => [
+      name,
+      attribute.array.constructor.name,
+      attribute.itemSize,
+      attribute.normalized ? 1 : 0,
+      attribute.gpuType ?? 0
+    ].join(','))
+    .join('|');
+  return `${indexSignature}/${attributeSignature}`;
+}
+
+function flushStaticDecorationBatch(scene) {
+  const batch = activeStaticDecorationBatch;
+  activeStaticDecorationBatch = null;
+  if (!batch || batch.buckets.size === 0) {
+    return { meshes: [], bounceSources: [] };
+  }
+
+  const prepared = [];
+  let mergeFailed = false;
+  batch.buckets.forEach((bucket) => {
+    if (mergeFailed) return;
+    let geometry = null;
+    try {
+      geometry = bucket.geometries.length === 1
+        ? bucket.geometries[0]
+        : mergeGeometries(bucket.geometries, false);
+    } catch {
+      geometry = null;
+    }
+    if (!geometry) {
+      mergeFailed = true;
+      return;
+    }
+    prepared.push({ bucket, geometry });
+  });
+
+  if (mergeFailed) {
+    prepared.forEach(({ bucket, geometry }) => {
+      if (bucket.geometries.length > 1) geometry.dispose();
+    });
+    batch.buckets.forEach((bucket) => {
+      bucket.geometries.forEach((geometry) => geometry.dispose());
+    });
+    batch.sourceEntries.forEach(({ object, radiusPadding }) => {
+      scene.add(object);
+      registerStaticCullable(object, radiusPadding);
+    });
+    return { meshes: [], bounceSources: [] };
+  }
+
+  const meshes = [];
+  let meshIndex = 0;
+  prepared.forEach(({ bucket, geometry }) => {
+    if (bucket.geometries.length > 1) {
+      bucket.geometries.forEach((sourceGeometry) => sourceGeometry.dispose());
+    }
+    const mesh = createStaticDecorationBatchMesh(geometry, bucket, meshIndex);
+    scene.add(mesh);
+    registerStaticCullable(mesh, bucket.radiusPadding);
+    meshes.push(mesh);
+    meshIndex += 1;
+  });
+  return {
+    meshes,
+    bounceSources: batch.bounceSources
+  };
+}
+
+function createStaticDecorationBatchMesh(geometry, bucket, index) {
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  const mesh = new THREE.Mesh(geometry, bucket.material);
+  mesh.name = `StaticDecorationBatch:${bucket.chunkX}:${bucket.chunkZ}:${index}`;
+  mesh.castShadow = bucket.castShadow;
+  mesh.receiveShadow = bucket.receiveShadow;
+  mesh.renderOrder = bucket.renderOrder;
+  mesh.layers.mask = bucket.layersMask;
+  mesh.userData.isStaticDecorationBatch = true;
+  mesh.userData.sourceMeshCount = bucket.sourceMeshCount;
+  mesh.userData.sourceObjectCount = bucket.sourceObjects.size;
+  return mesh;
 }
 
 function registerStaticCullable(object, radiusPadding = STATIC_WORLD_CULL_RADIUS_PADDING) {
