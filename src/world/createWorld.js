@@ -177,7 +177,7 @@ const WORLD_PRESETS = {
       fog: '#f7f8f2',
       fogNear: 110,
       fogFar: 282,
-      sun: '#fde2e2',
+      sun: '#fff0f0',
       sunIntensity: 2.12,
       sunPosition: { x: -88, y: 48, z: 48 },
       sunTarget: { x: 0, y: 0, z: -4 },
@@ -189,9 +189,7 @@ const WORLD_PRESETS = {
       shadowBias: -0.0006,
       shadowNormalBias: 0.018,
       realtimeShadows: false,
-      bakedShadows: true,
-      toneMapping: 'neutral',
-      exposure: 1.1
+      bakedShadows: true
     },
     palette: {
       base: '#fffef8',
@@ -2103,7 +2101,7 @@ function createPath(scene, points) {
     const z = points[i].z;
     marker.position.set(x, terrainHeightAt(x, z), z);
     marker.rotation.y = i * 0.7;
-    scene.add(marker);
+    addStaticCulledObject(scene, marker);
   }
 }
 
@@ -2239,6 +2237,7 @@ function createDungeonBridge(scene, a, b, index = 0) {
   group.position.set(midX, (a.y + b.y) * 0.5 - 0.24, midZ);
   group.rotation.y = angle;
   enableDecorationShadows(group);
+  bakeObjectGroundShadow(group);
   scene.add(group);
 }
 
@@ -2953,7 +2952,7 @@ function createDungeonDecor(scene, pathPoints) {
     });
     placeOnTerrain(rubble, x, z, 0.02);
     rubble.rotation.y = random() * Math.PI * 2;
-    scene.add(rubble);
+    addStaticCulledObject(scene, rubble);
   }
 }
 
@@ -3092,7 +3091,7 @@ function createDungeonWalls(scene) {
     placeOnTerrain(peak, item.x, item.z, -0.62);
     peak.rotation.y = item.rot;
     peak.scale.z *= 1.35;
-    scene.add(peak);
+    addStaticCulledObject(scene, peak);
   });
 
   for (let i = 0; i < 108; i += 1) {
@@ -3108,7 +3107,7 @@ function createDungeonWalls(scene) {
     rock.scale.z *= 0.8 + random() * 0.8;
     placeOnTerrain(rock, x, z, -0.16);
     rock.rotation.y = random() * Math.PI * 2;
-    scene.add(rock);
+    addStaticCulledObject(scene, rock);
   }
 }
 
@@ -3161,7 +3160,7 @@ function createDungeonPlatformWalls(scene) {
       rock.scale.z *= 0.62 + random() * 0.6;
       placeOnTerrain(rock, x, z, -0.08);
       rock.rotation.y = angle + Math.PI * 0.5 + (random() - 0.5) * 0.45;
-      scene.add(rock);
+      addStaticCulledObject(scene, rock);
     }
   });
 }
@@ -3210,7 +3209,7 @@ function createDungeonPillars(scene) {
     placeOnTerrain(group, item.x, item.z);
     group.rotation.y = item.x * 0.08;
     enableDecorationShadows(group);
-    scene.add(group);
+    addStaticCulledObject(scene, group);
   });
 }
 
@@ -3221,7 +3220,7 @@ function createDungeonTraps(scene) {
       : createSpikeTrapModel(trap);
     placeOnTerrain(model, trap.x, trap.z, 0.045);
     model.rotation.y = trap.rotation ?? 0;
-    scene.add(model);
+    addStaticCulledObject(scene, model);
   });
 }
 
@@ -3237,6 +3236,7 @@ function createDungeonTorches(scene) {
     const torch = createTorchModel();
     placeOnTerrain(torch, item.x, item.z, 0.04);
     torch.rotation.y = item.x < 0 ? Math.PI * 0.5 : -Math.PI * 0.5;
+    bakeObjectGroundShadow(torch);
     scene.add(torch);
 
     const light = new THREE.PointLight('#ff9c45', 1.6, 15, 2);
@@ -3250,6 +3250,7 @@ function createDungeonCrystals(scene) {
     const cluster = createCrystalClusterModel(item.scale ?? 1, item.color ?? '#8cff5f');
     placeOnTerrain(cluster, item.x, item.z, 0.05);
     cluster.rotation.y = (item.x + item.z) * 0.08;
+    bakeObjectGroundShadow(cluster);
     scene.add(cluster);
 
     const light = new THREE.PointLight(item.color ?? '#8cff5f', 1.05, 10, 2);
@@ -3269,7 +3270,7 @@ function createDungeonBoneFields(scene) {
       : createRibBonesModel(item.scale);
     placeOnTerrain(bones, item.x, item.z, 0.08);
     bones.rotation.y = item.rot;
-    scene.add(bones);
+    addStaticCulledObject(scene, bones);
   });
 }
 
@@ -3281,6 +3282,7 @@ function createDungeonCampfires(scene) {
   ].forEach((item) => {
     const campfire = createCampfireModel(item.scale);
     placeOnTerrain(campfire, item.x, item.z, 0.06);
+    bakeObjectGroundShadow(campfire);
     scene.add(campfire);
 
     const light = new THREE.PointLight('#ffb05a', 1.45 * item.scale, 12, 2);
@@ -3329,8 +3331,7 @@ function placeDesertLandmarkBoulders(scene, pathPoints) {
     rock.scale.set(item.sx, item.sy, item.sz);
     placeOnTerrain(rock, item.x, item.z, 0.02);
     rock.rotation.y = item.rot;
-    bakeObjectGroundShadow(rock);
-    scene.add(rock);
+    addStaticCulledObject(scene, rock);
   });
 }
 
@@ -3349,8 +3350,7 @@ function placeDesertBoulderClusters(scene, pathPoints, random) {
       rock.scale.z *= 0.8 + random() * 0.56;
       placeOnTerrain(rock, x, z, 0.02);
       rock.rotation.y = random() * Math.PI * 2;
-      bakeObjectGroundShadow(rock);
-      scene.add(rock);
+      addStaticCulledObject(scene, rock);
     }
   });
 }
@@ -3374,8 +3374,7 @@ function placeDesertSandstoneLandmarks(scene, pathPoints, random) {
     landmark.rotation.y = item.rot ?? 0;
     landmark.scale.x *= item.sx ?? 1;
     landmark.scale.z *= item.sz ?? 1;
-    bakeObjectGroundShadow(landmark);
-    scene.add(landmark);
+    addStaticCulledObject(scene, landmark);
     registerDesertSandstoneNavigationBlockers(item);
   });
 }
@@ -3404,8 +3403,7 @@ function placeDesertSandstoneFields(scene, pathPoints, random) {
       pillar.rotation.y = random() * Math.PI * 2;
       pillar.scale.x *= 0.86 + random() * 0.34;
       pillar.scale.z *= 0.82 + random() * 0.4;
-      bakeObjectGroundShadow(pillar);
-      scene.add(pillar);
+      addStaticCulledObject(scene, pillar);
       registerWorldNavigationBlocker(
         point.x,
         point.z,
@@ -3602,8 +3600,7 @@ function placeDesertCanyonWalls(scene, random) {
     column.name = 'DesertCanyonWall';
     placeOnTerrain(column, wall.x, wall.z, -0.08);
     column.rotation.y = (wall.rot ?? 0) + (hash2(index * 0.61, 18.4) - 0.5) * 0.08;
-    bakeObjectGroundShadow(column);
-    scene.add(column);
+    addStaticCulledObject(scene, column);
     registerWorldNavigationBlocker(
       wall.x,
       wall.z,
@@ -3676,7 +3673,7 @@ function placeDesertPebbles(scene, pathPoints, random) {
       placeOnTerrain(pebble, x, z, 0.045);
       pebble.castShadow = true;
       pebble.receiveShadow = true;
-      scene.add(pebble);
+      addStaticCulledObject(scene, pebble);
     }
   });
 }
@@ -3697,8 +3694,7 @@ function placeCacti(scene, pathPoints, random) {
       cactus.name = 'DesertCactus';
       placeOnTerrain(cactus, x, z);
       cactus.rotation.y = random() * Math.PI * 2;
-      bakeObjectGroundShadow(cactus);
-      scene.add(cactus);
+      addStaticCulledObject(scene, cactus);
     }
   });
 }
@@ -3716,7 +3712,7 @@ function placeDesertScrub(scene, pathPoints, random) {
     );
     placeOnTerrain(scrub, x, z, 0.12);
     scrub.rotation.y = random() * Math.PI * 2;
-    scene.add(scrub);
+    addStaticCulledObject(scene, scrub);
   }
 }
 
@@ -4046,6 +4042,7 @@ function createDungeonEnemyGate(scene) {
   group.rotation.y = config.rot ?? 0;
   placeOnTerrain(group, config.x, config.z, config.offset ?? 0.08);
   enableDecorationShadows(group);
+  bakeObjectGroundShadow(group);
   scene.add(group);
 }
 
@@ -4773,7 +4770,15 @@ function bakeObjectGroundShadow(object) {
   const chunk = bakedShadowChunkFor(BAKED_SHADOW_CENTER.x, BAKED_SHADOW_CENTER.z);
 
   object.traverse((node) => {
-    if (!node.isMesh || node.userData?.skipBakedShadow) return;
+    if (!node.isMesh || node.userData?.skipBakedShadow || node.castShadow === false) return;
+    const materials = Array.isArray(node.material) ? node.material : [node.material];
+    const hasOpaqueShadowMaterial = materials.some((material) => (
+      material
+      && material.visible !== false
+      && material.transparent !== true
+      && (material.opacity ?? 1) >= 0.999
+    ));
+    if (!hasOpaqueShadowMaterial) return;
     const geometry = node.geometry;
     const position = geometry?.attributes?.position;
     if (!position) return;
