@@ -82,6 +82,41 @@ export class AttackSystem {
     return true;
   }
 
+  tryMonsterAbility(unit, target, targetDistance, targetRadius = 0) {
+    const ability = unit.definition.monsterAbility;
+    if (!ability || unit.attackTimer > 0 || unit.weapon.durability <= 0) return false;
+    const key = ability.key ?? `monster:${ability.type ?? 'ability'}`;
+    if ((unit.abilityCooldowns.get(key) ?? 0) > 0) return false;
+    const range = Math.max(0, ability.range ?? unit.definition.attackRange ?? 0);
+    if (targetDistance > range + targetRadius) return false;
+
+    const isImpactAbility = ability.type === 'venomTail' || ability.type === 'sandQuake';
+    const eventName = isImpactAbility ? 'impact' : 'release';
+    const duration = getAnimationDuration(unit, 'attack');
+    unit.abilityCooldowns.set(key, Math.max(0.1, ability.cooldown ?? 8));
+    unit.attackTimer = Math.max(
+      unit.attackTimer,
+      ability.attackLockSeconds ?? Math.min(0.85, duration * 0.72)
+    );
+    unit.visualState = 'idle';
+    playUnitAnimation(unit, 'attack', duration, {
+      variant: ability.animationVariant ?? 'monsterAbility'
+    });
+    this.queuePendingAttack({
+      source: unit,
+      target,
+      role: 'monsterAbility',
+      eventName,
+      elapsed: 0,
+      fired: false,
+      fireAt: getAnimationEventTime(unit, 'attack', eventName),
+      duration,
+      monsterAbility: ability
+    });
+    unit.spendDurability(ability.durabilityCost ?? this.game.modifiers.getDurabilityCost(unit));
+    return true;
+  }
+
   tryAttack(unit, target) {
     if (unit.attackTimer > 0 || unit.weapon.durability <= 0) return false;
     unit.attackTimer = 1 / this.game.modifiers.getAttackRate(unit);
@@ -166,6 +201,10 @@ export class AttackSystem {
     const { source, target } = attack;
     if (!source.alive) return;
     if (target?.alive === false) return;
+    if (attack.monsterAbility) {
+      this.resolveMonsterAbility(attack);
+      return;
+    }
     if (!attack.projectileOverride && target?.position && source.definition.role === 'melee') {
       const allowedRange =
         this.game.modifiers.getAttackRange(source) + targetCombatRadius(target) + 0.85;
@@ -178,6 +217,221 @@ export class AttackSystem {
       return;
     }
     this.game.combat.applyAttack(source, target);
+  }
+
+  resolveMonsterAbility(attack) {
+    const { source, target, monsterAbility: ability } = attack;
+    if (!ability || !target) return;
+    if (ability.type === 'scatterShot') {
+      this.fireScatterShot(source, target, ability);
+      return;
+    }
+    if (ability.type === 'lanternBolt') {
+      this.fireLanternBolt(source, target, ability);
+      return;
+    }
+    if (ability.type === 'frostNova') {
+      this.castFrostNova(source, target, ability);
+      return;
+    }
+    if (ability.type === 'boneWard') {
+      this.castBoneWard(source, ability);
+      return;
+    }
+    if (ability.type === 'venomTail') {
+      this.strikeVenomTail(source, target, ability);
+      return;
+    }
+    if (ability.type === 'sandQuake') {
+      this.castSandQuake(source, ability);
+    }
+  }
+
+  fireScatterShot(source, target, ability) {
+    const targetPosition = getTargetPosition(target);
+    if (!targetPosition) return;
+    const count = Math.max(1, Math.min(5, Math.floor(ability.projectileCount ?? 3)));
+    const spread = Math.max(0, ability.spread ?? 0.28);
+    const baseDirection = targetPosition.clone().sub(source.position);
+    baseDirection.y = 0;
+    if (baseDirection.lengthSq() < 0.0001) return;
+    baseDirection.normalize();
+    const maxDistance = Math.max(ability.range ?? source.definition.attackRange ?? 8, 1);
+    for (let index = 0; index < count; index += 1) {
+      const angle = (index - (count - 1) * 0.5) * spread;
+      const direction = baseDirection.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), angle);
+      this.spawnProjectile(source, target, {
+        projectileType: source.definition.projectileType ?? 'frostArrow',
+        projectileColor: source.definition.projectileColor ?? '#bcecff',
+        projectileSpeed: source.definition.projectileSpeed ?? 15,
+        damage: this.game.modifiers.getAttackDamage(source) * 0.5,
+        attackDamageType: source.definition.attackDamageType,
+        knockback: this.game.modifiers.getKnockback(source) * 0.34,
+        projectileDirection: direction,
+        projectilePierce: {
+          radius: 0.38,
+          maxDistance,
+          maxHits: 1
+        },
+        onHit: (hitTarget) => this.applyStatus(hitTarget, ability.statusBuffId ?? 'frostSnared', source, {
+          duration: ability.slowDuration ?? 2.5
+        })
+      });
+    }
+    this.spawnMonsterAbilityText(source, '散射', '#bcecff');
+  }
+
+  fireLanternBolt(source, target, ability) {
+    this.spawnProjectile(source, target, {
+      projectileType: source.definition.projectileType ?? 'lanternBolt',
+      projectileColor: source.definition.projectileColor ?? '#d7b66d',
+      projectileSpeed: source.definition.projectileSpeed ?? 18,
+      damage: Math.max(1, ability.damage ?? this.game.modifiers.getAttackDamage(source) * 1.4),
+      attackDamageType: source.definition.attackDamageType,
+      knockback: this.game.modifiers.getKnockback(source) * 0.82,
+      projectilePierce: {
+        radius: 0.5,
+        maxDistance: Math.max(ability.range ?? source.definition.attackRange ?? 10, 1),
+        maxHits: Math.max(1, Math.floor(ability.projectilePierce ?? 3))
+      },
+      onHit: (hitTarget) => this.applyStatus(hitTarget, 'marked', source, {
+        duration: ability.markDuration ?? 5
+      })
+    });
+    this.spawnMonsterAbilityText(source, '墓灯贯射', '#d7b66d');
+  }
+
+  castFrostNova(source, target, ability) {
+    const center = getTargetPosition(target);
+    if (!center) return;
+    const radius = Math.max(1, ability.radius ?? 3.4);
+    const damage = Math.max(1, ability.damage ?? 6);
+    const launch = this.getProjectileLaunchPosition(source).clone();
+    const impact = center.clone();
+    impact.y += target.projectileHitHeight ?? 1.1;
+    this.game.effects.spawnProjectileTrail(launch, impact, '#dcefff', { duration: 0.34, width: 0.1 });
+    this.damageTargetsInRadius(source, center, radius, damage, {
+      defenseDamageType: 'magic',
+      damageTypes: new Set(['undodgeable']),
+      knockback: 0.65,
+      onHit: (hitTarget) => this.applyStatus(hitTarget, ability.statusBuffId ?? 'frostSnared', source, {
+        duration: ability.slowDuration ?? 2.8
+      })
+    });
+    this.game.effects.spawnRing(center, '#dcefff', radius, 0.64);
+    this.spawnMonsterAbilityText(source, '霜爆', '#dcefff');
+  }
+
+  castBoneWard(source, ability) {
+    const radius = Math.max(1, ability.radius ?? 4.5);
+    const shieldAmount = Math.max(1, ability.shieldAmount ?? 30);
+    const maxTargets = Math.max(1, Math.floor(ability.summonCount ?? 2));
+    const candidates = this.unitsNear(source.team, source.position, radius)
+      .filter((unit) => unit.alive && !unit.underConstruction)
+      .sort((left, right) => shieldRatio(left) - shieldRatio(right));
+    if (!candidates.includes(source)) candidates.unshift(source);
+    let granted = 0;
+    for (const ally of candidates) {
+      if (granted >= maxTargets + 1) break;
+      const restored = ally.restoreShield?.(shieldAmount) ?? 0;
+      if (restored <= 0.01) continue;
+      granted += 1;
+      this.game.effects.spawnRing(ally.position, '#a8d6c3', 0.74, 0.58);
+      this.game.effects.spawnDamageNumber(ally.position, restored, {
+        text: `骨盾+${Math.round(restored)}`,
+        color: '#c9f1de',
+        stroke: '#19392f',
+        height: ally.projectileHitHeight ?? 1.55,
+        duration: 0.72,
+        fontSize: 78,
+        baseHeight: 0.48
+      });
+    }
+    this.game.effects.spawnRing(source.position, '#9fd4bc', radius, 0.68);
+    this.spawnMonsterAbilityText(source, '骨语护持', '#a8d6c3');
+  }
+
+  strikeVenomTail(source, target, ability) {
+    const landed = this.game.combat.applyAttack(source, target, {
+      damage: Math.max(1, ability.damage ?? this.game.modifiers.getAttackDamage(source) * 1.25),
+      attackDamageType: source.definition.attackDamageType,
+      knockback: this.game.modifiers.getKnockback(source) * 1.2,
+      damageTypes: new Set(['undodgeable'])
+    });
+    if (landed && target.alive) {
+      this.applyStatus(target, 'poisoned', source, {
+        duration: ability.poisonDuration ?? 4
+      });
+    }
+    this.game.effects.spawnRing(target.position, '#78b85a', 0.86, 0.48);
+    this.spawnMonsterAbilityText(source, '毒尾穿刺', '#9ac96e');
+  }
+
+  castSandQuake(source, ability) {
+    const radius = Math.max(1, ability.radius ?? 4.4);
+    const damage = Math.max(1, ability.damage ?? 14);
+    this.damageTargetsInRadius(source, source.position, radius, damage, {
+      defenseDamageType: 'physical',
+      damageTypes: new Set(['undodgeable']),
+      knockback: this.game.modifiers.getKnockback(source) * 1.3,
+      onHit: (hitTarget) => this.applyStatus(hitTarget, 'stunned', source, {
+        duration: ability.stunDuration ?? 1
+      })
+    });
+    this.game.effects.spawnRing(source.position, '#e1a961', radius, 0.78);
+    this.spawnMonsterAbilityText(source, '裂地震击', '#f3c776');
+  }
+
+  damageTargetsInRadius(source, center, radius, damage, options = {}) {
+    const targetTeam = source.team === TEAMS.PLAYER ? TEAMS.ENEMY : TEAMS.PLAYER;
+    const targets = this.unitsNear(targetTeam, center, radius);
+    for (const target of targets) {
+      if (!target.alive) continue;
+      this.game.combat.applyDamage(target, damage, source, options.knockback ?? 0, {
+        damage,
+        source,
+        target,
+        defenseDamageType: options.defenseDamageType,
+        damageTypes: options.damageTypes,
+        isAttack: false,
+        damageNumberHeight: target.projectileHitHeight ?? 1.45,
+        damageNumberDuration: 0.72
+      });
+      options.onHit?.(target);
+    }
+    const structure = source.team === TEAMS.PLAYER ? this.game.enemyCamp : this.game.playerBase;
+    if (structure?.alive && distance2D(structure.position, center) <= radius + targetCombatRadius(structure)) {
+      this.game.combat.applyAttack(source, structure, {
+        damage,
+        attackDamageType: options.defenseDamageType,
+        knockback: options.knockback ?? 0,
+        damageTypes: options.damageTypes
+      });
+    }
+  }
+
+  unitsNear(team, center, radius) {
+    const indexed = this.game.targeting?.query?.(team, center, radius);
+    if (indexed) return [...indexed];
+    const fallback = team === TEAMS.PLAYER ? this.game.friendlyUnits : this.game.enemyUnits;
+    return fallback.filter((unit) => unit.alive && distance2D(unit.position, center) <= radius);
+  }
+
+  applyStatus(target, buffId, source, overrides) {
+    if (!target?.alive || !buffId) return;
+    this.game.buffs.applyBuff(target, buffId, source, overrides);
+  }
+
+  spawnMonsterAbilityText(source, text, color) {
+    this.game.effects.spawnDamageNumber(source.position, 1, {
+      text,
+      color,
+      stroke: '#17201f',
+      height: (source.projectileHitHeight ?? 1.55) + 0.16,
+      duration: 0.62,
+      fontSize: 74,
+      baseHeight: 0.46
+    });
   }
 
   syncSourcePoseForAttackEvent(attack) {
@@ -232,11 +486,16 @@ export class AttackSystem {
       attackDamageType: override.attackDamageType ?? source.definition.attackDamageType,
       knockback: (override.knockback ?? this.game.modifiers.getKnockback(source)) * (isGreatWaterOrb ? 1.25 : 1),
       damageTypes: override.damageTypes,
+      onHit: override.onHit,
       age: 0
     };
 
     if (pierce) {
-      linearProjectileDirection.copy(target.position).sub(launchPosition);
+      if (override.projectileDirection) {
+        linearProjectileDirection.copy(override.projectileDirection);
+      } else {
+        linearProjectileDirection.copy(target.position).sub(launchPosition);
+      }
       linearProjectileDirection.y = 0;
       if (linearProjectileDirection.lengthSq() < 0.0001) {
         linearProjectileDirection.set(Math.sin(source.mesh.rotation.y), 0, Math.cos(source.mesh.rotation.y));
@@ -249,6 +508,7 @@ export class AttackSystem {
       projectile.maxDistance = pierce.maxDistance ?? this.game.modifiers.getAttackRange(source);
       projectile.maxAge = pierce.maxAge ?? projectile.maxDistance / Math.max(0.1, projectile.speed) + 0.6;
       projectile.hitIds = new Set();
+      projectile.maxHits = Math.max(1, Math.floor(pierce.maxHits ?? Number.POSITIVE_INFINITY));
       projectile.object.quaternion.setFromUnitVectors(projectileForward, projectile.direction);
     }
 
@@ -292,13 +552,7 @@ export class AttackSystem {
 
       if (distanceSq < 0.1156) {
         const hitStartedAt = profile ? performance.now() : 0;
-        this.game.combat.applyAttack(projectile.source, projectile.target, {
-          damage: projectile.damage,
-          attackDamageType: projectile.attackDamageType,
-          knockback: projectile.knockback,
-          damageTypes: projectile.damageTypes,
-          isProjectile: true
-        });
+        this.applyProjectileHit(projectile, projectile.target);
         recordProjectileProfile(profile, 'projectileHitMs', hitStartedAt);
         const removeStartedAt = profile ? performance.now() : 0;
         this.removeProjectileAt(i);
@@ -348,15 +602,26 @@ export class AttackSystem {
       if (distance2D(projectile.object.position, target.position) > hitRadius) continue;
       projectile.hitIds.add(hitKey);
       const hitStartedAt = profile ? performance.now() : 0;
-      this.game.combat.applyAttack(projectile.source, target, {
-        damage: projectile.damage,
-        attackDamageType: projectile.attackDamageType,
-        knockback: projectile.knockback,
-        damageTypes: projectile.damageTypes,
-        isProjectile: true
-      });
+      this.applyProjectileHit(projectile, target);
       recordProjectileProfile(profile, 'projectileHitMs', hitStartedAt);
+      if (projectile.hitIds.size >= projectile.maxHits) {
+        const removeStartedAt = profile ? performance.now() : 0;
+        this.removeProjectileAt(index);
+        recordProjectileProfile(profile, 'projectileRecycleMs', removeStartedAt);
+        return;
+      }
     }
+  }
+
+  applyProjectileHit(projectile, target) {
+    const landed = this.game.combat.applyAttack(projectile.source, target, {
+      damage: projectile.damage,
+      attackDamageType: projectile.attackDamageType,
+      knockback: projectile.knockback,
+      damageTypes: projectile.damageTypes,
+      isProjectile: true
+    });
+    if (landed) projectile.onHit?.(target, projectile);
   }
 
   removeProjectileAt(index) {
@@ -426,6 +691,10 @@ function isPendingAttackActive(attack) {
 
 function hasRuntimeTrait(unit, trait) {
   return unit?.runtimeTraits?.has?.(trait) === true;
+}
+
+function shieldRatio(unit) {
+  return Math.max(0, unit?.shield ?? 0) / Math.max(1, unit?.maxShield ?? 0);
 }
 
 function recordProjectileProfile(profile, key, mark) {

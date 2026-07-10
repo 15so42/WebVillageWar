@@ -47,6 +47,13 @@ export class UnitEntity {
         Math.max(0, rangedProjectile.initialCooldown ?? 0)
       );
     }
+    const monsterAbility = this.definition.monsterAbility;
+    if (monsterAbility) {
+      this.abilityCooldowns.set(
+        monsterAbility.key ?? `monster:${monsterAbility.type ?? 'ability'}`,
+        Math.max(0, monsterAbility.initialCooldown ?? 0)
+      );
+    }
     this.moveGoal = null;
     this.commandMoveGoal = null;
     this.moveGoalUsesDirectSteering = false;

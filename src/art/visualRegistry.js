@@ -5,14 +5,19 @@ import {
   createBearModel,
   createBeaconModel,
   createBerserkerModel,
+  createBoneChantOrbModel,
+  createBoneVoicePriestModel,
   createBombProjectileModel,
   createBoltModel,
   createCanteenModel,
   createCrossbowmanModel,
   createDaggerModel,
+  createDuskFrostOrbModel,
   createEnergyOrbModel,
   createEngineerModel,
   createFrostAcolyteModel,
+  createFrostArrowModel,
+  createFrostScoutModel,
   createGoblinArcherModel,
   createGoblinBomberModel,
   createGoblinHunterModel,
@@ -22,6 +27,7 @@ import {
   createHolyBoltModel,
   createIceShardModel,
   createKnightModel,
+  createLanternBoltModel,
   createMeteorModel,
   createOgreModel,
   createPhysicianModel,
@@ -30,13 +36,16 @@ import {
   createRepairStationModel,
   createRogueModel,
   createScorpionModel,
+  createSandScorpionGuardModel,
   createSkeletonArcherModel,
   createSkeletonSoldierModel,
   createShieldBearerModel,
   createSpiderEggModel,
   createSpiderModel,
   createSwordsmanModel,
+  createSnowDuskShamanModel,
   createElfSniperModel,
+  createTombLanternCrossbowmanModel,
   createVenomArcherModel,
   createVenomArrowModel,
   createWarderModel,
@@ -44,7 +53,8 @@ import {
   createWaterOrbModel,
   createWardSigilModel,
   createWizardModel,
-  createWolfModel
+  createWolfModel,
+  createYellowSandOgreModel
 } from './lowpoly.js';
 
 const UNIT_FACTORIES = {
@@ -75,6 +85,12 @@ const UNIT_FACTORIES = {
   elfSniper: () => createElfSniperModel(),
   frostAcolyte: () => createFrostAcolyteModel(),
   goblinTroll: () => createGoblinTrollModel(),
+  frostScout: () => createFrostScoutModel(),
+  snowDuskShaman: () => createSnowDuskShamanModel(),
+  tombLanternCrossbowman: () => createTombLanternCrossbowmanModel(),
+  boneVoicePriest: () => createBoneVoicePriestModel(),
+  sandScorpionGuard: () => createSandScorpionGuardModel(),
+  yellowSandOgre: () => createYellowSandOgreModel(),
   scorpion: () => createScorpionModel(),
   spider: () => createSpiderModel(),
   spiderEgg: () => createSpiderEggModel(),
@@ -93,6 +109,10 @@ const UNIT_FACTORIES = {
 
 const PROJECTILE_FACTORIES = {
   arrow: ({ color }) => createArrowModel(color),
+  frostArrow: ({ color }) => createFrostArrowModel(color),
+  duskFrostOrb: ({ color }) => createDuskFrostOrbModel(color),
+  lanternBolt: ({ color }) => createLanternBoltModel(color),
+  boneChantOrb: ({ color }) => createBoneChantOrbModel(color),
   venomArrow: ({ color }) => createVenomArrowModel(color),
   bomb: () => createBombProjectileModel(),
   iceShard: ({ color }) => createIceShardModel(color),
@@ -260,6 +280,31 @@ function applyOneShot(unit, root, name, t, state = null) {
 }
 
 function applyAttackPose(unit, root, t, pulse, variant = null) {
+  if (unit.type === 'frostScout') {
+    applyArcherAttack(root, t, pulse);
+    applyFrostScoutVolley(root, t, pulse);
+    return;
+  }
+  if (unit.type === 'tombLanternCrossbowman') {
+    applyCrossbowAttack(root, t, pulse);
+    applyTombLanternRelease(root, t, pulse);
+    return;
+  }
+  if (unit.type === 'snowDuskShaman' || unit.type === 'boneVoicePriest') {
+    applyCasterAttack(root, t, pulse);
+    applyBossCasterFocus(root, t, pulse, unit.type);
+    return;
+  }
+  if (unit.type === 'sandScorpionGuard') {
+    applyBeastAttack(root, t, pulse, unit.type);
+    applySandScorpionStrike(root, t, pulse);
+    return;
+  }
+  if (unit.type === 'yellowSandOgre') {
+    applyRaiderAttack(root, t, pulse);
+    applyYellowSandOgreSmash(root, t, pulse);
+    return;
+  }
   if (unit.type === 'goblinBomber') {
     applyBomberAttack(root, t, pulse);
     return;
@@ -573,6 +618,70 @@ function applyFrostAcolyteAttack(root, t, pulse) {
   }
   if (projectileSocket) {
     projectileSocket.scale.setScalar(1 + gather * 0.42 + release * 0.48);
+  }
+}
+
+function applyFrostScoutVolley(root, t, pulse) {
+  const { fanArrows, bowPivot } = root.userData.parts ?? {};
+  const draw = smoothstep(0.14, 0.5, t) * (1 - smoothstep(0.6, 0.94, t));
+  const release = bell(0.56, 0.64, 0.78, t);
+  if (fanArrows) {
+    fanArrows.rotation.y += draw * 0.1;
+    fanArrows.scale.set(1 + draw * 0.08, 1 + draw * 0.08, 1 + draw * 0.08);
+  }
+  if (bowPivot) {
+    bowPivot.rotation.z += release * 0.045;
+  }
+}
+
+function applyTombLanternRelease(root, t, pulse) {
+  const { lanternGlow, projectileSocket } = root.userData.parts ?? {};
+  const release = bell(0.46, 0.54, 0.7, t);
+  if (lanternGlow) {
+    lanternGlow.scale.setScalar(1 + release * 0.28 + pulse * 0.06);
+  }
+  if (projectileSocket) {
+    projectileSocket.scale.setScalar(1 + release * 0.3);
+  }
+}
+
+function applyBossCasterFocus(root, t, pulse, type) {
+  const { focus, shardRing, staffSoul, spiritRing, projectileSocket } = root.userData.parts ?? {};
+  const gather = smoothstep(0, 0.4, t) * (1 - smoothstep(0.76, 1, t));
+  const release = bell(0.46, 0.58, 0.76, t);
+  const focusObject = type === 'snowDuskShaman' ? focus : staffSoul;
+  const ringObject = type === 'snowDuskShaman' ? shardRing : spiritRing;
+  if (focusObject) {
+    focusObject.rotation.y += gather * 0.4 + release * 0.68;
+    focusObject.scale.setScalar(1 + gather * 0.18 + release * 0.24);
+  }
+  if (ringObject) {
+    ringObject.rotation.z += gather * 0.45 + release * 0.75;
+    ringObject.scale.setScalar(1 + gather * 0.22 + release * 0.18);
+  }
+  if (projectileSocket) {
+    projectileSocket.scale.setScalar(1 + gather * 0.35 + release * 0.32);
+  }
+}
+
+function applySandScorpionStrike(root, t, pulse) {
+  const { armorPlates, sting } = root.userData.parts ?? {};
+  const windup = bell(0, 0.3, 0.52, t);
+  const strike = smoothstep(0.4, 0.64, t) * (1 - smoothstep(0.78, 1, t));
+  if (armorPlates) {
+    armorPlates.rotation.y += windup * 0.08 - strike * 0.06;
+    armorPlates.position.y += windup * 0.025;
+  }
+  if (sting) {
+    sting.scale.set(1 + strike * 0.16, 1 + strike * 0.16, 1 + strike * 0.16);
+  }
+}
+
+function applyYellowSandOgreSmash(root, t, pulse) {
+  const { hammerHead } = root.userData.parts ?? {};
+  const strike = smoothstep(0.38, 0.64, t) * (1 - smoothstep(0.78, 1, t));
+  if (hammerHead) {
+    hammerHead.scale.set(1 + strike * 0.06, 1 + strike * 0.06, 1 + strike * 0.06);
   }
 }
 

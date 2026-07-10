@@ -1060,18 +1060,32 @@ export class Game {
     const director = this.enemyDirector;
     const config = this.enemyDirectorConfig;
     if (
-      director.threat >= (config.bossMinThreat ?? Number.POSITIVE_INFINITY) &&
+      director.threat >= this.enemyForceMinimumThreat('boss', config.bossMinThreat ?? Number.POSITIVE_INFINITY) &&
       director.bossCooldown <= 0
     ) {
       return 'boss';
     }
     if (
-      director.threat >= (config.eliteMinThreat ?? Number.POSITIVE_INFINITY) &&
+      director.threat >= this.enemyForceMinimumThreat('elite', config.eliteMinThreat ?? Number.POSITIVE_INFINITY) &&
       director.eliteCooldown <= 0
     ) {
       return 'elite';
     }
     return director.threat >= (config.normalSquadThreat ?? 2) ? 'normal-squad' : 'normal';
+  }
+
+  enemyForceMinimumThreat(kind, fallback) {
+    const pool = kind === 'boss'
+      ? this.levelSession.level.bossPool
+      : kind === 'elite'
+        ? this.levelSession.level.elitePool
+        : null;
+    if (!Array.isArray(pool) || !pool.length) return fallback;
+    const configured = pool
+      .map((entry) => Number(entry?.minThreat))
+      .filter(Number.isFinite);
+    if (!configured.length) return fallback;
+    return Math.max(fallback, Math.min(...configured));
   }
 
   enemyForceEnergyCost(kind) {
@@ -4794,9 +4808,17 @@ function enemyForceCount({ requestedKind, kind, threatTier, availableSlots, boss
 
 function enemyForceTypes({ level, forceId, kind, count, difficulty, threatTier, bossOrdinal, opening }) {
   const enemyPool = Array.isArray(level?.enemyPool) ? level.enemyPool : [];
+  const elitePool = Array.isArray(level?.elitePool) ? level.elitePool : [];
+  const bossPool = Array.isArray(level?.bossPool) ? level.bossPool : [];
   return Array.from({ length: count }, (_, unitIndex) => {
     if (kind === 'boss' && unitIndex === 0) {
-      return enemyBossType(enemyPool, forceId, difficulty, threatTier, bossOrdinal);
+      return selectEnemyFromPool(bossPool, threatTier, forceId + bossOrdinal, difficulty) ??
+        enemyBossType(enemyPool, forceId, difficulty, threatTier, bossOrdinal);
+    }
+    if (kind === 'elite' && unitIndex === 0) {
+      return selectEnemyFromPool(elitePool, threatTier, forceId, difficulty) ??
+        selectEnemyFromPool(enemyPool, threatTier, forceId, difficulty) ??
+        'goblinSoldier';
     }
     if (opening) return 'goblinSoldier';
     return selectEnemyFromPool(enemyPool, threatTier, forceId + unitIndex, difficulty) ?? 'goblinSoldier';

@@ -2892,6 +2892,1043 @@ export function createOgreModel() {
   return enableShadows(group);
 }
 
+// Elite and boss silhouettes are intentionally assembled here instead of being
+// palette variants of the regular enemy roster. Their part names match the
+// generic animation sockets in visualRegistry.js, while every mesh is unique.
+export function createFrostScoutModel() {
+  const group = new THREE.Group();
+  const skin = mat('#8ca7bd');
+  const coat = mat('#31576d');
+  const coatDark = mat('#203f54');
+  const fur = mat('#dcecf0');
+  const leather = mat('#4b3530');
+  const ice = mat('#8fdcff', { emissive: '#5bb8e8', emissiveIntensity: 0.28 });
+  const eye = mat('#17232d');
+
+  const body = mesh(
+    new THREE.DodecahedronGeometry(0.5, 0),
+    coat,
+    new THREE.Vector3(0, 0.91, 0),
+    new THREE.Vector3(0.82, 1.18, 0.62)
+  );
+  const coatTail = mesh(
+    new THREE.ConeGeometry(0.43, 0.82, 6),
+    coatDark,
+    new THREE.Vector3(0, 0.57, -0.09),
+    new THREE.Vector3(0.92, 1, 0.72)
+  );
+  const belt = mesh(
+    new THREE.CylinderGeometry(0.34, 0.37, 0.09, 6),
+    leather,
+    new THREE.Vector3(0, 0.82, 0),
+    new THREE.Vector3(1, 0.72, 0.82)
+  );
+  const head = mesh(
+    new THREE.DodecahedronGeometry(0.28, 0),
+    skin,
+    new THREE.Vector3(0, 1.58, 0.02),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const hood = mesh(
+    new THREE.ConeGeometry(0.34, 0.5, 6),
+    coatDark,
+    new THREE.Vector3(0, 1.87, -0.01),
+    new THREE.Vector3(1, 1, 0.9)
+  );
+  hood.rotation.z = -0.08;
+  const furBrim = mesh(
+    new THREE.CylinderGeometry(0.31, 0.34, 0.09, 6),
+    fur,
+    new THREE.Vector3(0, 1.72, 0.02),
+    new THREE.Vector3(1, 0.72, 0.84)
+  );
+  const eyeLeft = mesh(
+    new THREE.BoxGeometry(0.046, 0.034, 0.02),
+    eye,
+    new THREE.Vector3(-0.08, 1.61, 0.26),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const eyeRight = eyeLeft.clone();
+  eyeRight.position.x = 0.08;
+  const cheekScarf = mesh(
+    new THREE.BoxGeometry(0.42, 0.13, 0.055),
+    fur,
+    new THREE.Vector3(0, 1.46, 0.25),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const shoulderFur = mesh(
+    new THREE.DodecahedronGeometry(0.17, 0),
+    fur,
+    new THREE.Vector3(-0.34, 1.19, 0.03),
+    new THREE.Vector3(1.25, 0.55, 0.78)
+  );
+  const shoulderFurRight = shoulderFur.clone();
+  shoulderFurRight.position.x = 0.34;
+
+  const bowCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(-0.08, -0.64, 0),
+    new THREE.Vector3(0.17, -0.25, 0),
+    new THREE.Vector3(0.18, 0.27, 0),
+    new THREE.Vector3(-0.08, 0.66, 0)
+  ]);
+  const bow = new THREE.Mesh(new THREE.TubeGeometry(bowCurve, 6, 0.03, 5, false), leather);
+  bow.position.set(0.05, 1.09, 0.62);
+  bow.rotation.set(-Math.PI / 2, -Math.PI / 2, -Math.PI / 2);
+  const string = mesh(
+    new THREE.BoxGeometry(1.16, 0.014, 0.014),
+    fur,
+    new THREE.Vector3(0.03, 1.12, 0.62),
+    new THREE.Vector3(1, 1, 1)
+  );
+  string.rotation.set(-Math.PI / 2, -Math.PI / 2, 0);
+  const leftArm = limb(
+    new THREE.Vector3(0.31, 1.2, 0.04),
+    new THREE.Vector3(0.05, 1.1, 0.59),
+    0.058,
+    skin
+  );
+  const leftHand = mesh(
+    new THREE.DodecahedronGeometry(0.09, 0),
+    skin,
+    new THREE.Vector3(0.05, 1.1, 0.59),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const rightShoulder = new THREE.Vector3(-0.31, 1.19, 0.04);
+  const rightElbow = new THREE.Vector3(-0.35, 1.14, 0.41);
+  const rightHandPos = new THREE.Vector3(-0.22, 1.1, 0.65);
+  const rightUpperArm = limb(rightShoulder, rightElbow, 0.058, skin);
+  const rightForearm = limb(rightElbow, rightHandPos, 0.056, skin);
+  const rightHand = mesh(
+    new THREE.DodecahedronGeometry(0.09, 0),
+    skin,
+    rightHandPos,
+    new THREE.Vector3(1, 1, 1)
+  );
+
+  const scatterArrows = new THREE.Group();
+  for (const yaw of [-0.18, 0, 0.18]) {
+    const arrow = new THREE.Group();
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.68, 5), fur);
+    shaft.rotation.x = Math.PI / 2;
+    const head = new THREE.Mesh(new THREE.ConeGeometry(0.042, 0.13, 5), ice);
+    head.position.z = 0.4;
+    head.rotation.x = Math.PI / 2;
+    const feather = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.12, 4), coatDark);
+    feather.position.z = -0.37;
+    feather.rotation.x = -Math.PI / 2;
+    arrow.add(shaft, head, feather);
+    arrow.rotation.y = yaw;
+    arrow.position.x = yaw * 0.12;
+    scatterArrows.add(arrow);
+  }
+  scatterArrows.position.set(-0.21, 1.1, 0.67);
+  const quiver = mesh(
+    new THREE.CylinderGeometry(0.13, 0.16, 0.64, 6),
+    leather,
+    new THREE.Vector3(-0.34, 1.03, -0.2),
+    new THREE.Vector3(1, 1, 1)
+  );
+  quiver.rotation.z = 0.38;
+  const fletching = new THREE.Group();
+  for (const x of [-0.07, 0, 0.07]) {
+    const feather = mesh(
+      new THREE.ConeGeometry(0.04, 0.18, 4),
+      ice,
+      new THREE.Vector3(-0.34 + x, 1.39, -0.18),
+      new THREE.Vector3(1, 1, 1)
+    );
+    feather.rotation.z = 0.18 - x;
+    fletching.add(feather);
+  }
+  const legLeft = mesh(
+    new THREE.BoxGeometry(0.16, 0.52, 0.16),
+    coatDark,
+    new THREE.Vector3(-0.14, 0.27, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const legRight = legLeft.clone();
+  legRight.position.x = 0.14;
+
+  const upperBodyPivot = createPivot(
+    'frostScoutUpperBodyPivot',
+    new THREE.Vector3(0, 0.84, 0),
+    [body, coatTail, belt, head, hood, furBrim, eyeLeft, eyeRight, cheekScarf, shoulderFur, shoulderFurRight, quiver, fletching]
+  );
+  const bowPivot = createPivot(
+    'frostScoutBowPivot',
+    new THREE.Vector3(0.31, 1.2, 0.04),
+    [leftArm, leftHand, bow, string]
+  );
+  const drawForearmPivot = createPivot('frostScoutDrawForearmPivot', rightElbow, [rightForearm, rightHand, scatterArrows]);
+  const drawPivot = createPivot('frostScoutDrawPivot', rightShoulder, [rightUpperArm, drawForearmPivot]);
+  drawPivot.rotation.y = THREE.MathUtils.degToRad(10);
+
+  group.add(upperBodyPivot, bowPivot, drawPivot, legLeft, legRight);
+  group.userData.parts = {
+    upperBodyPivot,
+    bowPivot,
+    drawPivot,
+    drawForearmPivot,
+    string,
+    heldArrow: scatterArrows,
+    fanArrows: scatterArrows
+  };
+  centerModelFootprint(group);
+  group.scale.setScalar(1.04);
+  return enableShadows(group);
+}
+
+export function createSnowDuskShamanModel() {
+  const group = new THREE.Group();
+  const cloak = mat('#283f62');
+  const cloakDark = mat('#17283e');
+  const frost = mat('#d7f4ff');
+  const ice = mat('#92e6ff', { emissive: '#4bbbe9', emissiveIntensity: 0.44 });
+  const wood = mat('#4d3a36');
+  const skin = mat('#9caebd');
+  const shadow = mat('#111d2c');
+
+  const robe = mesh(
+    new THREE.ConeGeometry(0.55, 1.52, 7),
+    cloak,
+    new THREE.Vector3(0, 0.77, 0),
+    new THREE.Vector3(0.98, 1, 0.78)
+  );
+  const robeFront = mesh(
+    new THREE.ConeGeometry(0.32, 1.16, 5),
+    cloakDark,
+    new THREE.Vector3(0, 0.75, 0.4),
+    new THREE.Vector3(0.75, 1, 0.28)
+  );
+  const mantle = mesh(
+    new THREE.DodecahedronGeometry(0.42, 0),
+    frost,
+    new THREE.Vector3(0, 1.37, -0.01),
+    new THREE.Vector3(1.32, 0.44, 0.82)
+  );
+  const head = mesh(
+    new THREE.DodecahedronGeometry(0.31, 0),
+    skin,
+    new THREE.Vector3(0, 1.78, 0.04),
+    new THREE.Vector3(0.94, 1.02, 0.92)
+  );
+  const hood = mesh(
+    new THREE.ConeGeometry(0.4, 0.76, 6),
+    cloakDark,
+    new THREE.Vector3(0.01, 2.12, -0.02),
+    new THREE.Vector3(1, 1, 0.88)
+  );
+  hood.rotation.z = -0.14;
+  const faceVeil = mesh(
+    new THREE.BoxGeometry(0.35, 0.23, 0.05),
+    shadow,
+    new THREE.Vector3(0, 1.78, 0.3),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const eyeLeft = mesh(
+    new THREE.BoxGeometry(0.055, 0.026, 0.018),
+    ice,
+    new THREE.Vector3(-0.1, 1.82, 0.335),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const eyeRight = eyeLeft.clone();
+  eyeRight.position.x = 0.1;
+  const leftArm = limb(
+    new THREE.Vector3(0.39, 1.38, 0.02),
+    new THREE.Vector3(0.49, 1.06, 0.38),
+    0.07,
+    cloak
+  );
+  const leftHand = mesh(
+    new THREE.DodecahedronGeometry(0.105, 0),
+    skin,
+    new THREE.Vector3(0.49, 1.06, 0.38),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const rightArm = limb(
+    new THREE.Vector3(-0.38, 1.38, 0.02),
+    new THREE.Vector3(-0.28, 1.23, 0.33),
+    0.07,
+    cloak
+  );
+  const rightHand = mesh(
+    new THREE.DodecahedronGeometry(0.105, 0),
+    skin,
+    new THREE.Vector3(-0.28, 1.23, 0.33),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const staff = cylinderBetween(
+    new THREE.Vector3(-0.28, 0.45, 0.18),
+    new THREE.Vector3(-0.43, 2.22, 0.44),
+    0.06,
+    0.04,
+    wood
+  );
+  const staffForkLeft = cylinderBetween(
+    new THREE.Vector3(-0.43, 2.12, 0.44),
+    new THREE.Vector3(-0.62, 2.33, 0.39),
+    0.035,
+    0.024,
+    wood
+  );
+  const staffForkRight = cylinderBetween(
+    new THREE.Vector3(-0.43, 2.12, 0.44),
+    new THREE.Vector3(-0.25, 2.31, 0.47),
+    0.035,
+    0.024,
+    wood
+  );
+  const focus = mesh(
+    new THREE.OctahedronGeometry(0.15, 0),
+    ice,
+    new THREE.Vector3(-0.43, 2.28, 0.44),
+    new THREE.Vector3(0.85, 1.25, 0.85)
+  );
+  const projectileSocket = new THREE.Group();
+  projectileSocket.name = 'snowDuskIceSocket';
+  projectileSocket.position.set(-0.43, 2.28, 0.44);
+  const orbit = new THREE.Mesh(
+    new THREE.TorusGeometry(0.22, 0.015, 5, 16),
+    ice
+  );
+  orbit.rotation.y = Math.PI / 2;
+  orbit.position.set(-0.43, 2.28, 0.44);
+  const weaponSwingPivot = createPivot(
+    'snowDuskStaffSwingPivot',
+    new THREE.Vector3(-0.31, 1.32, 0.27),
+    [staff, staffForkLeft, staffForkRight, focus, projectileSocket, orbit]
+  );
+  const weaponPivot = createPivot(
+    'snowDuskStaffPivot',
+    new THREE.Vector3(-0.38, 1.38, 0.02),
+    [rightArm, rightHand, weaponSwingPivot]
+  );
+  const offhandPivot = createPivot(
+    'snowDuskOffhandPivot',
+    new THREE.Vector3(0.39, 1.38, 0.02),
+    [leftArm, leftHand]
+  );
+  const shardRing = new THREE.Group();
+  for (let i = 0; i < 5; i += 1) {
+    const angle = (i / 5) * Math.PI * 2;
+    const shard = mesh(
+      new THREE.ConeGeometry(0.045, 0.28, 5),
+      ice,
+      new THREE.Vector3(Math.cos(angle) * 0.44, 1.63 + (i % 2) * 0.08, Math.sin(angle) * 0.3),
+      new THREE.Vector3(1, 1, 1)
+    );
+    shard.rotation.z = Math.cos(angle) * 0.45;
+    shard.rotation.x = Math.sin(angle) * 0.28;
+    shardRing.add(shard);
+  }
+  const legLeft = mesh(
+    new THREE.BoxGeometry(0.17, 0.33, 0.17),
+    cloakDark,
+    new THREE.Vector3(-0.15, 0.17, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const legRight = legLeft.clone();
+  legRight.position.x = 0.15;
+
+  group.add(robe, robeFront, mantle, head, hood, faceVeil, eyeLeft, eyeRight, shardRing, weaponPivot, offhandPivot, legLeft, legRight);
+  group.userData.parts = {
+    weaponPivot,
+    weaponSwingPivot,
+    offhandPivot,
+    projectileSocket,
+    shardRing,
+    focus
+  };
+  centerModelFootprint(group);
+  group.scale.setScalar(1.22);
+  return enableShadows(group);
+}
+
+export function createTombLanternCrossbowmanModel() {
+  const group = new THREE.Group();
+  const bone = mat('#d7d1b8');
+  const boneDark = mat('#928c77');
+  const cloth = mat('#3d4147');
+  const leather = mat('#4c3529');
+  const iron = mat('#667075', { metalness: 0.2 });
+  const lanternGlow = mat('#b7ef8c', { emissive: '#6cae4a', emissiveIntensity: 0.55 });
+  const eye = mat('#a7ef91', { emissive: '#61bd5d', emissiveIntensity: 0.36 });
+
+  const pelvis = mesh(
+    new THREE.DodecahedronGeometry(0.3, 0),
+    boneDark,
+    new THREE.Vector3(0, 0.64, 0),
+    new THREE.Vector3(1, 0.55, 0.72)
+  );
+  const spine = mesh(
+    new THREE.BoxGeometry(0.08, 0.62, 0.07),
+    bone,
+    new THREE.Vector3(0, 1.05, 0.04),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const ribLeft = boxBetween(
+    new THREE.Vector3(-0.04, 1.22, 0.08),
+    new THREE.Vector3(-0.34, 1.13, 0.14),
+    0.045,
+    0.055,
+    bone
+  );
+  const ribRight = boxBetween(
+    new THREE.Vector3(0.04, 1.22, 0.08),
+    new THREE.Vector3(0.34, 1.13, 0.14),
+    0.045,
+    0.055,
+    bone
+  );
+  const ribLeftLower = boxBetween(
+    new THREE.Vector3(-0.04, 1.06, 0.08),
+    new THREE.Vector3(-0.31, 0.98, 0.14),
+    0.04,
+    0.05,
+    bone
+  );
+  const ribRightLower = boxBetween(
+    new THREE.Vector3(0.04, 1.06, 0.08),
+    new THREE.Vector3(0.31, 0.98, 0.14),
+    0.04,
+    0.05,
+    bone
+  );
+  const skull = mesh(
+    new THREE.DodecahedronGeometry(0.3, 0),
+    bone,
+    new THREE.Vector3(0, 1.66, 0.02),
+    new THREE.Vector3(1, 0.95, 0.92)
+  );
+  const jaw = mesh(
+    new THREE.BoxGeometry(0.24, 0.09, 0.07),
+    boneDark,
+    new THREE.Vector3(0, 1.47, 0.23),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const eyeLeft = mesh(
+    new THREE.BoxGeometry(0.065, 0.045, 0.022),
+    eye,
+    new THREE.Vector3(-0.09, 1.67, 0.28),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const eyeRight = eyeLeft.clone();
+  eyeRight.position.x = 0.09;
+  const hood = mesh(
+    new THREE.ConeGeometry(0.4, 0.6, 6),
+    cloth,
+    new THREE.Vector3(0, 1.97, -0.02),
+    new THREE.Vector3(1, 1, 0.88)
+  );
+  hood.rotation.z = 0.1;
+  const shoulderWrap = mesh(
+    new THREE.DodecahedronGeometry(0.38, 0),
+    cloth,
+    new THREE.Vector3(0, 1.29, -0.06),
+    new THREE.Vector3(1.22, 0.42, 0.72)
+  );
+  const legLeft = mesh(
+    new THREE.BoxGeometry(0.13, 0.55, 0.13),
+    boneDark,
+    new THREE.Vector3(-0.13, 0.28, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const legRight = legLeft.clone();
+  legRight.position.x = 0.13;
+
+  const leftArm = limb(
+    new THREE.Vector3(0.31, 1.25, 0.04),
+    new THREE.Vector3(0.4, 0.95, 0.62),
+    0.052,
+    bone
+  );
+  const leftHand = mesh(
+    new THREE.DodecahedronGeometry(0.085, 0),
+    bone,
+    new THREE.Vector3(0.4, 0.95, 0.62),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const rightArm = limb(
+    new THREE.Vector3(-0.31, 1.25, 0.04),
+    new THREE.Vector3(-0.12, 0.91, 0.56),
+    0.052,
+    bone
+  );
+  const rightHand = mesh(
+    new THREE.DodecahedronGeometry(0.085, 0),
+    bone,
+    new THREE.Vector3(-0.12, 0.91, 0.56),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const stock = mesh(
+    new THREE.BoxGeometry(0.16, 0.13, 0.76),
+    leather,
+    new THREE.Vector3(0.08, 0.99, 0.76),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const bowBar = mesh(
+    new THREE.BoxGeometry(1.1, 0.06, 0.12),
+    iron,
+    new THREE.Vector3(0.08, 1.07, 0.95),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const bowWingLeft = mesh(
+    new THREE.BoxGeometry(0.36, 0.05, 0.08),
+    iron,
+    new THREE.Vector3(-0.59, 1.07, 0.97),
+    new THREE.Vector3(1, 1, 1)
+  );
+  bowWingLeft.rotation.z = 0.3;
+  const bowWingRight = bowWingLeft.clone();
+  bowWingRight.position.x = 0.75;
+  bowWingRight.rotation.z = -0.3;
+  const string = mesh(
+    new THREE.BoxGeometry(0.98, 0.014, 0.016),
+    bone,
+    new THREE.Vector3(0.08, 1.1, 0.89),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const bolt = new THREE.Group();
+  const boltShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.64, 5), bone);
+  boltShaft.rotation.x = Math.PI / 2;
+  const boltHead = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.14, 5), lanternGlow);
+  boltHead.position.z = 0.39;
+  boltHead.rotation.x = Math.PI / 2;
+  bolt.add(boltShaft, boltHead);
+  bolt.position.set(0.08, 1.11, 0.9);
+  const projectileSocket = new THREE.Group();
+  projectileSocket.name = 'tombLanternBoltSocket';
+  projectileSocket.position.set(0.08, 1.1, 1.26);
+  const lanternFrame = new THREE.Group();
+  const lanternCore = mesh(
+    new THREE.OctahedronGeometry(0.13, 0),
+    lanternGlow,
+    new THREE.Vector3(0.32, 0.69, 0.48),
+    new THREE.Vector3(0.9, 1.15, 0.9)
+  );
+  const lanternTop = mesh(
+    new THREE.ConeGeometry(0.14, 0.14, 6),
+    iron,
+    new THREE.Vector3(0.32, 0.85, 0.48),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const lanternBottom = lanternTop.clone();
+  lanternBottom.position.y = 0.54;
+  lanternBottom.rotation.x = Math.PI;
+  const lanternChain = cylinderBetween(
+    new THREE.Vector3(0.27, 0.96, 0.36),
+    new THREE.Vector3(0.32, 0.88, 0.48),
+    0.012,
+    0.012,
+    iron
+  );
+  lanternFrame.add(lanternCore, lanternTop, lanternBottom, lanternChain);
+  const upperBodyPivot = createPivot(
+    'tombLanternUpperBodyPivot',
+    new THREE.Vector3(0, 0.9, 0),
+    [pelvis, spine, ribLeft, ribRight, ribLeftLower, ribRightLower, skull, jaw, eyeLeft, eyeRight, hood, shoulderWrap]
+  );
+  const weaponPivot = createPivot(
+    'tombLanternWeaponPivot',
+    new THREE.Vector3(0.08, 0.99, 0.58),
+    [stock, bowBar, bowWingLeft, bowWingRight, string, bolt, projectileSocket]
+  );
+  const offhandPivot = createPivot('tombLanternOffhandPivot', new THREE.Vector3(0.31, 1.25, 0.04), [leftArm, leftHand, lanternFrame]);
+  const gripPivot = createPivot('tombLanternGripPivot', new THREE.Vector3(-0.31, 1.25, 0.04), [rightArm, rightHand]);
+
+  group.add(upperBodyPivot, weaponPivot, offhandPivot, gripPivot, legLeft, legRight);
+  group.userData.parts = {
+    upperBodyPivot,
+    weaponPivot,
+    offhandPivot,
+    gripPivot,
+    projectileSocket,
+    heldBolt: bolt,
+    string,
+    lanternGlow: lanternCore
+  };
+  centerModelFootprint(group);
+  group.scale.setScalar(1.04);
+  return enableShadows(group);
+}
+
+export function createBoneVoicePriestModel() {
+  const group = new THREE.Group();
+  const bone = mat('#dfd5b7');
+  const agedBone = mat('#a79c7d');
+  const robe = mat('#46384b');
+  const robeDark = mat('#2b2332');
+  const soul = mat('#c68aff', { emissive: '#8251d9', emissiveIntensity: 0.52 });
+  const shadow = mat('#19141d');
+  const wood = mat('#5c4738');
+
+  const robeBody = mesh(
+    new THREE.ConeGeometry(0.58, 1.6, 7),
+    robe,
+    new THREE.Vector3(0, 0.8, 0),
+    new THREE.Vector3(1, 1, 0.8)
+  );
+  const robeRipLeft = mesh(
+    new THREE.ConeGeometry(0.2, 0.62, 5),
+    robeDark,
+    new THREE.Vector3(-0.32, 0.36, 0.2),
+    new THREE.Vector3(0.9, 1, 0.45)
+  );
+  const robeRipRight = robeRipLeft.clone();
+  robeRipRight.position.x = 0.32;
+  const chest = mesh(
+    new THREE.DodecahedronGeometry(0.36, 0),
+    agedBone,
+    new THREE.Vector3(0, 1.27, 0.08),
+    new THREE.Vector3(1, 0.58, 0.6)
+  );
+  const spine = mesh(
+    new THREE.BoxGeometry(0.075, 0.56, 0.06),
+    bone,
+    new THREE.Vector3(0, 1.35, 0.12),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const skull = mesh(
+    new THREE.DodecahedronGeometry(0.34, 0),
+    bone,
+    new THREE.Vector3(0, 1.91, 0.02),
+    new THREE.Vector3(1, 0.95, 0.92)
+  );
+  const jaw = mesh(
+    new THREE.BoxGeometry(0.28, 0.09, 0.07),
+    agedBone,
+    new THREE.Vector3(0, 1.72, 0.26),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const eyeLeft = mesh(
+    new THREE.BoxGeometry(0.07, 0.045, 0.022),
+    soul,
+    new THREE.Vector3(-0.11, 1.92, 0.32),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const eyeRight = eyeLeft.clone();
+  eyeRight.position.x = 0.11;
+  const crown = new THREE.Group();
+  for (let i = -2; i <= 2; i += 1) {
+    const spike = mesh(
+      new THREE.ConeGeometry(0.055, 0.38 + Math.abs(i) * 0.045, 5),
+      bone,
+      new THREE.Vector3(i * 0.12, 2.27 + (i === 0 ? 0.06 : 0), -0.01),
+      new THREE.Vector3(1, 1, 1)
+    );
+    spike.rotation.z = -i * 0.16;
+    crown.add(spike);
+  }
+  const crownBand = mesh(
+    new THREE.TorusGeometry(0.3, 0.035, 5, 12),
+    agedBone,
+    new THREE.Vector3(0, 2.16, 0.01),
+    new THREE.Vector3(1, 0.72, 0.88)
+  );
+  crownBand.rotation.x = Math.PI / 2;
+  const leftArm = limb(
+    new THREE.Vector3(0.42, 1.48, 0.03),
+    new THREE.Vector3(0.49, 1.17, 0.41),
+    0.065,
+    bone
+  );
+  const leftHand = mesh(
+    new THREE.DodecahedronGeometry(0.1, 0),
+    bone,
+    new THREE.Vector3(0.49, 1.17, 0.41),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const rightArm = limb(
+    new THREE.Vector3(-0.42, 1.48, 0.03),
+    new THREE.Vector3(-0.28, 1.3, 0.36),
+    0.065,
+    bone
+  );
+  const rightHand = mesh(
+    new THREE.DodecahedronGeometry(0.1, 0),
+    bone,
+    new THREE.Vector3(-0.28, 1.3, 0.36),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const staff = cylinderBetween(
+    new THREE.Vector3(-0.3, 0.38, 0.2),
+    new THREE.Vector3(-0.47, 2.35, 0.46),
+    0.065,
+    0.045,
+    wood
+  );
+  const staffJaw = mesh(
+    new THREE.DodecahedronGeometry(0.18, 0),
+    agedBone,
+    new THREE.Vector3(-0.47, 2.28, 0.46),
+    new THREE.Vector3(1.1, 0.75, 0.7)
+  );
+  const staffSoul = mesh(
+    new THREE.OctahedronGeometry(0.13, 0),
+    soul,
+    new THREE.Vector3(-0.47, 2.46, 0.46),
+    new THREE.Vector3(0.8, 1.2, 0.8)
+  );
+  const projectileSocket = new THREE.Group();
+  projectileSocket.name = 'boneVoiceSoulSocket';
+  projectileSocket.position.set(-0.47, 2.46, 0.46);
+  const spiritRing = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.014, 5, 18), soul);
+  spiritRing.rotation.y = Math.PI / 2;
+  spiritRing.position.set(-0.47, 2.46, 0.46);
+  const weaponSwingPivot = createPivot(
+    'boneVoiceStaffSwingPivot',
+    new THREE.Vector3(-0.31, 1.42, 0.28),
+    [staff, staffJaw, staffSoul, projectileSocket, spiritRing]
+  );
+  const weaponPivot = createPivot(
+    'boneVoiceStaffPivot',
+    new THREE.Vector3(-0.42, 1.48, 0.03),
+    [rightArm, rightHand, weaponSwingPivot]
+  );
+  const offhandPivot = createPivot(
+    'boneVoiceOffhandPivot',
+    new THREE.Vector3(0.42, 1.48, 0.03),
+    [leftArm, leftHand]
+  );
+  const ribRing = new THREE.Group();
+  for (const x of [-0.23, 0.23]) {
+    ribRing.add(boxBetween(
+      new THREE.Vector3(x * 0.15, 1.4, 0.26),
+      new THREE.Vector3(x, 1.28, 0.33),
+      0.04,
+      0.048,
+      bone
+    ));
+  }
+  const legLeft = mesh(
+    new THREE.BoxGeometry(0.16, 0.28, 0.16),
+    robeDark,
+    new THREE.Vector3(-0.15, 0.14, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const legRight = legLeft.clone();
+  legRight.position.x = 0.15;
+
+  group.add(robeBody, robeRipLeft, robeRipRight, chest, spine, skull, jaw, eyeLeft, eyeRight, crown, crownBand, ribRing, weaponPivot, offhandPivot, legLeft, legRight);
+  group.userData.parts = {
+    weaponPivot,
+    weaponSwingPivot,
+    offhandPivot,
+    projectileSocket,
+    spiritRing,
+    staffSoul
+  };
+  centerModelFootprint(group);
+  group.scale.setScalar(1.27);
+  return enableShadows(group);
+}
+
+export function createSandScorpionGuardModel() {
+  const group = new THREE.Group();
+  const shell = mat('#a66935');
+  const shellDark = mat('#6d432b');
+  const plate = mat('#d7aa59', { metalness: 0.08 });
+  const legMat = mat('#593c2e');
+  const teal = mat('#66d1c1', { emissive: '#278a80', emissiveIntensity: 0.32 });
+  const eye = mat('#13100c');
+
+  const thorax = mesh(
+    new THREE.DodecahedronGeometry(0.55, 0),
+    shell,
+    new THREE.Vector3(0, 0.47, -0.03),
+    new THREE.Vector3(1.16, 0.58, 1.35)
+  );
+  const abdomen = mesh(
+    new THREE.DodecahedronGeometry(0.46, 0),
+    shellDark,
+    new THREE.Vector3(0, 0.49, -0.63),
+    new THREE.Vector3(1.15, 0.58, 0.96)
+  );
+  const neck = mesh(
+    new THREE.DodecahedronGeometry(0.34, 0),
+    shell,
+    new THREE.Vector3(0, 0.5, 0.56),
+    new THREE.Vector3(1.04, 0.63, 0.82)
+  );
+  const head = mesh(
+    new THREE.DodecahedronGeometry(0.29, 0),
+    plate,
+    new THREE.Vector3(0, 0.53, 0.87),
+    new THREE.Vector3(1.05, 0.64, 0.78)
+  );
+  const eyeLeft = mesh(
+    new THREE.BoxGeometry(0.045, 0.035, 0.02),
+    eye,
+    new THREE.Vector3(-0.1, 0.62, 1.06),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const eyeRight = eyeLeft.clone();
+  eyeRight.position.x = 0.1;
+  const headPivot = createPivot('sandScorpionHeadPivot', new THREE.Vector3(0, 0.5, 0.57), [neck, head, eyeLeft, eyeRight]);
+  const armorPlates = new THREE.Group();
+  for (let i = 0; i < 3; i += 1) {
+    const plateMesh = mesh(
+      new THREE.DodecahedronGeometry(0.25 - i * 0.015, 0),
+      plate,
+      new THREE.Vector3(0, 0.79, -0.2 - i * 0.28),
+      new THREE.Vector3(1.22, 0.22, 0.72)
+    );
+    armorPlates.add(plateMesh);
+  }
+  const legs = new THREE.Group();
+  for (let i = 0; i < 4; i += 1) {
+    const z = 0.42 - i * 0.34;
+    const wide = 0.56 + i * 0.06;
+    const sideStep = 0.18 + (i % 2) * 0.05;
+    for (const side of [-1, 1]) {
+      const hip = new THREE.Vector3(side * 0.42, 0.43, z);
+      const knee = new THREE.Vector3(side * wide, 0.23, z + sideStep);
+      const foot = new THREE.Vector3(side * (0.96 + i * 0.03), 0.1, z + sideStep * 1.65);
+      legs.add(
+        cylinderBetween(hip, knee, 0.042, 0.032, legMat),
+        cylinderBetween(knee, foot, 0.032, 0.022, legMat)
+      );
+    }
+  }
+  const leftArm = cylinderBetween(
+    new THREE.Vector3(-0.38, 0.48, 0.66),
+    new THREE.Vector3(-0.88, 0.39, 1.08),
+    0.065,
+    0.05,
+    shell
+  );
+  const rightArm = cylinderBetween(
+    new THREE.Vector3(0.38, 0.48, 0.66),
+    new THREE.Vector3(0.88, 0.39, 1.08),
+    0.065,
+    0.05,
+    shell
+  );
+  const leftClaw = mesh(
+    new THREE.DodecahedronGeometry(0.24, 0),
+    plate,
+    new THREE.Vector3(-1.05, 0.39, 1.22),
+    new THREE.Vector3(1, 0.6, 0.75)
+  );
+  leftClaw.rotation.y = -0.5;
+  const rightClaw = leftClaw.clone();
+  rightClaw.position.x = 1.05;
+  rightClaw.rotation.y = 0.5;
+  const frontPivot = createPivot(
+    'sandScorpionFrontPivot',
+    new THREE.Vector3(0, 0.46, 0.62),
+    [leftArm, rightArm, leftClaw, rightClaw]
+  );
+  const tail = new THREE.Group();
+  const tailPoints = [
+    new THREE.Vector3(0, 0.58, -0.91),
+    new THREE.Vector3(0, 0.98, -1.12),
+    new THREE.Vector3(0, 1.39, -0.78),
+    new THREE.Vector3(0, 1.52, -0.23),
+    new THREE.Vector3(0, 1.28, 0.25)
+  ];
+  for (let i = 0; i < tailPoints.length - 1; i += 1) {
+    tail.add(
+      cylinderBetween(tailPoints[i], tailPoints[i + 1], 0.085 - i * 0.007, 0.065 - i * 0.007, shellDark),
+      mesh(
+        new THREE.DodecahedronGeometry(0.13 - i * 0.01, 0),
+        i % 2 === 0 ? plate : shellDark,
+        tailPoints[i + 1],
+        new THREE.Vector3(1, 0.8, 1)
+      )
+    );
+  }
+  const sting = mesh(
+    new THREE.ConeGeometry(0.1, 0.32, 5),
+    teal,
+    new THREE.Vector3(0, 1.12, 0.45),
+    new THREE.Vector3(1, 1, 1)
+  );
+  sting.rotation.x = Math.PI * 0.72;
+  tail.add(sting);
+  const tailPivot = createPivot('sandScorpionTailPivot', new THREE.Vector3(0, 0.58, -0.85), [tail]);
+
+  group.add(thorax, abdomen, armorPlates, legs, headPivot, frontPivot, tailPivot);
+  group.scale.setScalar(1.07);
+  group.userData.parts = {
+    headPivot,
+    frontPivot,
+    tailPivot,
+    armorPlates,
+    sting
+  };
+  centerModelFootprint(group);
+  return enableShadows(group);
+}
+
+export function createYellowSandOgreModel() {
+  const group = new THREE.Group();
+  const skin = mat('#c38e4e');
+  const skinDark = mat('#8b633d');
+  const wrap = mat('#705238');
+  const cloth = mat('#b66d35');
+  const rock = mat('#6d6255');
+  const rockLight = mat('#91816a');
+  const tusk = mat('#f1d7a0');
+  const eye = mat('#2a1c13');
+
+  const torso = mesh(
+    new THREE.DodecahedronGeometry(0.72, 0),
+    skin,
+    new THREE.Vector3(0, 1.26, 0),
+    new THREE.Vector3(1.02, 1.13, 0.76)
+  );
+  const bellyWrap = mesh(
+    new THREE.CylinderGeometry(0.58, 0.63, 0.2, 7),
+    wrap,
+    new THREE.Vector3(0, 1.0, 0.02),
+    new THREE.Vector3(1, 0.78, 0.84)
+  );
+  const shoulderLeft = mesh(
+    new THREE.DodecahedronGeometry(0.32, 0),
+    skinDark,
+    new THREE.Vector3(-0.62, 1.61, 0.02),
+    new THREE.Vector3(1.12, 0.72, 0.75)
+  );
+  const shoulderRight = shoulderLeft.clone();
+  shoulderRight.position.x = 0.62;
+  const head = mesh(
+    new THREE.DodecahedronGeometry(0.43, 0),
+    skin,
+    new THREE.Vector3(0, 2.08, 0.04),
+    new THREE.Vector3(1, 0.88, 0.9)
+  );
+  const brow = mesh(
+    new THREE.BoxGeometry(0.58, 0.1, 0.09),
+    skinDark,
+    new THREE.Vector3(0, 2.18, 0.37),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const eyeLeft = mesh(
+    new THREE.BoxGeometry(0.06, 0.042, 0.022),
+    eye,
+    new THREE.Vector3(-0.13, 2.08, 0.41),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const eyeRight = eyeLeft.clone();
+  eyeRight.position.x = 0.13;
+  const nose = mesh(
+    new THREE.DodecahedronGeometry(0.11, 0),
+    skinDark,
+    new THREE.Vector3(0, 1.96, 0.45),
+    new THREE.Vector3(0.9, 0.75, 0.7)
+  );
+  const tuskLeft = mesh(
+    new THREE.ConeGeometry(0.06, 0.28, 5),
+    tusk,
+    new THREE.Vector3(-0.18, 1.87, 0.42),
+    new THREE.Vector3(1, 1, 1)
+  );
+  tuskLeft.rotation.x = Math.PI / 2;
+  const tuskRight = tuskLeft.clone();
+  tuskRight.position.x = 0.18;
+  const braid = mesh(
+    new THREE.CylinderGeometry(0.08, 0.06, 0.54, 5),
+    wrap,
+    new THREE.Vector3(-0.33, 1.83, -0.13),
+    new THREE.Vector3(1, 1, 1)
+  );
+  braid.rotation.z = -0.16;
+  const legLeft = mesh(
+    new THREE.BoxGeometry(0.31, 0.82, 0.31),
+    skinDark,
+    new THREE.Vector3(-0.28, 0.42, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const legRight = legLeft.clone();
+  legRight.position.x = 0.28;
+  const footLeft = mesh(
+    new THREE.DodecahedronGeometry(0.24, 0),
+    skin,
+    new THREE.Vector3(-0.28, 0.1, 0.13),
+    new THREE.Vector3(1.15, 0.55, 1.32)
+  );
+  const footRight = footLeft.clone();
+  footRight.position.x = 0.28;
+  const leftArm = limb(
+    new THREE.Vector3(0.59, 1.55, 0.02),
+    new THREE.Vector3(0.8, 1.0, 0.16),
+    0.13,
+    skin
+  );
+  const leftHand = mesh(
+    new THREE.DodecahedronGeometry(0.18, 0),
+    skin,
+    new THREE.Vector3(0.8, 1.0, 0.16),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const rightArm = limb(
+    new THREE.Vector3(-0.6, 1.56, 0.02),
+    new THREE.Vector3(-0.43, 1.34, 0.35),
+    0.13,
+    skin
+  );
+  const rightHand = mesh(
+    new THREE.DodecahedronGeometry(0.18, 0),
+    skin,
+    new THREE.Vector3(-0.43, 1.34, 0.35),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const hammerShaft = cylinderBetween(
+    new THREE.Vector3(-0.43, 0.52, 0.2),
+    new THREE.Vector3(-0.43, 2.2, 0.48),
+    0.09,
+    0.075,
+    wrap
+  );
+  const hammerHead = mesh(
+    new THREE.DodecahedronGeometry(0.37, 0),
+    rock,
+    new THREE.Vector3(-0.43, 2.27, 0.5),
+    new THREE.Vector3(1.4, 0.9, 0.92)
+  );
+  const hammerCapLeft = mesh(
+    new THREE.DodecahedronGeometry(0.16, 0),
+    rockLight,
+    new THREE.Vector3(-0.78, 2.27, 0.5),
+    new THREE.Vector3(0.7, 1, 0.9)
+  );
+  const hammerCapRight = hammerCapLeft.clone();
+  hammerCapRight.position.x = -0.08;
+  const weaponSwingPivot = createPivot(
+    'yellowSandOgreHammerSwingPivot',
+    new THREE.Vector3(-0.45, 1.45, 0.31),
+    [hammerShaft, hammerHead, hammerCapLeft, hammerCapRight]
+  );
+  const weaponPivot = createPivot(
+    'yellowSandOgreHammerPivot',
+    new THREE.Vector3(-0.6, 1.56, 0.02),
+    [rightArm, rightHand, weaponSwingPivot]
+  );
+  const offhandPivot = createPivot(
+    'yellowSandOgreOffhandPivot',
+    new THREE.Vector3(0.59, 1.55, 0.02),
+    [leftArm, leftHand]
+  );
+  const backRock = mesh(
+    new THREE.DodecahedronGeometry(0.28, 0),
+    rockLight,
+    new THREE.Vector3(0.37, 1.42, -0.31),
+    new THREE.Vector3(1, 0.72, 0.6)
+  );
+
+  group.add(torso, bellyWrap, shoulderLeft, shoulderRight, head, brow, eyeLeft, eyeRight, nose, tuskLeft, tuskRight, braid, backRock, weaponPivot, offhandPivot, legLeft, legRight, footLeft, footRight);
+  group.userData.parts = {
+    weaponPivot,
+    weaponSwingPivot,
+    offhandPivot,
+    hammerHead
+  };
+  centerModelFootprint(group);
+  group.scale.setScalar(1.3);
+  return enableShadows(group);
+}
+
 export function createArrowModel(color = '#e7ddc0') {
   const group = new THREE.Group();
   const shaft = new THREE.Mesh(
@@ -2943,6 +3980,135 @@ export function createVenomArrowModel(color = '#87c75a') {
   const featherB = featherA.clone();
   featherB.rotation.z = -0.65;
   group.add(shaft, head, vial, featherA, featherB);
+  return enableShadows(group);
+}
+
+export function createFrostArrowModel(color = '#bfeeff') {
+  const group = new THREE.Group();
+  const shaftMat = mat('#d5e3e7');
+  const ice = mat(color, { emissive: '#65c5ed', emissiveIntensity: 0.4 });
+  const frost = mat('#effcff', { emissive: '#a8e9ff', emissiveIntensity: 0.22 });
+  const wrap = mat('#325f7a');
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.82, 5), shaftMat);
+  shaft.rotation.x = Math.PI / 2;
+  const facetedHead = new THREE.Mesh(new THREE.ConeGeometry(0.075, 0.23, 5), ice);
+  facetedHead.position.z = 0.51;
+  facetedHead.rotation.x = Math.PI / 2;
+  const headCollar = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.042, 0.09, 5), wrap);
+  headCollar.position.z = 0.34;
+  headCollar.rotation.x = Math.PI / 2;
+  const finLeft = new THREE.Mesh(new THREE.ConeGeometry(0.065, 0.19, 4), frost);
+  finLeft.position.set(-0.055, 0, -0.37);
+  finLeft.rotation.set(-Math.PI / 2, 0.36, 0.42);
+  const finRight = finLeft.clone();
+  finRight.position.x = 0.055;
+  finRight.rotation.y = -0.36;
+  finRight.rotation.z = -0.42;
+  const frostChip = new THREE.Mesh(new THREE.OctahedronGeometry(0.05, 0), ice);
+  frostChip.position.set(0.08, 0.02, 0.16);
+  frostChip.rotation.set(0.1, 0.4, 0.2);
+  group.add(shaft, facetedHead, headCollar, finLeft, finRight, frostChip);
+  return enableShadows(group);
+}
+
+export function createDuskFrostOrbModel(color = '#8fdfff') {
+  const group = new THREE.Group();
+  const coreMat = mat(color, {
+    emissive: '#4bbbe9',
+    emissiveIntensity: 0.7,
+    transparent: true,
+    opacity: 0.9,
+    depthWrite: false
+  });
+  const duskMat = mat('#273f63', { transparent: true, opacity: 0.78, depthWrite: false });
+  const rimMat = basicMat('#e2faff', { transparent: true, opacity: 0.76, depthWrite: false });
+  const core = new THREE.Mesh(new THREE.OctahedronGeometry(0.16, 0), coreMat);
+  core.scale.set(0.9, 1.2, 0.9);
+  const shellA = new THREE.Mesh(new THREE.TetrahedronGeometry(0.19, 0), duskMat);
+  shellA.position.set(0.13, -0.02, -0.02);
+  shellA.rotation.set(0.3, 0.62, -0.18);
+  const shellB = shellA.clone();
+  shellB.position.set(-0.12, 0.07, 0.04);
+  shellB.rotation.set(-0.25, -0.4, 0.27);
+  const ringA = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.014, 5, 16), rimMat);
+  ringA.rotation.set(Math.PI / 2, 0.22, 0.14);
+  const ringB = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.012, 5, 14), coreMat);
+  ringB.rotation.set(0.32, Math.PI / 2, -0.18);
+  const tail = new THREE.Mesh(
+    new THREE.ConeGeometry(0.11, 0.5, 6),
+    mat('#4b7ca7', { emissive: '#4bbbe9', emissiveIntensity: 0.5, transparent: true, opacity: 0.55, depthWrite: false })
+  );
+  tail.position.z = -0.34;
+  tail.rotation.x = -Math.PI / 2;
+  group.add(core, shellA, shellB, ringA, ringB, tail);
+  return enableShadows(group);
+}
+
+export function createLanternBoltModel(color = '#c7f39c') {
+  const group = new THREE.Group();
+  const wood = mat('#4a372b');
+  const iron = mat('#667579', { metalness: 0.24 });
+  const glow = mat(color, { emissive: '#74bc55', emissiveIntensity: 0.64 });
+  const bone = mat('#ddd5bd');
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.68, 5), wood);
+  shaft.rotation.x = Math.PI / 2;
+  const head = new THREE.Mesh(new THREE.ConeGeometry(0.065, 0.18, 6), iron);
+  head.position.z = 0.42;
+  head.rotation.x = Math.PI / 2;
+  const lanternCore = new THREE.Mesh(new THREE.OctahedronGeometry(0.075, 0), glow);
+  lanternCore.position.z = 0.12;
+  lanternCore.scale.set(0.82, 1.1, 0.82);
+  const lanternCage = new THREE.Mesh(new THREE.TorusGeometry(0.095, 0.012, 5, 12), iron);
+  lanternCage.position.z = 0.12;
+  lanternCage.rotation.y = Math.PI / 2;
+  const tailFin = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.045, 0.07), bone);
+  tailFin.position.z = -0.29;
+  const tailFinCross = tailFin.clone();
+  tailFinCross.rotation.z = Math.PI / 2;
+  const chainCharm = new THREE.Mesh(new THREE.TetrahedronGeometry(0.045, 0), glow);
+  chainCharm.position.set(0.055, -0.065, 0.1);
+  group.add(shaft, head, lanternCore, lanternCage, tailFin, tailFinCross, chainCharm);
+  return enableShadows(group);
+}
+
+export function createBoneChantOrbModel(color = '#d2a0ff') {
+  const group = new THREE.Group();
+  const soul = mat(color, {
+    emissive: '#8d58d5',
+    emissiveIntensity: 0.74,
+    transparent: true,
+    opacity: 0.92,
+    depthWrite: false
+  });
+  const bone = mat('#ded3b5');
+  const shadow = mat('#3a2d47', { transparent: true, opacity: 0.75, depthWrite: false });
+  const core = new THREE.Mesh(new THREE.DodecahedronGeometry(0.15, 0), soul);
+  const skullMask = new THREE.Mesh(new THREE.DodecahedronGeometry(0.12, 0), bone);
+  skullMask.position.set(0, 0.01, 0.07);
+  skullMask.scale.set(0.9, 0.76, 0.52);
+  const eyeLeft = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.028, 0.012), soul);
+  eyeLeft.position.set(-0.045, 0.02, 0.13);
+  const eyeRight = eyeLeft.clone();
+  eyeRight.position.x = 0.045;
+  const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.035, 0.025), bone);
+  jaw.position.set(0, -0.075, 0.12);
+  const chantRingA = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.014, 5, 15), soul);
+  chantRingA.rotation.set(Math.PI / 2, 0.24, 0);
+  const chantRingB = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.012, 5, 13), shadow);
+  chantRingB.rotation.set(0.22, Math.PI / 2, 0.35);
+  const boneChipLeft = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.18, 5), bone);
+  boneChipLeft.position.set(-0.19, 0.06, -0.02);
+  boneChipLeft.rotation.z = -0.75;
+  const boneChipRight = boneChipLeft.clone();
+  boneChipRight.position.x = 0.19;
+  boneChipRight.rotation.z = 0.75;
+  const tail = new THREE.Mesh(
+    new THREE.ConeGeometry(0.085, 0.4, 5),
+    mat('#6c499d', { emissive: '#8d58d5', emissiveIntensity: 0.45, transparent: true, opacity: 0.58, depthWrite: false })
+  );
+  tail.position.z = -0.3;
+  tail.rotation.x = -Math.PI / 2;
+  group.add(core, skullMask, eyeLeft, eyeRight, jaw, chantRingA, chantRingB, boneChipLeft, boneChipRight, tail);
   return enableShadows(group);
 }
 

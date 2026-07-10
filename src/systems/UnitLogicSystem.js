@@ -198,6 +198,14 @@ export class UnitLogicSystem {
       const attackRangePadding = isHoldingAttackRange
         ? attackRangeHoldPadding(unit)
         : ATTACK_RANGE_ENTER_PADDING;
+      if (this.game.attacks.tryMonsterAbility(unit, target, targetDistance, targetRadius)) {
+        unit.aiState = 'attacking';
+        unit.attackRangeHoldTargetId = holdTargetId;
+        mark = recordUnitStep(profile, 'attackDecisionMs', mark);
+        unit.movement?.applyMotion(dt);
+        recordUnitStep(profile, 'motionMs', mark);
+        return;
+      }
       if (this.game.attacks.tryRangedWeaponAbility(unit, target, targetDistance, targetRadius)) {
         unit.aiState = 'attacking';
         unit.attackRangeHoldTargetId = holdTargetId;

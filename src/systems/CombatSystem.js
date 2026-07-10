@@ -46,20 +46,22 @@ export class CombatSystem {
       scratch.copy(source.position);
       scratch.y += 0.8;
       this.game.effects.spawnHit(scratch);
-      return;
+      return true;
     }
     if (target === this.game.enemyCamp) {
       this.game.damageEnemyCamp(context.damage);
       scratch.copy(target.position);
       scratch.y += 1.6;
       this.game.effects.spawnHit(scratch);
-      return;
+      return true;
     }
 
     if (this.applyDamage(target, context.damage, source, context.knockback, context)) {
       this.game.buffs.afterDamage(context);
       this.applyPostAttackRuntimeTraits(context);
+      return true;
     }
+    return false;
   }
 
   applyDamage(target, amount, source = null, knockback = 0, context = {}) {

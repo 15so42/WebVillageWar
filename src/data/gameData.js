@@ -1571,6 +1571,378 @@ export const UNIT_DEFINITIONS = {
       durabilityCost: 0
     }
   },
+  frostScout: {
+    name: '霜箭斥候',
+    role: 'ranged',
+    art: {
+      modelKey: 'unit.frostScout',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Walk',
+        attack: 'Bow_Shot',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.8,
+          events: {
+            release: 0.56
+          }
+        },
+        hit: {
+          duration: 0.22
+        }
+      }
+    },
+    maxHealth: 64,
+    maxShield: 32,
+    collisionRadius: 0.42,
+    statusHeight: 2.06,
+    projectileHitHeight: 1.72,
+    speed: 2.76,
+    attackRange: 8.55,
+    attackRate: 0.58,
+    damage: 5.2,
+    armor: 2,
+    magicResistance: 3,
+    dodgeChance: 0.08,
+    knockback: 1.2,
+    knockbackResistance: 0.18,
+    aggroRange: 15.8,
+    projectileSpeed: 15.8,
+    projectileType: 'frostArrow',
+    projectileColor: '#bcecff',
+    monsterAbility: {
+      type: 'scatterShot',
+      key: 'frost-scout-scatter',
+      cooldown: 7.6,
+      initialCooldown: 2.8,
+      range: 9.2,
+      projectileCount: 3,
+      spread: 0.34,
+      slowDuration: 2.5,
+      statusBuffId: 'frostSnared'
+    },
+    weapon: {
+      name: '霜枝猎弓',
+      maxDurability: 42,
+      durabilityCost: 0
+    }
+  },
+  snowDuskShaman: {
+    name: '雪暮萨满',
+    role: 'ranged',
+    art: {
+      modelKey: 'unit.snowDuskShaman',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Heavy_Walk',
+        attack: 'Staff_Cast',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.92,
+          events: {
+            release: 0.58
+          }
+        },
+        hit: {
+          duration: 0.28
+        }
+      }
+    },
+    maxHealth: 116,
+    maxShield: 60,
+    collisionRadius: 0.66,
+    statusHeight: 2.72,
+    projectileHitHeight: 2.3,
+    speed: 1.92,
+    attackRange: 7.4,
+    attackRate: 0.46,
+    damage: 6.1,
+    attackDamageType: 'magic',
+    armor: 3,
+    magicResistance: 8,
+    dodgeChance: 0.02,
+    knockback: 2.6,
+    knockbackResistance: 0.58,
+    aggroRange: 14.5,
+    projectileSpeed: 9.6,
+    projectileType: 'duskFrostOrb',
+    projectileColor: '#dcefff',
+    monsterAbility: {
+      type: 'frostNova',
+      key: 'snow-dusk-nova',
+      cooldown: 10.5,
+      initialCooldown: 4.8,
+      range: 7.8,
+      radius: 3.7,
+      damage: 6.4,
+      slowDuration: 2.8,
+      statusBuffId: 'frostSnared'
+    },
+    weapon: {
+      name: '暮雪图腾杖',
+      maxDurability: 68,
+      durabilityCost: 0
+    }
+  },
+  tombLanternCrossbowman: {
+    name: '墓灯弩手',
+    role: 'ranged',
+    family: 'undead',
+    art: {
+      modelKey: 'unit.tombLanternCrossbowman',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Walk',
+        attack: 'Crossbow_Shot',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 1.08,
+          events: {
+            release: 0.5
+          }
+        },
+        hit: {
+          duration: 0.24
+        }
+      }
+    },
+    maxHealth: 88,
+    maxShield: 44,
+    collisionRadius: 0.46,
+    statusHeight: 2.18,
+    projectileHitHeight: 1.82,
+    speed: 2.38,
+    attackRange: 10.1,
+    attackRate: 0.42,
+    damage: 8.4,
+    armor: 3,
+    magicResistance: 4,
+    dodgeChance: 0.04,
+    knockback: 3.8,
+    knockbackResistance: 0.28,
+    aggroRange: 17.2,
+    projectileSpeed: 18.4,
+    projectileType: 'lanternBolt',
+    projectileColor: '#d7b66d',
+    monsterAbility: {
+      type: 'lanternBolt',
+      key: 'tomb-lantern-bolt',
+      cooldown: 8.4,
+      initialCooldown: 3.6,
+      range: 11.6,
+      projectilePierce: 3,
+      damage: 13.5,
+      markDuration: 5
+    },
+    weapon: {
+      name: '墓灯重弩',
+      maxDurability: 54,
+      durabilityCost: 0
+    },
+    traits: [
+      {
+        type: 'statusImmune',
+        statuses: ['poisoned', 'bleeding']
+      }
+    ]
+  },
+  boneVoicePriest: {
+    name: '骨语司祭',
+    role: 'ranged',
+    family: 'undead',
+    art: {
+      modelKey: 'unit.boneVoicePriest',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Heavy_Walk',
+        attack: 'Staff_Cast',
+        support: 'Staff_Cast',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.96,
+          events: {
+            release: 0.56
+          }
+        },
+        support: {
+          duration: 0.96,
+          events: {
+            release: 0.56
+          }
+        },
+        hit: {
+          duration: 0.28
+        }
+      }
+    },
+    maxHealth: 150,
+    maxShield: 82,
+    collisionRadius: 0.76,
+    statusHeight: 2.88,
+    projectileHitHeight: 2.42,
+    speed: 1.82,
+    attackRange: 8.2,
+    attackRate: 0.4,
+    damage: 6.8,
+    attackDamageType: 'magic',
+    armor: 4,
+    magicResistance: 10,
+    dodgeChance: 0.02,
+    knockback: 2.8,
+    knockbackResistance: 0.66,
+    aggroRange: 15.5,
+    projectileSpeed: 8.8,
+    projectileType: 'boneChantOrb',
+    projectileColor: '#a8d6c3',
+    monsterAbility: {
+      type: 'boneWard',
+      key: 'bone-voice-ward',
+      cooldown: 13.2,
+      initialCooldown: 5.5,
+      range: 8,
+      radius: 4.5,
+      shieldAmount: 34,
+      summonCount: 2
+    },
+    weapon: {
+      name: '骨语法杖',
+      maxDurability: 76,
+      durabilityCost: 0
+    },
+    traits: [
+      {
+        type: 'statusImmune',
+        statuses: ['poisoned', 'bleeding']
+      }
+    ]
+  },
+  sandScorpionGuard: {
+    name: '流沙蝎卫',
+    role: 'melee',
+    art: {
+      modelKey: 'unit.sandScorpionGuard',
+      rig: 'beast',
+      clips: {
+        idle: 'Idle',
+        walk: 'Skitter',
+        attack: 'Sting_Attack',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.56,
+          events: {
+            impact: 0.56
+          }
+        },
+        hit: {
+          duration: 0.24
+        }
+      }
+    },
+    maxHealth: 122,
+    maxShield: 64,
+    collisionRadius: 0.78,
+    statusHeight: 1.72,
+    projectileHitHeight: 1.38,
+    speed: 3.12,
+    attackRange: 1.36,
+    attackRate: 0.72,
+    damage: 8.6,
+    armor: 6,
+    magicResistance: 3,
+    dodgeChance: 0.05,
+    knockback: 3.2,
+    knockbackResistance: 0.54,
+    aggroRange: 13.8,
+    monsterAbility: {
+      type: 'venomTail',
+      key: 'sand-scorpion-venom-tail',
+      cooldown: 6.8,
+      initialCooldown: 2.8,
+      range: 2.35,
+      damage: 10.4,
+      poisonDuration: 4.2
+    },
+    weapon: {
+      name: '流沙毒尾',
+      maxDurability: 62,
+      durabilityCost: 0
+    }
+  },
+  yellowSandOgre: {
+    name: '黄沙食人魔',
+    role: 'melee',
+    art: {
+      modelKey: 'unit.yellowSandOgre',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Heavy_Walk',
+        attack: 'Heavy_Club_Attack',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.9,
+          events: {
+            impact: 0.64
+          }
+        },
+        hit: {
+          duration: 0.3
+        }
+      }
+    },
+    maxHealth: 188,
+    maxShield: 104,
+    collisionRadius: 1.05,
+    statusHeight: 3.08,
+    projectileHitHeight: 2.58,
+    speed: 1.62,
+    attackRange: 1.92,
+    attackRate: 0.4,
+    damage: 12.4,
+    armor: 8,
+    magicResistance: 3,
+    dodgeChance: 0.01,
+    knockback: 7.2,
+    knockbackResistance: 0.82,
+    aggroRange: 13.4,
+    monsterAbility: {
+      type: 'sandQuake',
+      key: 'yellow-sand-quake',
+      cooldown: 12.4,
+      initialCooldown: 5.2,
+      range: 3.8,
+      radius: 4.4,
+      damage: 14.5,
+      stunDuration: 1.05
+    },
+    weapon: {
+      name: '裂岩石槌',
+      maxDurability: 88,
+      durabilityCost: 0
+    }
+  },
   wolf: {
     name: '狼',
     role: 'melee',
@@ -2414,6 +2786,21 @@ export const BUFF_DEFINITIONS = {
         stat: 'moveSpeed',
         type: 'multiply',
         factor: 0.62
+      }
+    ]
+  },
+  frostSnared: {
+    name: '冰缚',
+    category: 'status',
+    color: '#bcecff',
+    duration: 2.5,
+    hidden: false,
+    negative: true,
+    modifiers: [
+      {
+        stat: 'moveSpeed',
+        type: 'multiply',
+        factor: 0.58
       }
     ]
   },
@@ -3971,6 +4358,12 @@ export const LEVEL_DEFINITIONS = [
       { type: 'goblinArcher', weight: 2, minThreat: 3, minDifficulty: 1 },
       { type: 'goblinHunter', weight: 1, minThreat: 5, minDifficulty: 2 }
     ],
+    elitePool: [
+      { type: 'frostScout', weight: 1, minThreat: 3, minDifficulty: 1 }
+    ],
+    bossPool: [
+      { type: 'snowDuskShaman', weight: 1, minThreat: 4.8, minDifficulty: 1 }
+    ],
     enemyStrategy: {
       profile: 'snow-control',
       squadSize: 3,
@@ -3986,7 +4379,9 @@ export const LEVEL_DEFINITIONS = [
     },
     enemyDirector: {
       baseEnergyPerSecond: 0.56,
-      threatPerSecond: 0.018
+      threatPerSecond: 0.018,
+      eliteMinThreat: 3,
+      bossMinThreat: 4.8
     },
     world: {
       sceneKey: 'snow-valley'
@@ -4008,8 +4403,13 @@ export const LEVEL_DEFINITIONS = [
       { type: 'spider', weight: 1, minThreat: 2, minDifficulty: 1 },
       { type: 'goblinHunter', weight: 2, minThreat: 4, minDifficulty: 1 },
       { type: 'goblinShaman', weight: 1, minThreat: 5, minDifficulty: 2 },
-      { type: 'skeletonSoldier', weight: 2, minThreat: 3, minDifficulty: 2 },
-      { type: 'goblinTroll', weight: 1, minThreat: 4, minDifficulty: 2 }
+      { type: 'skeletonSoldier', weight: 2, minThreat: 3, minDifficulty: 2 }
+    ],
+    elitePool: [
+      { type: 'tombLanternCrossbowman', weight: 1, minThreat: 3.5, minDifficulty: 2 }
+    ],
+    bossPool: [
+      { type: 'boneVoicePriest', weight: 1, minThreat: 5.6, minDifficulty: 2 }
     ],
     enemyStrategy: {
       profile: 'dungeon-choke',
@@ -4026,7 +4426,9 @@ export const LEVEL_DEFINITIONS = [
     },
     enemyDirector: {
       baseEnergyPerSecond: 0.62,
-      threatPerSecond: 0.02
+      threatPerSecond: 0.02,
+      eliteMinThreat: 3.5,
+      bossMinThreat: 5.6
     },
     world: {
       sceneKey: 'dungeon-halls'
@@ -4050,9 +4452,13 @@ export const LEVEL_DEFINITIONS = [
       { type: 'goblinHunter', weight: 2, minThreat: 3, minDifficulty: 1 },
       { type: 'goblinShaman', weight: 2, minThreat: 4, minDifficulty: 1 },
       { type: 'skeletonArcher', weight: 2, minThreat: 4, minDifficulty: 2 },
-      { type: 'elfSniper', weight: 1, minThreat: 7, minDifficulty: 3 },
-      { type: 'scorpion', weight: 2, minThreat: 3, minDifficulty: 1 },
-      { type: 'ogre', weight: 1, minThreat: 5, minDifficulty: 2 }
+      { type: 'elfSniper', weight: 1, minThreat: 7, minDifficulty: 3 }
+    ],
+    elitePool: [
+      { type: 'sandScorpionGuard', weight: 1, minThreat: 3.8, minDifficulty: 3 }
+    ],
+    bossPool: [
+      { type: 'yellowSandOgre', weight: 1, minThreat: 6.2, minDifficulty: 3 }
     ],
     enemyStrategy: {
       profile: 'desert-pressure',
@@ -4070,7 +4476,9 @@ export const LEVEL_DEFINITIONS = [
     },
     enemyDirector: {
       baseEnergyPerSecond: 0.68,
-      threatPerSecond: 0.022
+      threatPerSecond: 0.022,
+      eliteMinThreat: 3.8,
+      bossMinThreat: 6.2
     },
     world: {
       sceneKey: 'red-desert'
