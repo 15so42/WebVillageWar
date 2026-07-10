@@ -379,7 +379,6 @@ const BOSS_CORE_REWARDS = [
   }
 ];
 const SUMMON_DEPLOY_RADIUS = 7.5;
-const BEACON_PLACEMENT_RADIUS = 5.5;
 const SPIDER_FIRST_EGG_SECONDS = 37;
 const SPIDER_EGG_INTERVAL_SECONDS = 60;
 const SPIDER_EGG_HATCH_SECONDS = 15;
@@ -410,11 +409,12 @@ const PERF_LABELS = {
   loot: '掉落',
   mechanics: '关卡机制',
   navDebug: '寻路显示',
+  playerBaseAttack: '基地防御火力',
   recovery: '恢复',
   render: '渲染',
   selection: '选择',
   spiders: '蜘蛛生命周期',
-  strategySpawn: '敌军战略攻势',
+  strategySpawn: '敌军能量指挥',
   structure: '基地/营地反馈',
   unitVisuals: '单位视觉',
   waveSpawn: '刷怪/生成',
@@ -592,18 +592,30 @@ export class Game {
     this.friendlyUnits = this.unitRegistry.friendlyUnits;
     this.enemyUnits = this.unitRegistry.enemyUnits;
     this.score = 0;
-    this.wave = 0;
-    this.enemyStrategyConfig = {
-      ...(BALANCE.enemyStrategy ?? {}),
-      ...(this.levelSession.level.enemyStrategyDirector ?? {})
+    this.enemyDirectorConfig = {
+      ...(BALANCE.enemyDirector ?? {}),
+      ...(this.levelSession.level.enemyDirector ?? {})
     };
-    this.strategyAttackIndex = 0;
-    this.strategySpawnTimer = this.enemyStrategyConfig.initialDelaySeconds ?? 7;
-    this.currentStrategyAssault = null;
+    const directorMaxEnergy = Math.max(1, Number(this.enemyDirectorConfig.maxEnergy ?? 30));
+    const directorStartingEnergy = Number(this.enemyDirectorConfig.startingEnergy ?? 0);
+    const directorBaseThreat = Number(this.enemyDirectorConfig.baseThreat ?? 1);
+    this.enemyDirector = {
+      energy: clamp(Number.isFinite(directorStartingEnergy) ? directorStartingEnergy : 0, 0, directorMaxEnergy),
+      threat: Math.max(0, Number.isFinite(directorBaseThreat) ? directorBaseThreat : 1),
+      threatTier: Math.max(1, Math.floor(Number.isFinite(directorBaseThreat) ? directorBaseThreat : 1)),
+      forceSerial: 0,
+      bossesDeployed: 0,
+      initialDelayRemaining: Math.max(0, Number(this.enemyDirectorConfig.initialDelaySeconds ?? 7)),
+      decisionTimer: 0,
+      eliteCooldown: 0,
+      bossCooldown: 0
+    };
+    this.currentEnemyForce = null;
     this.pendingStrategyRewards = [];
     this.bossesDefeated = 0;
     this.strategyEvent = null;
     this.enemyCampAttackTimer = 0;
+    this.playerBaseAttackTimer = 0;
     this.lastCardPlayed = null;
     this.selectedUnit = null;
     this.selectedUnits = [];
@@ -821,7 +833,7 @@ export class Game {
       });
       this.spawnEnemyWave(1, { orders: 'guard' });
     } else {
-      this.updateStrategyPreview();
+      this.renderEnemyDirectorPanel();
     }
 
     window.__VILLAGE_WAR_DEBUG__ = {
@@ -914,9 +926,10 @@ export class Game {
     const runStep = (name, action) => this.runFrameStep(name, action);
     const runPerfStep = (name, action) => runStep(name, () => this.measurePerf(name, action));
     if (perf) {
-      runPerfStep('strategySpawn', () => this.updateEnemyStrategyFlow(dt));
+      runPerfStep('strategySpawn', () => this.updateEnemyDirector(dt));
       runPerfStep('card', () => this.cardSystem.update(dt));
       runPerfStep('abilities', () => this.abilities.update(dt));
+      runPerfStep('playerBaseAttack', () => this.updatePlayerBaseAttack(dt));
       runPerfStep('enemyCampAttack', () => this.updateEnemyCampAttack(dt));
       runPerfStep('enemyCommander', () => this.enemyCommander.update(dt));
       runPerfStep('spiders', () => this.updateSpiderLifecycle(dt));
@@ -941,9 +954,10 @@ export class Game {
       this.recordPerfSample();
       this.updatePerfPanel(dt);
     } else {
-      runStep('strategySpawn', () => this.updateEnemyStrategyFlow(dt));
+      runStep('strategySpawn', () => this.updateEnemyDirector(dt));
       runStep('card', () => this.cardSystem.update(dt));
       runStep('abilities', () => this.abilities.update(dt));
+      runStep('playerBaseAttack', () => this.updatePlayerBaseAttack(dt));
       runStep('enemyCampAttack', () => this.updateEnemyCampAttack(dt));
       runStep('enemyCommander', () => this.enemyCommander.update(dt));
       runStep('spiders', () => this.updateSpiderLifecycle(dt));
@@ -968,92 +982,238 @@ export class Game {
     this.checkLevelEnd();
   }
 
-  updateEnemyStrategyFlow(dt) {
+  updateEnemyDirector(dt) {
     if (this.levelSession.debug || this.levelFinished || this.strategyEvent) return;
-    const activeEnemyCount = this.enemyUnits.filter((unit) => unit.alive && !unit.isWildlife).length;
-    const activeEnemyLimit = Math.max(1, Math.floor(this.enemyStrategyConfig.activeEnemyLimit ?? 12));
-    if (activeEnemyCount >= activeEnemyLimit) {
-      this.strategySpawnTimer = Math.max(
-        this.strategySpawnTimer,
-        this.enemyStrategyConfig.backpressureSeconds ?? 1.2
-      );
-      return;
+    const director = this.enemyDirector;
+    director.threatUpdateTimer = Math.max(0, (director.threatUpdateTimer ?? 0) - dt);
+    if (director.threatUpdateTimer <= 0) {
+      director.threat = this.calculateEnemyThreat();
+      director.threatTier = Math.max(1, Math.floor(director.threat));
+      director.threatUpdateTimer = 0.5;
     }
+    director.energy = Math.min(
+      this.enemyEnergyCapacity(),
+      director.energy + this.enemyEnergyRecoveryPerSecond() * dt
+    );
+    director.initialDelayRemaining = Math.max(0, director.initialDelayRemaining - dt);
+    director.eliteCooldown = Math.max(0, director.eliteCooldown - dt);
+    director.bossCooldown = Math.max(0, director.bossCooldown - dt);
+    if (director.initialDelayRemaining > 0) return;
 
-    this.strategySpawnTimer -= dt;
-    if (this.strategySpawnTimer > 0) return;
+    director.decisionTimer -= dt;
+    if (director.decisionTimer > 0) return;
+    director.decisionTimer = Math.max(0.1, this.enemyDirectorConfig.decisionIntervalSeconds ?? 0.35);
 
-    const assault = this.createStrategyAssault(this.strategyAttackIndex + 1);
-    const availableSlots = Math.max(1, activeEnemyLimit - activeEnemyCount);
-    assault.count = Math.min(assault.count, availableSlots);
-    assault.types = assault.types.slice(0, assault.count);
-    this.strategyAttackIndex = assault.index;
-    this.wave = assault.index;
-    this.currentStrategyAssault = assault;
-    this.spawnEnemyWave(assault.index, {
-      orders: 'attack',
-      waveConfig: assault
-    });
-    this.strategySpawnTimer = this.strategySpawnInterval(assault);
-    this.updateStrategyPreview();
+    const activeEnemyCount = this.enemyUnits.filter((unit) => unit.alive && !unit.isWildlife).length;
+    const activeEnemyLimit = Math.max(1, Math.floor(this.enemyDirectorConfig.activeEnemyLimit ?? 12));
+    const availableSlots = activeEnemyLimit - activeEnemyCount;
+    if (availableSlots <= 0) return;
+
+    const force = this.chooseEnemyForce(availableSlots);
+    if (!force) return;
+    director.energy = Math.max(0, director.energy - force.energyCost);
+    director.forceSerial = force.id;
+    if (force.kind === 'elite') {
+      director.eliteCooldown = Math.max(0, this.enemyDirectorConfig.eliteCooldownSeconds ?? 20);
+    }
+    if (force.kind === 'boss') {
+      director.bossesDeployed += 1;
+      director.bossCooldown = Math.max(0, this.enemyDirectorConfig.bossCooldownSeconds ?? 60);
+    }
+    this.currentEnemyForce = force;
+    this.spawnEnemyForce(force);
+    this.updateEnemyDirectorPanel();
     this.updateHud(0);
   }
 
-  createStrategyAssault(index) {
-    const kind = strategyAssaultKind(index, this.enemyStrategyConfig);
-    const difficulty = strategyAssaultDifficulty(this.levelSession, index, this.enemyStrategyConfig);
-    const bossOrdinal = kind === 'boss'
-      ? Math.max(1, Math.floor(index / Math.max(1, this.enemyStrategyConfig.bossInterval ?? 12)))
-      : 0;
-    const earlyWeakAssaults = Math.max(0, Math.floor(this.enemyStrategyConfig.earlyWeakAssaults ?? 4));
-    const affixId = index > earlyWeakAssaults
-      ? chooseWaveAffix(index, kind, this.levelSession.level.waveAffixFlow)
-      : null;
-    const count = strategyAssaultCount(kind, index, difficulty, this.enemyStrategyConfig, bossOrdinal);
-    return {
-      index,
+  calculateEnemyThreat() {
+    const config = this.enemyDirectorConfig;
+    const aliveFriendlyUnits = this.friendlyUnits.reduce((count, unit) => (
+      count + (unit.alive && !unit.isWildlife ? 1 : 0)
+    ), 0);
+    const playerAltars = (this.altars?.altars ?? []).reduce((count, altar) => (
+      count + (altar.owner === TEAMS.PLAYER ? 1 : 0)
+    ), 0);
+    const campHealthRatio = this.enemyCamp?.maxHealth > 0
+      ? clamp(this.enemyCamp.health / this.enemyCamp.maxHealth, 0, 1)
+      : 1;
+    const threat =
+      (config.baseThreat ?? 1) +
+      this.elapsedTime * Math.max(0, config.threatPerSecond ?? 0) +
+      aliveFriendlyUnits * Math.max(0, config.threatPerFriendlyUnit ?? 0) +
+      playerAltars * Math.max(0, config.threatPerPlayerAltar ?? 0) +
+      (1 - campHealthRatio) * Math.max(0, config.threatPerEnemyCampDamageRatio ?? 0);
+    return clamp(threat, 0, Math.max(1, config.maxThreat ?? 10));
+  }
+
+  enemyEnergyCapacity() {
+    return Math.max(1, Number(this.enemyDirectorConfig.maxEnergy ?? 30));
+  }
+
+  enemyEnergyRecoveryPerSecond() {
+    const base = Math.max(0, Number(this.enemyDirectorConfig.baseEnergyPerSecond ?? 0.58));
+    const perThreat = Math.max(0, Number(this.enemyDirectorConfig.energyPerThreat ?? 0.11));
+    return base + this.enemyDirector.threat * perThreat;
+  }
+
+  enemyForceTargetKind() {
+    const director = this.enemyDirector;
+    const config = this.enemyDirectorConfig;
+    if (
+      director.threat >= (config.bossMinThreat ?? Number.POSITIVE_INFINITY) &&
+      director.bossCooldown <= 0
+    ) {
+      return 'boss';
+    }
+    if (
+      director.threat >= (config.eliteMinThreat ?? Number.POSITIVE_INFINITY) &&
+      director.eliteCooldown <= 0
+    ) {
+      return 'elite';
+    }
+    return director.threat >= (config.normalSquadThreat ?? 2) ? 'normal-squad' : 'normal';
+  }
+
+  enemyForceEnergyCost(kind) {
+    if (kind === 'boss') return Math.max(1, Number(this.enemyDirectorConfig.bossCost ?? 25));
+    if (kind === 'elite') return Math.max(1, Number(this.enemyDirectorConfig.eliteCost ?? 11.5));
+    if (kind === 'normal-squad') return Math.max(1, Number(this.enemyDirectorConfig.normalSquadCost ?? 7.5));
+    return Math.max(1, Number(this.enemyDirectorConfig.normalCost ?? 4.2));
+  }
+
+  chooseEnemyForce(availableSlots) {
+    const director = this.enemyDirector;
+    const reserveFraction = clamp(this.enemyDirectorConfig.reserveFraction ?? 0.72, 0, 1);
+    const targetKind = this.enemyForceTargetKind();
+    if (targetKind === 'boss') {
+      const bossCost = this.enemyForceEnergyCost('boss');
+      const boss = this.createEnemyForce('boss', availableSlots);
+      if (boss && director.energy >= bossCost) return boss;
+      if (director.energy >= bossCost * reserveFraction) return null;
+    }
+    if (targetKind === 'elite' || targetKind === 'boss') {
+      const eliteCost = this.enemyForceEnergyCost('elite');
+      const elite = this.createEnemyForce('elite', availableSlots);
+      if (elite && director.energy >= eliteCost) return elite;
+      if (targetKind === 'elite' && director.energy >= eliteCost * reserveFraction) return null;
+    }
+
+    if (director.threat >= (this.enemyDirectorConfig.normalSquadThreat ?? 2)) {
+      const squad = this.createEnemyForce('normal-squad', availableSlots);
+      if (squad && director.energy >= squad.energyCost) return squad;
+    }
+    const normal = this.createEnemyForce('normal', availableSlots);
+    return normal && director.energy >= normal.energyCost ? normal : null;
+  }
+
+  createEnemyForce(requestedKind, availableSlots) {
+    const director = this.enemyDirector;
+    const kind = requestedKind === 'normal-squad' ? 'normal' : requestedKind;
+    const threatTier = Math.max(1, director.threatTier);
+    const minimumCount = requestedKind === 'normal-squad' || kind !== 'normal' ? 2 : 1;
+    if (availableSlots < minimumCount) return null;
+    const forceId = director.forceSerial + 1;
+    const bossOrdinal = kind === 'boss' ? director.bossesDeployed + 1 : 0;
+    const count = enemyForceCount({
+      requestedKind,
       kind,
+      threatTier,
+      availableSlots,
+      bossOrdinal
+    });
+    const opening = director.threat <= (this.enemyDirectorConfig.openingThreatEnd ?? 2.4);
+    const effectiveDifficulty = resolveSessionBaseDifficulty(this.levelSession) + Math.max(0, threatTier - 1);
+    const affixId = threatTier >= 3
+      ? chooseDirectorAffix(threatTier, kind, this.levelSession.level.waveAffixFlow)
+      : null;
+    return {
+      id: forceId,
+      kind,
+      requestedKind,
+      threat: director.threat,
+      threatTier,
       bossOrdinal,
       count,
+      energyCost: this.enemyForceEnergyCost(requestedKind),
       affixId,
-      effectiveDifficulty: difficulty,
-      types: strategyAssaultTypes({
+      opening,
+      effectiveDifficulty,
+      types: enemyForceTypes({
         level: this.levelSession.level,
-        index,
+        forceId,
         kind,
         count,
-        difficulty,
+        difficulty: effectiveDifficulty,
+        threatTier,
         bossOrdinal,
-        earlyWeakAssaults
+        opening
       })
     };
   }
 
-  strategySpawnInterval(assault) {
-    const base = Math.max(2, this.enemyStrategyConfig.spawnIntervalSeconds ?? 12);
-    const minimum = Math.max(2, this.enemyStrategyConfig.minimumSpawnIntervalSeconds ?? 7.5);
-    const pressure = Math.max(0, assault.index - 1) * 0.32;
-    const bossBreather = assault.kind === 'boss' ? 3.5 : 0;
-    return Math.max(minimum, base - pressure) + bossBreather;
+  renderEnemyDirectorPanel() {
+    const root = this.dom.wavePreview;
+    if (!root) return;
+    root.innerHTML = `
+      <div class="enemy-director-panel">
+        <div class="enemy-director-heading">
+          <strong>敌军能量</strong>
+          <span data-enemy-director="threat">威胁 1.0</span>
+        </div>
+        <div class="enemy-energy-meter" aria-label="敌军共享能量">
+          <span data-enemy-director="energy-fill"></span>
+          <em data-enemy-director="energy-value">0 / 30</em>
+        </div>
+        <p data-enemy-director="intent">侦察准备中</p>
+      </div>
+    `;
+    this.enemyDirectorUi = {
+      threat: root.querySelector('[data-enemy-director="threat"]'),
+      fill: root.querySelector('[data-enemy-director="energy-fill"]'),
+      energy: root.querySelector('[data-enemy-director="energy-value"]'),
+      intent: root.querySelector('[data-enemy-director="intent"]')
+    };
+    this.updateEnemyDirectorPanel();
+  }
+
+  updateEnemyDirectorPanel() {
+    const ui = this.enemyDirectorUi;
+    if (!ui) return;
+    const director = this.enemyDirector;
+    const cap = this.enemyEnergyCapacity();
+    const energy = clamp(director.energy, 0, cap);
+    if (ui.threat) ui.threat.textContent = `威胁 ${director.threat.toFixed(1)}`;
+    if (ui.energy) ui.energy.textContent = `${energy.toFixed(1)} / ${cap}`;
+    if (ui.fill) ui.fill.style.width = `${(energy / cap) * 100}%`;
+    if (ui.intent) ui.intent.textContent = this.enemyDirectorIntent();
+  }
+
+  enemyDirectorIntent() {
+    const director = this.enemyDirector;
+    if (director.initialDelayRemaining > 0) {
+      return `侦察准备 ${Math.ceil(director.initialDelayRemaining)} 秒`;
+    }
+    const kind = this.enemyForceTargetKind();
+    const cost = this.enemyForceEnergyCost(kind);
+    const label = enemyForceKindLabel(kind);
+    if (director.energy >= cost) return `正在调度 ${label}`;
+    const reserve = clamp(this.enemyDirectorConfig.reserveFraction ?? 0.72, 0, 1);
+    if ((kind === 'elite' || kind === 'boss') && director.energy >= cost * reserve) {
+      return `储备 ${label}`;
+    }
+    return `蓄能：${label}`;
   }
 
   updateStrategyPreview() {
-    const root = this.dom.wavePreview;
-    if (!root) return;
-    const assaults = Array.from({ length: WAVE_PREVIEW_COUNT }, (_, offset) => (
-      this.createStrategyAssault(this.strategyAttackIndex + offset + 1)
-    ));
-    root.innerHTML = `
-      <div class="wave-preview-track" style="--wave-node-count: ${assaults.length}">
-        ${assaults.map((assault, offset) => `
-          <div class="wave-preview-node is-${cssKey(assault.kind)}${offset === 0 ? ' is-active' : ''}">
-            <span class="wave-node-dot">${escapeHtml(assault.index)}</span>
-            <strong>${escapeHtml(strategyAssaultKindLabel(assault))}</strong>
-            <span>${escapeHtml(strategyAssaultPreview(assault))}</span>
-          </div>
-        `).join('')}
-      </div>
-    `;
+    this.updateEnemyDirectorPanel();
+  }
+
+  spawnEnemyForce(force) {
+    if (!force) return;
+    this.spawnEnemyWave(force.threatTier, {
+      orders: 'attack',
+      waveConfig: force
+    });
   }
 
   queueStrategyReward(type, options = {}) {
@@ -1116,7 +1276,7 @@ export class Game {
       const summonPool = this.selectedCardPool({ kind: 'summon' });
       return {
         type,
-        kicker: '第一波准备',
+        kicker: '开局准备',
         title: '选择第一张单位卡',
         summary: '开局抽牌堆为空，先从本局出战单位牌中选择一张，随后再补一张支援卡。',
         choices: this.openingUnitChoices({
@@ -1136,12 +1296,17 @@ export class Game {
       };
     }
     if (type === 'elite-reward') {
+      const force = options.force ?? this.currentEnemyForce;
+      const forceThreat = Number(force?.threat ?? this.enemyDirector.threat);
+      const threatLabel = Number.isFinite(forceThreat)
+        ? forceThreat.toFixed(1)
+        : this.enemyDirector.threat.toFixed(1);
       return {
         type,
-        kicker: `精英战利品 / 威胁 ${options.assault?.index ?? this.strategyAttackIndex}`,
+        kicker: `精英战利品 / 威胁 ${threatLabel}`,
         title: '选择精英奖励',
         summary: '精英被击败后获得一次局内强化，选择更适合当前战线的方向。',
-        choices: this.createWaveRewardOptionChoices(options.assault ?? this.currentStrategyAssault)
+        choices: this.createWaveRewardOptionChoices(force)
       };
     }
     if (type === 'altar-reward') {
@@ -1151,14 +1316,14 @@ export class Game {
         kicker: `占领 ${altarName}`,
         title: '选择占领奖励',
         summary: '祭坛会持续提供其领域效果；夺下它时再选择一次即时构筑奖励。',
-        choices: this.createWaveRewardOptionChoices(this.currentStrategyAssault)
+        choices: this.createWaveRewardOptionChoices(this.currentEnemyForce)
       };
     }
     if (type === 'wave-reward') {
       return {
         type,
         kicker: waveEventKicker(options.wave),
-        title: '选择本波奖励',
+        title: '选择战场奖励',
         summary: '从奖励池随机出现 3 个方向，选择后进入对应奖励或直接获得临时牌。',
         choices: this.createWaveRewardOptionChoices(options.wave)
       };
@@ -1216,14 +1381,14 @@ export class Game {
     const isOpeningSupport = options.openingSupport === true;
     return {
       type: 'card-choice',
-      kicker: isOpening || isOpeningSupport ? '第一波准备' : waveEventKicker(options.wave),
+      kicker: isOpening || isOpeningSupport ? '开局准备' : waveEventKicker(options.wave),
       title: isOpeningSupport ? '选择一张支援卡' : isOpening ? '选择第一张卡' : '选择一张新卡',
       summary: isOpeningSupport
-        ? '再从本局出战牌组中选择一张卡，降低第一波压力。'
+        ? '再从本局出战牌组中选择一张卡，降低前期压力。'
         : isOpening
           ? '开局抽牌堆为空，从本局出战牌组中选择第一张牌。'
           : options.fallbackFrom
-            ? '当前事件没有可用目标，改为选择一张新卡作为本波奖励。'
+            ? '当前事件没有可用目标，改为选择一张新卡作为本次奖励。'
             : '候选牌只来自本局出战牌组，会作为新实例加入抽牌堆。',
       choices: isOpeningSupport
         ? this.randomCardChoices({
@@ -1370,7 +1535,8 @@ export class Game {
   }
 
   nextUpcomingWave() {
-    return this.createStrategyAssault(this.strategyAttackIndex + 1);
+    const limit = Math.max(2, Math.floor(this.enemyDirectorConfig.activeEnemyLimit ?? 12));
+    return this.createEnemyForce(this.enemyForceTargetKind(), limit) ?? this.currentEnemyForce;
   }
 
   createBossCoreChoices() {
@@ -2049,15 +2215,15 @@ export class Game {
   handleUnitDeath(unit, source = null) {
     const defeatedElite = unit?.team === TEAMS.ENEMY && unit.isElite === true;
     const defeatedBoss = unit?.team === TEAMS.ENEMY && unit.isBoss === true;
-    const assault = unit?.strategyAssault ?? this.currentStrategyAssault;
+    const force = unit?.enemyForce ?? this.currentEnemyForce;
     const handled = this.unitRegistry.handleDeath(unit, source);
     if (!handled) return false;
 
     if (defeatedBoss) {
       this.bossesDefeated += 1;
-      this.queueStrategyReward('boss-reward', { assault, boss: unit });
+      this.queueStrategyReward('boss-reward', { force, boss: unit });
     } else if (defeatedElite) {
-      this.queueStrategyReward('elite-reward', { assault, elite: unit });
+      this.queueStrategyReward('elite-reward', { force, elite: unit });
     }
     return true;
   }
@@ -2121,9 +2287,12 @@ export class Game {
 
   canPlaceBeaconAt(point) {
     if (!point) return false;
-    return this.getBeaconPlacementAnchors().some((anchor) => (
-      Math.hypot(point.x - anchor.position.x, point.z - anchor.position.z) <= anchor.radius
-    ));
+    return (
+      Math.abs(point.x) <= BALANCE.battlefield.halfWidth &&
+      point.z >= BALANCE.battlefield.minZ &&
+      point.z <= BALANCE.battlefield.maxZ &&
+      this.isPointWalkable(point)
+    );
   }
 
   getSummonDeploymentAnchors() {
@@ -2143,19 +2312,6 @@ export class Game {
       });
     });
     return anchors;
-  }
-
-  getBeaconPlacementAnchors() {
-    return this.friendlyUnits
-      .filter((unit) => (
-        unit.alive &&
-        !unit.underConstruction &&
-        !unit.isBuilding
-      ))
-      .map((unit) => ({
-        position: unit.position,
-        radius: BEACON_PLACEMENT_RADIUS
-      }));
   }
 
   applySummonCardLevel(unit, card) {
@@ -2216,6 +2372,66 @@ export class Game {
     return turret;
   }
 
+  updatePlayerBaseAttack(dt) {
+    if (this.levelFinished || !this.playerBase?.alive) return;
+    this.playerBaseAttackTimer = Math.max(0, (this.playerBaseAttackTimer ?? 0) - dt);
+    if (this.playerBaseAttackTimer > 0) return;
+    const target = this.findPlayerBaseAttackTarget();
+    if (!target) {
+      this.playerBaseAttackTimer = ENEMY_CAMP_IDLE_SCAN_SECONDS;
+      return;
+    }
+    this.playerBaseAttackTimer = Math.max(0.1, BALANCE.playerBase.attackInterval ?? 1);
+    this.applyPlayerBaseAttack(target);
+  }
+
+  findPlayerBaseAttackTarget() {
+    if (!this.playerBase?.alive) return null;
+    const range = Math.max(0, BALANCE.playerBase.attackRange ?? 8.5);
+    const baseRadius = targetCombatRadius(this.playerBase);
+    let best = null;
+    let bestScore = Number.POSITIVE_INFINITY;
+    this.enemyUnits.forEach((unit) => {
+      if (!unit.alive || unit.isWildlife || !unit.position) return;
+      const distance = Math.max(
+        0,
+        flatDistance(this.playerBase.position, unit.position) - baseRadius - targetCombatRadius(unit)
+      );
+      if (distance > range) return;
+      const healthRatio = unit.health / Math.max(1, unit.maxHealth);
+      const score = distance + healthRatio * 0.2 + (unit.isBoss ? -0.2 : 0);
+      if (score >= bestScore) return;
+      best = unit;
+      bestScore = score;
+    });
+    return best;
+  }
+
+  applyPlayerBaseAttack(target) {
+    if (!target?.alive || !target.takeRawDamage) return;
+    const damage = Math.max(0, BALANCE.playerBase.attackDamage ?? 7);
+    if (damage <= 0) return;
+    const start = this.playerBase.position.clone();
+    start.y += this.playerBase.projectileHitHeight ?? 2.1;
+    const end = target.position.clone();
+    end.y += target.projectileHitHeight ?? 1.45;
+    this.effects.spawnEnemyCampBlast(start, end, {
+      color: '#b7e8ff',
+      hotColor: '#6adbb8'
+    });
+    target.takeRawDamage(damage, { bypassShield: false });
+    target.statusUiDirty = true;
+    this.effects.spawnDamageNumber(target.position, damage, {
+      color: '#9eeedb',
+      stroke: '#12342d',
+      height: target.projectileHitHeight ?? 1.45,
+      duration: 0.72
+    });
+    if (target.alive === false) {
+      this.handleUnitDeath(target, null);
+    }
+  }
+
   updateEnemyCampAttack(dt) {
     if (this.levelFinished || !this.enemyCamp?.alive) return;
     this.enemyCampAttackTimer = Math.max(0, (this.enemyCampAttackTimer ?? 0) - dt);
@@ -2273,11 +2489,11 @@ export class Game {
     }
   }
 
-  spawnEnemyWave(wave, { orders = 'attack', waveConfig = null } = {}) {
-    const difficulty = waveConfig?.effectiveDifficulty ?? this.effectiveDifficultyForWave(wave);
+  spawnEnemyWave(threatTier, { orders = 'attack', waveConfig = null } = {}) {
+    const difficulty = waveConfig?.effectiveDifficulty ?? this.effectiveDifficultyForThreat(threatTier);
     const count = waveConfig?.count ?? Math.min(
       MAX_ACTIVE_WAVE_SPAWNS,
-      2 + Math.floor(wave * 0.72) + Math.floor((difficulty - 1) * 0.45)
+      2 + Math.floor(threatTier * 0.72) + Math.floor((difficulty - 1) * 0.45)
     );
     const spawnedUnits = [];
     for (let i = 0; i < count; i += 1) {
@@ -2285,16 +2501,16 @@ export class Game {
       const position = this.resolveWalkablePoint(this.enemyCamp.position.clone().setY(0).add(offset));
       position.y = this.groundHeightAt(position);
       const unit = new UnitEntity({
-        type: this.enemyTypeForWave(wave, i, difficulty, waveConfig),
+        type: this.enemyTypeForThreat(threatTier, i, difficulty, waveConfig),
         team: TEAMS.ENEMY,
         position
       });
-      unit.strategyAssault = waveConfig ?? null;
-      this.applyEnemyDifficulty(unit, wave, difficulty);
-      this.applyStrategyAssaultScaling(unit, waveConfig);
-      this.applyWaveModifiers(unit, waveConfig, i);
-      this.applyWaveAffixModifiers(unit, waveConfig);
-      this.applySpiderSpawnTraits(unit, wave, difficulty, i);
+      unit.enemyForce = waveConfig ?? null;
+      this.applyEnemyDifficulty(unit, threatTier, difficulty);
+      this.applyOpeningForceScaling(unit, waveConfig);
+      this.applyEnemyForceModifiers(unit, waveConfig, i);
+      this.applyEnemyForceAffixModifiers(unit, waveConfig);
+      this.applySpiderSpawnTraits(unit, threatTier, difficulty, i);
       this.initializeSpiderLifecycle(unit);
       this.attachUnitStatus(unit);
       this.registerUnit(unit);
@@ -2303,42 +2519,42 @@ export class Game {
         this.orderEnemyAttack(unit, i, count);
       }
     }
-    this.enemyCommander?.registerWave(spawnedUnits, wave, orders);
+    this.enemyCommander?.registerWave(spawnedUnits, threatTier, orders);
   }
 
-  enemyTypeForWave(wave, index, difficulty, waveConfig = null) {
+  enemyTypeForThreat(threatTier, index, difficulty, waveConfig = null) {
     if (waveConfig?.types?.length) {
       return waveConfig.types[index % waveConfig.types.length];
     }
     const pool = this.levelSession.level.enemyPool ?? [];
-    const pooledType = selectEnemyFromPool(pool, wave, index, difficulty);
+    const pooledType = selectEnemyFromPool(pool, threatTier, index, difficulty);
     if (pooledType) return pooledType;
 
-    const wizardUnlocked = difficulty >= 4 || wave >= 7;
+    const wizardUnlocked = difficulty >= 4 || threatTier >= 7;
     if (wizardUnlocked) {
       const wizardEvery = difficulty >= 6 ? 5 : 7;
-      if ((index * 3 + wave) % wizardEvery === 0) return 'wizard';
+      if ((index * 3 + threatTier) % wizardEvery === 0) return 'wizard';
     }
-    const ogreUnlocked = difficulty >= 3 || wave >= 5;
+    const ogreUnlocked = difficulty >= 3 || threatTier >= 5;
     if (ogreUnlocked) {
       const ogreEvery = difficulty >= 5 ? 4 : 6;
-      if ((index + wave * 2) % ogreEvery === 0) return 'ogre';
+      if ((index + threatTier * 2) % ogreEvery === 0) return 'ogre';
     }
-    const skeletonArcherUnlocked = difficulty >= 3 || wave >= 4;
-    if (skeletonArcherUnlocked && (index + wave * 3) % 5 === 1) {
+    const skeletonArcherUnlocked = difficulty >= 3 || threatTier >= 4;
+    if (skeletonArcherUnlocked && (index + threatTier * 3) % 5 === 1) {
       return 'skeletonArcher';
     }
-    const skeletonUnlocked = difficulty >= 2 || wave >= 2;
-    if (skeletonUnlocked && (index + wave) % 3 === 1) {
+    const skeletonUnlocked = difficulty >= 2 || threatTier >= 2;
+    if (skeletonUnlocked && (index + threatTier) % 3 === 1) {
       return 'skeletonSoldier';
     }
-    const archerUnlocked = difficulty >= 2 || wave >= 3;
+    const archerUnlocked = difficulty >= 2 || threatTier >= 3;
     if (!archerUnlocked) return 'goblinSoldier';
     const archerEvery = difficulty >= 5 ? 2 : difficulty >= 3 ? 3 : 4;
-    return (index + wave) % archerEvery === 0 ? 'goblinArcher' : 'goblinSoldier';
+    return (index + threatTier) % archerEvery === 0 ? 'goblinArcher' : 'goblinSoldier';
   }
 
-  applyWaveModifiers(unit, waveConfig, index) {
+  applyEnemyForceModifiers(unit, waveConfig, index) {
     if (!waveConfig) return;
     if (waveConfig.kind === 'elite') {
       if (index !== 0) return;
@@ -2349,7 +2565,7 @@ export class Game {
         { stat: 'maxShield', type: 'multiply', amount: 1.55 },
         { stat: 'attackDamage', type: 'multiply', amount: 1.22 },
         { stat: 'knockbackResistance', type: 'add', amount: 0.14 }
-      ], `wave:${waveConfig.index}:elite`);
+      ], `force:${waveConfig.id ?? waveConfig.index ?? 0}:elite`);
       unit.health = unit.maxHealth;
       unit.shield = 0;
       unit.weapon.durability = unit.weapon.maxDurability;
@@ -2367,7 +2583,7 @@ export class Game {
         { stat: 'attackDamage', type: 'multiply', amount: 1.35 + bossRank * 0.12 },
         { stat: 'knockback', type: 'multiply', amount: 1.18 },
         { stat: 'knockbackResistance', type: 'add', amount: 0.28 + bossRank * 0.04 }
-      ], `wave:${waveConfig.index}:boss`);
+      ], `force:${waveConfig.id ?? waveConfig.index ?? 0}:boss`);
       unit.health = unit.maxHealth;
       unit.shield = unit.maxShield;
       unit.weapon.durability = unit.weapon.maxDurability;
@@ -2379,12 +2595,12 @@ export class Game {
       { stat: 'maxHealth', type: 'multiply', amount: 1.18 },
       { stat: 'attackDamage', type: 'multiply', amount: 1.08 },
       { stat: 'knockbackResistance', type: 'add', amount: 0.08 }
-    ], `wave:${waveConfig.index}:boss-support`);
+    ], `force:${waveConfig.id ?? waveConfig.index ?? 0}:boss-support`);
     unit.health = unit.maxHealth;
     unit.shield = 0;
   }
 
-  applyWaveAffixModifiers(unit, waveConfig) {
+  applyEnemyForceAffixModifiers(unit, waveConfig) {
     const affixId = waveConfig?.affixId;
     if (!affixId) return;
     const affix = WAVE_AFFIX_DEFINITIONS[affixId];
@@ -2408,13 +2624,13 @@ export class Game {
     return resolveSessionBaseDifficulty(this.levelSession);
   }
 
-  effectiveDifficultyForWave(wave = this.wave) {
-    return this.effectiveDifficulty() + waveDifficultyBonus(wave, this.levelSession);
+  effectiveDifficultyForThreat(threatTier = this.enemyDirector?.threatTier ?? 1) {
+    return this.effectiveDifficulty() + Math.max(0, Math.floor(threatTier) - 1);
   }
 
-  applyEnemyDifficulty(unit, wave, difficulty) {
-    const healthFactor = 1 + (difficulty - 1) * 0.14 + (wave - 1) * 0.035;
-    const damageFactor = 1 + (difficulty - 1) * 0.12 + (wave - 1) * 0.025;
+  applyEnemyDifficulty(unit, threatTier, difficulty) {
+    const healthFactor = 1 + (difficulty - 1) * 0.14 + (threatTier - 1) * 0.035;
+    const damageFactor = 1 + (difficulty - 1) * 0.12 + (threatTier - 1) * 0.025;
     unit.attributes.addModifiers([
       {
         stat: 'maxHealth',
@@ -2432,41 +2648,28 @@ export class Game {
         amount: damageFactor
       }
     ], 'level:difficulty');
-    this.applyEnemyStartingBuffs(unit, wave, difficulty);
+    this.applyEnemyStartingBuffs(unit, threatTier, difficulty);
     unit.health = unit.maxHealth;
     unit.clampToAttributeCaps();
   }
 
-  applyStrategyAssaultScaling(unit, assault) {
-    if (!assault) return;
-    const earlyWeakAssaults = Math.max(0, Math.floor(this.enemyStrategyConfig.earlyWeakAssaults ?? 0));
-    if (earlyWeakAssaults <= 0 || assault.index > earlyWeakAssaults) return;
-    const progress = earlyWeakAssaults <= 1
-      ? 1
-      : (assault.index - 1) / (earlyWeakAssaults - 1);
-    const healthFactor = THREE.MathUtils.lerp(
-      this.enemyStrategyConfig.earlyHealthMultiplier ?? 0.62,
-      0.9,
-      progress
-    );
-    const damageFactor = THREE.MathUtils.lerp(
-      this.enemyStrategyConfig.earlyDamageMultiplier ?? 0.56,
-      0.86,
-      progress
-    );
+  applyOpeningForceScaling(unit, force) {
+    if (!force?.opening) return;
+    const healthFactor = Math.max(0.1, this.enemyDirectorConfig.openingHealthMultiplier ?? 0.62);
+    const damageFactor = Math.max(0.1, this.enemyDirectorConfig.openingDamageMultiplier ?? 0.56);
     unit.attributes.addModifiers([
       { stat: 'maxHealth', type: 'multiply', amount: healthFactor },
       { stat: 'maxShield', type: 'multiply', amount: healthFactor },
       { stat: 'attackDamage', type: 'multiply', amount: damageFactor }
-    ], `strategy:opening:${assault.index}`);
+    ], `director:opening:${force.id ?? 0}`);
     unit.health = unit.maxHealth;
     unit.shield = Math.min(unit.shield, unit.maxShield);
   }
 
-  applyEnemyStartingBuffs(unit, wave, difficulty) {
+  applyEnemyStartingBuffs(unit, threatTier, difficulty) {
     const startingBuffs = unit.definition.startingBuffs ?? [];
     if (!startingBuffs.length) return;
-    const scalingLevel = enemyEnchantmentLevel(wave, difficulty);
+    const scalingLevel = enemyEnchantmentLevel(threatTier, difficulty);
     startingBuffs.forEach((entry) => {
       const level = (entry.level ?? 1) + (entry.scalesWithDifficulty ? scalingLevel - 1 : 0);
       this.buffs.applyBuff(unit, entry.buffId, unit, {
@@ -2476,11 +2679,11 @@ export class Game {
     });
   }
 
-  applySpiderSpawnTraits(unit, wave, difficulty, seedIndex = 0) {
+  applySpiderSpawnTraits(unit, threatTier, difficulty, seedIndex = 0) {
     if (unit.type !== 'spider') return;
-    if (stableEnemyRoll(wave, seedIndex + unit.id * 17, difficulty) % 3 !== 0) return;
+    if (stableEnemyRoll(threatTier, seedIndex + unit.id * 17, difficulty) % 3 !== 0) return;
     this.buffs.applyBuff(unit, 'poison', unit, {
-      level: enemyEnchantmentLevel(wave, difficulty),
+      level: enemyEnchantmentLevel(threatTier, difficulty),
       sourceUnitType: unit.type
     });
   }
@@ -2554,8 +2757,8 @@ export class Game {
     if (!egg.alive) return;
     const position = egg.position.clone();
     position.y = this.groundHeightAt(position);
-    const wave = this.wave;
-    const difficulty = this.currentStrategyAssault?.effectiveDifficulty ?? this.effectiveDifficultyForWave(wave);
+    const threatTier = egg.enemyForce?.threatTier ?? this.enemyDirector?.threatTier ?? 1;
+    const difficulty = egg.enemyForce?.effectiveDifficulty ?? this.effectiveDifficultyForThreat(threatTier);
     this.removeEnemyUnitSilently(egg);
 
     const spider = new UnitEntity({
@@ -2563,7 +2766,8 @@ export class Game {
       team: TEAMS.ENEMY,
       position
     });
-    this.applyEnemyDifficulty(spider, wave, difficulty);
+    this.applyEnemyDifficulty(spider, threatTier, difficulty);
+    spider.enemyForce = egg.enemyForce ?? this.currentEnemyForce ?? null;
     this.initializeSpiderLifecycle(spider);
     this.attachUnitStatus(spider);
     this.registerUnit(spider);
@@ -3176,7 +3380,7 @@ export class Game {
     this.onLevelComplete?.({
       victory,
       elapsedTime: this.elapsedTime,
-      threat: this.strategyAttackIndex,
+      threat: Number(this.enemyDirector.threat.toFixed(1)),
       session: this.levelSession,
       playerBaseHealth: this.playerBase.health,
       enemyCampHealth: this.enemyCamp.health,
@@ -4203,11 +4407,10 @@ export class Game {
       );
       this.dom.baseHealth.textContent = `${baseRatio}%`;
     }
-    this.dom.waveLabel.textContent = this.strategyAttackIndex > 0
-      ? `#${this.strategyAttackIndex}`
-      : '侦察';
+    this.dom.waveLabel.textContent = this.enemyDirector.threat.toFixed(1);
     this.dom.battleTime.textContent = formatBattleTime(this.elapsedTime);
     this.dom.unitCount.textContent = String(this.friendlyUnits.length);
+    this.updateEnemyDirectorPanel();
     if (this.selectedUnits.length > 1) {
       if (this.dom.selectedPanel) this.dom.selectedPanel.hidden = false;
       const totalHealth = Math.round(
@@ -4275,7 +4478,7 @@ export class Game {
     this.perfHistory.push({
       sampleId: sample.sampleId,
       elapsedTime: Number(this.elapsedTime.toFixed(1)),
-      threat: this.strategyAttackIndex,
+      threat: Number(this.enemyDirector.threat.toFixed(1)),
       fps: sample.fps ?? 0,
       sections: sample.sections ?? {},
       counts: sample.counts ?? {}
@@ -4378,13 +4581,30 @@ export class Game {
     drawPerfLegend(ctx, width, height, framePeak);
   }
 
+  enemyDirectorSnapshot() {
+    const director = this.enemyDirector;
+    return {
+      energy: Number(director.energy.toFixed(2)),
+      maxEnergy: this.enemyEnergyCapacity(),
+      energyPerSecond: Number(this.enemyEnergyRecoveryPerSecond().toFixed(2)),
+      threat: Number(director.threat.toFixed(2)),
+      threatTier: director.threatTier,
+      targetKind: this.enemyForceTargetKind(),
+      initialDelaySeconds: Number(Math.max(0, director.initialDelayRemaining).toFixed(1)),
+      eliteCooldownSeconds: Number(Math.max(0, director.eliteCooldown).toFixed(1)),
+      bossCooldownSeconds: Number(Math.max(0, director.bossCooldown).toFixed(1)),
+      forcesDeployed: director.forceSerial,
+      bossesDeployed: director.bossesDeployed
+    };
+  }
+
   perfDebugSnapshot() {
     return {
       level: this.levelSession.level.id,
       sceneKey: this.world.config?.sceneKey ?? this.worldConfig.sceneKey,
       elapsedTime: Number(this.elapsedTime.toFixed(1)),
-      threat: this.strategyAttackIndex,
-      nextStrategySpawnSeconds: Number(Math.max(0, this.strategySpawnTimer).toFixed(1)),
+      threat: Number(this.enemyDirector.threat.toFixed(1)),
+      enemyDirector: this.enemyDirectorSnapshot(),
       counts: this.createPerfCounters(),
       pathWorker: {
         ready: this.pathWorkerReady,
@@ -4404,15 +4624,16 @@ export class Game {
       elapsedTime: Number(this.elapsedTime.toFixed(1)),
       friendly: this.friendlyUnits.length,
       enemies: this.enemyUnits.length,
-      threat: this.strategyAttackIndex,
-      nextStrategySpawnSeconds: Number(Math.max(0, this.strategySpawnTimer).toFixed(1)),
+      threat: Number(this.enemyDirector.threat.toFixed(1)),
+      enemyDirector: this.enemyDirectorSnapshot(),
       pendingStrategyRewards: this.pendingStrategyRewards.length,
-      currentStrategyAssault: this.currentStrategyAssault
+      currentEnemyForce: this.currentEnemyForce
         ? {
-            index: this.currentStrategyAssault.index,
-            kind: this.currentStrategyAssault.kind,
-            count: this.currentStrategyAssault.count,
-            difficulty: this.currentStrategyAssault.effectiveDifficulty
+            id: this.currentEnemyForce.id,
+            kind: this.currentEnemyForce.kind,
+            count: this.currentEnemyForce.count,
+            threatTier: this.currentEnemyForce.threatTier,
+            difficulty: this.currentEnemyForce.effectiveDifficulty
           }
         : null,
       baseHealth: Math.round(this.playerBase.health),
@@ -4556,6 +4777,61 @@ function normalizeLevelSession(session) {
     debug: session?.debug === true,
     startedAt: session?.startedAt ?? Date.now()
   };
+}
+
+function enemyForceCount({ requestedKind, kind, threatTier, availableSlots, bossOrdinal }) {
+  if (kind === 'boss') {
+    return Math.min(availableSlots, 2 + Math.floor(Math.max(0, bossOrdinal - 1) / 2));
+  }
+  if (kind === 'elite') {
+    return Math.min(availableSlots, 2 + Math.floor(Math.max(0, threatTier - 4) / 4));
+  }
+  if (requestedKind === 'normal-squad') {
+    return Math.min(availableSlots, 2 + Math.floor(Math.max(0, threatTier - 4) / 5));
+  }
+  return 1;
+}
+
+function enemyForceTypes({ level, forceId, kind, count, difficulty, threatTier, bossOrdinal, opening }) {
+  const enemyPool = Array.isArray(level?.enemyPool) ? level.enemyPool : [];
+  return Array.from({ length: count }, (_, unitIndex) => {
+    if (kind === 'boss' && unitIndex === 0) {
+      return enemyBossType(enemyPool, forceId, difficulty, threatTier, bossOrdinal);
+    }
+    if (opening) return 'goblinSoldier';
+    return selectEnemyFromPool(enemyPool, threatTier, forceId + unitIndex, difficulty) ?? 'goblinSoldier';
+  });
+}
+
+function enemyBossType(enemyPool, forceId, difficulty, threatTier, bossOrdinal) {
+  const levelBossPool = enemyPool.filter((entry) => WAVE_BOSS_TYPES.includes(entry?.type));
+  const fallbackPool = WAVE_BOSS_TYPES.map((type) => ({
+    type,
+    weight: 1,
+    minThreat: WAVE_MONSTER_UNLOCKS[type]?.minWave ?? 1,
+    minDifficulty: 1
+  }));
+  return selectEnemyFromPool(
+    levelBossPool.length ? levelBossPool : fallbackPool,
+    threatTier,
+    forceId + bossOrdinal,
+    difficulty
+  ) ?? 'goblinTroll';
+}
+
+function chooseDirectorAffix(threatTier, kind, flow = DEFAULT_WAVE_AFFIX_FLOW) {
+  const usable = normalizeWaveAffixFlow(flow);
+  const offset = Math.max(0, Math.floor(threatTier) - 3);
+  const affixId = usable[offset % usable.length];
+  if (WAVE_AFFIX_DEFINITIONS[affixId]) return affixId;
+  return kind === 'boss' ? 'siege' : 'swarm';
+}
+
+function enemyForceKindLabel(kind) {
+  if (kind === 'boss') return 'Boss 部队';
+  if (kind === 'elite') return '精英部队';
+  if (kind === 'normal-squad') return '小怪小队';
+  return '小怪';
 }
 
 function strategyAssaultKind(index, config = {}) {
@@ -4804,8 +5080,8 @@ function chooseWaveAffix(index, kind, flow = DEFAULT_WAVE_AFFIX_FLOW) {
 }
 
 function waveAffixLevel(waveConfig) {
-  const waveIndex = Math.max(1, Math.floor(waveConfig?.index ?? 1));
-  return 1 + Math.floor((waveIndex - 1) / WAVES_PER_BOSS);
+  const threatTier = Math.max(1, Math.floor(waveConfig?.threatTier ?? waveConfig?.index ?? 1));
+  return 1 + Math.floor((threatTier - 1) / 3);
 }
 
 function waveKindLabel(wave) {
@@ -4821,7 +5097,14 @@ function waveAffixLabel(affixId) {
 }
 
 function waveEventKicker(wave) {
-  if (!wave) return '波次事件';
+  if (!wave) return '战场事件';
+  const forceThreat = Number(wave.threat ?? wave.threatTier);
+  if (Number.isFinite(forceThreat) || wave.requestedKind) {
+    const kind = wave.requestedKind ?? wave.kind ?? 'normal';
+    const affix = wave.affixId ? ` · ${waveAffixLabel(wave.affixId)}` : '';
+    const threat = Number.isFinite(forceThreat) ? ` / 威胁 ${forceThreat.toFixed(1)}` : '';
+    return `敌军${enemyForceKindLabel(kind)}${threat}${affix}`;
+  }
   return `第 ${wave.index} 波结束 / ${waveKindLabel(wave)} · ${waveAffixLabel(wave.affixId)}`;
 }
 
@@ -5065,7 +5348,7 @@ function strategyEventTypeMeta(type) {
     return { key: 'opening', mark: '初', label: '开局选牌' };
   }
   if (type === 'wave-reward') {
-    return { key: 'choice', mark: '奖', label: '波次奖励' };
+    return { key: 'choice', mark: '奖', label: '战场奖励' };
   }
   if (type === 'card-kind-choice') {
     return { key: 'choice', mark: '选', label: '选牌奖励' };
@@ -5250,20 +5533,20 @@ function touchGestureMetrics(points) {
   };
 }
 
-function enemyEnchantmentLevel(wave, difficulty) {
-  return 1 + Math.floor((Math.max(1, difficulty) - 1) / 2) + Math.floor((Math.max(1, wave) - 1) / 4);
+function enemyEnchantmentLevel(threatTier, difficulty) {
+  return 1 + Math.floor((Math.max(1, difficulty) - 1) / 2) + Math.floor((Math.max(1, threatTier) - 1) / 3);
 }
 
-function selectEnemyFromPool(pool, wave, index, difficulty) {
+function selectEnemyFromPool(pool, threatTier, index, difficulty) {
   if (!Array.isArray(pool) || pool.length === 0) return null;
   const candidates = pool.filter((entry) => (
-    wave >= (entry.minWave ?? 1) &&
+    threatTier >= (entry.minThreat ?? entry.minWave ?? 1) &&
     difficulty >= (entry.minDifficulty ?? 1)
   ));
   if (!candidates.length) return pool[0]?.type ?? null;
 
   const totalWeight = candidates.reduce((sum, entry) => sum + Math.max(1, entry.weight ?? 1), 0);
-  let roll = stableEnemyRoll(wave, index, difficulty) % totalWeight;
+  let roll = stableEnemyRoll(threatTier, index, difficulty) % totalWeight;
   for (const entry of candidates) {
     roll -= Math.max(1, entry.weight ?? 1);
     if (roll < 0) return entry.type;
@@ -5271,9 +5554,9 @@ function selectEnemyFromPool(pool, wave, index, difficulty) {
   return candidates[candidates.length - 1].type;
 }
 
-function stableEnemyRoll(wave, index, difficulty) {
+function stableEnemyRoll(threatTier, index, difficulty) {
   return Math.abs(
-    (wave * 73856093) ^
+    (threatTier * 73856093) ^
     (index * 19349663) ^
     (difficulty * 83492791)
   );
@@ -5899,7 +6182,7 @@ function formatRuntimeErrorInfo(error, game) {
     `step: ${error.step ?? 'unknown'}`,
     `message: ${error.message ?? 'unknown error'}`,
     `elapsed: ${formatBattleTime(error.time ?? game?.elapsedTime ?? 0)}`,
-    `wave: ${game?.wave ?? '-'}`,
+    `threat: ${game?.enemyDirector?.threat?.toFixed?.(1) ?? '-'}`,
     `level: ${level.id ?? '-'} / ${level.name ?? '-'}`,
     `scene: ${sceneKey}`,
     `url: ${typeof window !== 'undefined' ? window.location.href : '-'}`,

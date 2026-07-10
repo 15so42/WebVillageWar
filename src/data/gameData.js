@@ -2932,7 +2932,7 @@ export const CARD_DEFINITIONS = [
     kind: 'building',
     label: '标',
     artKey: 'beacon',
-    summary: '建成后允许在附近派遣单位，只能放在友军附近',
+    summary: '可建在任意可通行地面，建成后允许在附近派遣单位',
     target: 'ground',
     radius: 1.25,
     cooldown: 14,
@@ -3966,10 +3966,10 @@ export const LEVEL_DEFINITIONS = [
     baseDifficulty: 1,
     waveDifficultyGrowth: 1,
     enemyPool: [
-      { type: 'goblinSoldier', weight: 5, minWave: 1, minDifficulty: 1 },
-      { type: 'spider', weight: 1, minWave: 2, minDifficulty: 1 },
-      { type: 'goblinArcher', weight: 2, minWave: 3, minDifficulty: 1 },
-      { type: 'goblinHunter', weight: 1, minWave: 5, minDifficulty: 2 }
+      { type: 'goblinSoldier', weight: 5, minThreat: 1, minDifficulty: 1 },
+      { type: 'spider', weight: 1, minThreat: 2, minDifficulty: 1 },
+      { type: 'goblinArcher', weight: 2, minThreat: 3, minDifficulty: 1 },
+      { type: 'goblinHunter', weight: 1, minThreat: 5, minDifficulty: 2 }
     ],
     enemyStrategy: {
       profile: 'snow-control',
@@ -3983,6 +3983,10 @@ export const LEVEL_DEFINITIONS = [
       rallyPathIndices: [2, 4, 6],
       chokePathIndices: [3, 5, 7],
       openingOrders: ['capture', 'rally', 'attack']
+    },
+    enemyDirector: {
+      baseEnergyPerSecond: 0.56,
+      threatPerSecond: 0.018
     },
     world: {
       sceneKey: 'snow-valley'
@@ -3999,13 +4003,13 @@ export const LEVEL_DEFINITIONS = [
     baseDifficulty: 2,
     waveDifficultyGrowth: 1.08,
     enemyPool: [
-      { type: 'goblinSoldier', weight: 5, minWave: 1, minDifficulty: 1 },
-      { type: 'goblinArcher', weight: 3, minWave: 2, minDifficulty: 1 },
-      { type: 'spider', weight: 1, minWave: 2, minDifficulty: 1 },
-      { type: 'goblinHunter', weight: 2, minWave: 4, minDifficulty: 1 },
-      { type: 'goblinShaman', weight: 1, minWave: 5, minDifficulty: 2 },
-      { type: 'skeletonSoldier', weight: 2, minWave: 3, minDifficulty: 2 },
-      { type: 'goblinTroll', weight: 1, minWave: 4, minDifficulty: 2 }
+      { type: 'goblinSoldier', weight: 5, minThreat: 1, minDifficulty: 1 },
+      { type: 'goblinArcher', weight: 3, minThreat: 2, minDifficulty: 1 },
+      { type: 'spider', weight: 1, minThreat: 2, minDifficulty: 1 },
+      { type: 'goblinHunter', weight: 2, minThreat: 4, minDifficulty: 1 },
+      { type: 'goblinShaman', weight: 1, minThreat: 5, minDifficulty: 2 },
+      { type: 'skeletonSoldier', weight: 2, minThreat: 3, minDifficulty: 2 },
+      { type: 'goblinTroll', weight: 1, minThreat: 4, minDifficulty: 2 }
     ],
     enemyStrategy: {
       profile: 'dungeon-choke',
@@ -4019,6 +4023,10 @@ export const LEVEL_DEFINITIONS = [
       rallyPathIndices: [2, 5, 7],
       chokePathIndices: [2, 4, 6, 8],
       openingOrders: ['hold', 'rally', 'capture']
+    },
+    enemyDirector: {
+      baseEnergyPerSecond: 0.62,
+      threatPerSecond: 0.02
     },
     world: {
       sceneKey: 'dungeon-halls'
@@ -4035,16 +4043,16 @@ export const LEVEL_DEFINITIONS = [
     baseDifficulty: 3,
     waveDifficultyGrowth: 1.16,
     enemyPool: [
-      { type: 'goblinSoldier', weight: 4, minWave: 1, minDifficulty: 1 },
-      { type: 'goblinArcher', weight: 3, minWave: 2, minDifficulty: 1 },
-      { type: 'skeletonSoldier', weight: 3, minWave: 2, minDifficulty: 1 },
-      { type: 'spider', weight: 1, minWave: 2, minDifficulty: 1 },
-      { type: 'goblinHunter', weight: 2, minWave: 3, minDifficulty: 1 },
-      { type: 'goblinShaman', weight: 2, minWave: 4, minDifficulty: 1 },
-      { type: 'skeletonArcher', weight: 2, minWave: 4, minDifficulty: 2 },
-      { type: 'elfSniper', weight: 1, minWave: 7, minDifficulty: 3 },
-      { type: 'scorpion', weight: 2, minWave: 3, minDifficulty: 1 },
-      { type: 'ogre', weight: 1, minWave: 5, minDifficulty: 2 }
+      { type: 'goblinSoldier', weight: 4, minThreat: 1, minDifficulty: 1 },
+      { type: 'goblinArcher', weight: 3, minThreat: 2, minDifficulty: 1 },
+      { type: 'skeletonSoldier', weight: 3, minThreat: 2, minDifficulty: 1 },
+      { type: 'spider', weight: 1, minThreat: 2, minDifficulty: 1 },
+      { type: 'goblinHunter', weight: 2, minThreat: 3, minDifficulty: 1 },
+      { type: 'goblinShaman', weight: 2, minThreat: 4, minDifficulty: 1 },
+      { type: 'skeletonArcher', weight: 2, minThreat: 4, minDifficulty: 2 },
+      { type: 'elfSniper', weight: 1, minThreat: 7, minDifficulty: 3 },
+      { type: 'scorpion', weight: 2, minThreat: 3, minDifficulty: 1 },
+      { type: 'ogre', weight: 1, minThreat: 5, minDifficulty: 2 }
     ],
     enemyStrategy: {
       profile: 'desert-pressure',
@@ -4059,6 +4067,10 @@ export const LEVEL_DEFINITIONS = [
       flankPathIndices: [1, 5],
       chokePathIndices: [3, 5],
       openingOrders: ['rally', 'attack', 'capture']
+    },
+    enemyDirector: {
+      baseEnergyPerSecond: 0.68,
+      threatPerSecond: 0.022
     },
     world: {
       sceneKey: 'red-desert'
@@ -4126,7 +4138,10 @@ export const BALANCE = {
     maxHealth: 320,
     recoveryRadius: 4.8,
     healthPerSecond: 0.55,
-    durabilityPerSecond: 0.8
+    durabilityPerSecond: 0.8,
+    attackRange: 8.5,
+    attackDamage: 7,
+    attackInterval: 1
   },
   enemyCamp: {
     position: { x: 0, y: 0, z: -30 },
@@ -4135,19 +4150,33 @@ export const BALANCE = {
     attackDamage: 7,
     attackInterval: 1
   },
-  enemyStrategy: {
+  enemyDirector: {
     initialDelaySeconds: 7,
-    spawnIntervalSeconds: 12,
-    minimumSpawnIntervalSeconds: 7.5,
-    backpressureSeconds: 1.2,
+    startingEnergy: 0,
+    maxEnergy: 30,
+    baseEnergyPerSecond: 0.58,
+    energyPerThreat: 0.11,
+    decisionIntervalSeconds: 0.35,
     activeEnemyLimit: 12,
-    earlyWeakAssaults: 4,
-    earlyHealthMultiplier: 0.62,
-    earlyDamageMultiplier: 0.56,
-    escalationSeconds: 82,
-    eliteInterval: 4,
-    bossInterval: 12,
-    maxNormalGroupSize: 4
+    baseThreat: 1,
+    threatPerSecond: 0.02,
+    threatPerFriendlyUnit: 0.12,
+    threatPerPlayerAltar: 0.35,
+    threatPerEnemyCampDamageRatio: 1.4,
+    maxThreat: 10,
+    normalCost: 4.2,
+    normalSquadCost: 7.5,
+    normalSquadThreat: 2,
+    eliteCost: 11.5,
+    eliteMinThreat: 2.8,
+    eliteCooldownSeconds: 20,
+    bossCost: 25,
+    bossMinThreat: 4.8,
+    bossCooldownSeconds: 60,
+    reserveFraction: 0.72,
+    openingThreatEnd: 2.4,
+    openingHealthMultiplier: 0.62,
+    openingDamageMultiplier: 0.56
   },
   world: {
     ground: {

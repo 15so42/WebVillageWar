@@ -546,14 +546,6 @@ export class CardSystem {
         ringColor: '#c6ffea'
       }));
     }
-    if (card.kind === 'building' && (card.unitType === 'beacon' || card.effect?.unitType === 'beacon')) {
-      return (this.game.getBeaconPlacementAnchors?.() ?? []).map((anchor) => ({
-        ...anchor,
-        kind: 'beacon',
-        color: '#f0c575',
-        ringColor: '#fff2c7'
-      }));
-    }
     return [];
   }
 
@@ -582,7 +574,7 @@ export class CardSystem {
     }
     if (card.kind === 'building' && (card.unitType === 'beacon' || card.effect?.unitType === 'beacon')) {
       this.setHint(
-        valid ? '可放置信标：之后可在信标周围派遣单位。' : '信标只能放在友方非建筑单位附近。',
+        valid ? '可放置信标：可在任意可通行地面建立前线部署点。' : '信标必须放在可通行地面。',
         'card-drag'
       );
     }

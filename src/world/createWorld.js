@@ -246,9 +246,9 @@ const WORLD_PRESETS = {
       { x: 26, z: 50, rx: 3.7, rz: 1.22, rot: -0.34, irregularity: 0.32 }
     ],
     altars: [
-      { id: 'energy-altar-west', type: 'energy', position: { x: -31, z: 14 }, rotation: -0.38, clearingRadius: 6.5 },
-      { id: 'shield-altar-east', type: 'shield', position: { x: 28, z: -7 }, rotation: 0.46, clearingRadius: 6.5 },
-      { id: 'respite-altar-northwest', type: 'respite', position: { x: -17, z: -6 }, rotation: 0.16, clearingRadius: 6.2 }
+      { id: 'energy-altar-west', type: 'energy', position: { x: 4.2, z: 16.4 }, rotation: -0.38, clearingRadius: 6.5 },
+      { id: 'shield-altar-east', type: 'shield', position: { x: 0.2, z: 3.6 }, rotation: 0.46, clearingRadius: 6.5 },
+      { id: 'respite-altar-northwest', type: 'respite', position: { x: 1.2, z: -20.8 }, rotation: 0.16, clearingRadius: 6.2 }
     ],
     wildlife: [
       { type: 'wolf', x: 31, z: -16, radius: 5.4 },
@@ -463,9 +463,9 @@ const WORLD_PRESETS = {
       { x: 21, z: 20, rx: 1.55, rz: 0.62, rot: 0.15 }
     ],
     altars: [
-      { id: 'energy-altar-pine-west', type: 'energy', position: { x: -18, z: 14 }, rotation: -0.4, clearingRadius: 6 },
-      { id: 'shield-altar-pine-east', type: 'shield', position: { x: 17, z: -11 }, rotation: 0.4, clearingRadius: 6.2 },
-      { id: 'respite-altar-pine-north', type: 'respite', position: { x: -12, z: -24 }, rotation: 0.1, clearingRadius: 5.8 }
+      { id: 'energy-altar-pine-west', type: 'energy', position: { x: -6.8, z: 16.5 }, rotation: -0.4, clearingRadius: 6 },
+      { id: 'shield-altar-pine-east', type: 'shield', position: { x: 3.5, z: -10 }, rotation: 0.4, clearingRadius: 6.2 },
+      { id: 'respite-altar-pine-north', type: 'respite', position: { x: -2, z: -23 }, rotation: 0.1, clearingRadius: 5.8 }
     ],
     wildlife: [
       { type: 'wolf', x: 26, z: 12, radius: 5 },
@@ -567,9 +567,9 @@ const WORLD_PRESETS = {
       { x: -25, z: -21, rx: 1.6, rz: 0.62, rot: 0.58 }
     ],
     altars: [
-      { id: 'energy-altar-ridge-south', type: 'energy', position: { x: -16, z: 17 }, rotation: -0.18, clearingRadius: 6 },
-      { id: 'shield-altar-ridge-east', type: 'shield', position: { x: 20, z: -9 }, rotation: 0.55, clearingRadius: 6.2 },
-      { id: 'respite-altar-ridge-west', type: 'respite', position: { x: -18, z: -18 }, rotation: -0.15, clearingRadius: 6 }
+      { id: 'energy-altar-ridge-south', type: 'energy', position: { x: -0.5, z: 17 }, rotation: -0.18, clearingRadius: 6 },
+      { id: 'shield-altar-ridge-east', type: 'shield', position: { x: 7, z: -9 }, rotation: 0.55, clearingRadius: 6.2 },
+      { id: 'respite-altar-ridge-west', type: 'respite', position: { x: 4, z: -18 }, rotation: -0.15, clearingRadius: 6 }
     ],
     wildlife: [
       { type: 'bear', x: -30, z: -12, radius: 6.2 },
@@ -711,9 +711,9 @@ const WORLD_PRESETS = {
     ],
     puddles: [],
     altars: [
-      { id: 'energy-altar-dungeon-west', type: 'energy', position: { x: -31, z: -6 }, rotation: -0.35, clearingRadius: 6 },
-      { id: 'shield-altar-dungeon-east', type: 'shield', position: { x: 34, z: 8 }, rotation: 0.35, clearingRadius: 6 },
-      { id: 'respite-altar-dungeon-north', type: 'respite', position: { x: -30, z: -25 }, rotation: 0.15, clearingRadius: 5.8 }
+      { id: 'energy-altar-dungeon-west', type: 'energy', position: { x: -10, z: 15 }, rotation: -0.35, clearingRadius: 6 },
+      { id: 'shield-altar-dungeon-east', type: 'shield', position: { x: 10, z: -4 }, rotation: 0.35, clearingRadius: 6 },
+      { id: 'respite-altar-dungeon-north', type: 'respite', position: { x: -1, z: -18 }, rotation: 0.15, clearingRadius: 5.8 }
     ],
     wildlife: [],
     forestZones: [],
@@ -721,9 +721,9 @@ const WORLD_PRESETS = {
     clearings: [
       { x: 0, z: 30, r: 11 },
       { x: 0, z: -33, r: 9 },
-      { x: -31, z: -6, r: 6 },
-      { x: 34, z: 8, r: 6 },
-      { x: -30, z: -25, r: 5.8 }
+      { x: -10, z: 15, r: 6 },
+      { x: 10, z: -4, r: 6 },
+      { x: -1, z: -18, r: 5.8 }
     ],
     dungeonPlatforms: [
       { x: 0, z: 31, rx: 13.4, rz: 8.3, rot: 0.04, tone: 'large', irregularity: 0.1 },
@@ -831,9 +831,9 @@ const WORLD_PRESETS = {
     ],
     puddles: [],
     altars: [
-      { id: 'energy-altar-desert-west', type: 'energy', position: { x: -20, z: 12 }, rotation: -0.2, clearingRadius: 6 },
-      { id: 'shield-altar-desert-east', type: 'shield', position: { x: 18, z: -7 }, rotation: 0.35, clearingRadius: 6.2 },
-      { id: 'respite-altar-desert-south', type: 'respite', position: { x: 12, z: 20 }, rotation: 0.1, clearingRadius: 5.8 }
+      { id: 'energy-altar-desert-west', type: 'energy', position: { x: 9, z: 20 }, rotation: -0.2, clearingRadius: 6 },
+      { id: 'shield-altar-desert-east', type: 'shield', position: { x: -4, z: 6.5 }, rotation: 0.35, clearingRadius: 6.2 },
+      { id: 'respite-altar-desert-south', type: 'respite', position: { x: 2.2, z: -13 }, rotation: 0.1, clearingRadius: 5.8 }
     ],
     wildlife: [
       { type: 'scorpion', x: -27, z: 7, radius: 5.4 },
@@ -845,8 +845,9 @@ const WORLD_PRESETS = {
     clearings: [
       { x: 0, z: 30, r: 11 },
       { x: 0, z: -30, r: 9 },
-      { x: -20, z: 12, r: 6 },
-      { x: 18, z: -7, r: 6 }
+      { x: 9, z: 20, r: 6 },
+      { x: -4, z: 6.5, r: 6.2 },
+      { x: 2.2, z: -13, r: 5.8 }
     ],
     boulderClusters: [
       { x: -30, z: 8, rx: 7.2, rz: 9.4, count: 8, sizeMin: 1.35, sizeMax: 2.75 },

@@ -22,6 +22,7 @@ const DEFAULT_STRATEGY = {
 const ORDER_REEVALUATE_SECONDS = 5.5;
 const ARRIVAL_DISTANCE = 1.4;
 const ORDER_DESTINATION_EPSILON = 0.75;
+const FORWARD_FORMATION_MIN_DISTANCE = 8;
 const ENGAGED_AI_STATES = new Set(['attacking', 'chasing', 'stunned']);
 
 export class EnemyCommanderSystem {
@@ -35,6 +36,7 @@ export class EnemyCommanderSystem {
     this.nextSquadId = 1;
     this.thinkTimer = 0.35;
     this.openingOrderCursor = 0;
+    this.playerIntel = this.collectPlayerIntel();
     this.lastSnapshot = null;
   }
 
@@ -55,6 +57,7 @@ export class EnemyCommanderSystem {
   registerWave(units, wave, orders = 'attack') {
     const controllable = units.filter((unit) => this.isControllable(unit));
     if (!controllable.length) return;
+    this.refreshPlayerIntel();
     const size = Math.max(1, Math.floor(this.strategy.squadSize ?? DEFAULT_STRATEGY.squadSize));
     for (let i = 0; i < controllable.length; i += size) {
       const squadUnits = controllable.slice(i, i + size);
@@ -68,6 +71,7 @@ export class EnemyCommanderSystem {
   snapshot() {
     return {
       profile: this.strategy.profile,
+      knownPlayer: this.snapshotPlayerIntel(),
       squads: [...this.squads.values()].map((squad) => ({
         id: squad.id,
         role: squad.role,
@@ -121,6 +125,7 @@ export class EnemyCommanderSystem {
       this.isControllable(unit) && !this.squads.has(unit.enemySquadId)
     ));
     if (!unassigned.length) return;
+    this.refreshPlayerIntel();
     const size = Math.max(1, Math.floor(this.strategy.squadSize ?? DEFAULT_STRATEGY.squadSize));
     for (let i = 0; i < unassigned.length; i += size) {
       const squad = this.createSquad(unassigned.slice(i, i + size));
@@ -143,6 +148,7 @@ export class EnemyCommanderSystem {
   }
 
   rethink() {
+    this.refreshPlayerIntel();
     this.squads.forEach((squad) => {
       if (!this.commandableUnits(squad).length) return;
       if (squad.reevaluateTimer > 0 && squad.role !== 'unassigned') return;
@@ -199,8 +205,10 @@ export class EnemyCommanderSystem {
       const distance = distance2D(center, altar.position);
       const ownerBonus = altar.owner === TEAMS.PLAYER ? 1.35 : 0.75;
       const contestBonus = altar.contested ? 0.45 : 0;
+      const defenders = this.playerUnitCountNear(altar.position, altar.captureRadius + 2.4);
+      const defenderBonus = Math.min(0.42, defenders * 0.12);
       const score = (this.strategy.captureWeight ?? 1) * (ownerBonus + contestBonus) -
-        distance * 0.018;
+        distance * 0.018 + defenderBonus;
       if (score <= bestScore) return;
       best = altar;
       bestScore = score;
@@ -240,7 +248,7 @@ export class EnemyCommanderSystem {
   }
 
   rallyOrder(squad) {
-    const point = this.bestIndexedPathPoint(this.strategy.rallyPathIndices);
+    const point = this.bestIndexedPathPoint(this.strategy.rallyPathIndices, 'rally');
     if (!point) return null;
     const center = this.squadCenter(squad);
     const supportBonus = this.countSquadsWithRole('rally') < 2 ? 0.42 : 0;
@@ -261,7 +269,7 @@ export class EnemyCommanderSystem {
 
   flankOrder(squad) {
     if (!this.hasFlankRoute()) return null;
-    const point = this.bestIndexedPathPoint(this.strategy.flankPathIndices);
+    const point = this.bestIndexedPathPoint(this.strategy.flankPathIndices, 'flank');
     if (!point) return null;
     const center = this.squadCenter(squad);
     const flankCount = this.countSquadsWithRole('flank', squad);
@@ -279,7 +287,7 @@ export class EnemyCommanderSystem {
   }
 
   holdOrder(squad) {
-    const point = this.bestIndexedPathPoint(this.strategy.chokePathIndices);
+    const point = this.bestIndexedPathPoint(this.strategy.chokePathIndices, 'hold');
     if (!point) return null;
     const center = this.squadCenter(squad);
     const dungeonBonus = this.strategy.profile === 'dungeon-choke' ? 0.72 : 0;
@@ -297,16 +305,37 @@ export class EnemyCommanderSystem {
     const center = this.squadCenter(squad);
     const activeSquads = this.countActiveCombatSquads();
     const enoughPressure = activeSquads >= Math.max(1, this.strategy.minAttackSquads ?? 1);
-    const wave = Number.isFinite(this.game.wave) ? this.game.wave : 1;
-    const wavePressure = Math.max(0, wave - 1) * 0.12;
+    const threatTier = Number.isFinite(this.game.enemyDirector?.threatTier)
+      ? this.game.enemyDirector.threatTier
+      : 1;
+    const threatPressure = Math.max(0, threatTier - 1) * 0.12;
+    const intel = this.getPlayerIntel();
+    const base = intel.base;
+    const basePosition = base?.position ?? this.game.playerBase.position;
+    const baseRadius = base?.radius ?? this.game.playerBase.collisionRadius;
+    const baseOrder = {
+      role: 'attack',
+      target: basePosition,
+      targetId: 'player-base',
+      radius: baseRadius + 1.55,
+      guardRadius: 0,
+      score: (this.strategy.attackWeight ?? 1) + threatPressure + (enoughPressure ? 0.45 : -0.45) -
+        distance2D(center, basePosition) * 0.006
+    };
+    const formation = intel.forwardFormation;
+    if (!formation) return baseOrder;
+    const formationScore = baseOrder.score +
+      Math.min(0.78, formation.distanceFromBase * 0.035) +
+      Math.min(0.42, Math.max(0, formation.unitCount - 1) * 0.14) +
+      (distance2D(center, basePosition) - distance2D(center, formation.position)) * 0.006;
+    if (formationScore <= baseOrder.score) return baseOrder;
     return {
       role: 'attack',
-      target: this.game.playerBase.position,
-      targetId: 'player-base',
-      radius: this.game.playerBase.collisionRadius + 1.55,
+      target: formation.position,
+      targetId: formation.id,
+      radius: Math.min(4.2, 1.25 + formation.unitCount * 0.42),
       guardRadius: 0,
-      score: (this.strategy.attackWeight ?? 1) + wavePressure + (enoughPressure ? 0.45 : -0.45) -
-        distance2D(center, this.game.playerBase.position) * 0.006
+      score: formationScore
     };
   }
 
@@ -341,7 +370,7 @@ export class EnemyCommanderSystem {
     });
   }
 
-  bestIndexedPathPoint(indices = []) {
+  bestIndexedPathPoint(indices = [], role = 'rally') {
     const points = this.game.world?.pathPoints ?? [];
     if (!points.length) return null;
     const usable = indices
@@ -353,6 +382,9 @@ export class EnemyCommanderSystem {
       if (!squad.targetId) return;
       occupied.set(squad.targetId, (occupied.get(squad.targetId) ?? 0) + 1);
     });
+    const intel = this.getPlayerIntel();
+    const basePosition = intel.base?.position ?? this.game.playerBase.position;
+    const forwardFormation = intel.forwardFormation;
     let best = null;
     let bestScore = Number.NEGATIVE_INFINITY;
     candidates.forEach((point, index) => {
@@ -360,8 +392,18 @@ export class EnemyCommanderSystem {
       const crowding = (occupied.get(`rally:${key}`) ?? 0) +
         (occupied.get(`hold:${key}`) ?? 0) +
         (occupied.get(`flank:${key}`) ?? 0);
-      const distanceFromBase = distance2D(point, this.game.playerBase.position);
-      const score = distanceFromBase * 0.01 - crowding * 0.65 - index * 0.03;
+      const distanceFromBase = distance2D(point, basePosition);
+      const forwardPressure = forwardFormation
+        ? Math.max(0, 1 - distance2D(point, forwardFormation.position) / 34)
+        : 0;
+      const playerIntelBias = role === 'hold'
+        ? forwardPressure * 0.24
+        : role === 'rally'
+          ? forwardPressure * 0.12
+          : role === 'flank'
+            ? -forwardPressure * 0.16
+            : 0;
+      const score = distanceFromBase * 0.01 - crowding * 0.65 - index * 0.03 + playerIntelBias;
       if (score <= bestScore) return;
       best = point;
       bestScore = score;
@@ -371,6 +413,71 @@ export class EnemyCommanderSystem {
 
   squadCenter(squad) {
     return squadCenter(this.aliveUnits(squad));
+  }
+
+  refreshPlayerIntel() {
+    this.playerIntel = this.collectPlayerIntel();
+    return this.playerIntel;
+  }
+
+  getPlayerIntel() {
+    return this.playerIntel ?? this.refreshPlayerIntel();
+  }
+
+  collectPlayerIntel() {
+    const playerBase = this.game.playerBase;
+    const base = hasPosition(playerBase?.position)
+      ? {
+          id: 'player-base',
+          position: clonePlanarPosition(playerBase.position),
+          radius: playerBase.collisionRadius ?? 0,
+          alive: playerBase.alive !== false
+        }
+      : null;
+    const units = (this.game.friendlyUnits ?? [])
+      .filter((unit) => (
+        unit?.alive !== false &&
+        hasPosition(unit?.position) &&
+        (unit.team == null || unit.team === TEAMS.PLAYER)
+      ))
+      .map((unit) => ({
+        id: String(unit.id ?? `player-unit-${unit.type ?? 'unknown'}`),
+        type: unit.type ?? 'unit',
+        position: clonePlanarPosition(unit.position),
+        underConstruction: unit.underConstruction === true,
+        isBuilding: unit.isBuilding === true
+      }));
+    const forwardFormation = buildForwardFormation(units, base);
+    return { base, units, forwardFormation };
+  }
+
+  playerUnitCountNear(position, radius) {
+    const radiusSquared = radius * radius;
+    return this.getPlayerIntel().units.reduce((count, unit) => {
+      if (unit.underConstruction) return count;
+      return planarDistanceSquared(unit.position, position) <= radiusSquared ? count + 1 : count;
+    }, 0);
+  }
+
+  snapshotPlayerIntel() {
+    const intel = this.getPlayerIntel();
+    return {
+      base: intel.base
+        ? snapshotPosition(intel.base.position, { id: intel.base.id, alive: intel.base.alive })
+        : null,
+      units: intel.units.map((unit) => snapshotPosition(unit.position, {
+        id: unit.id,
+        type: unit.type,
+        underConstruction: unit.underConstruction
+      })),
+      forwardFormation: intel.forwardFormation
+        ? snapshotPosition(intel.forwardFormation.position, {
+            id: intel.forwardFormation.id,
+            unitCount: intel.forwardFormation.unitCount,
+            distanceFromBase: Number(intel.forwardFormation.distanceFromBase.toFixed(1))
+          })
+        : null
+    };
   }
 
   aliveUnits(squad) {
@@ -430,4 +537,50 @@ function squadCenter(units) {
   center.divideScalar(units.length);
   center.y = 0;
   return center;
+}
+
+function hasPosition(position) {
+  return Number.isFinite(position?.x) && Number.isFinite(position?.z);
+}
+
+function clonePlanarPosition(position) {
+  return new THREE.Vector3(position.x, 0, position.z);
+}
+
+function planarDistanceSquared(left, right) {
+  const dx = left.x - right.x;
+  const dz = left.z - right.z;
+  return dx * dx + dz * dz;
+}
+
+function buildForwardFormation(units, base) {
+  if (!base?.position) return null;
+  const minimumDistance = Math.max(FORWARD_FORMATION_MIN_DISTANCE, base.radius + 4.5);
+  const forwardUnits = units.filter((unit) => (
+    !unit.underConstruction &&
+    distance2D(unit.position, base.position) >= minimumDistance
+  ));
+  if (!forwardUnits.length) return null;
+  const position = new THREE.Vector3();
+  let totalDistance = 0;
+  forwardUnits.forEach((unit) => {
+    position.add(unit.position);
+    totalDistance += distance2D(unit.position, base.position);
+  });
+  position.divideScalar(forwardUnits.length);
+  position.y = 0;
+  return {
+    id: `player-forward:${forwardUnits.map((unit) => unit.id).sort().join('|')}`,
+    position,
+    unitCount: forwardUnits.length,
+    distanceFromBase: totalDistance / forwardUnits.length
+  };
+}
+
+function snapshotPosition(position, details = {}) {
+  return {
+    ...details,
+    x: Number(position.x.toFixed(1)),
+    z: Number(position.z.toFixed(1))
+  };
 }
