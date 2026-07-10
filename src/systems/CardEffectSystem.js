@@ -39,9 +39,11 @@ export class CardEffectSystem {
 
   spawnUnits({ card, effect, point }) {
     if (!point || this.game.canDeploySummonAt?.(point) === false) return false;
+    const baseCount = effect.count ?? card.count;
+    const reinforcementBonus = this.game.abilities?.getSummonReinforcementBonus?.(card) ?? 0;
     this.game.summonUnits(
       effect.unitType ?? card.unitType,
-      effect.count ?? card.count,
+      Math.max(1, Math.floor(baseCount ?? 1) + reinforcementBonus),
       point,
       card.radius,
       { sourceCard: card }

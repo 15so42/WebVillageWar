@@ -24,14 +24,6 @@ const CARD_KIND_COLORS = {
   tactic: '#6f718a',
   ability: '#5f8f9f'
 };
-const DEFAULT_CARD_USES = {
-  summon: 4,
-  building: 2,
-  tactic: 2,
-  spell: 2,
-  enchant: 2,
-  ability: 1
-};
 const CARD_RANGE_DISC_RENDER_ORDER = 62;
 const CARD_RANGE_RING_RENDER_ORDER = 63;
 
@@ -82,6 +74,23 @@ export class CardSystem {
     this.renderHand();
     this.renderTemporaryCards();
     this.updatePileUi();
+  }
+
+  ensureOpeningCardKind(kind) {
+    if (!kind || this.handCards.some((card) => card?.kind === kind)) return false;
+    const drawIndex = this.drawPile.findIndex((card) => card?.kind === kind);
+    if (drawIndex < 0 || this.handCards.length === 0) return false;
+
+    const [guaranteedCard] = this.drawPile.splice(drawIndex, 1);
+    const replacementIndex = this.handCards.length - 1;
+    const replacedCard = this.handCards[replacementIndex];
+    this.handCards[replacementIndex] = guaranteedCard;
+    if (replacedCard) {
+      this.drawPile.splice(Math.floor(Math.random() * (this.drawPile.length + 1)), 0, replacedCard);
+    }
+    this.renderHand();
+    this.updatePileUi();
+    return true;
   }
 
   update(dt) {
@@ -149,7 +158,6 @@ export class CardSystem {
     element.innerHTML = `
       <div class="card-cost">${cardEnergyCost(card)}</div>
       <div class="card-level">Lv.${card.level ?? 1}</div>
-      ${createCardUseBarMarkup(card, 'card')}
       ${shouldExhaustAfterPlay(card) ? '<div class="card-keyword">消耗</div>' : ''}
       <div class="card-face">
         <div class="card-header">
@@ -714,7 +722,6 @@ export class CardSystem {
     if (!this.resolveCard(drag)) return false;
     this.spendEnergy(cost);
     this.game.abilities?.onCardPlayed(drag.card, drag);
-    this.consumeCardUse(drag.card);
     this.moveCardToDiscard(drag.card);
     return true;
   }
@@ -931,7 +938,7 @@ export class CardSystem {
     const temporaryIndex = this.temporaryCards.indexOf(card);
     if (temporaryIndex !== -1) {
       this.temporaryCards.splice(temporaryIndex, 1);
-      if (this.isCardSpent(card)) {
+      if (shouldExhaustAfterPlay(card)) {
         this.game.abilities?.onCardExhausted(card);
       } else {
         this.discardPile.push(card);
@@ -943,7 +950,7 @@ export class CardSystem {
     const index = this.handCards.indexOf(card);
     if (index === -1) return false;
     this.handCards.splice(index, 1);
-    if (this.isCardSpent(card)) {
+    if (shouldExhaustAfterPlay(card)) {
       this.game.abilities?.onCardExhausted(card);
     } else {
       this.discardPile.push(card);
@@ -961,16 +968,12 @@ export class CardSystem {
   }
 
   consumeCardUse(card) {
-    if (!card) return 0;
-    ensureCardUses(card);
-    card.remainingUses = Math.max(0, Math.floor(card.remainingUses ?? card.maxUses) - 1);
-    return card.remainingUses;
+    void card;
+    return 0;
   }
 
   isCardSpent(card) {
-    if (!card) return true;
-    ensureCardUses(card);
-    return (card.remainingUses ?? 0) <= 0 || shouldExhaustAfterPlay(card);
+    return !card || shouldExhaustAfterPlay(card);
   }
 
   upgradeCardInstance(card, amount = 1) {
@@ -1052,32 +1055,12 @@ export class CardSystem {
   }
 
   restoreCardUses(card) {
-    if (!card || !this.allDeckCards().includes(card)) return false;
-    ensureCardUses(card);
-    card.remainingUses = card.maxUses;
-    this.pendingDrawAnimations.add(card);
-    this.renderHand();
-    this.renderTemporaryCards();
-    this.updatePileUi();
-    return true;
+    return Boolean(card && this.allDeckCards().includes(card));
   }
 
   restoreCardFamilyUses(card) {
     if (!card?.id) return false;
-    let restored = false;
-    this.allDeckCards().forEach((candidate) => {
-      if (candidate.id !== card.id) return;
-      ensureCardUses(candidate);
-      candidate.remainingUses = candidate.maxUses;
-      this.pendingDrawAnimations.add(candidate);
-      restored = true;
-    });
-    if (restored) {
-      this.renderHand();
-      this.renderTemporaryCards();
-      this.updatePileUi();
-    }
-    return restored;
+    return this.allDeckCards().some((candidate) => candidate.id === card.id);
   }
 
   removeCardInstance(card) {
@@ -1102,13 +1085,9 @@ export class CardSystem {
 
   copyCardInstance(card, options = {}) {
     if (!card || !this.allDeckCards().includes(card)) return { added: false, location: 'none' };
-    ensureCardUses(card);
-    card.remainingUses = card.maxUses;
-    this.pendingDrawAnimations.add(card);
     return this.addCardToDrawPile({
       ...card,
-      instanceId: undefined,
-      remainingUses: card.maxUses
+      instanceId: undefined
     }, {
       prefix: options.prefix ?? `copy-${Date.now()}`,
       applyRuntimeLevelBonus: false
@@ -1130,25 +1109,14 @@ export class CardSystem {
   }
 
   applyAbilityUseBonus(card) {
-    const bonus = Math.max(0, Math.floor(this.game.abilities?.getCardUseBonus?.(card) ?? 0));
-    if (bonus <= 0) return;
-    ensureCardUses(card);
-    card.maxUses += bonus;
-    card.remainingUses += bonus;
+    void card;
+    return 0;
   }
 
   increaseUsesForKind(kind, amount = 1) {
-    const bonus = Math.max(1, Math.floor(amount));
-    this.allDeckCards().forEach((card) => {
-      if (card.kind !== kind) return;
-      ensureCardUses(card);
-      card.maxUses += bonus;
-      card.remainingUses += bonus;
-      this.pendingDrawAnimations.add(card);
-    });
-    this.renderHand();
-    this.renderTemporaryCards();
-    this.updatePileUi();
+    void kind;
+    void amount;
+    return 0;
   }
 
   exhaustHandCard(card, amount = 1, options = {}) {
@@ -1197,14 +1165,10 @@ export class CardSystem {
 
   addCardToDrawPile(cardDefinition, options = {}) {
     if (!cardDefinition) return { added: false, location: 'none' };
-    const hasExplicitUses = Number.isFinite(cardDefinition.maxUses);
     const card = createCardInstance(
       this.applyRuntimeCardLevel(cardDefinition, options),
       options.prefix ?? `reward-${Date.now()}`
     );
-    if (!hasExplicitUses) {
-      this.applyAbilityUseBonus(card);
-    }
     if (options.top === false) {
       this.drawPile.push(card);
     } else {
@@ -1291,9 +1255,7 @@ export class CardSystem {
       const card = createCardInstance(
         this.applyRuntimeCardLevel({
           ...definition,
-          instanceId: undefined,
-          remainingUses: undefined,
-          maxUses: undefined
+          instanceId: undefined
         }),
         options.prefix ?? `temporary-${Date.now()}`
       );
@@ -1491,46 +1453,26 @@ function normalizeDeck(cards) {
   const source = Array.isArray(cards)
     ? cards
     : CARD_DEFINITIONS.filter((card) => !card.lootOnly);
-  return source.map((card, index) => ({
-    ...initializeCardUses(card),
-    instanceId: card.instanceId ?? `${card.id}-${index}-${Math.random().toString(36).slice(2)}`
-  }));
-}
-
-function createCardInstance(card, prefix = 'card') {
-  return initializeCardUses({
-    ...card,
-    instanceId: `${prefix}-${card.id}-${Math.random().toString(36).slice(2)}`
+  return source.map((card, index) => {
+    const normalized = withoutLegacyUseFields(card);
+    return {
+      ...normalized,
+      instanceId: card.instanceId ?? `${normalized.id}-${index}-${Math.random().toString(36).slice(2)}`
+    };
   });
 }
 
-function initializeCardUses(card) {
-  const maxUses = Math.max(1, Math.floor(card.maxUses ?? defaultCardUses(card)));
-  const remainingUses = Math.max(0, Math.min(
-    maxUses,
-    Math.floor(card.remainingUses ?? maxUses)
-  ));
+function createCardInstance(card, prefix = 'card') {
+  const normalized = withoutLegacyUseFields(card);
   return {
-    ...card,
-    maxUses,
-    remainingUses
+    ...normalized,
+    instanceId: `${prefix}-${normalized.id}-${Math.random().toString(36).slice(2)}`
   };
 }
 
-function ensureCardUses(card) {
-  if (!card) return null;
-  const maxUses = Math.max(1, Math.floor(card.maxUses ?? defaultCardUses(card)));
-  card.maxUses = maxUses;
-  card.remainingUses = Math.max(0, Math.min(
-    maxUses,
-    Math.floor(card.remainingUses ?? maxUses)
-  ));
-  return card;
-}
-
-function defaultCardUses(card) {
-  if (card?.exhaust) return 1;
-  return DEFAULT_CARD_USES[card?.kind] ?? 2;
+function withoutLegacyUseFields(card) {
+  const { maxUses: _maxUses, remainingUses: _remainingUses, ...normalized } = card ?? {};
+  return normalized;
 }
 
 function kindLabel(kind) {
@@ -1548,20 +1490,6 @@ function shouldUseCardFaceGhost(card) {
 
 function shouldExhaustAfterPlay(card) {
   return Boolean(card?.exhaust);
-}
-
-function createCardUseBarMarkup(card, classPrefix) {
-  const normalized = ensureCardUses(card);
-  const maxUses = normalized?.maxUses ?? 1;
-  const remainingUses = normalized?.remainingUses ?? maxUses;
-  const segments = Array.from({ length: maxUses }, (_, index) => (
-    `<span class="${index < remainingUses ? 'is-filled' : ''}"></span>`
-  )).join('');
-  return `
-    <div class="${classPrefix}-use-bar" aria-label="剩余使用次数 ${remainingUses}/${maxUses}">
-      ${segments}
-    </div>
-  `;
 }
 
 export function cardThemeColor(cardOrKind) {
@@ -2529,7 +2457,6 @@ function createPileCardElement(card, index) {
   element.innerHTML = `
     <div class="pile-card-cost">${cardEnergyCost(card)}</div>
     <div class="pile-card-level">Lv.${card.level ?? 1}</div>
-    ${createCardUseBarMarkup(card, 'pile-card')}
     ${shouldExhaustAfterPlay(card) ? '<div class="pile-card-keyword">消耗</div>' : ''}
     <div class="pile-card-header">
       <span class="pile-card-rune">${card.label}</span>

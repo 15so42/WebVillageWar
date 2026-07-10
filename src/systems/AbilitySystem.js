@@ -41,9 +41,6 @@ export class AbilitySystem {
     if (abilityId === 'periodicEnergy' && !existing) {
       this.periodicEnergyTimer = PERIODIC_ENERGY_SECONDS;
     }
-    if (abilityId === 'summonUseBonus') {
-      this.game.cardSystem?.increaseUsesForKind?.('summon', amount);
-    }
     this.game.effects.spawnDamageNumber(this.game.playerBase.position, 1, {
       text: `${definition.name}+${amount}`,
       color: definition.color,
@@ -130,8 +127,13 @@ export class AbilitySystem {
   }
 
   getCardUseBonus(card) {
-    if (card?.kind === 'summon') return this.getStacks('summonUseBonus');
+    void card;
     return 0;
+  }
+
+  getSummonReinforcementBonus(card) {
+    if (card?.kind !== 'summon') return 0;
+    return Math.floor(this.getStacks('summonUseBonus') / 2);
   }
 
   tryEchoEnchant(card, drag) {

@@ -99,8 +99,8 @@ export class AltarSystem {
       altar.captureTeam = team;
       altar.progress = Math.max(0, altar.progress - delta);
       if (altar.progress <= 0.001) {
-        altar.owner = null;
         altar.progress = 0;
+        this.setAltarOwner(altar, null, 'neutralized');
       }
       return;
     }
@@ -117,11 +117,25 @@ export class AltarSystem {
     altar.captureTeam = team;
     altar.progress = Math.min(1, altar.progress + delta);
     if (altar.progress >= 0.999) {
-      altar.owner = team;
       altar.captureTeam = null;
       altar.progress = 1;
+      this.setAltarOwner(altar, team, 'captured');
       this.game.effects.spawnRing(altar.position, teamColor(team), altar.captureRadius, 0.8);
     }
+  }
+
+  setAltarOwner(altar, owner, reason = 'ownershipChanged') {
+    const previousOwner = altar.owner;
+    if (previousOwner === owner) return false;
+
+    altar.owner = owner;
+    this.game.onAltarOwnershipChanged?.({
+      altar: createAltarOwnershipSnapshot(altar),
+      previousOwner,
+      owner,
+      reason
+    });
+    return true;
   }
 
   captureTeamsAt(altar) {
@@ -271,6 +285,18 @@ export class AltarSystem {
 
 function teamColor(team) {
   return TEAM_COLORS[team] ?? TEAM_COLORS.neutral;
+}
+
+function createAltarOwnershipSnapshot(altar) {
+  return {
+    id: altar.id,
+    type: altar.type,
+    name: altar.name,
+    position: {
+      x: Number(altar.position.x.toFixed(2)),
+      z: Number(altar.position.z.toFixed(2))
+    }
+  };
 }
 
 function createAltarLabel(definition) {

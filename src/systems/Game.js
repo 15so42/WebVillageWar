@@ -180,8 +180,6 @@ const TEMPORARY_IMMORTALITY_CARD = {
   radius: 1.1,
   cooldown: 4,
   energyCost: 2,
-  maxUses: 1,
-  remainingUses: 1,
   lootOnly: true,
   enchantmentId: 'immortality',
   effect: {
@@ -201,8 +199,6 @@ const TEMPORARY_MANA_SURGE_CARD = {
   radius: 1.1,
   cooldown: 4,
   energyCost: 5,
-  maxUses: 1,
-  remainingUses: 1,
   lootOnly: true,
   effect: {
     type: 'apply-random-enchantments',
@@ -269,7 +265,7 @@ const STRATEGY_REWARD_OPTION_DEFINITIONS = [
     id: 'upgrade-existing-card',
     action: 'open-card-upgrade-choice',
     title: '升级一张已有卡',
-    description: '选择一张已有卡，同名卡牌等级 +1，并补满所有同名卡使用次数。',
+    description: '选择一张已有卡，使同名卡牌等级 +1。',
     artKey: 'tacticUpgrade',
     color: '#d8c58d'
   },
@@ -277,7 +273,7 @@ const STRATEGY_REWARD_OPTION_DEFINITIONS = [
     id: 'copy-existing-card',
     action: 'open-card-copy-choice',
     title: '复制一张已有卡',
-    description: '选择一张已有卡，先补满使用次数，再复制一张满次数副本。',
+    description: '选择一张已有卡，复制一张同等级副本。',
     artKey: 'copy',
     color: '#9eeedb'
   },
@@ -301,7 +297,7 @@ const BOSS_CORE_REWARDS = [
     abilityId: 'summonUseBonus',
     stacks: 2,
     title: '军团扩编',
-    description: '所有现有和之后获得的单位卡使用次数 +2。',
+    description: '单位卡每次额外召唤 1 名增援。',
     cardId: 'barbarians'
   },
   {
@@ -357,7 +353,7 @@ const BOSS_CORE_REWARDS = [
     abilityId: 'summonUseBonus',
     stacks: 4,
     title: '无尽征召',
-    description: '所有单位卡使用次数 +4，直接支撑大规模铺场。',
+    description: '单位卡每次额外召唤 2 名增援，直接支撑大规模推进。',
     cardId: 'barbarians'
   },
   {
@@ -418,6 +414,7 @@ const PERF_LABELS = {
   render: '渲染',
   selection: '选择',
   spiders: '蜘蛛生命周期',
+  strategySpawn: '敌军战略攻势',
   structure: '基地/营地反馈',
   unitVisuals: '单位视觉',
   waveSpawn: '刷怪/生成',
@@ -553,8 +550,7 @@ export class Game {
     this.frameLimitMs = 1000 / this.renderSettings.fpsLimit;
     this.lastAnimationFrameTime = null;
     this.worldConfig = {
-      ...(this.levelSession.level.world ?? BALANCE.world),
-      altars: []
+      ...(this.levelSession.level.world ?? BALANCE.world)
     };
     this.worldConfig = applyRenderQualityToWorldConfig(this.worldConfig, this.renderQuality);
     this.renderTuning = null;
@@ -597,9 +593,14 @@ export class Game {
     this.enemyUnits = this.unitRegistry.enemyUnits;
     this.score = 0;
     this.wave = 0;
-    this.waveSchedule = createWaveSchedule(this.levelSession);
-    this.waveIndex = 0;
-    this.currentWave = null;
+    this.enemyStrategyConfig = {
+      ...(BALANCE.enemyStrategy ?? {}),
+      ...(this.levelSession.level.enemyStrategyDirector ?? {})
+    };
+    this.strategyAttackIndex = 0;
+    this.strategySpawnTimer = this.enemyStrategyConfig.initialDelaySeconds ?? 7;
+    this.currentStrategyAssault = null;
+    this.pendingStrategyRewards = [];
     this.bossesDefeated = 0;
     this.strategyEvent = null;
     this.enemyCampAttackTimer = 0;
@@ -710,10 +711,8 @@ export class Game {
     this.spells = new SpellSystem(this);
     this.cardEffects = new CardEffectSystem(this);
     this.recovery = new RecoverySystem(this);
-    this.cardSystem = new CardSystem(this, {
-      deck: this.levelSession.deck,
-      startWithEmptyDrawPile: !this.levelSession.debug
-    });
+    this.cardSystem = new CardSystem(this, { deck: this.levelSession.deck });
+    this.cardSystem.ensureOpeningCardKind('summon');
     this.abilities = new AbilitySystem(this);
     this.lootDrops = new LootDropSystem(this);
     this.altars = new AltarSystem(this, this.world.config?.altars ?? this.worldConfig.altars);
@@ -822,8 +821,7 @@ export class Game {
       });
       this.spawnEnemyWave(1, { orders: 'guard' });
     } else {
-      this.updateWavePreview();
-      this.openStrategyEvent('opening-unit');
+      this.updateStrategyPreview();
     }
 
     window.__VILLAGE_WAR_DEBUG__ = {
@@ -916,7 +914,7 @@ export class Game {
     const runStep = (name, action) => this.runFrameStep(name, action);
     const runPerfStep = (name, action) => runStep(name, () => this.measurePerf(name, action));
     if (perf) {
-      runPerfStep('waveSpawn', () => this.updateWaveFlow(dt));
+      runPerfStep('strategySpawn', () => this.updateEnemyStrategyFlow(dt));
       runPerfStep('card', () => this.cardSystem.update(dt));
       runPerfStep('abilities', () => this.abilities.update(dt));
       runPerfStep('enemyCampAttack', () => this.updateEnemyCampAttack(dt));
@@ -943,7 +941,7 @@ export class Game {
       this.recordPerfSample();
       this.updatePerfPanel(dt);
     } else {
-      runStep('waveSpawn', () => this.updateWaveFlow(dt));
+      runStep('strategySpawn', () => this.updateEnemyStrategyFlow(dt));
       runStep('card', () => this.cardSystem.update(dt));
       runStep('abilities', () => this.abilities.update(dt));
       runStep('enemyCampAttack', () => this.updateEnemyCampAttack(dt));
@@ -970,88 +968,111 @@ export class Game {
     this.checkLevelEnd();
   }
 
-  updateWaveFlow() {
+  updateEnemyStrategyFlow(dt) {
     if (this.levelSession.debug || this.levelFinished || this.strategyEvent) return;
-    if (!this.currentWave) return;
-    if (this.hasActiveWaveEnemies()) return;
-    this.completeCurrentWave();
-  }
-
-  hasActiveWaveEnemies() {
-    return this.enemyUnits.some((unit) => (
-      unit.alive && !unit.isWildlife
-    ));
-  }
-
-  startNextWave() {
-    if (this.levelFinished || this.levelSession.debug) return;
-    const wave = this.waveSchedule[this.waveIndex];
-    if (!wave) {
-      this.finishLevel(true);
+    const activeEnemyCount = this.enemyUnits.filter((unit) => unit.alive && !unit.isWildlife).length;
+    const activeEnemyLimit = Math.max(1, Math.floor(this.enemyStrategyConfig.activeEnemyLimit ?? 12));
+    if (activeEnemyCount >= activeEnemyLimit) {
+      this.strategySpawnTimer = Math.max(
+        this.strategySpawnTimer,
+        this.enemyStrategyConfig.backpressureSeconds ?? 1.2
+      );
       return;
     }
-    this.currentWave = wave;
-    this.waveIndex += 1;
-    this.wave = wave.index;
-    this.spawnEnemyWave(wave.index, {
+
+    this.strategySpawnTimer -= dt;
+    if (this.strategySpawnTimer > 0) return;
+
+    const assault = this.createStrategyAssault(this.strategyAttackIndex + 1);
+    const availableSlots = Math.max(1, activeEnemyLimit - activeEnemyCount);
+    assault.count = Math.min(assault.count, availableSlots);
+    assault.types = assault.types.slice(0, assault.count);
+    this.strategyAttackIndex = assault.index;
+    this.wave = assault.index;
+    this.currentStrategyAssault = assault;
+    this.spawnEnemyWave(assault.index, {
       orders: 'attack',
-      waveConfig: wave
+      waveConfig: assault
     });
-    this.updateWavePreview();
+    this.strategySpawnTimer = this.strategySpawnInterval(assault);
+    this.updateStrategyPreview();
     this.updateHud(0);
   }
 
-  completeCurrentWave() {
-    const wave = this.currentWave;
-    if (!wave || this.levelFinished) return;
-    this.currentWave = null;
-    this.updateWavePreview();
-    if (wave.kind === 'boss') {
-      this.bossesDefeated += 1;
-      if (this.bossesDefeated >= BOSS_WAVES_TO_WIN) {
-        this.finishLevel(true);
-        return;
-      }
-      this.openStrategyEvent('boss-reward', { wave });
-      return;
-    }
-    this.openStrategyEvent('wave-reward', { wave });
+  createStrategyAssault(index) {
+    const kind = strategyAssaultKind(index, this.enemyStrategyConfig);
+    const difficulty = strategyAssaultDifficulty(this.levelSession, index, this.enemyStrategyConfig);
+    const bossOrdinal = kind === 'boss'
+      ? Math.max(1, Math.floor(index / Math.max(1, this.enemyStrategyConfig.bossInterval ?? 12)))
+      : 0;
+    const earlyWeakAssaults = Math.max(0, Math.floor(this.enemyStrategyConfig.earlyWeakAssaults ?? 4));
+    const affixId = index > earlyWeakAssaults
+      ? chooseWaveAffix(index, kind, this.levelSession.level.waveAffixFlow)
+      : null;
+    const count = strategyAssaultCount(kind, index, difficulty, this.enemyStrategyConfig, bossOrdinal);
+    return {
+      index,
+      kind,
+      bossOrdinal,
+      count,
+      affixId,
+      effectiveDifficulty: difficulty,
+      types: strategyAssaultTypes({
+        level: this.levelSession.level,
+        index,
+        kind,
+        count,
+        difficulty,
+        bossOrdinal,
+        earlyWeakAssaults
+      })
+    };
   }
 
-  nextBasicStrategyEventType(wave = null) {
-    if ((wave?.index ?? 0) <= FORCED_CARD_CHOICE_UNTIL_WAVE) return 'card-choice';
-    const roll = Math.random();
-    if (roll < 0.6) return 'card-choice';
-    if (roll < 0.85) return 'card-maintenance';
-    return 'card-copy';
+  strategySpawnInterval(assault) {
+    const base = Math.max(2, this.enemyStrategyConfig.spawnIntervalSeconds ?? 12);
+    const minimum = Math.max(2, this.enemyStrategyConfig.minimumSpawnIntervalSeconds ?? 7.5);
+    const pressure = Math.max(0, assault.index - 1) * 0.32;
+    const bossBreather = assault.kind === 'boss' ? 3.5 : 0;
+    return Math.max(minimum, base - pressure) + bossBreather;
   }
 
-  updateWavePreview() {
+  updateStrategyPreview() {
     const root = this.dom.wavePreview;
     if (!root) return;
-    const startIndex = this.currentWave
-      ? Math.max(0, this.currentWave.index - 1)
-      : this.waveIndex;
-    const waves = this.waveSchedule.slice(startIndex, startIndex + WAVE_PREVIEW_COUNT);
-    if (!waves.length) {
-      root.innerHTML = '';
-      return;
-    }
+    const assaults = Array.from({ length: WAVE_PREVIEW_COUNT }, (_, offset) => (
+      this.createStrategyAssault(this.strategyAttackIndex + offset + 1)
+    ));
     root.innerHTML = `
-      <div class="wave-preview-track" style="--wave-node-count: ${waves.length}">
-        ${waves.map((wave) => {
-          const difficulty = wave.effectiveDifficulty ?? this.effectiveDifficultyForWave(wave.index);
-          const isActive = this.currentWave === wave;
-          return `
-            <div class="wave-preview-node is-${cssKey(wave.kind)}${isActive ? ' is-active' : ''}">
-              <span class="wave-node-dot">${escapeHtml(wave.index)}</span>
-              <strong>${escapeHtml(waveKindLabel(wave))}</strong>
-              <span>${escapeHtml(waveAffixLabel(wave.affixId))} / 难度 ${escapeHtml(difficulty)}</span>
-            </div>
-          `;
-        }).join('')}
+      <div class="wave-preview-track" style="--wave-node-count: ${assaults.length}">
+        ${assaults.map((assault, offset) => `
+          <div class="wave-preview-node is-${cssKey(assault.kind)}${offset === 0 ? ' is-active' : ''}">
+            <span class="wave-node-dot">${escapeHtml(assault.index)}</span>
+            <strong>${escapeHtml(strategyAssaultKindLabel(assault))}</strong>
+            <span>${escapeHtml(strategyAssaultPreview(assault))}</span>
+          </div>
+        `).join('')}
       </div>
     `;
+  }
+
+  queueStrategyReward(type, options = {}) {
+    if (this.levelFinished || this.levelSession.debug) return false;
+    this.pendingStrategyRewards.push({ type, options });
+    return this.openNextStrategyReward();
+  }
+
+  openNextStrategyReward() {
+    if (this.levelFinished || this.strategyEvent) return false;
+    const next = this.pendingStrategyRewards.shift();
+    if (!next) return false;
+    return this.openStrategyEvent(next.type, next.options);
+  }
+
+  finishStrategyReward() {
+    this.closeStrategyEvent();
+    this.openNextStrategyReward();
+    this.updateStrategyPreview();
   }
 
   openStrategyEvent(type, options = {}) {
@@ -1067,8 +1088,8 @@ export class Game {
       event = this.createFallbackCardChoiceEvent(options);
     }
     if (!event?.choices?.length) {
-      this.startNextWave();
-      return;
+      this.openNextStrategyReward();
+      return false;
     }
     this.strategyEvent = event;
     this.paused = true;
@@ -1078,6 +1099,7 @@ export class Game {
     this.strategyEventUi.root.hidden = false;
     this.renderStrategyEvent();
     this.clock.getDelta();
+    return true;
   }
 
   closeStrategyEvent() {
@@ -1107,10 +1129,29 @@ export class Game {
     if (type === 'boss-reward') {
       return {
         type,
-        kicker: `Boss 奖励 ${this.bossesDefeated}/${BOSS_WAVES_TO_WIN}`,
+        kicker: `Boss 奖励 #${this.bossesDefeated}`,
         title: '选择一个构筑核心',
         summary: 'Boss 奖励会改变这局的构筑方向，是强力局内被动。',
         choices: this.createBossCoreChoices()
+      };
+    }
+    if (type === 'elite-reward') {
+      return {
+        type,
+        kicker: `精英战利品 / 威胁 ${options.assault?.index ?? this.strategyAttackIndex}`,
+        title: '选择精英奖励',
+        summary: '精英被击败后获得一次局内强化，选择更适合当前战线的方向。',
+        choices: this.createWaveRewardOptionChoices(options.assault ?? this.currentStrategyAssault)
+      };
+    }
+    if (type === 'altar-reward') {
+      const altarName = options.altar?.name ?? '祭坛';
+      return {
+        type,
+        kicker: `占领 ${altarName}`,
+        title: '选择占领奖励',
+        summary: '祭坛会持续提供其领域效果；夺下它时再选择一次即时构筑奖励。',
+        choices: this.createWaveRewardOptionChoices(this.currentStrategyAssault)
       };
     }
     if (type === 'wave-reward') {
@@ -1140,7 +1181,7 @@ export class Game {
         type,
         kicker: waveEventKicker(options.wave),
         title: '复制一张已有卡',
-        summary: '先补满目标卡使用次数，再复制一张同等级、满使用次数的副本。',
+        summary: '复制一张同等级卡牌并加入抽牌堆。',
         choices: this.createExistingCardCopyChoices()
       };
     }
@@ -1167,7 +1208,7 @@ export class Game {
         type,
         kicker: waveEventKicker(options.wave),
         title: '复制一张卡牌',
-        summary: '复制会保留等级，并以完整使用次数加入抽牌堆。',
+        summary: '复制会保留等级，并加入抽牌堆。',
         choices: this.createCopyChoices()
       };
     }
@@ -1229,9 +1270,7 @@ export class Game {
     if (source.length) {
       return source.map((card) => ({
         ...(this.cardSystem?.applyRuntimeCardLevel?.(card) ?? card),
-        instanceId: undefined,
-        remainingUses: undefined,
-        maxUses: undefined
+        instanceId: undefined
       }));
     }
     if (hasSessionDeck && options.allowAllFallback !== true) return [];
@@ -1331,7 +1370,7 @@ export class Game {
   }
 
   nextUpcomingWave() {
-    return this.waveSchedule[this.waveIndex] ?? null;
+    return this.createStrategyAssault(this.strategyAttackIndex + 1);
   }
 
   createBossCoreChoices() {
@@ -1441,7 +1480,7 @@ export class Game {
       action: 'copy-card',
       actionLabel: '复制',
       title: `复制 ${card.name}`,
-      description: '加入一张同等级、满使用次数的复制牌。',
+        description: '加入一张同等级复制牌。',
       card,
       targetCard: card
     }));
@@ -1452,7 +1491,7 @@ export class Game {
       action: 'copy-card',
       actionLabel: '复制',
       title: `复制 ${card.name}`,
-      description: '先补满这张卡使用次数，再加入一张同等级、满使用次数的复制牌。',
+        description: '加入一张同等级复制牌。',
       card,
       targetCard: card
     }));
@@ -1500,12 +1539,11 @@ export class Game {
       return;
     }
     if (!this.applyStrategyChoice(choice)) return;
-    this.closeStrategyEvent();
+    this.finishStrategyReward();
     if (eventType === 'opening-unit') {
       this.openStrategyEvent('card-choice', { openingSupport: true });
       return;
     }
-    this.startNextWave();
   }
 
   handleCardKindRewardSelection(choice) {
@@ -1545,8 +1583,7 @@ export class Game {
       const event = this.createStrategyEvent('unit-upgrade', { card });
       if (!event?.choices?.length) {
         this.applyDirectCardUpgrade(card);
-        this.closeStrategyEvent();
-        this.startNextWave();
+        this.finishStrategyReward();
         return;
       }
       this.strategyEvent = event;
@@ -1554,8 +1591,7 @@ export class Game {
       return;
     }
     if (!this.applyDirectCardUpgrade(card)) return;
-    this.closeStrategyEvent();
-    this.startNextWave();
+    this.finishStrategyReward();
   }
 
   applyStrategyChoice(choice) {
@@ -1565,15 +1601,8 @@ export class Game {
         prefix: `event-${choice.card.id}-${Date.now()}`
       });
       applied = result.added;
-    } else if (choice.action === 'add-card-limited-uses') {
-      const result = this.cardSystem.addCardToDrawPile(cardWithUsePenalty(choice.card, choice.usePenalty ?? 1), {
-        prefix: `event-cost-${choice.card.id}-${Date.now()}`
-      });
-      applied = result.added;
     } else if (choice.action === 'acquire-core') {
       applied = this.abilities?.acquire(choice.abilityId, choice.stacks ?? 1) === true;
-    } else if (choice.action === 'restore-card') {
-      applied = this.cardSystem.restoreCardUses(choice.targetCard);
     } else if (choice.action === 'upgrade-card') {
       applied = this.cardSystem.upgradeCardInstance(choice.targetCard, 1);
     } else if (choice.action === 'apply-card-upgrade') {
@@ -1581,17 +1610,6 @@ export class Game {
     } else if (choice.action === 'copy-card') {
       applied = this.cardSystem.copyCardInstance(choice.targetCard, {
         prefix: `event-copy-${choice.targetCard.id}-${Date.now()}`
-      }).added;
-    } else if (choice.action === 'copy-card-limited') {
-      const copiedUses = currentCardRemainingUses(choice.targetCard);
-      applied = this.cardSystem.addCardToDrawPile({
-        ...choice.targetCard,
-        instanceId: undefined,
-        maxUses: copiedUses,
-        remainingUses: copiedUses
-      }, {
-        prefix: `event-overload-${choice.targetCard.id}-${Date.now()}`,
-        applyRuntimeLevelBonus: false
       }).added;
     } else if (choice.action === 'grant-temporary-card') {
       applied = this.cardSystem.addCardToDrawPile(choice.temporaryCard ?? choice.card, {
@@ -2029,7 +2047,30 @@ export class Game {
   }
 
   handleUnitDeath(unit, source = null) {
-    return this.unitRegistry.handleDeath(unit, source);
+    const defeatedElite = unit?.team === TEAMS.ENEMY && unit.isElite === true;
+    const defeatedBoss = unit?.team === TEAMS.ENEMY && unit.isBoss === true;
+    const assault = unit?.strategyAssault ?? this.currentStrategyAssault;
+    const handled = this.unitRegistry.handleDeath(unit, source);
+    if (!handled) return false;
+
+    if (defeatedBoss) {
+      this.bossesDefeated += 1;
+      this.queueStrategyReward('boss-reward', { assault, boss: unit });
+    } else if (defeatedElite) {
+      this.queueStrategyReward('elite-reward', { assault, elite: unit });
+    }
+    return true;
+  }
+
+  onAltarOwnershipChanged(event) {
+    if (
+      event?.reason !== 'captured' ||
+      event.owner !== TEAMS.PLAYER ||
+      event.previousOwner === TEAMS.PLAYER
+    ) {
+      return;
+    }
+    this.queueStrategyReward('altar-reward', { altar: event.altar });
   }
 
   summonUnits(type, count, point, radius = 1, options = {}) {
@@ -2248,7 +2289,9 @@ export class Game {
         team: TEAMS.ENEMY,
         position
       });
+      unit.strategyAssault = waveConfig ?? null;
       this.applyEnemyDifficulty(unit, wave, difficulty);
+      this.applyStrategyAssaultScaling(unit, waveConfig);
       this.applyWaveModifiers(unit, waveConfig, i);
       this.applyWaveAffixModifiers(unit, waveConfig);
       this.applySpiderSpawnTraits(unit, wave, difficulty, i);
@@ -2298,6 +2341,7 @@ export class Game {
   applyWaveModifiers(unit, waveConfig, index) {
     if (!waveConfig) return;
     if (waveConfig.kind === 'elite') {
+      if (index !== 0) return;
       unit.isElite = true;
       unit.name = `精英${unit.name}`;
       unit.attributes.addModifiers([
@@ -2393,6 +2437,32 @@ export class Game {
     unit.clampToAttributeCaps();
   }
 
+  applyStrategyAssaultScaling(unit, assault) {
+    if (!assault) return;
+    const earlyWeakAssaults = Math.max(0, Math.floor(this.enemyStrategyConfig.earlyWeakAssaults ?? 0));
+    if (earlyWeakAssaults <= 0 || assault.index > earlyWeakAssaults) return;
+    const progress = earlyWeakAssaults <= 1
+      ? 1
+      : (assault.index - 1) / (earlyWeakAssaults - 1);
+    const healthFactor = THREE.MathUtils.lerp(
+      this.enemyStrategyConfig.earlyHealthMultiplier ?? 0.62,
+      0.9,
+      progress
+    );
+    const damageFactor = THREE.MathUtils.lerp(
+      this.enemyStrategyConfig.earlyDamageMultiplier ?? 0.56,
+      0.86,
+      progress
+    );
+    unit.attributes.addModifiers([
+      { stat: 'maxHealth', type: 'multiply', amount: healthFactor },
+      { stat: 'maxShield', type: 'multiply', amount: healthFactor },
+      { stat: 'attackDamage', type: 'multiply', amount: damageFactor }
+    ], `strategy:opening:${assault.index}`);
+    unit.health = unit.maxHealth;
+    unit.shield = Math.min(unit.shield, unit.maxShield);
+  }
+
   applyEnemyStartingBuffs(unit, wave, difficulty) {
     const startingBuffs = unit.definition.startingBuffs ?? [];
     if (!startingBuffs.length) return;
@@ -2485,7 +2555,7 @@ export class Game {
     const position = egg.position.clone();
     position.y = this.groundHeightAt(position);
     const wave = this.wave;
-    const difficulty = this.currentWave?.effectiveDifficulty ?? this.effectiveDifficultyForWave(wave);
+    const difficulty = this.currentStrategyAssault?.effectiveDifficulty ?? this.effectiveDifficultyForWave(wave);
     this.removeEnemyUnitSilently(egg);
 
     const spider = new UnitEntity({
@@ -3094,10 +3164,6 @@ export class Game {
       this.finishLevel(true);
       return;
     }
-    if (!this.levelSession.debug && this.bossesDefeated >= BOSS_WAVES_TO_WIN) {
-      this.finishLevel(true);
-      return;
-    }
     if (!this.playerBase.alive) {
       this.finishLevel(false);
     }
@@ -3110,7 +3176,7 @@ export class Game {
     this.onLevelComplete?.({
       victory,
       elapsedTime: this.elapsedTime,
-      wave: this.wave,
+      threat: this.strategyAttackIndex,
       session: this.levelSession,
       playerBaseHealth: this.playerBase.health,
       enemyCampHealth: this.enemyCamp.health,
@@ -4137,9 +4203,9 @@ export class Game {
       );
       this.dom.baseHealth.textContent = `${baseRatio}%`;
     }
-    this.dom.waveLabel.textContent = this.currentWave
-      ? `${this.wave}/${this.waveSchedule.length}`
-      : (this.wave > 0 ? '整备' : '准备');
+    this.dom.waveLabel.textContent = this.strategyAttackIndex > 0
+      ? `#${this.strategyAttackIndex}`
+      : '侦察';
     this.dom.battleTime.textContent = formatBattleTime(this.elapsedTime);
     this.dom.unitCount.textContent = String(this.friendlyUnits.length);
     if (this.selectedUnits.length > 1) {
@@ -4209,7 +4275,7 @@ export class Game {
     this.perfHistory.push({
       sampleId: sample.sampleId,
       elapsedTime: Number(this.elapsedTime.toFixed(1)),
-      wave: this.wave,
+      threat: this.strategyAttackIndex,
       fps: sample.fps ?? 0,
       sections: sample.sections ?? {},
       counts: sample.counts ?? {}
@@ -4232,7 +4298,7 @@ export class Game {
     const latest = this.perfHistory[this.perfHistory.length - 1] ?? null;
     if (this.dom.perfStatus) {
       this.dom.perfStatus.textContent = latest
-        ? `${formatPerfSeconds(latest.elapsedTime)} / W${latest.wave} / peak ${this.perfHistory.length}s`
+        ? `${formatPerfSeconds(latest.elapsedTime)} / T${latest.threat ?? 0} / peak ${this.perfHistory.length}s`
         : 'warming up';
     }
     if (this.dom.perfStats) {
@@ -4317,7 +4383,8 @@ export class Game {
       level: this.levelSession.level.id,
       sceneKey: this.world.config?.sceneKey ?? this.worldConfig.sceneKey,
       elapsedTime: Number(this.elapsedTime.toFixed(1)),
-      wave: this.wave,
+      threat: this.strategyAttackIndex,
+      nextStrategySpawnSeconds: Number(Math.max(0, this.strategySpawnTimer).toFixed(1)),
       counts: this.createPerfCounters(),
       pathWorker: {
         ready: this.pathWorkerReady,
@@ -4337,7 +4404,17 @@ export class Game {
       elapsedTime: Number(this.elapsedTime.toFixed(1)),
       friendly: this.friendlyUnits.length,
       enemies: this.enemyUnits.length,
-      wave: this.wave,
+      threat: this.strategyAttackIndex,
+      nextStrategySpawnSeconds: Number(Math.max(0, this.strategySpawnTimer).toFixed(1)),
+      pendingStrategyRewards: this.pendingStrategyRewards.length,
+      currentStrategyAssault: this.currentStrategyAssault
+        ? {
+            index: this.currentStrategyAssault.index,
+            kind: this.currentStrategyAssault.kind,
+            count: this.currentStrategyAssault.count,
+            difficulty: this.currentStrategyAssault.effectiveDifficulty
+          }
+        : null,
       baseHealth: Math.round(this.playerBase.health),
       enemyCampHealth: Math.round(this.enemyCamp.health),
       selectedCount: this.selectedUnits.length,
@@ -4481,6 +4558,82 @@ function normalizeLevelSession(session) {
   };
 }
 
+function strategyAssaultKind(index, config = {}) {
+  const bossInterval = Math.max(1, Math.floor(config.bossInterval ?? 12));
+  const eliteInterval = Math.max(1, Math.floor(config.eliteInterval ?? 4));
+  if (index % bossInterval === 0) return 'boss';
+  if (index % eliteInterval === 0) return 'elite';
+  return 'normal';
+}
+
+function strategyAssaultDifficulty(session, index, config = {}) {
+  const escalationSeconds = Math.max(1, config.escalationSeconds ?? 82);
+  const expectedAssaultsPerTier = Math.max(
+    3,
+    Math.round(escalationSeconds / Math.max(4, config.spawnIntervalSeconds ?? 12))
+  );
+  return resolveSessionBaseDifficulty(session) + Math.floor(Math.max(0, index - 1) / expectedAssaultsPerTier);
+}
+
+function strategyAssaultCount(kind, index, difficulty, config = {}, bossOrdinal = 0) {
+  if (kind === 'boss') {
+    return Math.min(4, 2 + Math.floor(Math.max(0, bossOrdinal - 1) / 2));
+  }
+  if (kind === 'elite') {
+    return Math.min(3, 2 + Math.floor(Math.max(0, index - 1) / 8));
+  }
+  const earlyWeakAssaults = Math.max(0, Math.floor(config.earlyWeakAssaults ?? 4));
+  if (index <= earlyWeakAssaults) return index <= 2 ? 1 : 2;
+  const maxGroupSize = Math.max(2, Math.floor(config.maxNormalGroupSize ?? 4));
+  return Math.min(
+    maxGroupSize,
+    2 + Math.floor((index - earlyWeakAssaults) / 4) + Math.floor(Math.max(0, difficulty - 1) * 0.16)
+  );
+}
+
+function strategyAssaultTypes({ level, index, kind, count, difficulty, bossOrdinal, earlyWeakAssaults }) {
+  const enemyPool = Array.isArray(level?.enemyPool) ? level.enemyPool : [];
+  return Array.from({ length: count }, (_, unitIndex) => {
+    if (kind === 'boss' && unitIndex === 0) {
+      return strategyBossType(enemyPool, index, difficulty, bossOrdinal);
+    }
+    if (index <= earlyWeakAssaults) return 'goblinSoldier';
+    return selectEnemyFromPool(enemyPool, index, unitIndex, difficulty) ?? 'goblinSoldier';
+  });
+}
+
+function strategyBossType(enemyPool, index, difficulty, bossOrdinal) {
+  const levelBossPool = enemyPool.filter((entry) => WAVE_BOSS_TYPES.includes(entry?.type));
+  const fallbackPool = WAVE_BOSS_TYPES.map((type) => ({
+    type,
+    weight: 1,
+    minWave: WAVE_MONSTER_UNLOCKS[type]?.minWave ?? 1,
+    minDifficulty: 1
+  }));
+  return selectEnemyFromPool(
+    levelBossPool.length ? levelBossPool : fallbackPool,
+    index,
+    bossOrdinal,
+    difficulty
+  ) ?? 'goblinTroll';
+}
+
+function strategyAssaultKindLabel(assault) {
+  if (assault.kind === 'boss') return 'Boss 攻势';
+  if (assault.kind === 'elite') return '精英突袭';
+  if (assault.index <= 2) return '侦察小队';
+  return '敌军攻势';
+}
+
+function strategyAssaultPreview(assault) {
+  const types = [...new Set(assault.types ?? [])]
+    .slice(0, 2)
+    .map((type) => UNIT_DEFINITIONS[type]?.name ?? type)
+    .join(' / ');
+  const affix = assault.affixId ? ` · ${waveAffixLabel(assault.affixId)}` : '';
+  return `${assault.count} 名${types ? ` · ${types}` : ''}${affix}`;
+}
+
 function createWaveSchedule(session) {
   const level = session.level ?? {};
   const baseDifficulty = resolveSessionBaseDifficulty(session);
@@ -4580,7 +4733,8 @@ function filterWaveBossPool(pool, bossOrdinal, difficulty) {
 
 function resolveSessionBaseDifficulty(session) {
   const level = session?.level ?? {};
-  return Math.max(1, Math.floor(level.baseDifficulty ?? 1));
+  const selectedDifficulty = clampLevelDifficulty(session?.difficulty ?? 1);
+  return Math.max(1, Math.floor(level.baseDifficulty ?? 1) + selectedDifficulty - 1);
 }
 
 function resolveSessionDifficultyGrowth(session) {
@@ -4885,7 +5039,7 @@ function strategyChoiceMarkup(choice, index) {
     color: choice.color ?? '#9eeedb'
   };
   const color = cardThemeColor(card);
-  const metaText = choice.metaText ?? `${strategyKindLabel(card.kind)} / ${cardUsesText(card)}`;
+  const metaText = choice.metaText ?? strategyKindLabel(card.kind);
   const actionMeta = strategyChoiceActionMeta(choice);
   const actionKey = cssKey(actionMeta.key);
   const kindKey = cssKey(card?.kind ?? 'card');
@@ -4940,13 +5094,10 @@ function strategyChoiceActionMeta(choice) {
   if (choice.action === 'open-card-copy-choice') return { key: 'copy-card', label: '复制入口' };
   if (choice.action === 'grant-temporary-card') return { key: 'restore-card', label: '临时奖励' };
   if (choice.action === 'add-card') return { key: 'add-card', label: '新卡奖励' };
-  if (choice.action === 'add-card-limited-uses') return { key: 'add-card', label: '代价新卡' };
   if (choice.action === 'select-upgrade-card') return { key: 'select-upgrade', label: '选择升级对象' };
   if (choice.action === 'apply-card-upgrade') return { key: 'apply-upgrade', label: '升级倾向' };
   if (choice.action === 'upgrade-card') return { key: 'upgrade-card', label: '等级提升' };
   if (choice.action === 'copy-card') return { key: 'copy-card', label: '复制奖励' };
-  if (choice.action === 'copy-card-limited') return { key: 'copy-card', label: '代价复制' };
-  if (choice.action === 'restore-card') return { key: 'restore-card', label: '补充次数' };
   if (choice.action === 'acquire-core') return { key: 'boss-core', label: '构筑核心' };
   return { key: choice.action ?? 'choice', label: choice.actionLabel ?? '奖励' };
 }
@@ -4984,34 +5135,6 @@ function rewardOptionMetaText(option) {
   if (option.action === 'open-card-upgrade-choice') return '已有卡牌 / 升级倾向';
   if (option.action === 'open-card-copy-choice') return '已有卡牌 / 满次数复制';
   return '特殊临时牌 / 本局限定';
-}
-
-function cardUsesText(card) {
-  const maxUses = Math.max(1, Math.floor(card.maxUses ?? defaultStrategyCardUses(card)));
-  const remainingUses = Math.max(0, Math.min(maxUses, Math.floor(card.remainingUses ?? maxUses)));
-  return `次数 ${remainingUses}/${maxUses}`;
-}
-
-function defaultStrategyCardUses(card) {
-  if (card?.exhaust) return 1;
-  if (card?.kind === 'summon') return 4;
-  if (card?.kind === 'ability') return 1;
-  return 2;
-}
-
-function cardWithUsePenalty(card, penalty = 1) {
-  const baseUses = Math.max(1, Math.floor(card?.maxUses ?? defaultStrategyCardUses(card)));
-  const maxUses = Math.max(1, baseUses - Math.max(1, Math.floor(penalty)));
-  return {
-    ...card,
-    maxUses,
-    remainingUses: maxUses
-  };
-}
-
-function currentCardRemainingUses(card) {
-  const maxUses = Math.max(1, Math.floor(card?.maxUses ?? defaultStrategyCardUses(card)));
-  return Math.max(1, Math.min(maxUses, Math.floor(card?.remainingUses ?? maxUses)));
 }
 
 function createStrategyEventUi() {

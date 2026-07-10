@@ -2585,7 +2585,7 @@ export const PLAYER_ABILITY_DEFINITIONS = {
     name: '军团扩编',
     label: '编',
     color: '#8fdc9b',
-    summary: '单位卡获得额外使用次数'
+    summary: '单位卡每次额外召唤增援'
   },
   exhaustEnergy: {
     id: 'exhaustEnergy',
@@ -4124,9 +4124,9 @@ export const BALANCE = {
   playerBase: {
     position: { x: 0, y: 0, z: 30 },
     maxHealth: 320,
-    recoveryRadius: 8.8,
-    healthPerSecond: 3,
-    durabilityPerSecond: 3.75
+    recoveryRadius: 4.8,
+    healthPerSecond: 0.55,
+    durabilityPerSecond: 0.8
   },
   enemyCamp: {
     position: { x: 0, y: 0, z: -30 },
@@ -4134,6 +4134,20 @@ export const BALANCE = {
     attackRange: 8.5,
     attackDamage: 7,
     attackInterval: 1
+  },
+  enemyStrategy: {
+    initialDelaySeconds: 7,
+    spawnIntervalSeconds: 12,
+    minimumSpawnIntervalSeconds: 7.5,
+    backpressureSeconds: 1.2,
+    activeEnemyLimit: 12,
+    earlyWeakAssaults: 4,
+    earlyHealthMultiplier: 0.62,
+    earlyDamageMultiplier: 0.56,
+    escalationSeconds: 82,
+    eliteInterval: 4,
+    bossInterval: 12,
+    maxNormalGroupSize: 4
   },
   world: {
     ground: {

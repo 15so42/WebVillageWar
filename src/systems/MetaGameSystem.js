@@ -425,7 +425,7 @@ export class MetaGameSystem {
               <strong>${baseDifficulty}</strong>
             </div>
             <div>
-              <span>波次成长</span>
+              <span>敌军成长</span>
               <strong>x${formatGrowthMultiplier(growthMultiplier)}</strong>
             </div>
             <div>
@@ -454,7 +454,7 @@ export class MetaGameSystem {
           </div>
           <div class="meta-victory-goal">
             <span>胜利目标</span>
-            <strong>击败 3 个 Boss 或击破敌营</strong>
+            <strong>击破敌营</strong>
           </div>
           <div class="meta-hero-actions">
             <button class="meta-primary-button" type="button" data-action="deck">选择牌组</button>
@@ -553,7 +553,7 @@ export class MetaGameSystem {
           </article>
           <article class="meta-panel">
             <div class="meta-section-title">战斗</div>
-            <p>守住基地耐久，清理敌方波次并击破敌营。不同关卡会有地形、天气或敌营规则差异。</p>
+            <p>率领部队持续推进，争夺祭坛、击败精英与 Boss，最终击破敌营。不同关卡会有地形、天气或敌营规则差异。</p>
           </article>
           <article class="meta-panel">
             <div class="meta-section-title">成长</div>
@@ -620,7 +620,7 @@ export class MetaGameSystem {
           <h1>${level.name} / 难度 ${result.session.difficulty}</h1>
           <div class="meta-result-grid">
             <span>用时 <strong>${formatTime(result.elapsedTime)}</strong></span>
-            <span>到达波次 <strong>${result.wave}</strong></span>
+            <span>应对威胁 <strong>${result.threat ?? result.wave ?? 0}</strong></span>
             <span>获得金币 <strong>${result.reward}</strong></span>
             <span>已解锁难度 <strong>${result.nextDifficulty}</strong></span>
           </div>
