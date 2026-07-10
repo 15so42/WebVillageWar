@@ -1079,7 +1079,6 @@ export function createWorld(scene, worldOptions = {}) {
     staticCullables,
     staticCulling,
     staticDecorationMeshes: staticDecorationResult.meshes,
-    staticDecorationBounceSources: staticDecorationResult.bounceSources,
     update: (dt, cameraTarget, camera, options = {}) => {
       updateSkyGradientPosition(skyGradient, camera);
       snowfall.update(dt, cameraTarget);
@@ -4059,8 +4058,7 @@ function addStaticCulledObject(scene, object, radiusPadding = STATIC_WORLD_CULL_
 function createStaticDecorationBatch() {
   return {
     buckets: new Map(),
-    sourceEntries: [],
-    bounceSources: []
+    sourceEntries: []
   };
 }
 
@@ -4121,7 +4119,6 @@ function queueStaticDecoration(object, radiusPadding = STATIC_WORLD_CULL_RADIUS_
     bucket.sourceObjects.add(object);
   });
   batch.sourceEntries.push({ object, radiusPadding });
-  batch.bounceSources.push(createStaticDecorationBounceSource(object));
   return true;
 }
 
@@ -4182,28 +4179,6 @@ function canBatchStaticDecoration(object) {
   return batchable && meshCount > 0;
 }
 
-function createStaticDecorationBounceSource(object) {
-  const size = new THREE.Vector3();
-  STATIC_BATCH_BOX.getSize(size);
-  const color = new THREE.Color(0, 0, 0);
-  let materialCount = 0;
-  object.traverse((node) => {
-    if (!node.isMesh || node.userData?.skipBakedShadow) return;
-    const materials = Array.isArray(node.material) ? node.material : [node.material];
-    materials.forEach((material) => {
-      if (!material?.color) return;
-      color.add(material.color);
-      materialCount += 1;
-    });
-  });
-  if (materialCount > 0) color.multiplyScalar(1 / materialCount);
-  return {
-    center: STATIC_BATCH_CENTER.clone(),
-    size,
-    color: materialCount > 0 ? color : null
-  };
-}
-
 function staticGeometrySignature(geometry) {
   const index = geometry.index;
   const indexSignature = index
@@ -4226,7 +4201,7 @@ function flushStaticDecorationBatch(scene) {
   const batch = activeStaticDecorationBatch;
   activeStaticDecorationBatch = null;
   if (!batch || batch.buckets.size === 0) {
-    return { meshes: [], bounceSources: [] };
+    return { meshes: [] };
   }
 
   const prepared = [];
@@ -4259,7 +4234,7 @@ function flushStaticDecorationBatch(scene) {
       scene.add(object);
       registerStaticCullable(object, radiusPadding);
     });
-    return { meshes: [], bounceSources: [] };
+    return { meshes: [] };
   }
 
   const meshes = [];
@@ -4274,10 +4249,7 @@ function flushStaticDecorationBatch(scene) {
     meshes.push(mesh);
     meshIndex += 1;
   });
-  return {
-    meshes,
-    bounceSources: batch.bounceSources
-  };
+  return { meshes };
 }
 
 function createStaticDecorationBatchMesh(geometry, bucket, index) {

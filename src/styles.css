@@ -905,19 +905,6 @@ body.is-meta-open .selection-box {
   white-space: pre-wrap;
 }
 
-.render-tuning-bake-status {
-  min-height: 28px;
-  display: flex;
-  align-items: center;
-  padding: 7px 9px;
-  border: 1px solid rgba(158, 238, 219, 0.16);
-  border-radius: 6px;
-  color: rgba(222, 248, 238, 0.82);
-  background: rgba(8, 13, 14, 0.52);
-  font-size: 11px;
-  font-weight: 900;
-}
-
 .perf-stats {
   display: grid;
   gap: 8px;
