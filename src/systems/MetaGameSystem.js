@@ -13,8 +13,20 @@ const STARTING_COINS = 10000;
 const STARTING_COINS_VERSION = 1;
 const MAX_LEVEL_DIFFICULTY = 10;
 const WAVE_DIFFICULTY_GROWTH_PER_SELECTED_DIFFICULTY = 0.16;
-const TEST_VERSION_LABEL = '测试版本 v0.1.1';
+const TEST_VERSION_LABEL = '测试版本 v0.1.2';
 const CHANGELOG_ENTRIES = [
+  {
+    date: '2026-07-13',
+    title: '军需铺、格挡与手机操作',
+    items: [
+      '军需铺复制、移除、升级改为只能从已有牌组选择；复制卡牌优先放入手牌空位。',
+      '修复格挡不再消耗耐久的问题；F6 测试模式仅基地结构免耐久，单位攻击与格挡正常结算。',
+      'F6 测试模式：基地无敌、基地防御 999 攻，Z / X / C 调整游戏速度。',
+      '首关 Boss 改为冰霜巨魔；初始牌组加入能力牌，出战牌组上限调整为 36 张。',
+      '卡牌拖拽松手距起点不足 24px 时取消出牌；弃牌固定消耗 1 能量。',
+      '波次奖励与军需铺在手机竖屏下整体缩放；选中单位后双击可框选，首次点击移动会等待双击判定窗口结束。'
+    ]
+  },
   {
     date: '2026-07-12',
     title: '卡牌成长与基地修复',
@@ -580,7 +592,7 @@ export class MetaGameSystem {
       <main class="meta-deck">
         <section class="meta-panel">
           <div class="meta-section-title">卡牌商店</div>
-          <p>购买后会进入局外卡牌库，并可加入 30 张出战牌组。</p>
+          <p>购买后会进入局外卡牌库，并可加入 ${DECK_SIZE} 张出战牌组。</p>
           <button class="meta-secondary-button" type="button" data-action="upgrades">升级已有卡牌</button>
         </section>
         <section class="meta-card-grid">
@@ -602,7 +614,7 @@ export class MetaGameSystem {
       <main class="meta-page meta-guide-page">
         <section class="meta-panel meta-guide-panel">
           <div class="meta-section-title">核心流程</div>
-          <p>先在选关页面选择关卡和难度，再配置 30 张出战卡牌进入战斗。战斗中通过出牌、移动、驻守和三选一奖励推进基地。</p>
+          <p>先在选关页面选择关卡和难度，再配置 ${DECK_SIZE} 张出战卡牌进入战斗。战斗中通过出牌、移动、驻守和三选一奖励推进基地。</p>
         </section>
         <section class="meta-guide-grid">
           <article class="meta-panel">

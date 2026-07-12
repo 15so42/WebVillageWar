@@ -572,6 +572,8 @@ export class Game {
     this.activeTouchPointers = new Map();
     this.touchGesture = null;
     this.lastMobileTap = null;
+    this.pendingMobileMoveTap = null;
+    this.pendingMobileMoveTimer = null;
     this.updateCamera(0);
 
     this.clock = new THREE.Clock();
@@ -882,6 +884,7 @@ export class Game {
     if (this.destroyed) return;
     this.destroyed = true;
     this.stop();
+    this.clearPendingMobileMoveTap();
     this.eventController.abort();
     this.cardSystem?.destroy?.();
     this.buildings?.destroy?.();
@@ -4196,9 +4199,11 @@ export class Game {
         return;
       }
       if (this.isMobileSelectionDoubleTap(event)) {
+        this.clearPendingMobileMoveTap();
         this.lastMobileTap = null;
         this.beginSelectionDrag(event);
       } else {
+        this.clearPendingMobileMoveTap();
         this.beginCameraDrag(event, {
           mode: 'touch-pan',
           issueCommandOnTap: true
@@ -4516,6 +4521,7 @@ export class Game {
       lastCenterY: metrics.centerY
     };
     this.lastMobileTap = null;
+    this.clearPendingMobileMoveTap();
     this.edgePanActive = false;
     this.canvas.classList.add('is-camera-dragging');
     points.forEach((point) => safeSetPointerCapture(this.canvas, point.id));
@@ -4635,10 +4641,30 @@ export class Game {
   isMobileSelectionDoubleTap(event) {
     const tap = this.lastMobileTap;
     if (!tap) return false;
-    if (tap.kind !== 'select' && tap.kind !== 'empty' && tap.kind !== 'command') return false;
+    if (tap.kind !== 'select' && tap.kind !== 'empty') return false;
     const elapsed = performance.now() - tap.time;
     const distance = Math.hypot(event.clientX - tap.x, event.clientY - tap.y);
     return elapsed <= MOBILE_DOUBLE_TAP_MS && distance <= MOBILE_DOUBLE_TAP_DISTANCE;
+  }
+
+  clearPendingMobileMoveTap() {
+    if (this.pendingMobileMoveTimer != null) {
+      window.clearTimeout(this.pendingMobileMoveTimer);
+      this.pendingMobileMoveTimer = null;
+    }
+    this.pendingMobileMoveTap = null;
+  }
+
+  schedulePendingMobileMoveTap(clientX, clientY) {
+    this.clearPendingMobileMoveTap();
+    this.pendingMobileMoveTap = { x: clientX, y: clientY };
+    this.pendingMobileMoveTimer = window.setTimeout(() => {
+      this.pendingMobileMoveTimer = null;
+      const pending = this.pendingMobileMoveTap;
+      this.pendingMobileMoveTap = null;
+      if (!pending || !this.hasMovablePlayerSelection()) return;
+      this.issueMoveCommand({ clientX: pending.x, clientY: pending.y });
+    }, MOBILE_DOUBLE_TAP_MS + 16);
   }
 
   hasMovablePlayerSelection() {
@@ -4686,6 +4712,7 @@ export class Game {
   handleMobileTapCommand(event) {
     if (this.lootDrops?.tryOpenPickup(event)) {
       this.lastMobileTap = null;
+      this.clearPendingMobileMoveTap();
       return;
     }
 
@@ -4697,6 +4724,7 @@ export class Game {
         })
       : this.pickSelectableUnit(event.clientX, event.clientY);
     if (unit) {
+      this.clearPendingMobileMoveTap();
       this.selectUnit(unit);
       this.lastMobileTap = {
         x: event.clientX,
@@ -4704,15 +4732,26 @@ export class Game {
         time: performance.now(),
         kind: 'select'
       };
-    } else {
-      const moved = this.issueMoveCommand(event);
+      return;
+    }
+    if (hasCommandableSelection) {
+      this.schedulePendingMobileMoveTap(event.clientX, event.clientY);
       this.lastMobileTap = {
         x: event.clientX,
         y: event.clientY,
         time: performance.now(),
-        kind: moved ? 'command' : 'empty'
+        kind: 'empty'
       };
+      return;
     }
+    this.clearPendingMobileMoveTap();
+    this.issueMoveCommand(event);
+    this.lastMobileTap = {
+      x: event.clientX,
+      y: event.clientY,
+      time: performance.now(),
+      kind: 'empty'
+    };
   }
 
   unitsInScreenRect(drag) {
