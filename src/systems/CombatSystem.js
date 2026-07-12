@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { playUnitAnimation } from '../art/visualRegistry.js';
+import { TEAMS } from '../data/gameData.js';
+import { playUnitAnimation, triggerUnitHitFlash } from '../art/visualRegistry.js';
 import { direction2D, distance2D } from '../utils/math.js';
 import {
   hitStunDuration,
@@ -82,6 +83,7 @@ export class CombatSystem {
       return false;
     }
 
+    this.applyAbilityOffense(damageContext);
     this.applyDefenseReduction(damageContext);
     this.game.buffs.beforeDamage(damageContext);
     this.applyDefenderRuntimeTraits(damageContext);
@@ -103,6 +105,10 @@ export class CombatSystem {
     damageContext.knockbackApplied = finalKnockback;
 
     if (source && finalKnockback > 0 && !isStaticUnit(target)) {
+      if (source.team === TEAMS.PLAYER && target.team === TEAMS.ENEMY) {
+        target.recentPlayerKnockback = true;
+        target.knockbackSessionDistance = 0;
+      }
       const dir = direction2D(source.position, target.position);
       target.knockbackVelocity.addScaledVector(dir, finalKnockback);
       target.knockbackVelocity.clampLength(0, maxKnockbackVelocity(target));
@@ -112,6 +118,9 @@ export class CombatSystem {
     if (!damageContext.skipHitAnimation) {
       playUnitAnimation(target, 'hit');
     }
+    if (!damageContext.skipHitFlash) {
+      triggerUnitHitFlash(target, 0.1);
+    }
     if (!damageContext.skipHitEffect) {
       scratch.copy(target.position);
       scratch.y += 0.9;
@@ -119,6 +128,17 @@ export class CombatSystem {
         scratch,
         source?.hasEnchantment?.('fire') ? '#ff9a47' : '#f6e7a0'
       );
+    }
+    if (
+      source?.alive &&
+      target?.alive &&
+      source.team &&
+      target.team &&
+      source.team !== target.team &&
+      finalDamage > 0.001
+    ) {
+      target.lastAttacker = source;
+      target.lastAttackerTime = this.game.elapsedTime ?? 0;
     }
     if (target.alive === false) {
       this.game.handleUnitDeath?.(target, source);
@@ -188,6 +208,9 @@ export class CombatSystem {
       context.knockback *= 1.35;
       this.spawnTraitText(source, '重矢', '#dff8ff');
     }
+    if (hasRuntimeTrait(source, 'shieldRam')) {
+      context.knockback *= 1.35;
+    }
     if (hasRuntimeTrait(source, 'warcryDamage')) {
       const enemies = source.team === 'player' ? this.game.enemyUnits : this.game.friendlyUnits;
       const count = enemies.filter((unit) => (
@@ -215,6 +238,47 @@ export class CombatSystem {
       duration: 0.72,
       fontSize: 76,
       baseHeight: 0.48
+    });
+  }
+
+  applyAbilityOffense(context) {
+    const source = context.source;
+    if (!source?.alive || source.team !== TEAMS.PLAYER) return;
+
+    const volleyStacks = this.game.abilities?.getStacks?.('rangedVolley') ?? 0;
+    if (volleyStacks > 0 && context.isAttack) {
+      const attackRange = this.game.modifiers.getAttackRange(source);
+      if (attackRange > 5) {
+        context.knockback = (context.knockback ?? 0) + volleyStacks;
+      }
+    }
+  }
+
+  onKnockbackEnded(unit, distance) {
+    if (!unit?.alive || unit.team !== TEAMS.ENEMY || !unit.recentPlayerKnockback) return;
+    unit.recentPlayerKnockback = false;
+    if (distance < 0.08) return;
+    const stacks = this.game.abilities?.getStacks?.('knockbackStarfall') ?? 0;
+    if (stacks <= 0) return;
+    const radius = 1.05 + Math.min(1.35, distance * 0.07);
+    const damage = (4 + distance * 0.75) * (1 + 0.22 * Math.max(0, stacks - 1));
+    const point = unit.position.clone();
+    point.y = this.game.groundHeightAt(point);
+    this.game.effects.spawnFallingStar(point, radius, () => {
+      this.game.enemyUnits.forEach((enemy) => {
+        if (!enemy.alive || enemy.underConstruction) return;
+        if (distance2D(enemy.position, point) > radius) return;
+        this.applyDamage(enemy, damage, null, 0, {
+          damage,
+          source: null,
+          target: enemy,
+          defenseDamageType: 'magic',
+          isAttack: false,
+          skipHitAnimation: true,
+          damageNumberHeight: enemy.projectileHitHeight ?? 1.45,
+          damageNumberDuration: 0.66
+        });
+      });
     });
   }
 

@@ -4,6 +4,7 @@ export const TEAMS = {
 };
 
 export const DECK_SIZE = 30;
+export const ACTIVE_DECK_SIZE = 12;
 
 export const UNIT_DEFINITIONS = {
   knight: {
@@ -180,6 +181,91 @@ export const UNIT_DEFINITIONS = {
       name: '短弓',
       maxDurability: 27,
       durabilityCost: 1
+    }
+  },
+  spearman: {
+    name: '长矛兵',
+    role: 'melee',
+    art: {
+      modelKey: 'unit.spearman',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Walk',
+        attack: 'Spear_Thrust',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.48,
+          events: {
+            impact: 0.52
+          }
+        },
+        hit: {
+          duration: 0.22
+        }
+      }
+    },
+    maxHealth: 25,
+    maxShield: 12,
+    speed: 3.05,
+    attackRange: 2.5,
+    attackRate: 1,
+    damage: 5.5,
+    armor: 0,
+    magicResistance: 1,
+    dodgeChance: 0.03,
+    knockback: 2.8,
+    aggroRange: 11.5,
+    weapon: {
+      name: '长矛',
+      maxDurability: 30,
+      durabilityCost: 1
+    }
+  },
+  towerShield: {
+    name: '塔盾兵',
+    role: 'melee',
+    art: {
+      modelKey: 'unit.towerShield',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Heavy_Walk',
+        attack: 'Shield_Push',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.56,
+          events: {
+            impact: 0.58
+          }
+        },
+        hit: {
+          duration: 0.24
+        }
+      }
+    },
+    maxHealth: 34,
+    maxShield: 22,
+    speed: 2.35,
+    attackRange: 1.25,
+    attackRate: 0.78,
+    damage: 1,
+    armor: 8,
+    magicResistance: 0,
+    dodgeChance: 0.01,
+    knockback: 5.2,
+    knockbackResistance: 0.35,
+    aggroRange: 10.8,
+    weapon: {
+      name: '塔盾',
+      maxDurability: 45,
+      durabilityCost: 0.85
     }
   },
   crossbowman: {
@@ -378,7 +464,11 @@ export const UNIT_DEFINITIONS = {
         initialCooldown: 7,
         range: 5.4,
         amount: 5,
-        maxTargets: 1
+        maxTargets: 1,
+        includeBase: true,
+        baseRange: 8.5,
+        baseHealthPercent: 0.05,
+        baseDurabilityPercent: 0.05
       }
     },
     weapon: {
@@ -602,7 +692,7 @@ export const UNIT_DEFINITIONS = {
     weapon: {
       name: '箭塔',
       maxDurability: 30,
-      durabilityCost: 0
+      durabilityCost: 1
     }
   },
   miniTurret: {
@@ -684,7 +774,12 @@ export const UNIT_DEFINITIONS = {
       type: 'restoreDurability',
       radius: 4.1,
       durabilityPerSecond: 2.6,
-      restorePerDurability: 1
+      restorePerDurability: 1,
+      includeStructures: true,
+      includeBuildings: true,
+      structureHealthPercentPerSecond: 0.007,
+      structureDurabilityPercentPerSecond: 0.005,
+      buildingHealthPerSecond: 1.1
     },
     weapon: {
       name: '维修储备',
@@ -882,7 +977,7 @@ export const UNIT_DEFINITIONS = {
     maxHealth: 110,
     maxShield: 55,
     speed: 1.58,
-    attackRange: 1.72,
+    attackRange: 2.58,
     attackRate: 0.42,
     damage: 13,
     armor: 6,
@@ -2485,7 +2580,7 @@ export const BUFF_DEFINITIONS = {
     ]
   },
   waveSwarm: {
-    name: '虫群',
+    name: '集群',
     category: 'enchantment',
     color: '#93c86f',
     duration: 999,
@@ -2718,6 +2813,21 @@ export const BUFF_DEFINITIONS = {
       }
     ]
   },
+  heavyStrike: {
+    name: '重击',
+    category: 'enchantment',
+    color: '#c49a6c',
+    duration: 999,
+    level: 1,
+    effects: [
+      {
+        event: 'modifyAttack',
+        op: 'addArmorRatioDamage',
+        basePercent: 0.5,
+        percentPerLevel: 0.25
+      }
+    ]
+  },
   burning: {
     name: '燃烧',
     category: 'status',
@@ -2748,6 +2858,25 @@ export const BUFF_DEFINITIONS = {
       {
         event: 'tick',
         op: 'damageOverTime',
+        vfx: 'poison'
+      }
+    ]
+  },
+  plague: {
+    name: '瘟疫',
+    category: 'status',
+    color: '#6a8a48',
+    duration: 99,
+    tickInterval: 1,
+    level: 1,
+    hidden: true,
+    negative: true,
+    effects: [
+      {
+        event: 'tick',
+        op: 'plagueTick',
+        spreadRadius: 2.4,
+        percentPerLevel: 0.01,
         vfx: 'poison'
       }
     ]
@@ -2959,6 +3088,7 @@ export const ENCHANTMENTS = {
   spiritShield: BUFF_DEFINITIONS.spiritShield,
   wolfInstinct: BUFF_DEFINITIONS.wolfInstinct,
   ursineSpirit: BUFF_DEFINITIONS.ursineSpirit,
+  heavyStrike: BUFF_DEFINITIONS.heavyStrike,
   waveSwarm: BUFF_DEFINITIONS.waveSwarm,
   waveArmored: BUFF_DEFINITIONS.waveArmored,
   waveRush: BUFF_DEFINITIONS.waveRush,
@@ -2967,13 +3097,6 @@ export const ENCHANTMENTS = {
 };
 
 export const PLAYER_ABILITY_DEFINITIONS = {
-  summonUseBonus: {
-    id: 'summonUseBonus',
-    name: '军团扩编',
-    label: '编',
-    color: '#8fdc9b',
-    summary: '单位卡每次额外召唤增援'
-  },
   exhaustEnergy: {
     id: 'exhaustEnergy',
     name: '节能术',
@@ -2988,26 +3111,26 @@ export const PLAYER_ABILITY_DEFINITIONS = {
     color: '#7f8fc7',
     summary: '每 10 秒获得能量'
   },
-  enchantEcho: {
-    id: 'enchantEcho',
-    name: '附魔回响',
+  enchantResonance: {
+    id: 'enchantResonance',
+    name: '附魔共鸣',
     label: '响',
     color: '#b68cff',
-    summary: '使用附魔牌时概率额外生效'
+    summary: '使用附魔牌时，每层额外 +12% 概率再生效一次'
   },
-  deathExplosion: {
-    id: 'deathExplosion',
-    name: '殉爆印记',
+  martyrdomLine: {
+    id: 'martyrdomLine',
+    name: '殉爆阵线',
     label: '爆',
     color: '#ffb45c',
-    summary: '友方单位死亡时爆炸'
+    summary: '友方单位死亡时爆炸，每层 +15 伤害并略增范围'
   },
-  buildingDurability: {
-    id: 'buildingDurability',
-    name: '加固工法',
+  fortificationDoctrine: {
+    id: 'fortificationDoctrine',
+    name: '阵地工法',
     label: '固',
     color: '#d8c58d',
-    summary: '之后新建建筑获得额外生命和耐久'
+    summary: '之后新建建筑生命与耐久各 +25%/层'
   },
   randomHealOnCard: {
     id: 'randomHealOnCard',
@@ -3016,12 +3139,96 @@ export const PLAYER_ABILITY_DEFINITIONS = {
     color: '#6edc8b',
     summary: '打出牌时随机治疗友军'
   },
+  revivalMatrix: {
+    id: 'revivalMatrix',
+    name: '复苏矩阵',
+    label: '阵',
+    color: '#7dffb8',
+    summary: '每次打出牌时，治疗血量最低的友军（每层 +12% 最大生命）'
+  },
   victoryGold: {
     id: 'victoryGold',
     name: '凯旋税印',
     label: '金',
     color: '#ffd166',
     summary: '胜利后获得更多金币'
+  },
+  fireSpread: {
+    id: 'fireSpread',
+    name: '烈焰蔓延',
+    label: '焰',
+    color: '#ff823d',
+    summary: '燃烧 tick 时向周围敌人传播并刷新燃烧'
+  },
+  legionExpansion: {
+    id: 'legionExpansion',
+    name: '军团扩编',
+    label: '编',
+    color: '#8fdc9b',
+    summary: '打出单位卡时，每层有 50% 概率多召 1 名增援；概率溢出可继续判定'
+  },
+  killHarvest: {
+    id: 'killHarvest',
+    name: '猎魂潮汐',
+    label: '潮',
+    color: '#7f8fc7',
+    summary: '击杀敌人时额外获得能量（每层 +0.35）'
+  },
+  venomSpread: {
+    id: 'venomSpread',
+    name: '剧毒蔓延',
+    label: '毒',
+    color: '#78b85a',
+    summary: '友方施加的持续伤害增加 100%'
+  },
+  lootPouch: {
+    id: 'lootPouch',
+    name: '探囊',
+    label: '囊',
+    color: '#e8c56d',
+    summary: '击杀单位时，每层额外获得 1 银币'
+  },
+  tacticalMaster: {
+    id: 'tacticalMaster',
+    name: '地形大师',
+    label: '形',
+    color: '#6f9fd8',
+    summary: '陨石、毒雾、白雾等法术范围增加 50%（每层）'
+  },
+  rangedVolley: {
+    id: 'rangedVolley',
+    name: '齐射号令',
+    label: '射',
+    color: '#5f9a6f',
+    summary: '攻击距离大于 5 的友方单位击中时，击退距离 +1/层'
+  },
+  frontlineBulwark: {
+    id: 'frontlineBulwark',
+    name: '铁壁前线',
+    label: '壁',
+    color: '#8a8f78',
+    summary: '护甲高于 12 的友方单位每秒恢复 1 点生命/层'
+  },
+  summonEndurance: {
+    id: 'summonEndurance',
+    name: '整编耐久',
+    label: '持',
+    color: '#8fdc9b',
+    summary: '新召唤的友军生命 +20%/层'
+  },
+  knockbackStarfall: {
+    id: 'knockbackStarfall',
+    name: '飞星余震',
+    label: '星',
+    color: '#ffe08a',
+    summary: '敌人被友方击退结束后，按击退距离召唤飞星造成小范围伤害（每层强化）'
+  },
+  shieldAugment: {
+    id: 'shieldAugment',
+    name: '盾阵充能',
+    label: '盾',
+    color: '#8fb6ff',
+    summary: '友方单位获得护盾时，额外获得 2 点护盾/层'
   }
 };
 
@@ -3139,7 +3346,7 @@ export const CARD_DEFINITIONS = [
     kind: 'summon',
     label: '弓',
     artKey: 'archer',
-    summary: '召唤 1 名远程单位',
+    summary: '远程单位，持续输出稳定',
     target: 'ground',
     radius: 1.15,
     cooldown: 6.5,
@@ -3152,6 +3359,46 @@ export const CARD_DEFINITIONS = [
       count: 1
     },
     color: '#3f7d5b'
+  },
+  {
+    id: 'spearmen',
+    name: '派遣长矛兵',
+    kind: 'summon',
+    label: '矛',
+    artKey: 'spearman',
+    summary: '中距离戳刺近战，血量护甲偏低但攻速快',
+    target: 'ground',
+    radius: 1.15,
+    cooldown: 5.5,
+    energyCost: 2,
+    unitType: 'spearman',
+    count: 1,
+    effect: {
+      type: 'spawn-units',
+      unitType: 'spearman',
+      count: 1
+    },
+    color: '#6a7d4f'
+  },
+  {
+    id: 'tower-shields',
+    name: '派遣塔盾兵',
+    kind: 'summon',
+    label: '盾',
+    artKey: 'towerShield',
+    summary: '高护甲前排，移动缓慢，用盾牌推击敌人',
+    target: 'ground',
+    radius: 1.15,
+    cooldown: 8,
+    energyCost: 5,
+    unitType: 'towerShield',
+    count: 1,
+    effect: {
+      type: 'spawn-units',
+      unitType: 'towerShield',
+      count: 1
+    },
+    color: '#5a6a78'
   },
   {
     id: 'crossbowmen',
@@ -3219,7 +3466,7 @@ export const CARD_DEFINITIONS = [
     kind: 'summon',
     label: '工',
     artKey: 'engineer',
-    summary: '每 7 秒为周围 1 个单位恢复 5 耐久',
+    summary: '每 7 秒为周围 1 个单位恢复 5 武器耐久；靠近基地时可修缮基地（+5% 血量与结构耐久）',
     target: 'ground',
     radius: 1.15,
     cooldown: 7,
@@ -3379,7 +3626,7 @@ export const CARD_DEFINITIONS = [
     kind: 'spell',
     label: '陨',
     artKey: 'meteor',
-    summary: '敌我双方都会受到范围伤害与击退',
+    summary: '对敌方区域造成范围伤害与击退',
     target: 'ground',
     radius: 3.25,
     cooldown: 8.5,
@@ -3399,7 +3646,7 @@ export const CARD_DEFINITIONS = [
     kind: 'spell',
     label: '毒',
     artKey: 'poisonFog',
-    summary: '10 秒毒雾，持续给区域内单位施加最大生命值中毒',
+    summary: '10 秒毒雾，仅对敌方单位施加最大生命值中毒',
     target: 'ground',
     radius: 3.65,
     cooldown: 10.5,
@@ -3408,7 +3655,7 @@ export const CARD_DEFINITIONS = [
       type: 'create-area-effect',
       areaEffect: {
         kind: 'poisonFog',
-        target: 'all',
+        target: 'enemy',
         duration: 10,
         radius: 3.65,
         applyInterval: 0.45,
@@ -3428,7 +3675,7 @@ export const CARD_DEFINITIONS = [
     kind: 'spell',
     label: '烟',
     artKey: 'whiteSmoke',
-    summary: '30 秒白烟，区域内单位获得等级相关闪避率',
+    summary: '30 秒白烟，仅对友方单位提供等级相关闪避率',
     target: 'ground',
     radius: 3.45,
     cooldown: 16,
@@ -3437,7 +3684,7 @@ export const CARD_DEFINITIONS = [
       type: 'create-area-effect',
       areaEffect: {
         kind: 'whiteSmoke',
-        target: 'all',
+        target: 'friendly',
         duration: 30,
         radius: 3.45,
         applyInterval: 0.5,
@@ -3450,16 +3697,44 @@ export const CARD_DEFINITIONS = [
     color: '#eef7ff'
   },
   {
+    id: 'plague-field',
+    name: '释放瘟疫',
+    kind: 'spell',
+    label: '疫',
+    artKey: 'plagueFog',
+    summary: '范围内敌人感染瘟疫：99 秒持续伤害，每秒造成等级×1% 最大生命，并小范围传播',
+    target: 'ground',
+    radius: 3.55,
+    cooldown: 14,
+    energyCost: 4,
+    effect: {
+      type: 'create-area-effect',
+      areaEffect: {
+        kind: 'plagueFog',
+        target: 'enemy',
+        duration: 12,
+        radius: 3.55,
+        applyInterval: 1,
+        buffId: 'plague',
+        buffDuration: 99,
+        color: '#6a8a48',
+        accent: '#b8d88a'
+      }
+    },
+    color: '#6a8a48'
+  },
+  {
     id: 'focus-energy',
     name: '凝聚能量',
     kind: 'tactic',
     label: '能',
     artKey: 'tacticEnergySmall',
-    summary: '获得 2 点能量；每级额外 +0.5',
+    summary: '获得 2 点能量；每级额外 +0.5（本局 2 次）',
     target: 'none',
     radius: 1,
     cooldown: 0,
     energyCost: 0,
+    uses: 2,
     effect: {
       type: 'gain-energy',
       amountBase: 2,
@@ -3484,6 +3759,22 @@ export const CARD_DEFINITIONS = [
       amountPerLevel: 1
     },
     color: '#7f8fc7'
+  },
+  {
+    id: 'silver-gamble',
+    name: '银币博弈',
+    kind: 'tactic',
+    label: '赌',
+    artKey: 'tacticSilverGamble',
+    summary: '消耗 1 点能量：50% 概率银币翻倍，50% 概率减半',
+    target: 'none',
+    radius: 1,
+    cooldown: 0,
+    energyCost: 1,
+    effect: {
+      type: 'gamble-silver'
+    },
+    color: '#d8b85a'
   },
   {
     id: 'field-upgrade',
@@ -3545,37 +3836,56 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'enchant-echo-ability',
-    name: '附魔回响',
+    name: '附魔共鸣',
     kind: 'ability',
     label: '响',
     artKey: 'abilityEnchantEcho',
-    summary: '使用附魔牌时有概率额外生效一次',
+    summary: '使用附魔牌时，每层 +12% 概率额外生效一次',
     target: 'none',
     radius: 1,
     cooldown: 0,
     energyCost: 4,
     effect: {
       type: 'acquire-ability',
-      abilityId: 'enchantEcho',
+      abilityId: 'enchantResonance',
       stacksBase: 1,
       stacksPerLevel: 1
     },
     color: '#b68cff'
   },
   {
+    id: 'fire-spread-ability',
+    name: '烈焰蔓延',
+    kind: 'ability',
+    label: '焰',
+    artKey: 'abilityFireSpread',
+    summary: '燃烧 tick 时向周围小范围敌人传播并互相刷新燃烧',
+    target: 'none',
+    radius: 1,
+    cooldown: 0,
+    energyCost: 5,
+    effect: {
+      type: 'acquire-ability',
+      abilityId: 'fireSpread',
+      stacksBase: 1,
+      stacksPerLevel: 1
+    },
+    color: '#ff823d'
+  },
+  {
     id: 'death-explosion-ability',
-    name: '殉爆印记',
+    name: '殉爆阵线',
     kind: 'ability',
     label: '爆',
     artKey: 'abilityDeathExplosion',
-    summary: '友方单位死亡时产生爆炸',
+    summary: '友方单位死亡时爆炸（每层 +15 伤害，略增范围）',
     target: 'none',
     radius: 1,
     cooldown: 0,
     energyCost: 4,
     effect: {
       type: 'acquire-ability',
-      abilityId: 'deathExplosion',
+      abilityId: 'martyrdomLine',
       stacksBase: 1,
       stacksPerLevel: 1
     },
@@ -3583,18 +3893,18 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'building-durability-ability',
-    name: '加固工法',
+    name: '阵地工法',
     kind: 'ability',
     label: '固',
     artKey: 'abilityBuildingDurability',
-    summary: '之后新建建筑获得额外生命和耐久',
+    summary: '之后新建建筑生命与耐久各 +25%/层',
     target: 'none',
     radius: 1,
     cooldown: 0,
     energyCost: 3,
     effect: {
       type: 'acquire-ability',
-      abilityId: 'buildingDurability',
+      abilityId: 'fortificationDoctrine',
       stacksBase: 1,
       stacksPerLevel: 1
     },
@@ -3606,7 +3916,7 @@ export const CARD_DEFINITIONS = [
     kind: 'ability',
     label: '愈',
     artKey: 'abilityRandomHeal',
-    summary: '打出牌时随机治疗友军',
+    summary: '打出牌时随机治疗友军（每层治疗 1 名，16% 最大生命）',
     target: 'none',
     radius: 1,
     cooldown: 0,
@@ -3639,6 +3949,215 @@ export const CARD_DEFINITIONS = [
     color: '#ffd166'
   },
   {
+    id: 'legion-expansion-ability',
+    name: '军团扩编',
+    kind: 'ability',
+    label: '编',
+    artKey: 'abilityArsenal',
+    summary: '打出单位卡时，每层 50% 概率多召 1 名增援',
+    target: 'none',
+    radius: 1,
+    cooldown: 0,
+    energyCost: 4,
+    effect: {
+      type: 'acquire-ability',
+      abilityId: 'legionExpansion',
+      stacksBase: 1,
+      stacksPerLevel: 1
+    },
+    color: '#8fdc9b'
+  },
+  {
+    id: 'kill-harvest-ability',
+    name: '猎魂潮汐',
+    kind: 'ability',
+    label: '潮',
+    artKey: 'abilityBloodRage',
+    summary: '击杀敌人时额外获得能量（每层 +0.35）',
+    target: 'none',
+    radius: 1,
+    cooldown: 0,
+    energyCost: 4,
+    effect: {
+      type: 'acquire-ability',
+      abilityId: 'killHarvest',
+      stacksBase: 1,
+      stacksPerLevel: 1
+    },
+    color: '#7f8fc7'
+  },
+  {
+    id: 'revival-matrix-ability',
+    name: '复苏矩阵',
+    kind: 'ability',
+    label: '阵',
+    artKey: 'abilityRandomHeal',
+    summary: '打出牌时治疗血量最低友军（每层 +12% 最大生命）',
+    target: 'none',
+    radius: 1,
+    cooldown: 0,
+    energyCost: 4,
+    effect: {
+      type: 'acquire-ability',
+      abilityId: 'revivalMatrix',
+      stacksBase: 1,
+      stacksPerLevel: 1
+    },
+    color: '#7dffb8'
+  },
+  {
+    id: 'venom-spread-ability',
+    name: '剧毒蔓延',
+    kind: 'ability',
+    label: '毒',
+    artKey: 'abilityDotAmplify',
+    summary: '友方施加的持续伤害增加 100%',
+    target: 'none',
+    radius: 1,
+    cooldown: 0,
+    energyCost: 5,
+    effect: {
+      type: 'acquire-ability',
+      abilityId: 'venomSpread',
+      stacksBase: 1,
+      stacksPerLevel: 1
+    },
+    color: '#78b85a'
+  },
+  {
+    id: 'loot-pouch-ability',
+    name: '探囊',
+    kind: 'ability',
+    label: '囊',
+    artKey: 'abilityVictoryGold',
+    summary: '击杀单位时，每层额外获得 1 银币',
+    target: 'none',
+    radius: 1,
+    cooldown: 0,
+    energyCost: 3,
+    effect: {
+      type: 'acquire-ability',
+      abilityId: 'lootPouch',
+      stacksBase: 1,
+      stacksPerLevel: 1
+    },
+    color: '#e8c56d'
+  },
+  {
+    id: 'tactical-master-ability',
+    name: '地形大师',
+    kind: 'ability',
+    label: '形',
+    artKey: 'plagueFog',
+    summary: '陨石、毒雾、白雾等法术范围 +50%/层',
+    target: 'none',
+    radius: 1,
+    cooldown: 0,
+    energyCost: 4,
+    effect: {
+      type: 'acquire-ability',
+      abilityId: 'tacticalMaster',
+      stacksBase: 1,
+      stacksPerLevel: 1
+    },
+    color: '#6f9fd8'
+  },
+  {
+    id: 'ranged-volley-ability',
+    name: '齐射号令',
+    kind: 'ability',
+    label: '射',
+    artKey: 'abilityWarDrum',
+    summary: '攻击距离 >5 的友方单位击中时，击退距离 +1/层',
+    target: 'none',
+    radius: 1,
+    cooldown: 0,
+    energyCost: 4,
+    effect: {
+      type: 'acquire-ability',
+      abilityId: 'rangedVolley',
+      stacksBase: 1,
+      stacksPerLevel: 1
+    },
+    color: '#5f9a6f'
+  },
+  {
+    id: 'frontline-bulwark-ability',
+    name: '铁壁前线',
+    kind: 'ability',
+    label: '壁',
+    artKey: 'abilityBuildingDurability',
+    summary: '护甲 >12 的友方单位每秒恢复 1 点生命/层',
+    target: 'none',
+    radius: 1,
+    cooldown: 0,
+    energyCost: 4,
+    effect: {
+      type: 'acquire-ability',
+      abilityId: 'frontlineBulwark',
+      stacksBase: 1,
+      stacksPerLevel: 1
+    },
+    color: '#8a8f78'
+  },
+  {
+    id: 'summon-endurance-ability',
+    name: '整编耐久',
+    kind: 'ability',
+    label: '持',
+    artKey: 'abilityArsenal',
+    summary: '新召唤的友军生命 +20%/层',
+    target: 'none',
+    radius: 1,
+    cooldown: 0,
+    energyCost: 3,
+    effect: {
+      type: 'acquire-ability',
+      abilityId: 'summonEndurance',
+      stacksBase: 1,
+      stacksPerLevel: 1
+    },
+    color: '#8fdc9b'
+  },
+  {
+    id: 'knockback-starfall-ability',
+    name: '飞星余震',
+    kind: 'ability',
+    label: '星',
+    artKey: 'abilityDeathExplosion',
+    summary: '敌人被友方击退结束后，按击退距离召唤飞星（每层强化）',
+    target: 'none',
+    radius: 1,
+    cooldown: 0,
+    energyCost: 5,
+    effect: {
+      type: 'acquire-ability',
+      abilityId: 'knockbackStarfall',
+      stacksBase: 1,
+      stacksPerLevel: 1
+    },
+    color: '#ffe08a'
+  },
+  {
+    id: 'shield-augment-ability',
+    name: '盾阵充能',
+    kind: 'ability',
+    label: '盾',
+    artKey: 'abilityEnchantEcho',
+    summary: '友方单位获得护盾时，额外获得 2 点护盾/层',
+    target: 'none',
+    radius: 1,
+    cooldown: 0,
+    energyCost: 4,
+    effect: {
+      type: 'acquire-ability',
+      abilityId: 'shieldAugment',
+      stacksBase: 1,
+      stacksPerLevel: 1
+    },
+    color: '#8fb6ff'
+  },
+  {
     id: 'fire-enchant',
     name: '火焰附加',
     kind: 'enchant',
@@ -3648,7 +4167,7 @@ export const CARD_DEFINITIONS = [
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 4,
-    energyCost: 3,
+    energyCost: 2,
     enchantmentId: 'fire',
     effect: {
       type: 'apply-buff',
@@ -3684,7 +4203,7 @@ export const CARD_DEFINITIONS = [
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 4,
-    energyCost: 3,
+    energyCost: 2,
     enchantmentId: 'toughness',
     effect: {
       type: 'apply-buff',
@@ -3720,7 +4239,7 @@ export const CARD_DEFINITIONS = [
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 4,
-    energyCost: 3,
+    energyCost: 2,
     enchantmentId: 'block',
     effect: {
       type: 'apply-buff',
@@ -3738,7 +4257,7 @@ export const CARD_DEFINITIONS = [
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 4,
-    energyCost: 3,
+    energyCost: 2,
     enchantmentId: 'power',
     effect: {
       type: 'apply-buff',
@@ -3792,7 +4311,7 @@ export const CARD_DEFINITIONS = [
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 4,
-    energyCost: 3,
+    energyCost: 2,
     enchantmentId: 'focus',
     effect: {
       type: 'apply-buff',
@@ -3828,7 +4347,7 @@ export const CARD_DEFINITIONS = [
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 4,
-    energyCost: 3,
+    energyCost: 2,
     enchantmentId: 'spiritWeapon',
     effect: {
       type: 'apply-buff',
@@ -3918,7 +4437,7 @@ export const CARD_DEFINITIONS = [
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 4,
-    energyCost: 3,
+    energyCost: 2,
     enchantmentId: 'bleed',
     effect: {
       type: 'apply-buff',
@@ -3936,7 +4455,7 @@ export const CARD_DEFINITIONS = [
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 4,
-    energyCost: 3,
+    energyCost: 2,
     enchantmentId: 'recovery',
     effect: {
       type: 'apply-buff',
@@ -3964,7 +4483,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'swarm-enchant',
-    name: '虫群附魔',
+    name: '集群附魔',
     kind: 'enchant',
     label: '群',
     artKey: 'waveSwarm',
@@ -4008,7 +4527,7 @@ export const CARD_DEFINITIONS = [
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 4,
-    energyCost: 3,
+    energyCost: 2,
     enchantmentId: 'waveRush',
     effect: {
       type: 'apply-buff',
@@ -4026,7 +4545,7 @@ export const CARD_DEFINITIONS = [
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 4,
-    energyCost: 3,
+    energyCost: 2,
     enchantmentId: 'waveRanged',
     effect: {
       type: 'apply-buff',
@@ -4051,6 +4570,24 @@ export const CARD_DEFINITIONS = [
       buffId: 'waveSiege'
     },
     color: '#ffb45c'
+  },
+  {
+    id: 'heavy-strike-enchant',
+    name: '重击附加',
+    kind: 'enchant',
+    label: '击',
+    artKey: 'heavyStrike',
+    summary: '攻击时额外造成（50+等级×25）%护甲的伤害',
+    target: 'friendly-unit',
+    radius: 1.1,
+    cooldown: 4,
+    energyCost: 2,
+    enchantmentId: 'heavyStrike',
+    effect: {
+      type: 'apply-buff',
+      buffId: 'heavyStrike'
+    },
+    color: '#c49a6c'
   },
   {
     id: 'wolf-instinct-enchant',
@@ -4096,11 +4633,13 @@ export const STARTER_CARD_IDS = [
   'barbarians',
   'archers',
   'swordsmen',
+  'spearmen',
   'crossbowmen',
   'water-mages',
   'rogues',
   'knights',
   'berserkers',
+  'tower-shields',
   'engineers',
   'physicians',
   'arrow-tower',
@@ -4115,14 +4654,12 @@ export const STARTER_CARD_IDS = [
   'focus-energy',
   'burst-energy',
   'field-upgrade',
-  'exhaust-energy-ability',
-  'periodic-energy-ability',
   'fire-enchant',
   'recovery-enchant',
   'spirit-shield-enchant',
   'power-enchant',
   'toughness-enchant',
-  'protection-enchant'
+  'block-enchant'
 ];
 
 export const CARD_META = {
@@ -4138,6 +4675,16 @@ export const CARD_META = {
   },
   crossbowmen: {
     buyCost: 150,
+    upgradeBaseCost: 42
+  },
+  spearmen: {
+    initial: true,
+    buyCost: 0,
+    upgradeBaseCost: 28
+  },
+  'tower-shields': {
+    initial: true,
+    buyCost: 0,
     upgradeBaseCost: 42
   },
   'water-mages': {
@@ -4247,6 +4794,10 @@ export const CARD_META = {
     buyCost: 140,
     upgradeBaseCost: 90
   },
+  'silver-gamble': {
+    buyCost: 120,
+    upgradeBaseCost: 36
+  },
   'field-upgrade': {
     buyCost: 180,
     upgradeBaseCost: 110
@@ -4262,6 +4813,14 @@ export const CARD_META = {
   'enchant-echo-ability': {
     buyCost: 190,
     upgradeBaseCost: 125
+  },
+  'fire-spread-ability': {
+    buyCost: 210,
+    upgradeBaseCost: 130
+  },
+  'plague-field': {
+    buyCost: 145,
+    upgradeBaseCost: 38
   },
   'death-explosion-ability': {
     buyCost: 185,
@@ -4279,6 +4838,50 @@ export const CARD_META = {
     buyCost: 175,
     upgradeBaseCost: 115
   },
+  'legion-expansion-ability': {
+    buyCost: 195,
+    upgradeBaseCost: 125
+  },
+  'kill-harvest-ability': {
+    buyCost: 185,
+    upgradeBaseCost: 120
+  },
+  'revival-matrix-ability': {
+    buyCost: 190,
+    upgradeBaseCost: 125
+  },
+  'venom-spread-ability': {
+    buyCost: 205,
+    upgradeBaseCost: 130
+  },
+  'loot-pouch-ability': {
+    buyCost: 170,
+    upgradeBaseCost: 110
+  },
+  'tactical-master-ability': {
+    buyCost: 180,
+    upgradeBaseCost: 115
+  },
+  'ranged-volley-ability': {
+    buyCost: 185,
+    upgradeBaseCost: 120
+  },
+  'frontline-bulwark-ability': {
+    buyCost: 175,
+    upgradeBaseCost: 115
+  },
+  'summon-endurance-ability': {
+    buyCost: 165,
+    upgradeBaseCost: 105
+  },
+  'knockback-starfall-ability': {
+    buyCost: 210,
+    upgradeBaseCost: 135
+  },
+  'shield-augment-ability': {
+    buyCost: 185,
+    upgradeBaseCost: 120
+  },
   'thorns-enchant': {
     buyCost: 90,
     upgradeBaseCost: 30
@@ -4292,7 +4895,8 @@ export const CARD_META = {
     upgradeBaseCost: 34
   },
   'block-enchant': {
-    buyCost: 120,
+    initial: true,
+    buyCost: 0,
     upgradeBaseCost: 34
   },
   'power-enchant': {
@@ -4338,6 +4942,10 @@ export const CARD_META = {
   'bleed-enchant': {
     buyCost: 105,
     upgradeBaseCost: 30
+  },
+  'heavy-strike-enchant': {
+    buyCost: 120,
+    upgradeBaseCost: 32
   }
 };
 
@@ -4359,7 +4967,8 @@ export const LEVEL_DEFINITIONS = [
       { type: 'goblinHunter', weight: 1, minThreat: 5, minDifficulty: 2 }
     ],
     elitePool: [
-      { type: 'frostScout', weight: 1, minThreat: 3, minDifficulty: 1 }
+      { type: 'frostScout', weight: 1, minThreat: 3, minDifficulty: 1 },
+      { type: 'snowDuskShaman', weight: 1, minThreat: 4, minDifficulty: 1 }
     ],
     bossPool: [
       { type: 'snowDuskShaman', weight: 1, minThreat: 4.8, minDifficulty: 1 }
@@ -4544,19 +5153,23 @@ export const BALANCE = {
   playerBase: {
     position: { x: 0, y: 0, z: 30 },
     maxHealth: 320,
+    maxStructureDurability: 49,
     recoveryRadius: 4.8,
     healthPerSecond: 0.55,
     durabilityPerSecond: 0.8,
     attackRange: 8.5,
     attackDamage: 7,
-    attackInterval: 1
+    attackInterval: 1,
+    attackDurabilityCost: 1
   },
   enemyCamp: {
     position: { x: 0, y: 0, z: -30 },
     maxHealth: 260,
+    maxStructureDurability: 49,
     attackRange: 8.5,
     attackDamage: 7,
-    attackInterval: 1
+    attackInterval: 1,
+    attackDurabilityCost: 1
   },
   enemyDirector: {
     initialDelaySeconds: 7,

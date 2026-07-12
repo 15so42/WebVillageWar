@@ -22,9 +22,11 @@ const PREVIEW_VARIANTS = [
   { id: 'rangedAbility', label: 'Ranged Ability' }
 ];
 
-const DEFAULT_UNIT_TYPE = UNIT_DEFINITIONS.rogue
-  ? 'rogue'
-  : Object.keys(UNIT_DEFINITIONS)[0] ?? 'raider';
+const DEFAULT_UNIT_TYPE = UNIT_DEFINITIONS.frostTrollBoss
+  ? 'frostTrollBoss'
+  : UNIT_DEFINITIONS.rogue
+    ? 'rogue'
+    : Object.keys(UNIT_DEFINITIONS)[0] ?? 'raider';
 
 export class AnimationPreviewScene {
   constructor({ canvas, onExitToMenu = null } = {}) {
@@ -46,7 +48,7 @@ export class AnimationPreviewScene {
     this.view = {
       yaw: -0.58,
       pitch: 0.82,
-      distance: 7.4,
+      distance: 6.1,
       target: new THREE.Vector3(0, 1.05, 0),
       dragging: null
     };
@@ -248,7 +250,13 @@ export class AnimationPreviewScene {
       visualState: this.state.animationName === 'walk' ? 'walk' : 'idle',
       isBuilding: Boolean(definition?.isBuilding)
     };
-    this.previewGroup.scale.setScalar(definition?.isBuilding ? 0.75 : 1.45);
+    this.previewGroup.scale.setScalar(
+      this.state.unitType === 'frostTrollBoss'
+        ? 1.08
+        : definition?.isBuilding
+          ? 0.75
+          : 1.45
+    );
     this.applyPreviewPose();
     this.rebuildMarkers();
     this.syncControls();

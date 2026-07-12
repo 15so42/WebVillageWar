@@ -90,7 +90,10 @@ export class AttackSystem {
     const range = Math.max(0, ability.range ?? unit.definition.attackRange ?? 0);
     if (targetDistance > range + targetRadius) return false;
 
-    const isImpactAbility = ability.type === 'venomTail' || ability.type === 'sandQuake';
+    const isImpactAbility =
+      ability.type === 'venomTail' ||
+      ability.type === 'sandQuake' ||
+      ability.type === 'glacialSlam';
     const eventName = isImpactAbility ? 'impact' : 'release';
     const duration = getAnimationDuration(unit, 'attack');
     unit.abilityCooldowns.set(key, Math.max(0.1, ability.cooldown ?? 8));
@@ -174,6 +177,10 @@ export class AttackSystem {
   updatePendingAttacks(dt) {
     for (let i = this.pendingAttacks.length - 1; i >= 0; i -= 1) {
       const attack = this.pendingAttacks[i];
+      if (!attack) {
+        this.pendingAttacks.splice(i, 1);
+        continue;
+      }
       attack.elapsed += dt;
 
       if (!attack.fired && attack.elapsed >= attack.fireAt) {
@@ -191,8 +198,20 @@ export class AttackSystem {
   }
 
   cancelPendingAttacksFor(units) {
-    const ids = new Set(units.map((unit) => unit.id));
-    this.pendingAttacks = this.pendingAttacks.filter((attack) => !ids.has(attack.source.id));
+    if (!units?.length) return;
+    const ids = new Set(
+      units.map((unit) => unit?.id).filter((id) => id != null)
+    );
+    if (!ids.size) return;
+    for (let i = this.pendingAttacks.length - 1; i >= 0; i -= 1) {
+      const attack = this.pendingAttacks[i];
+      const sourceId = attack?.source?.id;
+      if (sourceId == null || !ids.has(sourceId)) continue;
+      if (this.activeAttackBySourceId.get(sourceId) === attack) {
+        this.activeAttackBySourceId.delete(sourceId);
+      }
+      this.pendingAttacks.splice(i, 1);
+    }
     ids.forEach((id) => this.activeAttackBySourceId.delete(id));
     units.forEach((unit) => stopUnitAnimation(unit, 'attack'));
   }
@@ -244,6 +263,10 @@ export class AttackSystem {
     }
     if (ability.type === 'sandQuake') {
       this.castSandQuake(source, ability);
+      return;
+    }
+    if (ability.type === 'glacialSlam') {
+      this.castGlacialSlam(source, ability);
     }
   }
 
@@ -380,6 +403,27 @@ export class AttackSystem {
     });
     this.game.effects.spawnRing(source.position, '#e1a961', radius, 0.78);
     this.spawnMonsterAbilityText(source, '裂地震击', '#f3c776');
+  }
+
+  castGlacialSlam(source, ability) {
+    const radius = Math.max(1, ability.radius ?? 5.2);
+    const damage = Math.max(1, ability.damage ?? 12.5);
+    this.damageTargetsInRadius(source, source.position, radius, damage, {
+      defenseDamageType: 'magic',
+      damageTypes: new Set(['undodgeable']),
+      knockback: this.game.modifiers.getKnockback(source) * 1.45,
+      onHit: (hitTarget) => {
+        this.applyStatus(hitTarget, ability.statusBuffId ?? 'frostSnared', source, {
+          duration: ability.slowDuration ?? 4.2
+        });
+        this.applyStatus(hitTarget, 'stunned', source, {
+          duration: ability.stunDuration ?? 0.65
+        });
+      }
+    });
+    this.game.effects.spawnRing(source.position, '#d9f7ff', radius, 0.92);
+    this.game.effects.spawnRing(source.position, '#62c9f3', radius * 0.68, 0.68);
+    this.spawnMonsterAbilityText(source, '冰川践踏', '#bceeff');
   }
 
   damageTargetsInRadius(source, center, radius, damage, options = {}) {

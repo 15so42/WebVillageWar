@@ -129,6 +129,17 @@ export class AltarSystem {
     if (previousOwner === owner) return false;
 
     altar.owner = owner;
+    if (owner === TEAMS.PLAYER && reason === 'captured') {
+      const grant = altar.definition?.captureEnergyGrant;
+      if (grant > 0) {
+        const gained = this.game.cardSystem?.addEnergy?.(grant) ?? 0;
+        if (gained > 0) {
+          this.game.effects.spawnEnergyNumber(altar.position, gained, {
+            height: 2.35
+          });
+        }
+      }
+    }
     this.game.onAltarOwnershipChanged?.({
       altar: createAltarOwnershipSnapshot(altar),
       previousOwner,

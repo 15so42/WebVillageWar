@@ -63,7 +63,7 @@ export class ModifierSystem {
   }
 
   getAggroRange(unit) {
-    return this.getAttribute(unit, 'aggroRange', unit.definition.aggroRange);
+    return this.getAttribute(unit, 'aggroRange', unit?.definition?.aggroRange ?? 0);
   }
 
   getProjectileSpeed(unit) {

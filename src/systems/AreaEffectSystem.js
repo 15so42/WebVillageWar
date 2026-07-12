@@ -16,12 +16,12 @@ export class AreaEffectSystem {
     if (!point) return null;
     const level = Math.max(1, Math.floor(card?.level ?? 1));
     const bonusLevel = Math.max(0, level - 1);
-    const radius = resolveAreaDimension(
+    const radius = this.game.scaleSpellAreaRadius(resolveAreaDimension(
       effect.radius ?? card?.radius ?? 3,
       effect.radiusPerLevel,
       level,
       0.06 * bonusLevel
-    );
+    ));
     const duration = resolveAreaDimension(
       effect.duration ?? card?.duration ?? 10,
       effect.durationPerLevel,
@@ -120,6 +120,9 @@ export class AreaEffectSystem {
       }
       if (applied && zone.kind === 'whiteSmoke' && Math.random() < 0.24) {
         this.game.effects.spawnRing(unit.position, '#eef7ff', 0.42, 0.28);
+      }
+      if (applied && zone.kind === 'plagueFog' && Math.random() < 0.32) {
+        this.game.effects.spawnPoisonParticles(unit, 2);
       }
     });
   }

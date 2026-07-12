@@ -1010,6 +1010,34 @@ export class EffectsSystem {
     });
   }
 
+  spawnFallingStar(position, radius, onImpact) {
+    const star = new THREE.Mesh(
+      new THREE.OctahedronGeometry(0.32, 0),
+      mat('#ffe08a', {
+        emissive: '#fff6c7',
+        emissiveIntensity: 0.92,
+        metalness: 0.2,
+        roughness: 0.35
+      })
+    );
+    star.position.set(position.x - 1.4, 8.2, position.z - 1.1);
+    star.rotation.set(0.6, 0.4, 0.2);
+    let impacted = false;
+    this.addEffect(star, 0.74, (_, t) => {
+      const ease = t * t;
+      star.position.x = lerp(position.x - 1.4, position.x, ease);
+      star.position.y = lerp(8.2, 0.92, ease);
+      star.position.z = lerp(position.z - 1.1, position.z, ease);
+      star.rotation.x += 0.22;
+      star.rotation.y += 0.16;
+      if (!impacted && t > 0.8) {
+        impacted = true;
+        onImpact?.();
+        this.spawnRing(position, '#ffe08a', radius, 0.58);
+      }
+    });
+  }
+
   spawnMeteor(position, radius, onImpact) {
     const meteor = createSpellModel('meteor');
     meteor.position.set(position.x - 2.8, 13, position.z - 2.8);

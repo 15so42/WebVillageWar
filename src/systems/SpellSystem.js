@@ -4,7 +4,8 @@ export class SpellSystem {
   constructor(game) {
     this.game = game;
     this.handlers = {
-      meteor: (context) => this.castMeteor(context)
+      meteor: (context) => this.castMeteor(context),
+      'meteor-barrage': (context) => this.castMeteorBarrage(context)
     };
   }
 
@@ -21,11 +22,13 @@ export class SpellSystem {
   castMeteor({ point, card }) {
     const level = Math.max(1, Math.floor(card?.level ?? 1));
     const bonusLevel = Math.max(0, level - 1);
-    const radius = Math.max(0.5, (card?.radius ?? 3.25) * (1 + 0.06 * bonusLevel));
+    const radius = this.game.scaleSpellAreaRadius(
+      Math.max(0.5, (card?.radius ?? 3.25) * (1 + 0.06 * bonusLevel))
+    );
     const damage = Math.max(0, (card?.damage ?? 0) * (1 + 0.18 * bonusLevel));
     const knockback = Math.max(0, (card?.knockback ?? 0) * (1 + 0.08 * bonusLevel));
     this.game.effects.spawnMeteor(point.clone(), radius, () => {
-      [...this.game.friendlyUnits, ...this.game.enemyUnits].forEach((unit) => {
+      this.game.enemyUnits.forEach((unit) => {
         if (!unit.alive || unit.underConstruction) return;
         const distance = distance2D(unit.position, point);
         if (distance > radius) return;
@@ -54,6 +57,20 @@ export class SpellSystem {
         }
       });
     });
+  }
+
+  castMeteorBarrage({ point, card, count = 1 }) {
+    const strikes = Math.max(1, Math.floor(count));
+    const staggerSeconds = 0.32;
+    for (let index = 0; index < strikes; index += 1) {
+      window.setTimeout(() => {
+        if (this.game.destroyed || this.game.levelFinished) return;
+        const strikePoint = point.clone();
+        strikePoint.x += (Math.random() - 0.5) * 1.4;
+        strikePoint.z += (Math.random() - 0.5) * 1.4;
+        this.castMeteor({ point: strikePoint, card });
+      }, index * staggerSeconds * 1000);
+    }
   }
 }
 

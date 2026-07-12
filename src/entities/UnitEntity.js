@@ -30,7 +30,10 @@ export class UnitEntity {
     bindAttributeGetter(this.weapon, 'durabilityCost', 'durabilityCost');
     this.attackTimer = Math.random() * 0.25;
     this.hitStunTimer = 0;
+    this.hitFlashTimer = 0;
     this.knockbackVelocity = new THREE.Vector3();
+    this.knockbackSessionDistance = 0;
+    this.recentPlayerKnockback = false;
     this.verticalVelocity = 0;
     this.grounded = true;
     this.isBuilding = this.definition.isBuilding === true;
@@ -127,6 +130,8 @@ export class UnitEntity {
     const healPerSecond = resolveBuffNumber('healPerSecond', definition, overrides);
     this.attributes.removeModifiersBySource(buffModifierSource(id));
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:focus-range`);
+    this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:nearby`);
+    this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:advantage`);
     const instance = {
       ...definition,
       ...overrides,
@@ -164,6 +169,8 @@ export class UnitEntity {
     this.attributes.removeModifiersBySource(buffModifierSource(id));
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:soul-bonus`);
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:focus-range`);
+    this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:nearby`);
+    this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:advantage`);
     this.clampToAttributeCaps();
     if (this.enchantments.has(id)) {
       this.enchantments.delete(id);
@@ -198,10 +205,14 @@ export class UnitEntity {
   restoreShield(amount) {
     const previousShield = this.shield;
     this.shield = clamp(this.shield + amount, 0, this.maxShield);
-    if (this.shield !== previousShield) {
+    const gained = this.shield - previousShield;
+    if (gained > 0.01) {
+      this.statusUiDirty = true;
+      this.game?.buffs?.onShieldGained?.(this, gained);
+    } else if (this.shield !== previousShield) {
       this.statusUiDirty = true;
     }
-    return this.shield - previousShield;
+    return gained;
   }
 
   restoreDurability(amount) {

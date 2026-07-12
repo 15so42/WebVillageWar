@@ -1,3 +1,5 @@
+import { clearUnitHitFlash } from '../art/visualRegistry.js';
+
 export class UnitRegistry {
   constructor(game) {
     this.game = game;
@@ -14,6 +16,7 @@ export class UnitRegistry {
     const teamList = unit.team === 'player' ? this.friendlyUnits : this.enemyUnits;
     teamList.push(unit);
     unit.registry = this;
+    unit.game = this.game;
     unit.deathHandled = false;
     this.game.movement?.attach?.(unit);
     this.game.scene.add(unit.mesh);
@@ -55,6 +58,7 @@ export class UnitRegistry {
       unit.position.clone(),
       Math.max(0.68, this.game.movement?.crowdRadius?.(unit) ?? 0.7)
     );
+    clearUnitHitFlash(unit);
     this.unregister(unit);
     this.game.targeting?.handleKill?.(unit, source);
     this.game.onUnitDied?.(unit, source);

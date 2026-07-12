@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { basicMat, mat } from '../art/lowpoly.js';
 import { CARD_DEFINITIONS } from '../data/gameData.js';
-import { cardEnergyCost, createCardArtMarkup } from './CardSystem.js';
+import { cardEnergyCost, cardMaxUses, cardUseBarMarkup, createCardArtMarkup } from './CardSystem.js';
 
 const CARD_BY_ID = new Map(CARD_DEFINITIONS.map((card) => [card.id, card]));
 const DEFAULT_LOOT_LIFETIME_SECONDS = 45;
@@ -44,12 +44,18 @@ export class LootDropSystem {
     const difficulty = Math.max(1, this.game.levelSession?.difficulty ?? 1);
     const levelBonus = Math.floor((difficulty - 1) * Math.max(0, entry.levelPerDifficulty ?? 0));
     const level = Math.max(1, Math.floor((entry.level ?? 1) + levelBonus));
-    return {
+    const card = {
       ...definition,
       level,
       lootOnly: true,
       instanceId: `drop-${definition.id}-${unit.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`
     };
+    const maxUses = cardMaxUses(card);
+    if (maxUses > 0) {
+      card.maxUses = maxUses;
+      card.remainingUses = maxUses;
+    }
+    return card;
   }
 
   spawnCardDrop(card, position) {
@@ -96,7 +102,7 @@ export class LootDropSystem {
     this.ui.card.innerHTML = `
       <div class="loot-card-cost">${cardEnergyCost(drop.card)}</div>
       <div class="loot-card-level">Lv.${drop.card.level ?? 1}</div>
-      ${drop.card.exhaust ? '<div class="loot-card-keyword">消耗</div>' : ''}
+      ${cardUseBarMarkup(drop.card, 'loot-card-use-bar')}
       <div class="loot-card-header">
         <span class="loot-card-rune">${drop.card.label}</span>
         <span>${kindLabel(drop.card.kind)}</span>
@@ -362,8 +368,23 @@ function createLootCardTexture(card) {
   fitText(context, card.name, 128, 275, 210, 30);
   context.fillStyle = '#ffe6a4';
   context.font = '900 22px "Microsoft YaHei", Arial, sans-serif';
-  if (card.exhaust) {
-    context.fillText('消耗', 128, 314);
+  if (cardMaxUses(card) > 0) {
+    const max = cardMaxUses(card);
+    const barWidth = 8;
+    const barHeight = 56;
+    const startX = 24;
+    const startY = 168;
+    const gap = 4;
+    const segmentHeight = (barHeight - gap * (max - 1)) / max;
+    for (let index = 0; index < max; index += 1) {
+      const y = startY + index * (segmentHeight + gap);
+      context.fillStyle = 'rgba(10, 18, 18, 0.48)';
+      roundRect(context, startX, y, barWidth, segmentHeight, 4);
+      context.fill();
+      context.fillStyle = '#fff2c7';
+      roundRect(context, startX, y, barWidth, segmentHeight, 4);
+      context.fill();
+    }
   }
 
   const texture = new THREE.CanvasTexture(canvas);

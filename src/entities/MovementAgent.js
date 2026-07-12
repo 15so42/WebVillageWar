@@ -2,6 +2,7 @@ import { BALANCE } from '../data/gameData.js';
 import { clamp, direction2D, distance2D } from '../utils/math.js';
 import {
   isImmobileUnit,
+  isStationaryCombatUnit,
   isStaticUnit,
   maxKnockbackVelocity,
   setReusableVector,
@@ -162,24 +163,34 @@ export class MovementAgent {
       return;
     }
     if (unit.knockbackVelocity.lengthSq() <= KNOCKBACK_EPSILON_SQ) {
-      unit.knockbackVelocity.set(0, 0, 0);
       return;
     }
+
     const previousX = unit.position.x;
     const previousZ = unit.position.z;
     unit.knockbackVelocity.clampLength(0, maxKnockbackVelocity(unit));
     unit.position.addScaledVector(unit.knockbackVelocity, dt);
     unit.knockbackVelocity.multiplyScalar(Math.pow(0.08, dt));
-    if (unit.knockbackVelocity.lengthSq() <= KNOCKBACK_EPSILON_SQ) {
+    unit.knockbackSessionDistance = (unit.knockbackSessionDistance ?? 0)
+      + Math.hypot(unit.position.x - previousX, unit.position.z - previousZ);
+
+    const finishKnockback = () => {
+      this.game.combat?.onKnockbackEnded?.(unit, unit.knockbackSessionDistance ?? 0);
+      unit.knockbackSessionDistance = 0;
       unit.knockbackVelocity.set(0, 0, 0);
       this.game.clearUnitRoute?.(unit);
-    }
+    };
+
     this.clampToBattlefield();
     if (!this.game.isPointWalkable(unit.position)) {
       unit.position.x = previousX;
       unit.position.z = previousZ;
-      unit.knockbackVelocity.set(0, 0, 0);
-      this.game.clearUnitRoute?.(unit);
+      finishKnockback();
+      return;
+    }
+
+    if (unit.knockbackVelocity.lengthSq() <= KNOCKBACK_EPSILON_SQ) {
+      finishKnockback();
     }
   }
 
@@ -195,7 +206,8 @@ export class MovementAgent {
 
   face(targetPosition, dt = 0) {
     const unit = this.unit;
-    if (unit.isBuilding || unit.definition?.canMove === false) return;
+    if (unit.definition?.canRotate === false) return;
+    if ((unit.isBuilding || unit.definition?.canMove === false) && !isStationaryCombatUnit(unit)) return;
     const dx = targetPosition.x - unit.position.x;
     const dz = targetPosition.z - unit.position.z;
     if (dx * dx + dz * dz < 0.0001) return;

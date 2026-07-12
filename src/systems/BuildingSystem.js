@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { disposeObject3D } from '../utils/dispose.js';
+import { TEAMS } from '../data/gameData.js';
 import { distance2D } from '../utils/math.js';
 
 const SCAFFOLD_COLOR = '#dff8ff';
@@ -137,6 +138,9 @@ export class BuildingSystem {
       let didWork = false;
       if (aura.type === 'restoreDurability') {
         didWork = this.restoreNearbyDurability(unit, aura, tickSeconds);
+        if (aura.includeStructures || aura.includeBuildings) {
+          didWork = this.restoreNearbyStructures(unit, aura, tickSeconds) || didWork;
+        }
       } else if (aura.type === 'restoreHealthFromDurability') {
         didWork = this.restoreNearbyHealth(unit, aura, tickSeconds);
       }
@@ -167,6 +171,97 @@ export class BuildingSystem {
         this.game.effects.spawnRing(target.position, '#9dd8ff', 0.42, 0.28);
       }
     }
+    return didWork;
+  }
+
+  restoreNearbyStructures(building, aura, tickSeconds = 1) {
+    if (!aura.includeStructures && !aura.includeBuildings) return false;
+    const radius = Math.max(0, aura.radius ?? 5);
+    let didWork = false;
+
+    if (aura.includeStructures) {
+      const structure = building.team === TEAMS.PLAYER
+        ? this.game.playerBase
+        : this.game.enemyCamp;
+      if (
+        structure?.alive &&
+        structure.kind === 'structure' &&
+        distance2D(building.position, structure.position) <= radius
+      ) {
+        const healthPercent = Math.max(
+          0,
+          (aura.structureHealthPercentPerSecond ?? 0.007) * tickSeconds
+        );
+        const durabilityPercent = Math.max(
+          0,
+          (aura.structureDurabilityPercentPerSecond ?? 0.005) * tickSeconds
+        );
+        const fuelCost = (healthPercent + durabilityPercent) * 120;
+        if (fuelCost > 0 && building.weapon.durability > 0) {
+          const spent = Math.min(building.weapon.durability, fuelCost);
+          building.spendDurability(spent);
+          const scale = spent / fuelCost;
+          const restored = this.game.repairStructure(structure, {
+            healthPercent: healthPercent * scale,
+            durabilityPercent: durabilityPercent * scale
+          });
+          if (restored.health > 0.01 || restored.durability > 0.01) {
+            didWork = true;
+            this.game.effects.spawnRing(structure.position, '#9dd8ff', 1.05, 0.36);
+          }
+        }
+      }
+    }
+
+    if (aura.includeBuildings) {
+      const units = building.team === TEAMS.PLAYER ? this.game.friendlyUnits : this.game.enemyUnits;
+      const restoreRate = Math.max(0, aura.durabilityPerSecond ?? 0) * tickSeconds;
+      const restorePerDurability = Math.max(0.01, aura.restorePerDurability ?? 1);
+      const healthRate = Math.max(0, aura.buildingHealthPerSecond ?? 1.1) * tickSeconds;
+      for (const target of units) {
+        if (!target.alive || target === building || !target.isBuilding || target.underConstruction) continue;
+        if (distance2D(building.position, target.position) > radius) continue;
+        if (building.weapon.durability <= 0) return didWork;
+
+        let targetWorked = false;
+        const missingHealth = Math.max(0, target.maxHealth - target.health);
+        if (missingHealth > 0.01 && healthRate > 0) {
+          const wantedCost = Math.min(healthRate, missingHealth);
+          const spent = Math.min(building.weapon.durability, wantedCost);
+          if (spent > 0) {
+            const healed = target.restoreHealth(spent);
+            building.spendDurability(healed);
+            if (healed > 0.01) {
+              targetWorked = true;
+              this.game.effects.spawnHealNumber(target.position, healed, {
+                displayAmount: healed,
+                height: target.projectileHitHeight ?? 1.55
+              });
+            }
+          }
+        }
+
+        if (target.weapon && building.weapon.durability > 0) {
+          const missingDurability = Math.max(0, target.weapon.maxDurability - target.weapon.durability);
+          if (missingDurability > 0.01) {
+            const wantedRestore = Math.min(restoreRate, missingDurability);
+            const wantedCost = wantedRestore / restorePerDurability;
+            const spent = Math.min(building.weapon.durability, wantedCost);
+            if (spent > 0) {
+              const restored = target.restoreDurability(spent * restorePerDurability);
+              building.spendDurability(restored / restorePerDurability);
+              if (restored > 0.01) {
+                targetWorked = true;
+                this.game.effects.spawnRing(target.position, '#9dd8ff', 0.42, 0.28);
+              }
+            }
+          }
+        }
+
+        if (targetWorked) didWork = true;
+      }
+    }
+
     return didWork;
   }
 

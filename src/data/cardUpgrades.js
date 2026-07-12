@@ -3,28 +3,28 @@ export const UNIT_GENERIC_UPGRADES = [
     id: 'unit-vitality',
     kind: 'unit-generic',
     name: '强健体魄',
-    summary: '最大生命和武器耐久提高基础值的 50%。',
+    summary: '全队生命与武器耐久 +10%。',
     stat: 'vitality'
   },
   {
     id: 'unit-attack',
     kind: 'unit-generic',
     name: '锋刃训练',
-    summary: '基础攻击力提高基础值的 50%。',
+    summary: '全队攻击力 +10%。',
     stat: 'attack'
   },
   {
     id: 'unit-armor',
     kind: 'unit-generic',
     name: '披甲训练',
-    summary: '护甲提高基础值的 50%，基础为 0 时改为 +1。',
+    summary: '全队护甲 +10%。',
     stat: 'armor'
   },
   {
     id: 'unit-magic-resistance',
     kind: 'unit-generic',
     name: '抗咒训练',
-    summary: '魔抗提高基础值的 50%，基础为 0 时改为 +1。',
+    summary: '全队魔抗 +10%。',
     stat: 'magicResistance'
   }
 ];
@@ -111,6 +111,46 @@ export const UNIT_SPECIAL_UPGRADES = {
         { stat: 'attackRange', type: 'add', amount: 1.2 },
         { stat: 'projectileSpeed', type: 'multiply', percent: 0.18 }
       ]
+    }
+  ],
+  spearman: [
+    {
+      id: 'spearman-reach',
+      kind: 'unit-special',
+      name: '长距',
+      summary: '攻击距离 +0.6。',
+      modifiers: [
+        { stat: 'attackRange', type: 'add', amount: 0.6 }
+      ]
+    },
+    {
+      id: 'spearman-phalanx',
+      kind: 'unit-special',
+      name: '方阵',
+      summary: '护甲 +1，受到击退时额外抵抗。',
+      modifiers: [
+        { stat: 'armor', type: 'add', amount: 1 },
+        { stat: 'knockbackResistance', type: 'add', amount: 0.12 }
+      ]
+    }
+  ],
+  towerShield: [
+    {
+      id: 'tower-shield-bulwark',
+      kind: 'unit-special',
+      name: '壁垒',
+      summary: '护甲 +2，最大生命 +12%。',
+      modifiers: [
+        { stat: 'armor', type: 'add', amount: 2 },
+        { stat: 'maxHealth', type: 'multiply', percent: 0.12 }
+      ]
+    },
+    {
+      id: 'tower-shield-ram',
+      kind: 'unit-special',
+      name: '盾冲',
+      summary: '盾击额外提高 35% 击退。',
+      trait: 'shieldRam'
     }
   ],
   crossbowman: [
@@ -250,6 +290,7 @@ export function runtimeUpgradeTitleForCard(card) {
 }
 
 export function runtimeUpgradeSummaryForCard(card) {
+  if (card?.kind === 'summon') return '提高同名单位卡召唤单位的全部属性，每级 +25%。';
   if (card?.kind === 'building') return '提升建筑核心效果，尽量强化功能而非肉度。';
   if (card?.id === 'meteor') return '提高陨石伤害、范围和击退。';
   if (card?.kind === 'spell') return '提高区域持续时间、范围或区域效果等级。';

@@ -24,7 +24,7 @@ export function stopDistance(unit, modifiers) {
 
 export function crowdRadius(unit) {
   if (unit.type === 'goblinTroll' || unit.type === 'shieldBearer') return 0.64;
-  if (unit.type === 'ogre') return 0.78;
+  if (unit.type === 'ogre') return 1.17;
   if (unit.type === 'scorpion') return 0.45;
   if (unit.type === 'spider') return 0.42;
   if (unit.type === 'spiderEgg') return 0.34;
@@ -35,6 +35,13 @@ export function crowdRadius(unit) {
 
 export function isImmobileUnit(unit) {
   return unit.type === 'spiderEgg';
+}
+
+export function isStationaryCombatUnit(unit) {
+  if (!unit?.definition || !unit.alive || unit.underConstruction) return false;
+  const definition = unit.definition;
+  if (!(unit.isBuilding || definition.canMove === false)) return false;
+  return (definition.attackRange ?? 0) > 0 && (definition.damage ?? 0) > 0;
 }
 
 export function isStaticUnit(unit) {

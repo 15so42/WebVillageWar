@@ -1,4 +1,4 @@
-import { BUFF_DEFINITIONS } from '../data/gameData.js';
+import { BUFF_DEFINITIONS, TEAMS } from '../data/gameData.js';
 
 export class BuffSystem {
   constructor(game) {
@@ -17,10 +17,14 @@ export class BuffSystem {
     const definition = BUFF_DEFINITIONS[buffId];
     if (!definition) return null;
     if (isStatusImmune(target, buffId)) return null;
-    return target.addBuff(buffId, definition, {
+    const buff = target.addBuff(buffId, definition, {
       ...overrides,
       source
     });
+    if (buff && (buffId === 'swarmPack' || buffId === 'wolfInstinct')) {
+      this.refreshDynamicAttackBuff(target, buff);
+    }
+    return buff;
   }
 
   modifyAttack(context) {
@@ -159,6 +163,29 @@ export class BuffSystem {
     });
   }
 
+  onShieldGained(target, amount, source = null) {
+    if (!target?.alive || amount <= 0.001) return;
+    this.applyAbilityShieldBonus(target);
+    this.runBuffEffects(target, 'shieldGained', {
+      target,
+      source: source ?? target,
+      shieldGain: amount
+    });
+  }
+
+  applyAbilityShieldBonus(target) {
+    const stacks = this.game.abilities?.getStacks?.('shieldAugment') ?? 0;
+    if (stacks <= 0 || !target?.alive || target.team !== TEAMS.PLAYER) return;
+    if (target.maxShield <= 0.001) return;
+    const bonus = 2 * stacks;
+    const previousShield = target.shield;
+    target.shield = Math.min(target.maxShield, target.shield + bonus);
+    const gained = target.shield - previousShield;
+    if (gained > 0.01) {
+      target.statusUiDirty = true;
+    }
+  }
+
   runEffectList(buff, eventName, context) {
     const effects = buff.effects ?? [];
     effects.forEach((effect, index) => {
@@ -216,6 +243,17 @@ export class BuffSystem {
       if (effect.damageType === 'true') {
         context.damageTypes.add('true');
       }
+      return;
+    }
+
+    if (effect.op === 'addArmorRatioDamage') {
+      if (!context.source?.alive || !context.isAttack || context.damage <= 0) return;
+      const level = Math.max(1, context.buff?.level ?? 1);
+      const ratio = Math.max(0, (effect.basePercent ?? 0) + level * (effect.percentPerLevel ?? 0));
+      const armor = Math.max(0, this.game.modifiers.getArmor(context.source));
+      const bonus = armor * ratio;
+      if (bonus <= 0.001) return;
+      context.damage += bonus;
       return;
     }
 
@@ -492,7 +530,8 @@ export class BuffSystem {
       const tickInterval = context.buff.tickInterval ?? effect.tickInterval ?? 0.45;
       const maxHealthDamagePerSecond =
         Math.max(0, context.target.maxHealth ?? 0) * Math.max(0, maxHealthPercentPerSecond);
-      const damage = (damagePerSecond + maxHealthDamagePerSecond) * tickInterval;
+      const damage = (damagePerSecond + maxHealthDamagePerSecond) * tickInterval
+        * (this.game.abilities?.getDotDamageMultiplier?.(context.source) ?? 1);
       const damageTypes = new Set();
       if (context.buff.damageType === 'true' || effect.damageType === 'true') {
         damageTypes.add('true');
@@ -515,6 +554,9 @@ export class BuffSystem {
       if (effect.vfx === 'fire') {
         this.game.effects.spawnBurningParticles(context.target, 4);
       }
+      if (context.buff?.id === 'burning') {
+        this.trySpreadBurning(context);
+      }
       if (effect.vfx === 'poison') {
         this.game.effects.spawnPoisonParticles(context.target, 4);
       }
@@ -527,12 +569,41 @@ export class BuffSystem {
       return;
     }
 
+    if (effect.op === 'plagueTick') {
+      if (!context.target?.alive) return;
+      const level = Math.max(1, Math.floor(context.buff.level ?? 1));
+      const percentPerLevel = effect.percentPerLevel ?? 0.01;
+      const tickInterval = context.buff.tickInterval ?? effect.tickInterval ?? 1;
+      const damage = Math.max(0, context.target.maxHealth ?? 0) * percentPerLevel * level * tickInterval
+        * (this.game.abilities?.getDotDamageMultiplier?.(context.source) ?? 1);
+      if (damage > 0.001) {
+        this.game.combat.applyDamage(context.target, damage, context.source, 0, {
+          damage,
+          source: context.source,
+          target: context.target,
+          defenseDamageType: 'magic',
+          isAttack: false,
+          isDamageOverTime: true,
+          skipHitAnimation: true,
+          skipHitEffect: true,
+          damageNumberHeight: 1.48,
+          damageNumberDuration: 0.68
+        });
+      }
+      if (effect.vfx === 'poison') {
+        this.game.effects.spawnPoisonParticles(context.target, 3);
+      }
+      this.spreadPlague(context.target, context.buff, context.source, effect);
+      return;
+    }
+
     if (effect.op === 'damageOverTimeAndHealSource') {
       if (!context.target?.alive) return;
       const damagePerSecond = context.buff.damagePerSecond ?? effect.damagePerSecond ?? 0;
       const healPerSecond = context.buff.healPerSecond ?? effect.healPerSecond ?? damagePerSecond;
       const tickInterval = context.buff.tickInterval ?? effect.tickInterval ?? 1;
-      const damage = damagePerSecond * tickInterval;
+      const damage = damagePerSecond * tickInterval
+        * (this.game.abilities?.getDotDamageMultiplier?.(context.source) ?? 1);
       const healedAmount = healPerSecond * tickInterval;
       const damageTypes = new Set();
       if (context.buff.damageType === 'true' || effect.damageType === 'true') {
@@ -612,7 +683,159 @@ export class BuffSystem {
       if (!context.target?.alive) return;
       const amount = resolveEffectNumber(effect, 'amount', context, 0);
       context.target.restoreShield?.(amount);
+      return;
     }
+
+    if (effect.op === 'damageNearbyFromShieldGain') {
+      if (!context.target?.alive || !context.target.position) return;
+      const damage = Math.max(0, context.shieldGain ?? 0);
+      if (damage <= 0.001) return;
+      const radius = Math.max(0, resolveEffectNumber(effect, 'radius', context, effect.radius ?? 4.8));
+      if (radius <= 0) return;
+      const center = context.target.position;
+      const enemies = getEnemiesOf(this.game, context.target);
+      let hitCount = 0;
+      enemies.forEach((unit) => {
+        if (!unit.alive || unit === context.target || !unit.position) return;
+        if (distance2D(center, unit.position) > radius) return;
+        hitCount += 1;
+        this.game.combat.applyDamage(unit, damage, context.target, effect.knockback ?? 0.35, {
+          damage,
+          source: context.target,
+          target: unit,
+          defenseDamageType: effect.defenseDamageType ?? 'magic',
+          damageTypes: new Set(effect.damageTypes ?? ['magic']),
+          isAttack: false,
+          isExplosionDamage: true,
+          damageNumberHeight: unit.projectileHitHeight ?? 1.45,
+          damageNumberDuration: 0.66
+        });
+      });
+      if (hitCount > 0) {
+        this.game.effects.spawnRing(center, effect.color ?? '#b8dcff', radius, 0.44);
+        this.game.effects.spawnHit({
+          x: center.x,
+          y: (center.y ?? 0) + 0.82,
+          z: center.z
+        }, effect.color ?? '#b8dcff');
+      }
+      return;
+    }
+
+    if (effect.op === 'refreshNearbyAllyAttack') {
+      if (!context.target?.alive || !context.buff) return;
+      this.refreshDynamicAttackBuff(context.target, context.buff, effect);
+      return;
+    }
+
+    if (effect.op === 'refreshForceAdvantageAttack') {
+      if (!context.target?.alive || !context.buff) return;
+      this.refreshDynamicAttackBuff(context.target, context.buff, effect);
+    }
+  }
+
+  refreshDynamicAttackBuff(unit, buff, effectOverride = null) {
+    if (!unit?.alive || !buff) return;
+    if (buff.id === 'swarmPack') {
+      this.refreshSwarmPackAttack(unit, buff, effectOverride);
+      return;
+    }
+    if (buff.id === 'wolfInstinct') {
+      this.refreshWolfInstinctAttack(unit, buff, effectOverride);
+    }
+  }
+
+  refreshSwarmPackAttack(unit, buff, effectOverride = null) {
+    if (!unit?.alive || !buff || buff.id !== 'swarmPack') return;
+    const effect = effectOverride ?? findSwarmPackEffect(buff);
+    if (!effect) return;
+    const level = Math.max(1, Math.floor(buff.level ?? 1));
+    const radius = Math.max(0, resolveEffectNumber(effect, 'radius', { buff }, effect.radius ?? 6));
+    const amountPerAllyPerLevel = Math.max(
+      0,
+      resolveEffectNumber(effect, 'amountPerAllyPerLevel', { buff }, effect.amountPerAllyPerLevel ?? 0.25)
+    );
+    const nearbyCount = this.game.targeting?.countAlliesInRadius?.(unit, radius) ?? 0;
+    const bonus = nearbyCount * amountPerAllyPerLevel * level;
+    const source = `${buffModifierSource(buff.id)}:nearby`;
+    unit.attributes.removeModifiersBySource(source);
+    if (bonus > 0) {
+      unit.attributes.addModifiers([
+        {
+          stat: 'attackDamage',
+          type: 'add',
+          amount: bonus
+        }
+      ], source, { level, buff, owner: unit });
+    }
+    buff.nearbyAllyCount = nearbyCount;
+    buff.nearbyAttackBonus = bonus;
+    unit.statusUiDirty = true;
+  }
+
+  refreshWolfInstinctAttack(unit, buff, effectOverride = null) {
+    if (!unit?.alive || !buff || buff.id !== 'wolfInstinct') return;
+    const effect = effectOverride ?? findBuffEffect(buff, 'refreshForceAdvantageAttack');
+    if (!effect) return;
+    const level = Math.max(1, Math.floor(buff.level ?? 1));
+    const amountPerAdvantagePerLevel = Math.max(
+      0,
+      resolveEffectNumber(effect, 'amountPerAdvantagePerLevel', { buff }, effect.amountPerAdvantagePerLevel ?? 1)
+    );
+    const { friendlyCount, enemyCount } = countFieldCombatUnits(this.game);
+    const advantage = Math.max(0, friendlyCount - enemyCount);
+    const bonus = advantage * amountPerAdvantagePerLevel * level;
+    const source = `${buffModifierSource(buff.id)}:advantage`;
+    unit.attributes.removeModifiersBySource(source);
+    if (bonus > 0) {
+      unit.attributes.addModifiers([
+        {
+          stat: 'attackDamage',
+          type: 'add',
+          amount: bonus
+        }
+      ], source, { level, buff, owner: unit });
+    }
+    buff.forceAdvantage = advantage;
+    buff.forceAttackBonus = bonus;
+    unit.statusUiDirty = true;
+  }
+
+  trySpreadBurning(context) {
+    const stacks = this.game.abilities?.getStacks?.('fireSpread') ?? 0;
+    if (stacks <= 0) return;
+    const source = context.source;
+    if (!source?.alive || source.team !== TEAMS.PLAYER) return;
+    const target = context.target;
+    if (!target?.alive || target.team === TEAMS.PLAYER) return;
+    const radius = 2.1 + stacks * 0.25;
+    const duration = context.buff.duration ?? 3.4;
+    const level = Math.max(1, Math.floor(context.buff.level ?? 1));
+    const damagePerSecond = context.buff.damagePerSecond ?? 2.8;
+    this.game.enemyUnits.forEach((enemy) => {
+      if (!enemy.alive || enemy === target) return;
+      if (distance2D(enemy.position, target.position) > radius) return;
+      this.applyBuff(enemy, 'burning', source, {
+        duration,
+        level,
+        damagePerSecond
+      });
+    });
+  }
+
+  spreadPlague(target, buff, source, effect) {
+    if (!target?.alive || !target.position) return;
+    const radius = Math.max(0.8, effect.spreadRadius ?? 2.4);
+    const level = Math.max(1, Math.floor(buff.level ?? 1));
+    const duration = buff.duration ?? 99;
+    this.game.enemyUnits.forEach((enemy) => {
+      if (!enemy.alive || enemy === target) return;
+      if (distance2D(enemy.position, target.position) > radius) return;
+      this.applyBuff(enemy, 'plague', source, {
+        duration,
+        level
+      });
+    });
   }
 
   getActiveUnits() {
@@ -720,4 +943,34 @@ function distance2D(a, b) {
 function clamp01(value) {
   if (!Number.isFinite(value)) return 0;
   return Math.min(1, Math.max(0, value));
+}
+
+function buffModifierSource(id) {
+  return `buff:${id}`;
+}
+
+function findSwarmPackEffect(buff) {
+  return findBuffEffect(buff, 'refreshNearbyAllyAttack');
+}
+
+function findBuffEffect(buff, op) {
+  return (buff?.effects ?? []).find((effect) => effect.op === op) ?? null;
+}
+
+function countFieldCombatUnits(game) {
+  let friendlyCount = 0;
+  let enemyCount = 0;
+  const friendlies = game?.friendlyUnits ?? [];
+  for (let i = 0; i < friendlies.length; i += 1) {
+    const unit = friendlies[i];
+    if (!unit?.alive || unit.underConstruction) continue;
+    friendlyCount += 1;
+  }
+  const enemies = game?.enemyUnits ?? [];
+  for (let i = 0; i < enemies.length; i += 1) {
+    const unit = enemies[i];
+    if (!unit?.alive || unit.underConstruction) continue;
+    enemyCount += 1;
+  }
+  return { friendlyCount, enemyCount };
 }

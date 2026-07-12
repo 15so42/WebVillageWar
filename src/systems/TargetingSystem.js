@@ -14,6 +14,17 @@ const TARGET_INDEX_INTERVAL = 0.5;
 const TARGET_QUERY_PADDING = 3.2;
 const TARGET_GRID_CELL_SIZE = 5.5;
 
+const DEFAULT_ENEMY_TARGET_PRIORITY = {
+  distanceWeight: 1.15,
+  supportWeight: 2.5,
+  buildingWeight: 2.2,
+  backlineWeight: 1.7,
+  backlineAttackRange: 5,
+  woundedWeight: 1.3,
+  woundedHealthRatio: 0.45,
+  roleWeights: { ranged: 1.35, support: 1.5 }
+};
+
 export class TargetingSystem {
   constructor(game) {
     this.game = game;
@@ -34,6 +45,7 @@ export class TargetingSystem {
 
   handleKill(deadUnit, source = null) {
     if (!deadUnit?.position || !source?.alive || source === deadUnit) return;
+    if (!source.definition || !source.registry) return;
     this.rebuild();
     source.target = this.acquireTarget(source);
     source.targetSearchTimer = source.target
@@ -64,6 +76,12 @@ export class TargetingSystem {
   }
 
   targetForUnit(unit, dt, profile = null) {
+    if (unit.team === TEAMS.ENEMY && unit.commanderMarching && unit.moveGoal) {
+      if (distance2D(unit.position, unit.moveGoal) > 2.4) {
+        return null;
+      }
+      unit.commanderMarching = false;
+    }
     unit.targetSearchTimer = Math.max(0, (unit.targetSearchTimer ?? targetSearchDelay(unit, 0, TARGET_RESCAN_JITTER)) - dt);
     let current = unit.target?.alive !== false ? unit.target : null;
     if (current && !this.isCurrentTargetValid(unit, current)) {
@@ -94,6 +112,8 @@ export class TargetingSystem {
   acquireTarget(unit) {
     const aggroRange = this.game.modifiers.getAggroRange(unit);
     if (unit.team === TEAMS.PLAYER) {
+      const guardAttacker = this.acquireGuardAttacker(unit);
+      if (guardAttacker) return guardAttacker;
       const guardFilter = unit.controlMode === 'guard'
         ? (target) => this.isInsideGuardRadius(unit, target)
         : null;
@@ -122,6 +142,13 @@ export class TargetingSystem {
     if (!target?.alive || !unit?.position) return false;
     if (unit.controlMode === 'guard' && !this.isInsideGuardRadius(unit, target)) {
       return false;
+    }
+    if (
+      unit.controlMode === 'guard' &&
+      target === unit.lastAttacker &&
+      this.isInsideGuardRadius(unit, target)
+    ) {
+      return true;
     }
     if (unit.isWildlife && target.position && unit.spawnPoint) {
       const aggroRange = this.game.modifiers.getAggroRange(unit);
@@ -170,6 +197,21 @@ export class TargetingSystem {
     return this.scratch;
   }
 
+  countAlliesInRadius(source, radius, predicate = null) {
+    if (!source?.position || !Number.isFinite(radius) || radius <= 0) return 0;
+    const candidates = this.query(source.team, source.position, radius);
+    let count = 0;
+    for (let i = 0; i < candidates.length; i += 1) {
+      const candidate = candidates[i];
+      if (!candidate.alive || candidate === source) continue;
+      if (candidate.underConstruction) continue;
+      if (predicate && !predicate(candidate)) continue;
+      if (distance2D(source.position, candidate.position) > radius) continue;
+      count += 1;
+    }
+    return count;
+  }
+
   nearestStructure(source, structure, range, predicate = null) {
     if (!structure?.alive) return null;
     if (predicate && !predicate(structure)) return null;
@@ -181,6 +223,17 @@ export class TargetingSystem {
     const targetPosition = getTargetPosition(target);
     if (!targetPosition) return false;
     return distance2D(unit.guardPoint, targetPosition) <= unit.guardRadius + targetCombatRadius(target);
+  }
+
+  acquireGuardAttacker(unit) {
+    if (unit.controlMode !== 'guard' || unit.team !== TEAMS.PLAYER) return null;
+    const attacker = unit.lastAttacker;
+    if (!attacker?.alive || attacker.team === unit.team) return null;
+    if (!this.isInsideGuardRadius(unit, attacker)) return null;
+    const elapsed = this.game.elapsedTime ?? 0;
+    const seenAt = unit.lastAttackerTime ?? 0;
+    if (elapsed - seenAt > 6) return null;
+    return attacker;
   }
 
   beginFrame() {
@@ -239,7 +292,10 @@ function createTargetingStats() {
 }
 
 function targetPriorityScore(source, candidate, distance) {
-  const priority = source?.definition?.targetPriority;
+  let priority = source?.definition?.targetPriority;
+  if (!priority && source?.team === TEAMS.ENEMY) {
+    priority = DEFAULT_ENEMY_TARGET_PRIORITY;
+  }
   if (!priority) return -distance;
   const distanceWeight = Math.max(0.05, priority.distanceWeight ?? 1);
   let score = -distance * distanceWeight;
@@ -261,6 +317,9 @@ function targetPriorityScore(source, candidate, distance) {
   const healthRatio = candidate.health / Math.max(1, candidate.maxHealth);
   if (healthRatio <= (priority.woundedHealthRatio ?? 0)) {
     score += priority.woundedWeight ?? 0;
+  }
+  if (source?.enemySquadFocusId && String(candidate.id) === String(source.enemySquadFocusId)) {
+    score += 3.6;
   }
   return score;
 }

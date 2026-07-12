@@ -11,6 +11,7 @@ import {
   getTargetPosition,
   hasNegativeBuff,
   isImmobileUnit,
+  isStationaryCombatUnit,
   isNegativeBuff,
   roundProfile,
   stopDistance,
@@ -85,6 +86,11 @@ export class UnitLogicSystem {
       unit.aiState = 'idle';
       unit.movement?.applyMotion(dt);
       recordUnitStep(profile, 'motionMs', mark);
+      return;
+    }
+
+    if (isStationaryCombatUnit(unit)) {
+      this.updateStationaryCombatUnit(unit, dt, profile, mark);
       return;
     }
 
@@ -265,6 +271,77 @@ export class UnitLogicSystem {
     recordUnitStep(profile, 'motionMs', mark);
   }
 
+  updateStationaryCombatUnit(unit, dt, profile, mark = 0) {
+    unit.moveGoal = null;
+    unit.commandMoveGoal = null;
+    unit.moveGoalUsesDirectSteering = false;
+    unit.directMoveBlocked = false;
+    unit.directMoveBlockedTime = 0;
+    unit.knockbackVelocity.set(0, 0, 0);
+
+    const activeAttack = this.game.attacks.getActiveAttackFor(unit);
+    mark = recordUnitStep(profile, 'activeAttackMs', mark);
+    if (activeAttack) {
+      unit.aiState = 'attacking';
+      unit.attackRangeHoldTargetId = targetHoldId(activeAttack.target);
+      const targetPosition = getTargetPosition(activeAttack.target);
+      if (targetPosition) {
+        unit.movement?.face(targetPosition, dt);
+      }
+      unit.movement?.applyMotion(dt);
+      recordUnitStep(profile, 'motionMs', mark);
+      return;
+    }
+
+    const target = this.game.targeting.targetForUnit(unit, dt, profile);
+    mark = recordUnitStep(profile, 'targetDecisionMs', mark);
+    if (target) {
+      const targetPosition = getTargetPosition(target);
+      const targetDistance = distance2D(unit.position, targetPosition);
+      const targetRadius = targetCombatRadius(target);
+      const attackRange = this.game.modifiers.getAttackRange(unit);
+      const attackReach = attackRange + targetRadius;
+      const holdTargetId = targetHoldId(target);
+      const isHoldingAttackRange = holdTargetId != null && unit.attackRangeHoldTargetId === holdTargetId;
+      const attackRangePadding = isHoldingAttackRange
+        ? attackRangeHoldPadding(unit)
+        : ATTACK_RANGE_ENTER_PADDING;
+      if (this.game.attacks.tryMonsterAbility(unit, target, targetDistance, targetRadius)) {
+        unit.aiState = 'attacking';
+        unit.attackRangeHoldTargetId = holdTargetId;
+        unit.movement?.face(targetPosition, dt);
+        mark = recordUnitStep(profile, 'attackDecisionMs', mark);
+        unit.movement?.applyMotion(dt);
+        recordUnitStep(profile, 'motionMs', mark);
+        return;
+      }
+      if (this.game.attacks.tryRangedWeaponAbility(unit, target, targetDistance, targetRadius)) {
+        unit.aiState = 'attacking';
+        unit.attackRangeHoldTargetId = holdTargetId;
+        unit.movement?.face(targetPosition, dt);
+        mark = recordUnitStep(profile, 'attackDecisionMs', mark);
+        unit.movement?.applyMotion(dt);
+        recordUnitStep(profile, 'motionMs', mark);
+        return;
+      }
+      if (targetDistance <= attackReach + attackRangePadding) {
+        unit.aiState = 'attacking';
+        unit.attackRangeHoldTargetId = holdTargetId;
+        unit.movement?.face(targetPosition, dt);
+        this.game.attacks.tryAttack(unit, target);
+      } else {
+        unit.aiState = 'idle';
+        unit.attackRangeHoldTargetId = null;
+      }
+    } else {
+      unit.attackRangeHoldTargetId = null;
+      unit.aiState = 'idle';
+    }
+    mark = recordUnitStep(profile, 'attackDecisionMs', mark);
+    unit.movement?.applyMotion(dt);
+    recordUnitStep(profile, 'motionMs', mark);
+  }
+
   tickAbilityCooldowns(unit, dt) {
     if (!unit.abilityCooldowns?.size) return;
     unit.abilityCooldowns.forEach((remaining, key) => {
@@ -415,28 +492,22 @@ export class UnitLogicSystem {
     const cooldown = Math.max(0.1, ability.tickInterval ?? 1);
     const remaining = this.tickSupportCooldown(unit, key, ability, cooldown, dt);
     if (remaining > 0) return;
-    const targets = this.findRepairAuraTargets(unit, ability);
-    if (!targets.length) {
+    const pick = this.findBestRepairAuraTarget(unit, ability);
+    if (!pick) {
       unit.supportCooldowns.set(key, Math.min(0.5, cooldown));
       return;
     }
-    const amount = Math.max(0, ability.amount ?? 0);
-    if (amount > 0) {
-      unit.supportCooldowns.set(key, cooldown);
-      this.queueSupportEffect(unit, targets[0], 'repair', () => {
-        let releasedTotal = 0;
-        targets.forEach((target) => {
-          if (!target.alive || target.underConstruction) return;
-          const restored = target.restoreDurability?.(amount) ?? 0;
-          releasedTotal += restored;
-          if (restored > 0.01) {
-            this.game.effects.spawnRing(target.position, '#9dd8ff', 0.42, 0.28);
-          }
+    unit.supportCooldowns.set(key, cooldown);
+    this.queueSupportEffect(unit, pick.target, 'repair', () => {
+      if (pick.mode === 'structure') {
+        const restored = this.game.repairStructure(pick.target, {
+          healthPercent: ability.baseHealthPercent ?? 0.05,
+          durabilityPercent: ability.baseDurabilityPercent ?? 0.05
         });
-        if (releasedTotal <= 0.01) return;
-        this.game.effects.spawnRing(unit.position, '#9dd8ff', 0.66, 0.44);
+        if (restored.health <= 0.01 && restored.durability <= 0.01) return;
+        this.game.effects.spawnRing(pick.target.position, '#9dd8ff', 1.1, 0.42);
         this.game.effects.spawnDamageNumber(unit.position, 1, {
-          text: `修缮+${formatSupportAmount(releasedTotal)}`,
+          text: '基地修缮',
           color: '#dff8ff',
           stroke: '#12303a',
           height: unit.projectileHitHeight ?? 1.55,
@@ -445,10 +516,31 @@ export class UnitLogicSystem {
           baseHeight: 0.48,
           fadeStart: 0.62
         });
+        return;
+      }
+      const amount = Math.max(0, ability.amount ?? 0);
+      let releasedTotal = 0;
+      pick.targets.forEach((target) => {
+        if (!target.alive || target.underConstruction) return;
+        const restored = target.restoreDurability?.(amount) ?? 0;
+        releasedTotal += restored;
+        if (restored > 0.01) {
+          this.game.effects.spawnRing(target.position, '#9dd8ff', 0.42, 0.28);
+        }
       });
-    } else {
-      unit.supportCooldowns.set(key, 0.25);
-    }
+      if (releasedTotal <= 0.01) return;
+      this.game.effects.spawnRing(unit.position, '#9dd8ff', 0.66, 0.44);
+      this.game.effects.spawnDamageNumber(unit.position, 1, {
+        text: `修缮+${formatSupportAmount(releasedTotal)}`,
+        color: '#dff8ff',
+        stroke: '#12303a',
+        height: unit.projectileHitHeight ?? 1.55,
+        duration: 0.72,
+        fontSize: 78,
+        baseHeight: 0.48,
+        fadeStart: 0.62
+      });
+    });
   }
 
   updateMiniTurretAbility(unit, dt) {
@@ -568,14 +660,41 @@ export class UnitLogicSystem {
     );
   }
 
-  findRepairAuraTargets(unit, ability) {
-    const candidates = unit.team === TEAMS.PLAYER ? this.game.friendlyUnits : this.game.enemyUnits;
+  findBestRepairAuraTarget(unit, ability) {
     const range = Math.max(0, ability.range ?? 5.4);
-    const maxTargets = Math.max(1, Math.floor(ability.maxTargets ?? 4));
+    const maxTargets = Math.max(1, Math.floor(ability.maxTargets ?? 1));
+    const candidates = [];
+
+    if (ability.includeBase) {
+      const baseRange = Math.max(range, ability.baseRange ?? range);
+      const structure = unit.team === TEAMS.PLAYER
+        ? this.game.playerBase
+        : this.game.enemyCamp;
+      if (structure?.alive && structure.kind === 'structure') {
+        const distance = distance2D(unit.position, structure.position);
+        if (distance <= baseRange) {
+          const healthMissing = Math.max(0, structure.maxHealth - structure.health);
+          const durabilityMissing = Math.max(
+            0,
+            structure.maxStructureDurability - structure.structureDurability
+          );
+          const score = healthMissing + durabilityMissing * 2;
+          if (score > 0.01) {
+            candidates.push({
+              mode: 'structure',
+              target: structure,
+              score
+            });
+          }
+        }
+      }
+    }
+
+    const unitCandidates = unit.team === TEAMS.PLAYER ? this.game.friendlyUnits : this.game.enemyUnits;
     const selected = [];
     const selectedMissing = [];
-    for (let i = 0; i < candidates.length; i += 1) {
-      const candidate = candidates[i];
+    for (let i = 0; i < unitCandidates.length; i += 1) {
+      const candidate = unitCandidates[i];
       if (!candidate.alive || candidate === unit || candidate.underConstruction) continue;
       if (!candidate.weapon || candidate.weapon.durability >= candidate.weapon.maxDurability - 0.01) continue;
       if (distance2D(unit.position, candidate.position) > range) continue;
@@ -587,7 +706,19 @@ export class UnitLogicSystem {
         maxTargets
       );
     }
-    return selected;
+    if (selected.length > 0) {
+      const weaponScore = selectedMissing.reduce((sum, value) => sum + value, 0);
+      candidates.push({
+        mode: 'weapon',
+        target: selected[0],
+        targets: selected,
+        score: weaponScore
+      });
+    }
+
+    if (!candidates.length) return null;
+    candidates.sort((left, right) => right.score - left.score);
+    return candidates[0];
   }
 
   findSupportTarget(unit, ability, predicate, scoreFn) {
@@ -628,8 +759,7 @@ export class UnitLogicSystem {
     const targetPosition = getTargetPosition(target);
     if (!targetPosition) return false;
     const targetRadius = targetCombatRadius(target);
-    return distance2D(unit.guardPoint, targetPosition) > unit.guardRadius + targetRadius ||
-      distance2D(unit.guardPoint, unit.position) > unit.guardRadius + 0.35;
+    return distance2D(unit.guardPoint, targetPosition) > unit.guardRadius + targetRadius;
   }
 
   returnToGuardPoint(unit, dt) {

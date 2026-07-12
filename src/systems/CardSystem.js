@@ -1,14 +1,13 @@
 import * as THREE from 'three';
 import { basicMat, createReticle } from '../art/lowpoly.js';
-import { BALANCE, CARD_DEFINITIONS } from '../data/gameData.js';
+import { ACTIVE_DECK_SIZE, BALANCE, CARD_DEFINITIONS } from '../data/gameData.js';
 import { insideBattlefield } from '../utils/math.js';
 import { disposeObject3D } from '../utils/dispose.js';
 
 const HAND_SIZE = 5;
-const INITIAL_ENERGY = 5;
-const MAX_ENERGY = 10;
-const ENERGY_REGEN_SECONDS = 5;
-const ENERGY_REGEN_PER_SECOND = 1 / ENERGY_REGEN_SECONDS;
+const energyBalance = BALANCE.playerEnergy ?? {};
+const INITIAL_ENERGY = Number(energyBalance.initial) || 4;
+const MAX_ENERGY = Number(energyBalance.max) || 12;
 const TEMPORARY_CARD_LIMIT = 3;
 const PLAY_DRAG_RATIO = 0.5;
 const DISCARD_DRAG_RATIO = 0.3;
@@ -30,12 +29,19 @@ const CARD_RANGE_RING_RENDER_ORDER = 63;
 export class CardSystem {
   constructor(game, options = {}) {
     this.game = game;
-    this.cards = normalizeDeck(options.deck ?? CARD_DEFINITIONS);
+    const normalizedDeck = normalizeDeck(options.deck ?? CARD_DEFINITIONS);
+    const activeDeckSize = Math.min(
+      normalizedDeck.length,
+      Math.max(1, options.activeDeckSize ?? ACTIVE_DECK_SIZE)
+    );
+    const shuffledDeck = shuffleCards([...normalizedDeck]);
+    this.cards = normalizedDeck;
+    this.reservePile = options.startWithEmptyDrawPile ? [...shuffledDeck] : shuffledDeck.splice(activeDeckSize);
     this.energy = INITIAL_ENERGY;
     this.energyTimer = 0;
     this.lastRenderedEnergy = -1;
     this.lastRenderedProgress = -1;
-    this.drawPile = options.startWithEmptyDrawPile ? [] : shuffleCards([...this.cards]);
+    this.drawPile = options.startWithEmptyDrawPile ? [] : shuffledDeck;
     this.discardPile = [];
     this.handCards = [];
     this.temporaryCards = [];
@@ -62,6 +68,7 @@ export class CardSystem {
     this.temporarySlot = createTemporaryCardSlot(this.energyPanel);
     this.energyParts = collectEnergyPanel(this.energyPanel);
     this.abilityIcons = this.energyParts.abilities;
+    this.coreIcons = this.energyParts.cores;
     this.hintPanel = createGameHintPanel(this.energyPanel);
     this.hintOwner = null;
     this.activePileViewer = null;
@@ -95,15 +102,6 @@ export class CardSystem {
 
   update(dt) {
     const previousEnergy = this.energy;
-    if (this.energy < MAX_ENERGY) {
-      this.energy = Math.min(MAX_ENERGY, this.energy + Math.max(0, dt) * ENERGY_REGEN_PER_SECOND);
-    }
-    if (this.energy >= MAX_ENERGY) {
-      this.energyTimer = 0;
-    } else {
-      this.energyTimer = (this.energy % 1) * ENERGY_REGEN_SECONDS;
-    }
-
     this.updateEnergyUi();
     if (previousEnergy !== this.energy) {
       this.updateCardAffordability();
@@ -158,7 +156,7 @@ export class CardSystem {
     element.innerHTML = `
       <div class="card-cost">${cardEnergyCost(card)}</div>
       <div class="card-level">Lv.${card.level ?? 1}</div>
-      ${shouldExhaustAfterPlay(card) ? '<div class="card-keyword">消耗</div>' : ''}
+      ${cardUseBarMarkup(card)}
       <div class="card-face">
         <div class="card-header">
           <div class="card-rune">${card.label}</div>
@@ -284,6 +282,7 @@ export class CardSystem {
       this.flashEnergyPanel();
       return;
     }
+    this.cancelActiveDrag(event);
     event.preventDefault();
     event.stopPropagation();
     this.drag = {
@@ -308,7 +307,8 @@ export class CardSystem {
     this.updateDraggedCardMotion(event);
     event.currentTarget.setPointerCapture?.(event.pointerId);
     document.addEventListener('pointermove', this.onPointerMove);
-    document.addEventListener('pointerup', this.onPointerUp, { once: true });
+    document.addEventListener('pointerup', this.onPointerUp);
+    document.addEventListener('pointercancel', this.onPointerCancel);
     this.updateDeploymentRangePreview(card, false);
     this.updateDrag(event);
   }
@@ -318,6 +318,14 @@ export class CardSystem {
   };
 
   onPointerUp = (event) => {
+    this.finishDrag(event);
+  };
+
+  onPointerCancel = (event) => {
+    this.finishDrag(event);
+  };
+
+  finishDrag(event) {
     if (!this.drag) return;
     this.updateDrag(event);
     const drag = this.drag;
@@ -332,7 +340,12 @@ export class CardSystem {
     } else {
       this.cleanupDrag(event);
     }
-  };
+  }
+
+  cancelActiveDrag(event = null) {
+    if (!this.drag) return;
+    this.cleanupDrag(event ?? { pointerId: null });
+  }
 
   updateDrag(event) {
     if (!this.drag) return;
@@ -418,7 +431,8 @@ export class CardSystem {
       this.game.isPointWalkable(point) &&
       this.isValidGroundCardPoint(this.drag.card, point);
     this.drag.valid = validGround && this.drag.canPayPlay;
-    this.showGroundPreview(point, this.drag.card.radius, this.drag.valid, this.drag.card);
+    const previewRadius = this.resolveGroundPreviewRadius(this.drag.card);
+    this.showGroundPreview(point, previewRadius, this.drag.valid, this.drag.card);
     this.enchantTargetRing.visible = false;
     this.updateGroundDragHint(this.drag.card, this.drag.valid, {
       canPay: this.drag.canPayPlay
@@ -469,6 +483,25 @@ export class CardSystem {
     this.hand?.querySelectorAll('.card.is-hand-card-target').forEach((element) => {
       element.classList.remove('is-hand-card-target');
     });
+  }
+
+  resolveGroundPreviewRadius(card) {
+    const baseRadius = Math.max(0.5, card?.radius ?? 1);
+    if (card?.kind !== 'spell' && card?.effect?.type !== 'create-area-effect') {
+      return baseRadius;
+    }
+    const level = Math.max(1, Math.floor(card?.level ?? 1));
+    const bonusLevel = Math.max(0, level - 1);
+    const effect = card.effect ?? {};
+    let radius = baseRadius;
+    if (card.kind === 'spell') {
+      radius = baseRadius * (1 + 0.06 * bonusLevel);
+    } else if (Number.isFinite(effect.radiusPerLevel)) {
+      radius = baseRadius + effect.radiusPerLevel * bonusLevel;
+    } else {
+      radius = baseRadius * (1 + 0.06 * bonusLevel);
+    }
+    return this.game.scaleSpellAreaRadius?.(radius) ?? radius;
   }
 
   showGroundPreview(point, radius, valid, card) {
@@ -666,12 +699,19 @@ export class CardSystem {
     const deltaY = event.clientY - this.drag.startY;
     if (deltaY >= this.drag.discardThreshold) return 'discard';
     const targetsHandCard = this.drag.card?.target === 'hand-card';
-    if (!targetsHandCard && this.isPointerBlockedByCardUi(event.clientX, event.clientY)) {
-      return 'idle';
+    const playIntent = deltaY <= -this.drag.playThreshold;
+    const dragDistance = Math.hypot(
+      event.clientX - this.drag.startX,
+      event.clientY - this.drag.startY
+    );
+    const fieldPlayIntent = !targetsHandCard && dragDistance >= PLAY_DRAG_MIN_DISTANCE && deltaY < 0;
+    if (!targetsHandCard && !playIntent && !fieldPlayIntent) {
+      if (this.isPointerBlockedByCardUi(event.clientX, event.clientY)) {
+        return 'idle';
+      }
     }
-    if (deltaY <= -this.drag.playThreshold) return 'play';
-    const distance = Math.hypot(event.clientX - this.drag.startX, event.clientY - this.drag.startY);
-    if (distance < PLAY_DRAG_MIN_DISTANCE) return 'idle';
+    if (playIntent) return 'play';
+    if (dragDistance < PLAY_DRAG_MIN_DISTANCE) return 'idle';
     if (targetsHandCard) return 'play';
     return 'play';
   }
@@ -679,7 +719,7 @@ export class CardSystem {
   isPointerBlockedByCardUi(x, y) {
     const element = document.elementFromPoint(x, y);
     const blocker = element?.closest?.(
-      '.card, .card-empty-slot, .temporary-card-empty-slot, .energy-panel, .card-pile-dock, .pile-viewer'
+      '.card:not(.is-dragging), .card-pile-dock, .pile-viewer, .strategy-event-overlay:not([hidden])'
     );
     return Boolean(blocker);
   }
@@ -687,7 +727,9 @@ export class CardSystem {
   cleanupDrag(event, { preserveSourceElement = false } = {}) {
     const drag = this.drag;
     if (!drag) return;
-    drag.sourceElement?.releasePointerCapture?.(event.pointerId);
+    if (event?.pointerId != null) {
+      drag.sourceElement?.releasePointerCapture?.(event.pointerId);
+    }
     if (!preserveSourceElement) {
       drag.sourceElement?.classList.remove('is-dragging', 'is-discard-ready');
       drag.sourceElement?.style.removeProperty('--card-drag-y');
@@ -703,6 +745,8 @@ export class CardSystem {
     this.clearHint('card-drag');
     this.clearHandCardTargetHighlights();
     document.removeEventListener('pointermove', this.onPointerMove);
+    document.removeEventListener('pointerup', this.onPointerUp);
+    document.removeEventListener('pointercancel', this.onPointerCancel);
   }
 
   playDraggedCard(drag) {
@@ -713,6 +757,7 @@ export class CardSystem {
     }
     if (!this.resolveCard(drag)) return false;
     this.spendEnergy(cost);
+    this.game.runCardsPlayedCount = (this.game.runCardsPlayedCount ?? 0) + 1;
     this.game.abilities?.onCardPlayed(drag.card, drag);
     this.moveCardToDiscard(drag.card);
     return true;
@@ -927,11 +972,14 @@ export class CardSystem {
   }
 
   moveCardToDiscard(card) {
+    this.consumeCardUse(card);
+    const exhausted = shouldExhaustAfterPlay(card);
+    const spent = this.isCardSpent(card);
     const temporaryIndex = this.temporaryCards.indexOf(card);
     if (temporaryIndex !== -1) {
       this.temporaryCards.splice(temporaryIndex, 1);
-      if (shouldExhaustAfterPlay(card)) {
-        this.game.abilities?.onCardExhausted(card);
+      if (exhausted || spent) {
+        this.game.abilities?.onCardExhausted?.(card);
       } else {
         this.discardPile.push(card);
       }
@@ -942,8 +990,8 @@ export class CardSystem {
     const index = this.handCards.indexOf(card);
     if (index === -1) return false;
     this.handCards.splice(index, 1);
-    if (shouldExhaustAfterPlay(card)) {
-      this.game.abilities?.onCardExhausted(card);
+    if (exhausted || spent) {
+      this.game.abilities?.onCardExhausted?.(card);
     } else {
       this.discardPile.push(card);
     }
@@ -960,12 +1008,18 @@ export class CardSystem {
   }
 
   consumeCardUse(card) {
-    void card;
-    return 0;
+    if (!cardHasUseLimit(card)) return 0;
+    ensureCardUses(card);
+    const before = card.remainingUses;
+    card.remainingUses = Math.max(0, before - 1);
+    return before > card.remainingUses ? 1 : 0;
   }
 
   isCardSpent(card) {
-    return !card || shouldExhaustAfterPlay(card);
+    if (!card) return true;
+    if (!cardHasUseLimit(card)) return false;
+    ensureCardUses(card);
+    return card.remainingUses <= 0;
   }
 
   upgradeCardInstance(card, amount = 1) {
@@ -989,7 +1043,37 @@ export class CardSystem {
     this.renderHand();
     this.renderTemporaryCards();
     this.updatePileUi();
-    return upgraded;
+    return upgraded || levels > 0;
+  }
+
+  countDeckCardsById(cardId) {
+    if (!cardId) return 0;
+    return this.allDeckCards().filter((card) => card.id === cardId).length;
+  }
+
+  removeCardFamily(cardId) {
+    if (!cardId) return false;
+    let removed = false;
+    const piles = [
+      this.handCards,
+      this.temporaryCards,
+      this.drawPile,
+      this.discardPile,
+      this.reservePile
+    ];
+    piles.forEach((pile) => {
+      for (let index = pile.length - 1; index >= 0; index -= 1) {
+        if (pile[index]?.id !== cardId) continue;
+        pile.splice(index, 1);
+        removed = true;
+      }
+    });
+    if (!removed) return false;
+    this.renderHand();
+    this.renderTemporaryCards();
+    this.updatePileUi();
+    this.updateCardAffordability();
+    return true;
   }
 
   applyRuntimeUpgrade(card, upgrade) {
@@ -1077,8 +1161,9 @@ export class CardSystem {
 
   copyCardInstance(card, options = {}) {
     if (!card || !this.allDeckCards().includes(card)) return { added: false, location: 'none' };
+    const { maxUses: _maxUses, remainingUses: _remainingUses, instanceId: _instanceId, ...template } = card;
     return this.addCardToDrawPile({
-      ...card,
+      ...template,
       instanceId: undefined
     }, {
       prefix: options.prefix ?? `copy-${Date.now()}`,
@@ -1087,6 +1172,21 @@ export class CardSystem {
   }
 
   allDeckCards() {
+    const seen = new Set();
+    return [
+      ...this.handCards,
+      ...this.temporaryCards,
+      ...this.drawPile,
+      ...this.discardPile,
+      ...this.reservePile
+    ].filter((card) => {
+      if (!card || seen.has(card.instanceId)) return false;
+      seen.add(card.instanceId);
+      return true;
+    });
+  }
+
+  activeRunCards() {
     const seen = new Set();
     return [
       ...this.handCards,
@@ -1148,11 +1248,33 @@ export class CardSystem {
       this.pendingDrawAnimations.add(card);
       this.renderTemporaryCards();
       this.updatePileUi();
+      this.updateCardAffordability();
       return { added: true, location: 'temporary', card };
     }
     this.drawPile.unshift(card);
     this.updatePileUi();
     return { added: true, location: 'draw', card };
+  }
+
+  addTemporaryCard(cardDefinition, options = {}) {
+    if (!cardDefinition) return { added: false, location: 'none' };
+    if (this.temporaryCards.length >= TEMPORARY_CARD_LIMIT) {
+      return { added: false, location: 'none' };
+    }
+    const definition = {
+      ...cardDefinition,
+      energyCost: options.energyCost ?? cardDefinition.energyCost ?? 0
+    };
+    const card = createCardInstance(
+      this.applyRuntimeCardLevel(definition, options),
+      options.prefix ?? `temporary-${Date.now()}`
+    );
+    this.temporaryCards.push(card);
+    this.pendingDrawAnimations.add(card);
+    this.renderTemporaryCards();
+    this.updatePileUi();
+    this.updateCardAffordability();
+    return { added: true, location: 'temporary', card };
   }
 
   addCardToDrawPile(cardDefinition, options = {}) {
@@ -1317,7 +1439,9 @@ export class CardSystem {
     if (this.drawPile.length > 0 || this.discardPile.length === 0) {
       return false;
     }
-    this.drawPile = shuffleCards(this.discardPile.splice(0));
+    this.drawPile = shuffleCards(
+      this.discardPile.splice(0).filter((card) => !this.isCardSpent(card))
+    );
     return true;
   }
 
@@ -1333,9 +1457,6 @@ export class CardSystem {
     if (!Number.isFinite(amount) || amount <= 0 || this.energy >= MAX_ENERGY) return 0;
     const previousEnergy = this.energy;
     this.energy = Math.min(MAX_ENERGY, this.energy + amount);
-    if (this.energy >= MAX_ENERGY) {
-      this.energyTimer = 0;
-    }
     this.updateEnergyUi();
     if (previousEnergy !== this.energy) {
       this.updateCardAffordability();
@@ -1357,7 +1478,7 @@ export class CardSystem {
       const canDiscard = this.canSpend(discardEnergyCost(card));
       element.setAttribute('aria-disabled', String(!canPlay));
       element.classList.toggle('is-discard-only', !canPlay && canDiscard);
-      element.classList.toggle('is-locked', !canDiscard);
+      element.classList.toggle('is-locked', !canPlay && !canDiscard);
     });
   }
 
@@ -1369,17 +1490,50 @@ export class CardSystem {
       const icon = document.createElement('div');
       icon.className = 'ability-icon';
       icon.style.setProperty('--ability-color', ability.color ?? '#9dd8ff');
-      icon.title = `${ability.name} x${ability.stacks} - ${ability.summary}`;
+      const remainingSeconds = Number.isFinite(ability.expiresAt)
+        ? Math.max(0, Math.ceil(ability.expiresAt - (this.game.elapsedTime ?? 0)))
+        : null;
+      const durationText = remainingSeconds != null ? ` · 剩余 ${remainingSeconds}s` : '';
+      const summary = ability.summary ?? '';
       icon.innerHTML = `
         <span>${ability.label ?? ability.name?.slice?.(0, 1) ?? '?'}</span>
         <strong>${ability.stacks}</strong>
+        <span class="ability-icon-tooltip">${escapeHtml(`${ability.name} x${ability.stacks}${durationText}\n${summary}`)}</span>
       `;
+      icon.title = `${ability.name} x${ability.stacks}${durationText} - ${summary}`;
       this.abilityIcons.appendChild(icon);
     });
+    this.syncEnergyPanelToolbar();
+  }
+
+  updateCoreIcons(cores = []) {
+    if (!this.coreIcons) return;
+    this.coreIcons.innerHTML = '';
+    this.coreIcons.hidden = cores.length === 0;
+    cores.forEach((core) => {
+      const icon = document.createElement('div');
+      icon.className = 'core-icon';
+      icon.style.setProperty('--core-color', core.color ?? '#9eeedb');
+      icon.title = `${core.name} x${core.stacks} - ${core.summary}`;
+      icon.innerHTML = `
+        <span>${core.label ?? core.name?.slice?.(0, 1) ?? '核'}</span>
+        <strong>${core.stacks}</strong>
+      `;
+      this.coreIcons.appendChild(icon);
+    });
+    this.syncEnergyPanelToolbar();
+  }
+
+  syncEnergyPanelToolbar() {
+    const toolbar = this.energyParts?.toolbar;
+    if (!toolbar) return;
+    const hasAbilities = !this.abilityIcons?.hidden;
+    const hasCores = !this.coreIcons?.hidden;
+    toolbar.hidden = !hasAbilities && !hasCores;
   }
 
   updateEnergyUi(force = false) {
-    const progress = this.energy >= MAX_ENERGY ? 1 : this.energyTimer / ENERGY_REGEN_SECONDS;
+    const progress = this.energy >= MAX_ENERGY ? 1 : 0;
     const progressStep = Math.round(progress * 100);
     const energyStep = Math.floor(this.energy * 10 + 0.0001);
     if (!force && this.lastRenderedEnergy === energyStep && this.lastRenderedProgress === progressStep) {
@@ -1422,6 +1576,7 @@ export class CardSystem {
   destroy() {
     document.removeEventListener('pointermove', this.onPointerMove);
     document.removeEventListener('pointerup', this.onPointerUp);
+    document.removeEventListener('pointercancel', this.onPointerCancel);
     document.removeEventListener('keydown', this.onPileViewerKeyDown);
     this.drag = null;
     this.reticle?.parent?.remove(this.reticle);
@@ -1445,26 +1600,51 @@ function normalizeDeck(cards) {
   const source = Array.isArray(cards)
     ? cards
     : CARD_DEFINITIONS.filter((card) => !card.lootOnly);
-  return source.map((card, index) => {
-    const normalized = withoutLegacyUseFields(card);
-    return {
-      ...normalized,
-      instanceId: card.instanceId ?? `${normalized.id}-${index}-${Math.random().toString(36).slice(2)}`
-    };
-  });
+  return source.map((card, index) => createCardInstance(card, `deck-${index}`));
 }
 
 function createCardInstance(card, prefix = 'card') {
   const normalized = withoutLegacyUseFields(card);
+  const maxUses = cardMaxUses(normalized);
   return {
     ...normalized,
-    instanceId: `${prefix}-${normalized.id}-${Math.random().toString(36).slice(2)}`
+    instanceId: card.instanceId ?? `${prefix}-${normalized.id}-${Math.random().toString(36).slice(2)}`,
+    ...(maxUses > 0 ? { maxUses, remainingUses: maxUses } : {})
   };
 }
 
 function withoutLegacyUseFields(card) {
   const { maxUses: _maxUses, remainingUses: _remainingUses, ...normalized } = card ?? {};
   return normalized;
+}
+
+export function cardMaxUses(card) {
+  if (Number.isFinite(card?.uses) && card.uses > 0) return Math.floor(card.uses);
+  if (card?.exhaust === true || card?.kind === 'ability') return 1;
+  return 0;
+}
+
+export function cardHasUseLimit(card) {
+  return cardMaxUses(card) > 0;
+}
+
+function ensureCardUses(card) {
+  const max = cardMaxUses(card);
+  if (max <= 0) return;
+  if (!Number.isFinite(card.maxUses)) card.maxUses = max;
+  if (!Number.isFinite(card.remainingUses)) card.remainingUses = max;
+}
+
+export function cardUseBarMarkup(card, className = 'card-use-bar') {
+  const max = card.maxUses ?? cardMaxUses(card);
+  if (max <= 0) return '';
+  ensureCardUses(card);
+  const remaining = Math.max(0, Math.floor(card.remainingUses ?? max));
+  const segments = [];
+  for (let index = 0; index < max; index += 1) {
+    segments.push(`<span${index < remaining ? ' class="is-filled"' : ''}></span>`);
+  }
+  return `<div class="${className}" aria-hidden="true">${segments.join('')}</div>`;
 }
 
 function kindLabel(kind) {
@@ -1481,7 +1661,9 @@ function shouldUseCardFaceGhost(card) {
 }
 
 function shouldExhaustAfterPlay(card) {
-  return Boolean(card?.exhaust);
+  if (!cardHasUseLimit(card)) return false;
+  ensureCardUses(card);
+  return card.remainingUses <= 0;
 }
 
 export function cardThemeColor(cardOrKind) {
@@ -1560,6 +1742,24 @@ const CARD_ART_RENDERERS = {
     <polygon fill="#fff1bf" points="47,34 49,34 49,55 47,55" />
     <polygon fill="#e7eef0" points="23,16 30,17 27,57 21,57" />
     <rect fill="#795a35" x="19" y="37" width="13" height="5" rx="1" />
+    <path fill="none" stroke="#f4d98f" stroke-width="2.2" d="M34 55 L48 62 L62 55" />
+  `),
+  spearman: () => symbolicUnitSvg(`
+    <ellipse fill="#10231f" opacity="0.22" cx="48" cy="56" rx="30" ry="6" />
+    <polygon fill="#6a7d4f" points="29,53 35,30 47,20 61,30 68,53 56,60 40,60" />
+    <polygon fill="#8ea06f" points="36,34 48,26 60,34 57,51 48,57 39,51" />
+    <polygon fill="#d8c278" points="42,24 48,15 55,24 52,33 44,33" />
+    <polygon fill="#d8dce2" points="49,8 52,34 50,58 46,34" />
+    <polygon fill="#9fb3bc" points="49,8 50,58 46,34" />
+    <path fill="none" stroke="#f1c778" stroke-width="2.2" d="M35 50 L48 57 L61 50" />
+  `),
+  towerShield: () => symbolicUnitSvg(`
+    <ellipse fill="#10231f" opacity="0.24" cx="49" cy="56" rx="31" ry="6" />
+    <polygon fill="#5a6a78" points="30,37 48,29 66,37 62,55 48,62 34,55" />
+    <polygon fill="#7f929b" points="35,23 48,15 61,23 58,34 48,40 38,34" />
+    <polygon fill="#cfd8dc" points="18,18 18,58 34,58 34,18" />
+    <polygon fill="#9aa8b0" points="22,22 30,22 30,54 22,54" />
+    <rect fill="#795a35" x="39" y="37" width="16" height="4" rx="1" />
     <path fill="none" stroke="#f4d98f" stroke-width="2.2" d="M34 55 L48 62 L62 55" />
   `),
   berserker: () => symbolicUnitSvg(`
@@ -1830,6 +2030,24 @@ const CARD_ART_RENDERERS = {
     <polygon fill="#f0b84d" points="73,30 60,27 65,36" />
     <polygon fill="#ffe69f" points="47,14 50,33 46,33" />
   `),
+  heavyStrike: () => artSvg(`
+    <polygon fill="#3a2e26" points="0,51 19,40 44,43 68,38 96,48 96,64 0,64" />
+    <polygon fill="#c8a56a" opacity="0.28" points="47,4 66,34 47,60 28,34" />
+    <rect fill="#d8dde0" x="42" y="10" width="12" height="34" rx="1" />
+    <polygon fill="#f7d474" points="40,43 56,43 58,50 38,50" />
+    <polygon fill="#7b4f2f" points="45,50 51,50 52,59 44,59" />
+    <path fill="none" stroke="#ffe08a" stroke-width="3" stroke-linecap="round" d="M24 36 H72" />
+    <polygon fill="#f0b84d" points="68,28 78,34 68,40" />
+  `),
+  quickStrike: () => artSvg(`
+    <polygon fill="#3a2818" points="0,52 18,42 43,44 68,38 96,49 96,64 0,64" />
+    <ellipse fill="#ffb347" opacity="0.22" cx="50" cy="38" rx="34" ry="20" />
+    <path fill="none" stroke="#ffd89a" stroke-width="4" stroke-linecap="round" d="M22 44 L48 18 L74 44" />
+    <path fill="none" stroke="#fff2c7" stroke-width="3" stroke-linecap="round" d="M30 52 L48 30 L66 52" />
+    <polygon fill="#ffb347" points="48,12 58,24 52,40 44,40 38,24" />
+    <circle fill="#fff2c7" cx="24" cy="36" r="3" />
+    <circle fill="#fff2c7" opacity="0.72" cx="76" cy="36" r="3" />
+  `),
   explosion: () => artSvg(`
     <polygon fill="#3a2a24" points="0,51 19,40 44,43 68,38 96,48 96,64 0,64" />
     <circle fill="#ff6b35" opacity="0.92" cx="49" cy="35" r="19" />
@@ -1973,6 +2191,18 @@ const CARD_ART_RENDERERS = {
     <circle fill="#dff8ff" opacity="0.72" cx="73" cy="43" r="4" />
     <circle fill="#fff2c7" opacity="0.72" cx="49" cy="20" r="4" />
   `),
+  tacticSilverGamble: () => artSvg(`
+    <polygon fill="#3a3020" points="0,52 18,42 43,44 68,38 96,49 96,64 0,64" />
+    <ellipse fill="#d8b85a" opacity="0.24" cx="48" cy="42" rx="36" ry="17" />
+    <circle fill="#ffe08a" cx="34" cy="34" r="12" />
+    <circle fill="#fff2c7" cx="34" cy="34" r="7" />
+    <circle fill="#ffe08a" cx="62" cy="38" r="10" />
+    <circle fill="#fff2c7" cx="62" cy="38" r="6" />
+    <path fill="none" stroke="#fff2c7" stroke-width="3" opacity="0.85" d="M24 18 L72 52" />
+    <path fill="none" stroke="#d8a0a0" stroke-width="2.5" opacity="0.8" d="M72 18 L24 52" />
+    <text x="48" y="24" text-anchor="middle" fill="#fff2c7" font-size="11" font-weight="700">x2</text>
+    <text x="48" y="58" text-anchor="middle" fill="#d8a0a0" font-size="10" font-weight="700">÷2</text>
+  `),
   tacticUpgrade: () => artSvg(`
     <polygon fill="#302638" points="0,52 18,42 43,44 68,38 96,49 96,64 0,64" />
     <polygon fill="#8a6fc4" opacity="0.28" points="48,5 78,27 67,58 29,58 18,27" />
@@ -2018,6 +2248,26 @@ const CARD_ART_RENDERERS = {
     <path fill="none" stroke="#caa7ff" stroke-width="3" opacity="0.85" d="M21 42 C33 24 47 58 59 38 C68 23 75 35 82 25" />
     <circle fill="#fff2c7" cx="75" cy="23" r="4" />
   `),
+  abilityFireSpread: () => artSvg(`
+    <polygon fill="#3a2418" points="0,52 18,42 43,44 68,38 96,49 96,64 0,64" />
+    <ellipse fill="#ff823d" opacity="0.24" cx="48" cy="42" rx="36" ry="16" />
+    <polygon fill="#ff823d" points="48,8 58,28 50,28 54,52 42,52 46,28 38,28" />
+    <polygon fill="#ffd166" points="48,16 54,28 48,28 50,44 46,44 46,28 42,28" />
+    <circle fill="#ffb45c" cx="28" cy="34" r="7" />
+    <circle fill="#ffb45c" cx="68" cy="36" r="6" />
+    <path fill="none" stroke="#ffe08a" stroke-width="2.5" opacity="0.85" d="M34 34 C42 26 54 30 62 36" />
+    <path fill="none" stroke="#ffe08a" stroke-width="2.5" opacity="0.75" d="M28 40 C36 48 46 44 56 50" />
+  `),
+  plagueFog: () => artSvg(`
+    <polygon fill="#243020" points="0,52 18,42 43,44 68,38 96,49 96,64 0,64" />
+    <ellipse fill="#6a8a48" opacity="0.34" cx="48" cy="44" rx="39" ry="14" />
+    <ellipse fill="#8aa860" opacity="0.36" cx="33" cy="38" rx="17" ry="10" />
+    <ellipse fill="#4a6038" opacity="0.42" cx="61" cy="36" rx="22" ry="12" />
+    <circle fill="#b8d88a" cx="36" cy="36" r="4" />
+    <circle fill="#b8d88a" opacity="0.72" cx="58" cy="34" r="5" />
+    <path fill="none" stroke="#dff6a5" stroke-width="2" opacity="0.65" d="M24 48 C36 36 56 52 74 40" />
+    <polygon fill="#6a8a48" points="48,18 52,24 44,24" />
+  `),
   abilityDeathExplosion: () => artSvg(`
     <polygon fill="#3a2a24" points="0,52 18,42 43,44 68,38 96,49 96,64 0,64" />
     <polygon fill="#d8dde0" points="47,13 57,24 39,24" />
@@ -2054,6 +2304,70 @@ const CARD_ART_RENDERERS = {
     <polygon fill="#fff2c7" points="48,4 56,17 40,17" />
     <polygon fill="#fff2c7" points="48,64 40,51 56,51" />
     <circle fill="#fff2c7" opacity="0.78" cx="75" cy="24" r="4" />
+  `),
+  abilityWarDrum: () => artSvg(`
+    <polygon fill="#3a3424" points="0,52 18,42 43,44 68,38 96,49 96,64 0,64" />
+    <ellipse fill="#8b5a2b" cx="48" cy="38" rx="24" ry="18" />
+    <ellipse fill="#ffd166" cx="48" cy="38" rx="16" ry="11" />
+    <path fill="none" stroke="#fff2c7" stroke-width="4" stroke-linecap="round" d="M30 38 L66 38 M48 24 L48 52" />
+    <circle fill="#fff2c7" cx="24" cy="22" r="4" />
+    <circle fill="#ffb45c" cx="74" cy="24" r="5" />
+  `),
+  abilityArsenal: () => artSvg(`
+    <polygon fill="#343128" points="0,52 18,42 43,44 68,38 96,49 96,64 0,64" />
+    <polygon fill="#777d78" points="24,55 72,55 66,63 30,63" />
+    <polygon fill="#d8c58d" points="34,18 62,18 58,52 38,52" />
+    <polygon fill="#fff2c7" points="48,12 54,22 42,22" />
+    <rect fill="#5a4630" x="44" y="24" width="8" height="24" rx="2" />
+    <path fill="none" stroke="#fff2c7" stroke-width="3" d="M22 40 L34 28 M74 40 L62 28" />
+  `),
+  abilityBloodRage: () => artSvg(`
+    <polygon fill="#3a2424" points="0,52 18,42 43,44 68,38 96,49 96,64 0,64" />
+    <polygon fill="#6f718a" points="37,24 60,24 65,49 49,58 32,49" />
+    <circle fill="#ff6b5a" opacity="0.92" cx="63" cy="36" r="16" />
+    <path fill="none" stroke="#fff2c7" stroke-width="4" stroke-linecap="round" d="M48 18 L48 30 M42 24 L54 24" />
+    <path fill="none" stroke="#ffb3b3" stroke-width="3" d="M22 44 C34 56 62 56 76 42" />
+  `),
+  abilityDotAmplify: () => artSvg(`
+    <polygon fill="#243428" points="0,52 18,42 43,44 68,38 96,49 96,64 0,64" />
+    <circle fill="#78b85a" opacity="0.35" cx="48" cy="34" r="24" />
+    <circle fill="none" stroke="#dff6a5" stroke-width="4" cx="48" cy="34" r="16" />
+    <circle fill="#78b85a" cx="48" cy="34" r="7" />
+    <path fill="none" stroke="#fff2c7" stroke-width="3" stroke-linecap="round" d="M24 48 C34 28 62 28 72 48" />
+    <circle fill="#dff6a5" cx="24" cy="22" r="4" />
+  `),
+  tacticCorrupt: () => artSvg(`
+    <polygon fill="#3a272c" points="0,52 18,42 43,44 68,38 96,49 96,64 0,64" />
+    <polygon fill="#f3e1c0" points="28,15 62,12 69,50 35,56" />
+    <polygon fill="#9f6b70" points="34,21 57,19 62,45 39,49" />
+    <path fill="none" stroke="#fff2c7" stroke-width="4" stroke-linecap="round" d="M31 30 L62 42" />
+    <circle fill="#fff2c7" cx="72" cy="20" r="8" />
+    <text x="72" y="24" text-anchor="middle" fill="#3a272c" font-size="11" font-weight="700">0</text>
+  `),
+  meteorBarrage: () => artSvg(`
+    <polygon fill="#3a2424" points="0,52 18,42 43,44 68,38 96,49 96,64 0,64" />
+    <circle fill="#9a3f35" opacity="0.35" cx="48" cy="36" r="24" />
+    <polygon fill="#b04a38" points="22,18 30,34 14,34" />
+    <polygon fill="#d85a45" points="48,10 56,28 40,28" />
+    <polygon fill="#9a3f35" points="74,16 82,32 66,32" />
+    <circle fill="#ffb45c" cx="48" cy="44" r="10" />
+    <circle fill="#fff2c7" cx="48" cy="44" r="4" />
+  `),
+  tacticRallyEnergy: () => artSvg(`
+    <polygon fill="#252f46" points="0,52 18,42 43,44 68,38 96,49 96,64 0,64" />
+    <circle fill="#7f8fc7" opacity="0.28" cx="48" cy="36" r="22" />
+    <polygon fill="#6f718a" points="30,40 42,28 54,28 66,40 58,52 38,52" />
+    <polygon fill="#fff2c7" points="48,14 56,30 40,30" />
+    <circle fill="#dff8ff" cx="24" cy="24" r="5" />
+    <circle fill="#dff8ff" cx="72" cy="24" r="5" />
+    <circle fill="#fff2c7" cx="48" cy="36" r="6" />
+  `),
+  tacticHuntMark: () => artSvg(`
+    <polygon fill="#3a2424" points="0,52 18,42 43,44 68,38 96,49 96,64 0,64" />
+    <circle fill="none" stroke="#ff8866" stroke-width="4" cx="48" cy="36" r="20" />
+    <circle fill="none" stroke="#ffb18a" stroke-width="2" cx="48" cy="36" r="12" />
+    <circle fill="#ff8866" cx="48" cy="36" r="5" />
+    <path fill="none" stroke="#fff2c7" stroke-width="3" stroke-linecap="round" d="M48 16 L48 24 M48 48 L48 56 M28 36 L36 36 M60 36 L68 36" />
   `),
   bleed: () => artSvg(`
     <polygon fill="#3a2729" points="0,51 18,41 43,44 68,37 96,49 96,64 0,64" />
@@ -2096,6 +2410,17 @@ const CARD_ART_RENDERERS = {
     <circle fill="#d7f6b8" opacity="0.72" cx="66" cy="25" r="4" />
     <polygon fill="#fff2c7" points="39,18 31,9 36,27" />
     <polygon fill="#fff2c7" points="56,18 65,9 59,27" />
+  `),
+  swarmPack: () => artSvg(`
+    <polygon fill="#223827" points="0,51 18,42 43,44 68,38 96,49 96,64 0,64" />
+    <ellipse fill="#93c86f" opacity="0.2" cx="50" cy="40" rx="36" ry="18" />
+    <polygon fill="#93c86f" points="47,12 58,23 52,41 39,41 33,23" />
+    <polygon fill="#3f6f35" points="47,19 53,25 50,38 41,38 38,25" />
+    <circle fill="none" stroke="#d7f6b8" stroke-width="3" cx="50" cy="38" r="18" />
+    <circle fill="none" stroke="#93c86f" stroke-width="2" cx="50" cy="38" r="11" />
+    <circle fill="#d7f6b8" cx="27" cy="39" r="4" />
+    <circle fill="#d7f6b8" opacity="0.72" cx="66" cy="25" r="4" />
+    <circle fill="#d7f6b8" opacity="0.72" cx="72" cy="48" r="4" />
   `),
   waveArmored: () => artSvg(`
     <polygon fill="#26343b" points="0,52 18,42 43,44 68,38 96,49 96,64 0,64" />
@@ -2210,7 +2535,9 @@ function formatEnergy(value) {
 }
 
 function discardEnergyCost(card) {
-  return Math.max(1, Math.ceil(cardEnergyCost(card) * 0.5));
+  const playCost = cardEnergyCost(card);
+  if (playCost <= 0) return 0;
+  return Math.max(1, Math.ceil(playCost * 0.5));
 }
 
 function parseCssNumber(value) {
@@ -2284,20 +2611,43 @@ function collectEnergyPanel(panel) {
         <span>能量</span>
         <strong class="energy-value">0/${MAX_ENERGY}</strong>
       </div>
-      <div class="ability-icon-row" hidden></div>
+      <div class="energy-subtitle">击杀充能</div>
+      <div class="energy-panel-toolbar" hidden>
+        <div class="ability-icon-row" hidden></div>
+        <div class="core-icon-row" hidden></div>
+      </div>
       <div class="energy-cells">${cells}</div>
       <div class="energy-progress"><div class="energy-progress-fill"></div></div>
     `;
-  } else if (!panel.querySelector('.ability-icon-row')) {
-    const row = document.createElement('div');
-    row.className = 'ability-icon-row';
-    row.hidden = true;
-    panel.querySelector('.energy-cells')?.before(row);
+  } else if (!panel.querySelector('.energy-panel-toolbar')) {
+    const toolbar = document.createElement('div');
+    toolbar.className = 'energy-panel-toolbar';
+    toolbar.hidden = true;
+    toolbar.innerHTML = `
+      <div class="ability-icon-row" hidden></div>
+      <div class="core-icon-row" hidden></div>
+    `;
+    panel.querySelector('.energy-cells')?.before(toolbar);
+  } else {
+    if (!panel.querySelector('.ability-icon-row')) {
+      const row = document.createElement('div');
+      row.className = 'ability-icon-row';
+      row.hidden = true;
+      panel.querySelector('.energy-panel-toolbar')?.prepend(row);
+    }
+    if (!panel.querySelector('.core-icon-row')) {
+      const row = document.createElement('div');
+      row.className = 'core-icon-row';
+      row.hidden = true;
+      panel.querySelector('.energy-panel-toolbar')?.append(row);
+    }
   }
   return {
     value: panel.querySelector('.energy-value'),
     cells: [...panel.querySelectorAll('.energy-cell')],
-    abilities: panel.querySelector('.ability-icon-row')
+    toolbar: panel.querySelector('.energy-panel-toolbar'),
+    abilities: panel.querySelector('.ability-icon-row'),
+    cores: panel.querySelector('.core-icon-row')
   };
 }
 
@@ -2311,6 +2661,12 @@ function createGameHintPanel(anchor) {
   panel.hidden = true;
   anchor.before(panel);
   return panel;
+}
+
+export function fitStrategyRewardCards(root) {
+  root?.querySelectorAll?.('.strategy-reward-card')?.forEach((element) => {
+    fitCardElementText(element);
+  });
 }
 
 function fitCardElementText(element) {
@@ -2449,7 +2805,7 @@ function createPileCardElement(card, index) {
   element.innerHTML = `
     <div class="pile-card-cost">${cardEnergyCost(card)}</div>
     <div class="pile-card-level">Lv.${card.level ?? 1}</div>
-    ${shouldExhaustAfterPlay(card) ? '<div class="pile-card-keyword">消耗</div>' : ''}
+    ${cardUseBarMarkup(card, 'pile-card-use-bar')}
     <div class="pile-card-header">
       <span class="pile-card-rune">${card.label}</span>
       <span class="pile-card-kind">${kindLabel(card.kind)}</span>
@@ -2464,4 +2820,12 @@ function createPileCardElement(card, index) {
 function stopUiEvent(event) {
   event.preventDefault();
   event.stopPropagation();
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }

@@ -1,6 +1,7 @@
 import {
   createArcherModel,
   createArrowTowerModel,
+  createMiniTurretModel,
   createArrowModel,
   createBearModel,
   createBeaconModel,
@@ -18,6 +19,7 @@ import {
   createFrostAcolyteModel,
   createFrostArrowModel,
   createFrostScoutModel,
+  createFrostTrollBossModel,
   createGoblinArcherModel,
   createGoblinBomberModel,
   createGoblinHunterModel,
@@ -27,7 +29,9 @@ import {
   createHolyBoltModel,
   createIceShardModel,
   createKnightModel,
-  createLanternBoltModel,
+  createSpearmanModel,
+  createSwordsmanModel,
+  createTowerShieldModel,
   createMeteorModel,
   createOgreModel,
   createPhysicianModel,
@@ -42,7 +46,6 @@ import {
   createShieldBearerModel,
   createSpiderEggModel,
   createSpiderModel,
-  createSwordsmanModel,
   createSnowDuskShamanModel,
   createElfSniperModel,
   createTombLanternCrossbowmanModel,
@@ -56,9 +59,12 @@ import {
   createWolfModel,
   createYellowSandOgreModel
 } from './lowpoly.js';
+import * as THREE from 'three';
 
 const UNIT_FACTORIES = {
   knight: ({ team }) => createKnightModel(team),
+  spearman: ({ team }) => createSpearmanModel(team),
+  towerShield: ({ team }) => createTowerShieldModel(team),
   swordsman: ({ team }) => createSwordsmanModel(team),
   berserker: ({ team }) => createBerserkerModel(team),
   archer: ({ team }) => createArcherModel(team),
@@ -86,6 +92,7 @@ const UNIT_FACTORIES = {
   frostAcolyte: () => createFrostAcolyteModel(),
   goblinTroll: () => createGoblinTrollModel(),
   frostScout: () => createFrostScoutModel(),
+  frostTrollBoss: () => createFrostTrollBossModel(),
   snowDuskShaman: () => createSnowDuskShamanModel(),
   tombLanternCrossbowman: () => createTombLanternCrossbowmanModel(),
   boneVoicePriest: () => createBoneVoicePriestModel(),
@@ -97,11 +104,7 @@ const UNIT_FACTORIES = {
   wolf: () => createWolfModel(),
   bear: () => createBearModel(),
   arrowTower: ({ team }) => createArrowTowerModel(team),
-  miniTurret: ({ team }) => {
-    const group = createArrowTowerModel(team);
-    group.scale.setScalar(0.55);
-    return group;
-  },
+  miniTurret: ({ team }) => createMiniTurretModel(team),
   repairStation: ({ team }) => createRepairStationModel(team),
   canteen: ({ team }) => createCanteenModel(team),
   beacon: ({ team }) => createBeaconModel(team)
@@ -134,11 +137,25 @@ const SPELL_FACTORIES = {
   meteor: () => createMeteorModel()
 };
 
+const HIT_FLASH_DURATION = 0.1;
+
 export function createUnitModel(type, team) {
   const root = createUnitModelRoot(type, team);
+  cloneUnitMaterials(root);
   root.userData.visualType = type;
   root.userData.animation = null;
   return root;
+}
+
+function cloneUnitMaterials(root) {
+  root.traverse((object) => {
+    if (!object.isMesh || !object.material) return;
+    if (Array.isArray(object.material)) {
+      object.material = object.material.map((material) => material.clone());
+      return;
+    }
+    object.material = object.material.clone();
+  });
 }
 
 export function prewarmUnitModelTemplates(entries = []) {
@@ -166,12 +183,32 @@ export function createSpellModel(type) {
 }
 
 export function playUnitAnimation(unit, name, duration = getAnimationDuration(unit, name), options = {}) {
-  unit.visualRoot.userData.animation = {
+  const root = unit.visualRoot;
+  if (!root) return;
+  const current = root.userData.animation;
+  if (name === 'hit' && shouldPreserveAttackAnimation(current)) {
+    triggerUnitHitFlash(unit, 0.1);
+    return;
+  }
+  root.userData.animation = {
     name,
     duration,
     time: 0,
     variant: options.variant ?? null
   };
+}
+
+export function triggerUnitHitFlash(unit, duration = HIT_FLASH_DURATION) {
+  if (!unit) return;
+  unit.hitFlashTimer = Math.max(unit.hitFlashTimer ?? 0, duration);
+  unit.hitFlashDuration = Math.max(unit.hitFlashDuration ?? HIT_FLASH_DURATION, duration);
+}
+
+export function clearUnitHitFlash(unit) {
+  if (!unit?.visualRoot) return;
+  unit.hitFlashTimer = 0;
+  unit.hitFlashDuration = HIT_FLASH_DURATION;
+  restoreHitFlashVisual(unit.visualRoot, true);
 }
 
 export function stopUnitAnimation(unit, name = null) {
@@ -199,6 +236,7 @@ export function updateUnitAnimation(unit, dt) {
   resetAnimatedParts(root);
   root.position.x = 0;
   root.position.z = 0;
+  updateUnitHitFlash(unit, dt);
   const state = root.userData.animation;
   if (state) {
     state.time += dt;
@@ -215,6 +253,10 @@ export function updateUnitAnimation(unit, dt) {
     root.position.y = rootGroundOffset(root);
     root.rotation.set(0, 0, 0);
     root.scale.setScalar(1);
+    return;
+  }
+  if (unit.type === 'spearman') {
+    applySpearmanStance(root, time, unit.visualState === 'walk', unit.id);
     return;
   }
   if (unit.visualState === 'walk') {
@@ -251,6 +293,13 @@ function applyOneShot(unit, root, name, t, state = null) {
     return;
   }
   if (name === 'attack') {
+    if (unit.type === 'spearman') {
+      root.position.y = rootGroundOffset(root) + pulse * 0.018;
+      root.rotation.z = 0;
+      root.scale.setScalar(1);
+      applySpearmanAttack(root, t, pulse);
+      return;
+    }
     if (isBowAttackUnit(unit.type)) {
       root.position.y = pulse * 0.025;
       applyAttackPose(unit, root, t, pulse, state?.variant);
@@ -305,6 +354,10 @@ function applyAttackPose(unit, root, t, pulse, variant = null) {
     applyYellowSandOgreSmash(root, t, pulse);
     return;
   }
+  if (unit.type === 'frostTrollBoss') {
+    applyFrostTrollBossAttack(root, t, pulse, variant);
+    return;
+  }
   if (unit.type === 'goblinBomber') {
     applyBomberAttack(root, t, pulse);
     return;
@@ -340,6 +393,14 @@ function applyAttackPose(unit, root, t, pulse, variant = null) {
   }
   if (unit.type === 'crossbowman') {
     applyCrossbowAttack(root, t, pulse);
+    return;
+  }
+  if (unit.type === 'spearman') {
+    applySpearmanAttack(root, t, pulse);
+    return;
+  }
+  if (unit.type === 'towerShield') {
+    applyTowerShieldAttack(root, t, pulse);
     return;
   }
   if (unit.type === 'berserker' || unit.type === 'ogre' || unit.type === 'goblinTroll') {
@@ -465,6 +526,89 @@ function applyCrossbowAttack(root, t, pulse) {
   }
   if (projectileSocket) {
     projectileSocket.position.z += 0.12 * release;
+  }
+}
+
+function applySpearmanStance(root, time, walking, unitId = 0) {
+  const { upperBodyPivot, headPivot, spearPivot } = root.userData.parts ?? {};
+  const bobRate = walking ? WALK_BOB_RATE : 1.7;
+  const bobHeight = walking ? WALK_BOB_HEIGHT : IDLE_BOB_HEIGHT * 0.55;
+  const bob = Math.sin(time * bobRate + unitId) * bobHeight;
+  root.position.y = rootGroundOffset(root) + bob;
+  root.rotation.x = 0;
+  root.rotation.y = 0;
+  root.rotation.z = walking
+    ? Math.sin(time * WALK_SWAY_RATE + unitId) * WALK_SWAY_ANGLE * 0.45
+    : 0;
+  // resetAnimatedParts 已恢复 bindPose；这里只叠加动画偏移，不能重写 pivot 根位置
+  if (upperBodyPivot) {
+    upperBodyPivot.rotation.set(0, Math.PI / 2, 0);
+  }
+  if (headPivot) {
+    headPivot.rotation.set(0, 0, 0);
+    const baseY = headPivot.userData.bindPose?.position.y ?? headPivot.position.y;
+    headPivot.position.y = baseY + bob * 0.15;
+  }
+  if (spearPivot) {
+    spearPivot.rotation.set(0, 0, 0);
+    const baseY = spearPivot.userData.bindPose?.position.y ?? spearPivot.position.y;
+    spearPivot.position.y = baseY + bob * 0.3;
+  }
+}
+
+function applySpearmanAttack(root, t, pulse) {
+  const { upperBodyPivot, headPivot, spearPivot } = root.userData.parts ?? {};
+  if (!spearPivot) return;
+
+  const gather = smoothstep(0, 0.24, t) * (1 - smoothstep(0.84, 1, t));
+  const thrust = bell(0.26, 0.5, 0.74, t);
+  const recover = smoothstep(0.7, 1, t);
+  const spearBase = spearPivot.userData.bindPose?.position;
+
+  root.position.z += 0.12 * thrust - 0.04 * recover;
+
+  if (upperBodyPivot) {
+    upperBodyPivot.rotation.set(0, Math.PI / 2 + 0.05 * gather - 0.03 * thrust, 0);
+    const baseZ = upperBodyPivot.userData.bindPose?.position.z ?? 0;
+    upperBodyPivot.position.z = baseZ + 0.02 * thrust;
+  }
+  if (headPivot) {
+    headPivot.rotation.set(0, -0.03 * gather + 0.025 * thrust, 0);
+  }
+
+  if (spearBase) {
+    spearPivot.position.set(
+      spearBase.x,
+      spearBase.y + pulse * 0.01,
+      spearBase.z - 0.3 * gather + 0.62 * thrust - 0.1 * recover
+    );
+  } else {
+    spearPivot.position.x = -0.22;
+    spearPivot.position.y = 1.0 + pulse * 0.01;
+    spearPivot.position.z = 0.04 - 0.3 * gather + 0.62 * thrust - 0.1 * recover;
+  }
+  spearPivot.rotation.set(0, 0, 0);
+}
+
+function applyTowerShieldAttack(root, t, pulse) {
+  const { shieldPivot, shield, upperBodyPivot } = root.userData.parts ?? {};
+  if (!shieldPivot) return;
+  const brace = smoothstep(0, 0.28, t) * (1 - smoothstep(0.78, 1, t));
+  const bash = smoothstep(0.3, 0.56, t) * (1 - smoothstep(0.78, 1, t));
+  const recover = smoothstep(0.78, 1, t);
+
+  root.position.y += pulse * 0.018;
+  root.position.z += 0.06 * brace + 0.28 * bash - 0.1 * recover;
+  root.rotation.x += -0.04 * brace + 0.06 * bash - 0.02 * recover;
+  shieldPivot.position.z += 0.1 * brace + 0.58 * bash - 0.14 * recover;
+  shieldPivot.position.y += 0.04 * brace - 0.02 * recover;
+  shieldPivot.rotation.x += -0.14 * brace - 0.1 * bash + 0.05 * recover;
+  if (upperBodyPivot) {
+    upperBodyPivot.rotation.x += 0.05 * bash - 0.02 * recover;
+    upperBodyPivot.position.z += 0.04 * bash;
+  }
+  if (shield) {
+    shield.scale.set(1 + bash * 0.04, 1 + bash * 0.015, 1 + bash * 0.08);
   }
 }
 
@@ -682,6 +826,48 @@ function applyYellowSandOgreSmash(root, t, pulse) {
   const strike = smoothstep(0.38, 0.64, t) * (1 - smoothstep(0.78, 1, t));
   if (hammerHead) {
     hammerHead.scale.set(1 + strike * 0.06, 1 + strike * 0.06, 1 + strike * 0.06);
+  }
+}
+
+function applyFrostTrollBossAttack(root, t, pulse, variant = null) {
+  const {
+    weaponPivot,
+    weaponSwingPivot,
+    offhandPivot,
+    hammerHead,
+    hammerGem,
+    skullCharm
+  } = root.userData.parts ?? {};
+  const abilityBoost = variant === 'monsterAbility' ? 1.18 : 1;
+  const windup = smoothstep(0, 0.48, t) * (1 - smoothstep(0.58, 0.72, t));
+  const strike = smoothstep(0.56, 0.62, t) * (1 - smoothstep(0.72, 0.88, t));
+  const recover = smoothstep(0.74, 1, t);
+
+  root.position.y += windup * 0.05 - strike * 0.075 * abilityBoost;
+  root.rotation.x += windup * -0.08 + strike * 0.14 * abilityBoost;
+  root.rotation.z = -0.012 * pulse;
+
+  if (weaponPivot) {
+    weaponPivot.rotation.x += -1.28 * windup + 1.72 * strike - 0.24 * recover;
+    weaponPivot.rotation.y += 0.06 * windup - 0.04 * strike;
+    weaponPivot.rotation.z += 0.1 * windup - 0.12 * strike;
+  }
+  if (weaponSwingPivot) {
+    weaponSwingPivot.rotation.x += -0.34 * windup + 0.5 * strike - 0.1 * recover;
+    weaponSwingPivot.rotation.z += 0.06 * windup - 0.08 * strike;
+  }
+  if (offhandPivot) {
+    offhandPivot.rotation.z += -0.02 * windup + 0.05 * strike;
+  }
+  if (hammerHead) {
+    hammerHead.scale.setScalar(1 + strike * 0.12 * abilityBoost);
+  }
+  if (hammerGem) {
+    hammerGem.rotation.y += windup * 0.35 + strike * 0.65 * abilityBoost;
+    hammerGem.scale.setScalar(1 + (windup * 0.08 + strike * 0.16) * abilityBoost);
+  }
+  if (skullCharm) {
+    skullCharm.rotation.z += Math.sin(t * Math.PI * 2) * 0.015 * abilityBoost + strike * 0.03;
   }
 }
 
@@ -915,6 +1101,64 @@ function resetAnimatedParts(root) {
     object.quaternion.copy(bindPose.quaternion);
     object.scale.copy(bindPose.scale);
     object.visible = bindPose.visible;
+  });
+}
+
+function shouldPreserveAttackAnimation(animation) {
+  if (!animation || animation.name !== 'attack') return false;
+  return animation.time < animation.duration;
+}
+
+function updateUnitHitFlash(unit, dt) {
+  const root = unit.visualRoot;
+  if (!root) return;
+  const timer = unit.hitFlashTimer ?? 0;
+  if (timer <= 0) {
+    restoreHitFlashVisual(root, true);
+    unit.hitFlashTimer = 0;
+    return;
+  }
+  const duration = Math.max(0.01, unit.hitFlashDuration ?? HIT_FLASH_DURATION);
+  unit.hitFlashTimer = Math.max(0, timer - dt);
+  const intensity = Math.min(1, unit.hitFlashTimer / duration);
+  if (intensity > 0) {
+    applyHitFlashVisual(root, intensity);
+  } else {
+    restoreHitFlashVisual(root, true);
+    unit.hitFlashTimer = 0;
+  }
+}
+
+function applyHitFlashVisual(root, intensity) {
+  if (intensity <= 0) return;
+  root.traverse((object) => {
+    if (!object.isMesh) return;
+    const material = object.material;
+    if (!material?.emissive) return;
+    if (!object.userData.flashBaseEmissive) {
+      object.userData.flashBaseEmissive = material.emissive.clone();
+      object.userData.flashBaseEmissiveIntensity = material.emissiveIntensity ?? 0;
+    }
+    material.emissive.setRGB(1, 0.18, 0.12).lerp(object.userData.flashBaseEmissive, 1 - intensity);
+    material.emissiveIntensity = THREE.MathUtils.lerp(
+      0.92,
+      object.userData.flashBaseEmissiveIntensity,
+      1 - intensity
+    );
+  });
+}
+
+function restoreHitFlashVisual(root, clearCache = false) {
+  root.traverse((object) => {
+    if (!object.isMesh || !object.userData.flashBaseEmissive) return;
+    const material = object.material;
+    if (!material?.emissive) return;
+    material.emissive.copy(object.userData.flashBaseEmissive);
+    material.emissiveIntensity = object.userData.flashBaseEmissiveIntensity ?? 0;
+    if (clearCache) {
+      delete object.userData.flashBaseEmissive;
+      delete object.userData.flashBaseEmissiveIntensity;
+    }
   });
 }
 

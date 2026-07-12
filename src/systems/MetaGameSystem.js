@@ -5,15 +5,36 @@ import {
   LEVEL_DEFINITIONS,
   STARTER_CARD_IDS
 } from '../data/gameData.js';
-import { cardEnergyCost, cardThemeColor, createCardArtMarkup } from './CardSystem.js';
+import { buildEnchantmentEncyclopediaSections } from '../data/enchantmentEncyclopedia.js';
+import { cardEnergyCost, cardThemeColor, cardUseBarMarkup, createCardArtMarkup } from './CardSystem.js';
 
 const STORAGE_KEY = 'village-war-meta-v1';
 const STARTING_COINS = 10000;
 const STARTING_COINS_VERSION = 1;
 const MAX_LEVEL_DIFFICULTY = 10;
 const WAVE_DIFFICULTY_GROWTH_PER_SELECTED_DIFFICULTY = 0.16;
-const TEST_VERSION_LABEL = '测试版本 v0.1.0';
+const TEST_VERSION_LABEL = '测试版本 v0.1.1';
 const CHANGELOG_ENTRIES = [
+  {
+    date: '2026-07-12',
+    title: '卡牌成长与基地修复',
+    items: [
+      '单位卡升级现在会提高召唤单位全属性，每级 +25%，通过属性修改器与兵种训练叠加。',
+      '全队属性训练统一走修改器叠加，生命与武器耐久变化会同步当前比例。',
+      '修复基地结构耐久归零会立刻判负的问题：耐久耗尽仅停火，可继续维修恢复。',
+      '主菜单新增附魔百科，可查阅全部附魔效果与获取方式。'
+    ]
+  },
+  {
+    date: '2026-07-12',
+    title: '战斗节奏与敌军附魔',
+    items: [
+      '原构筑核心全部转为能力牌，Boss 波奖励恢复为免费军需铺。',
+      '集群波敌军固定携带集群附魔；波次 1–6 / 7–13 / 14–21 分别携带 1 / 2 / 3 个附魔。',
+      '精英生命与护盾倍率下调；雪谷精英池加入雪暮萨满（霜爆 AOE + 冰缚）。',
+      '军需铺支持升级、复制、移除卡牌；波次奖励可花银币重随或放弃。'
+    ]
+  },
   {
     date: '2026-07-07',
     title: '局外卡牌界面收敛',
@@ -174,6 +195,25 @@ export class MetaGameSystem {
     this.show('result');
   }
 
+  clearSaveData() {
+    const confirmed = window.confirm(
+      '确定要清除本地存档吗？\n\n将重置金币、卡牌、升级、解锁难度和牌组选择，此操作不可撤销。'
+    );
+    if (!confirmed) return;
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // Local storage can fail in private contexts.
+    }
+    this.progress = loadProgress();
+    this.selectedLevelId = this.progress.preferences.selectedLevelId;
+    this.selectedDifficulty = this.selectedDifficultyForLevel(this.selectedLevelId);
+    this.deckSelection = this.progress.preferences.deckSelection.slice(0, DECK_SIZE);
+    this.lastResult = null;
+    this.setNotice('本地存档已清除，已恢复为初始进度。');
+    this.show('menu', { keepNotice: true });
+  }
+
   calculateReward(result) {
     const level = result.session.level;
     const difficulty = Math.max(1, result.session.difficulty);
@@ -215,6 +255,14 @@ export class MetaGameSystem {
     }
     if (action === 'changelog') {
       this.show('changelog');
+      return;
+    }
+    if (action === 'encyclopedia') {
+      this.show('encyclopedia');
+      return;
+    }
+    if (action === 'clear-save') {
+      this.clearSaveData();
       return;
     }
     if (action === 'debug-scene') {
@@ -272,6 +320,12 @@ export class MetaGameSystem {
       event.preventDefault();
       event.stopPropagation();
       this.enterDebugScene();
+      return;
+    }
+    if (event.code === 'F2' || event.key === 'F2') {
+      event.preventDefault();
+      event.stopPropagation();
+      this.enterAnimationPreview();
       return;
     }
     const isDebugGoldKey = event.shiftKey && (
@@ -380,6 +434,7 @@ export class MetaGameSystem {
     if (this.view === 'deck') return this.renderDeckBuilder();
     if (this.view === 'shop') return this.renderShop();
     if (this.view === 'guide') return this.renderGuide();
+    if (this.view === 'encyclopedia') return this.renderEnchantmentEncyclopedia();
     if (this.view === 'changelog') return this.renderChangelog();
     if (this.view === 'upgrades') return this.renderUpgrades();
     if (this.view === 'result') return this.renderResult();
@@ -397,7 +452,9 @@ export class MetaGameSystem {
           <button class="meta-menu-button" type="button" data-action="levels">选关</button>
           <button class="meta-menu-button" type="button" data-action="shop">商店</button>
           <button class="meta-menu-button" type="button" data-action="guide">玩法说明</button>
+          <button class="meta-menu-button" type="button" data-action="encyclopedia">附魔百科</button>
           <button class="meta-menu-button" type="button" data-action="changelog">更新日志</button>
+          <button class="meta-menu-button meta-menu-button-danger" type="button" data-action="clear-save">清除存档</button>
         </nav>
         <div class="meta-version-mark">${TEST_VERSION_LABEL}</div>
       </main>
@@ -491,6 +548,7 @@ export class MetaGameSystem {
           <div>
             <div class="meta-section-title">出战牌组</div>
             <p>已选择 ${selectedCount}/${DECK_SIZE}。必须选择 ${DECK_SIZE} 张卡牌才能进入关卡。</p>
+            <p class="meta-deck-note">能量不会自动恢复，战斗中靠击杀敌人充能。</p>
           </div>
           <button class="meta-primary-button" type="button" data-action="start-level" ${selectedCount === DECK_SIZE ? '' : 'disabled'}>
             开始关卡
@@ -548,6 +606,10 @@ export class MetaGameSystem {
         </section>
         <section class="meta-guide-grid">
           <article class="meta-panel">
+            <div class="meta-section-title">能量</div>
+            <p>能量不会随时间恢复。击杀敌军、精英、Boss 和占领能量祭坛可获得能量，用于出牌与弃牌。</p>
+          </article>
+          <article class="meta-panel">
             <div class="meta-section-title">卡牌</div>
             <p>单位卡会召唤部队；能力、战术、建筑卡会提供即时效果或阵地支援。局内获得的临时卡通常不会带回局外牌库。</p>
           </article>
@@ -560,6 +622,39 @@ export class MetaGameSystem {
             <p>通关后获得金币并解锁更高难度。商店可购买新卡，也可以升级已拥有卡牌。</p>
           </article>
         </section>
+      </main>
+    `;
+  }
+
+  renderEnchantmentEncyclopedia() {
+    const sections = buildEnchantmentEncyclopediaSections();
+    return `
+      <main class="meta-page meta-encyclopedia-page">
+        <section class="meta-panel meta-encyclopedia-intro">
+          <div class="meta-section-title">附魔百科</div>
+          <p>附魔是挂在单位上的长期增益。同名附魔牌升级会叠加层数；敌军也会按波次携带多个附魔。</p>
+          <p class="meta-encyclopedia-note">元素类效果（燃烧、中毒、流血等）在命中后单独结算，不走攻击力修改器。</p>
+        </section>
+        ${sections.map((section) => `
+          <section class="meta-encyclopedia-section">
+            <div class="meta-panel meta-encyclopedia-section-head">
+              <div class="meta-section-title">${section.title}</div>
+              <p>${section.description}</p>
+            </div>
+            <div class="meta-encyclopedia-grid">
+              ${section.entries.map((entry) => `
+                <article class="meta-panel meta-encyclopedia-entry" style="--enchant-accent:${entry.color}">
+                  <div class="meta-encyclopedia-entry-head">
+                    <span class="meta-encyclopedia-swatch" aria-hidden="true"></span>
+                    <h2>${entry.name}</h2>
+                  </div>
+                  <p class="meta-encyclopedia-summary">${entry.summary}</p>
+                  <div class="meta-encyclopedia-note">${entry.note}</div>
+                </article>
+              `).join('')}
+            </div>
+          </section>
+        `).join('')}
       </main>
     `;
   }
@@ -644,6 +739,7 @@ export class MetaGameSystem {
       <article class="meta-card is-kind-${card.kind}${selected}" style="--card-color:${cardThemeColor(card)}">
         <div class="meta-card-cost">${cardEnergyCost(card)}</div>
         <div class="meta-card-level">Lv.${card.level ?? 1}</div>
+        ${cardUseBarMarkup(card, 'meta-card-use-bar')}
         ${statusMarkup}
         <div class="meta-card-face">
           <div class="meta-card-header">
@@ -817,6 +913,7 @@ function pageTitleForView(view) {
     shop: '商店',
     upgrades: '升级卡牌',
     guide: '玩法说明',
+    encyclopedia: '附魔百科',
     changelog: '更新日志',
     result: '战斗结算'
   };
@@ -875,13 +972,19 @@ function normalizePreferences(rawPreferences, ownedCards, levelDifficulties) {
     );
   });
   const savedDeckSelection = normalizeDeckSelection(rawPreferences?.deckSelection, ownedCards);
-  const starterDeckSelection = normalizeDeckSelection(STARTER_CARD_IDS, ownedCards);
+  const starterDeckSelection = normalizeDeckSelection(STARTER_CARD_IDS, ownedCards, {
+    defaultToOwned: false
+  });
+  let deckSelection = savedDeckSelection.length === DECK_SIZE
+    ? savedDeckSelection
+    : starterDeckSelection;
+  if (deckSelection.length < DECK_SIZE) {
+    deckSelection = fillDeckSelection(deckSelection, ownedCards);
+  }
   return {
     selectedLevelId,
     selectedDifficulties,
-    deckSelection: savedDeckSelection.length === DECK_SIZE
-      ? savedDeckSelection
-      : starterDeckSelection
+    deckSelection
   };
 }
 
@@ -902,6 +1005,19 @@ function normalizeDeckSelection(rawDeckSelection, ownedCards, options = {}) {
     if (!owned.has(id) || result.includes(id)) return;
     result.push(id);
   });
+  return result.slice(0, DECK_SIZE);
+}
+
+function fillDeckSelection(selection, ownedCards) {
+  const owned = new Set(ownedCards);
+  const result = [...selection];
+  const addIfMissing = (id) => {
+    if (result.length >= DECK_SIZE) return;
+    if (!owned.has(id) || result.includes(id)) return;
+    result.push(id);
+  };
+  ownedCards.forEach(addIfMissing);
+  STARTER_CARD_IDS.forEach(addIfMissing);
   return result.slice(0, DECK_SIZE);
 }
 

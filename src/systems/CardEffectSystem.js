@@ -1,4 +1,5 @@
-import { BUFF_DEFINITIONS } from '../data/gameData.js';
+import { BUFF_DEFINITIONS, TEAMS } from '../data/gameData.js';
+import { distance2D } from '../utils/math.js';
 
 export class CardEffectSystem {
   constructor(game) {
@@ -8,11 +9,16 @@ export class CardEffectSystem {
       'build-structure': (context) => this.buildStructure(context),
       'create-area-effect': (context) => this.createAreaEffect(context),
       'cast-spell': (context) => this.castSpell(context),
+      'cast-meteor-barrage': (context) => this.castMeteorBarrage(context),
       'apply-buff': (context) => this.applyBuff(context),
       'apply-random-enchantments': (context) => this.applyRandomEnchantments(context),
       'acquire-ability': (context) => this.acquireAbility(context),
       'gain-energy': (context) => this.gainEnergy(context),
-      'draw-temporary-cards': (context) => this.drawTemporaryCards(context)
+      'gain-energy-from-units': (context) => this.gainEnergyFromUnits(context),
+      'draw-temporary-cards': (context) => this.drawTemporaryCards(context),
+      'corrupt-hand-card': (context) => this.corruptHandCard(context),
+      'mark-hunt-zone': (context) => this.markHuntZone(context),
+      'gamble-silver': (context) => this.gambleSilver(context)
     };
   }
 
@@ -76,22 +82,38 @@ export class CardEffectSystem {
     });
   }
 
+  castMeteorBarrage({ card, effect, point }) {
+    if (!point) return false;
+    const strikeCount = Math.max(0, Math.floor(this.game.runCardsPlayedCount ?? 0) + 1);
+    if (strikeCount <= 0) return false;
+    return this.game.spells.cast('meteor-barrage', {
+      card,
+      effect,
+      point,
+      count: strikeCount
+    });
+  }
+
   applyBuff({ card, effect, targetUnit }) {
     if (!targetUnit) return false;
     const buffId = effect.buffId ?? card.enchantmentId;
     const cardLevel = Math.max(1, Math.floor(card.level ?? 1));
     const definition = BUFF_DEFINITIONS[buffId];
-    const applyLevel = definition?.category === 'enchantment'
-      ? cardLevel + 1
-      : cardLevel;
-    const buff = this.game.buffs.applyBuff(targetUnit, buffId, null, {
-      sourceCard: card.id,
-      level: applyLevel
-    });
+    const isEnchantment = definition?.category === 'enchantment';
+    const applyCount = isEnchantment ? cardLevel : 1;
+    const applyLevel = isEnchantment ? 1 : cardLevel;
+    let buff = null;
+    for (let index = 0; index < applyCount; index += 1) {
+      buff = this.game.buffs.applyBuff(targetUnit, buffId, null, {
+        sourceCard: card.id,
+        level: applyLevel
+      }) ?? buff;
+    }
+    if (!buff) return false;
     const visualDefinition = buff ?? definition;
     this.game.effects.spawnRing(targetUnit.position, visualDefinition?.color ?? card.color, 0.85, 0.6);
     this.game.selectUnit(targetUnit);
-    return Boolean(buff);
+    return true;
   }
 
   applyRandomEnchantments({ card, effect, targetUnit }) {
@@ -129,13 +151,64 @@ export class CardEffectSystem {
   acquireAbility({ card, effect }) {
     const abilityId = effect.abilityId ?? card.abilityId;
     const stacks = resolveCardEffectNumber(card, effect, 'stacks', 1);
-    return this.game.abilities?.acquire(abilityId, stacks) === true;
+    const durationSeconds = resolveCardEffectNumber(card, effect, 'durationSeconds', effect.durationSeconds ?? 0);
+    return this.game.abilities?.acquire(abilityId, stacks, { durationSeconds }) === true;
   }
 
   gainEnergy({ card, effect }) {
     const amount = resolveCardEffectNumber(card, effect, 'amount', effect.amount ?? 0);
     this.game.cardSystem.addEnergy(amount);
     return true;
+  }
+
+  gambleSilver({ card }) {
+    const before = Math.max(0, this.game.silver ?? 0);
+    const doubled = Math.random() < 0.5;
+    const after = doubled ? before * 2 : before * 0.5;
+    this.game.silver = Math.max(0, after);
+    const position = this.game.playerBase?.position ?? null;
+    this.game.updateHud(0);
+    if (this.game.runShopOpen) this.game.renderRunShop();
+    if (position) {
+      this.game.effects.spawnDamageNumber(position, 1, {
+        text: doubled ? '银币翻倍' : '银币减半',
+        color: doubled ? '#ffe08a' : '#d8a0a0',
+        stroke: doubled ? '#4a3818' : '#3a2020',
+        height: 3.05,
+        duration: 0.88,
+        fontSize: 82,
+        baseHeight: 0.5
+      });
+      this.game.effects.spawnRing(position, card.color ?? '#d8b85a', 1.15, 0.48);
+    }
+    return true;
+  }
+
+  gainEnergyFromUnits({ card, effect }) {
+    const perUnit = resolveCardEffectNumber(card, effect, 'amountPerUnit', 1);
+    const friendlyCount = this.game.friendlyUnits.filter((unit) => (
+      unit.alive &&
+      unit.team === TEAMS.PLAYER &&
+      !unit.underConstruction
+    )).length;
+    const amount = friendlyCount * perUnit;
+    if (amount <= 0) return false;
+    const gained = this.game.cardSystem.addEnergy(amount);
+    if (gained > 0) {
+      this.game.effects.spawnEnergyNumber(this.game.playerBase.position, gained, {
+        height: 3.05
+      });
+      this.game.effects.spawnDamageNumber(this.game.playerBase.position, 1, {
+        text: `集结+${gained}`,
+        color: card.color ?? '#7f8fc7',
+        stroke: '#1a2240',
+        height: 3.2,
+        duration: 0.78,
+        fontSize: 76,
+        baseHeight: 0.5
+      });
+    }
+    return gained > 0;
   }
 
   drawTemporaryCards({ card, effect }) {
@@ -156,6 +229,56 @@ export class CardEffectSystem {
       );
     }
     return drawn > 0;
+  }
+
+  corruptHandCard({ card, effect, targetCard }) {
+    void effect;
+    if (!targetCard || targetCard === card) return false;
+    targetCard.exhaust = true;
+    targetCard.energyCost = 0;
+    if (!Number.isFinite(targetCard.maxUses)) {
+      targetCard.maxUses = 1;
+      targetCard.remainingUses = 1;
+    }
+    this.game.cardSystem.renderHand?.();
+    this.game.cardSystem.updateCardAffordability?.();
+    this.game.effects.spawnDamageNumber(this.game.playerBase.position, 1, {
+      text: '0费消耗',
+      color: card.color ?? '#9f6b70',
+      stroke: '#3a272c',
+      height: 3,
+      duration: 0.78,
+      fontSize: 76,
+      baseHeight: 0.48
+    });
+    return true;
+  }
+
+  markHuntZone({ card, effect, point }) {
+    if (!point) return false;
+    const radius = card.radius ?? effect.radius ?? 3;
+    const buffId = effect.buffId ?? 'huntMarked';
+    let marked = 0;
+    this.game.enemyUnits.forEach((enemy) => {
+      if (!enemy.alive || enemy.underConstruction) return;
+      if (distance2D(enemy.position, point) > radius) return;
+      const buff = this.game.buffs.applyBuff(enemy, buffId, null, {
+        sourceCard: card.id
+      });
+      if (buff) marked += 1;
+    });
+    if (marked <= 0) return false;
+    this.game.effects.spawnRing(point, card.color ?? '#ff8866', radius, 0.55);
+    this.game.effects.spawnDamageNumber(point, 1, {
+      text: `猎标x${marked}`,
+      color: card.color ?? '#ff8866',
+      stroke: '#4a2018',
+      height: 1.2,
+      duration: 0.82,
+      fontSize: 74,
+      baseHeight: 0.42
+    });
+    return true;
   }
 
 }

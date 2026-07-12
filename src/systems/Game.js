@@ -4,7 +4,6 @@ import {
   BALANCE,
   CARD_DEFINITIONS,
   LEVEL_DEFINITIONS,
-  PLAYER_ABILITY_DEFINITIONS,
   TEAMS,
   UNIT_DEFINITIONS,
   WAVE_BOSS_TYPES,
@@ -22,12 +21,20 @@ import { createWorld } from '../world/createWorld.js';
 import { BuffSystem } from './BuffSystem.js';
 import { BuildingSystem } from './BuildingSystem.js';
 import { CardEffectSystem } from './CardEffectSystem.js';
-import { CardSystem, cardEnergyCost, cardThemeColor, createCardArtMarkup } from './CardSystem.js';
+import {
+  CardSystem,
+  cardEnergyCost,
+  cardThemeColor,
+  cardUseBarMarkup,
+  createCardArtMarkup,
+  fitStrategyRewardCards
+} from './CardSystem.js';
 import { CombatSystem } from './CombatSystem.js';
 import { AttackSystem } from './AttackSystem.js';
 import { EffectsSystem } from './EffectsSystem.js';
 import { AltarSystem } from './AltarSystem.js';
 import { EnemyCommanderSystem } from './EnemyCommanderSystem.js';
+import { EnemyEnchantmentSystem } from './EnemyEnchantmentSystem.js';
 import { LevelMechanicSystem } from './LevelMechanicSystem.js';
 import { LootDropSystem } from './LootDropSystem.js';
 import { AttributeSet, bindAttributeGetter } from './AttributeSet.js';
@@ -71,23 +78,85 @@ const UNIT_GROUND_EPSILON = 0.006;
 const MAX_ACTIVE_WAVE_SPAWNS = 7;
 const WAVE_PREVIEW_COUNT = 5;
 const MAX_LEVEL_DIFFICULTY = 10;
+const TOTAL_WAVES = 21;
 const BOSS_WAVES_TO_WIN = 3;
-const WAVES_PER_BOSS = 5;
+const WAVES_PER_BOSS = 7;
 const ELITE_WAVE_INTERVAL = 3;
 const WAVE_DIFFICULTY_STEP_WAVES = 3;
 const WAVE_DIFFICULTY_GROWTH_PER_SELECTED_DIFFICULTY = 0.16;
 const STRATEGY_CHOICE_COUNT = 3;
+const STRATEGY_REWARD_REROLL_BASE_COST = 4;
+const SILVER_GAIN_MULTIPLIER = 0.6;
 const FORCED_CARD_CHOICE_UNTIL_WAVE = 3;
 const OPENING_COMBAT_UNIT_CHOICES = 2;
 const ENEMY_CAMP_IDLE_SCAN_SECONDS = 0.18;
+const RUN_SHOP_BASE_PRICE = 8;
+const RUN_SHOP_PRICE_INCREMENT = 3;
+const RUN_SHOP_CATEGORIES = [
+  {
+    key: 'card',
+    title: '购置卡牌',
+    description: '随机 3 张出战牌，选 1 张加入抽牌堆。',
+    icon: '▣'
+  },
+  {
+    key: 'attribute',
+    title: '属性集训',
+    description: '三选一全队属性强化，立即生效。',
+    icon: '↑'
+  },
+  {
+    key: 'trait',
+    title: '特性专精',
+    description: '三选一兵种特性，每种仅一次。',
+    icon: '★'
+  },
+  {
+    key: 'copy',
+    title: '复制卡牌',
+    description: '从全部卡牌中选一张，复制加入抽牌堆。',
+    icon: '⧉',
+    picker: true,
+    catalogPicker: true
+  },
+  {
+    key: 'remove',
+    title: '移除卡牌',
+    description: '从全部卡牌中选一张，移出本局牌组。',
+    icon: '✕',
+    picker: true,
+    catalogPicker: true
+  },
+  {
+    key: 'upgrade',
+    title: '升级卡牌',
+    description: '从全部卡牌中选一张，等级 +1。',
+    icon: '⬆',
+    picker: true,
+    catalogPicker: true
+  },
+  {
+    key: 'energy',
+    title: '购买能量',
+    description: '立即获得 1 点能量。',
+    icon: '⚡',
+    fixedPrice: 4
+  },
+  {
+    key: 'temporary',
+    title: '临时咒印',
+    description: '购置一张本局可用的临时牌。',
+    icon: '⏱'
+  }
+];
 const WAVE_AFFIX_DEFINITIONS = {
   swarm: {
     id: 'swarm',
-    name: '虫群',
+    name: '集群',
     preview: '数量压迫',
     description: '数量更多，但单体略脆',
     buffId: 'waveSwarm',
-    countBonus: 2,
+    countBonus: 1,
     preferredTypes: ['goblinSoldier', 'spider', 'enemyRaider']
   },
   armored: {
@@ -175,11 +244,12 @@ const TEMPORARY_IMMORTALITY_CARD = {
   kind: 'enchant',
   label: '朽',
   artKey: 'recovery',
-  summary: '特殊临时牌。使目标每秒恢复 2% 最大生命值。',
+  summary: '特殊临时牌。使目标每秒恢复 4% 最大生命值（消耗）。',
   target: 'friendly-unit',
   radius: 1.1,
   cooldown: 4,
-  energyCost: 2,
+  energyCost: 0,
+  uses: 1,
   lootOnly: true,
   enchantmentId: 'immortality',
   effect: {
@@ -194,15 +264,16 @@ const TEMPORARY_MANA_SURGE_CARD = {
   kind: 'enchant',
   label: '涌',
   artKey: 'abilityEnchantEcho',
-  summary: '特殊临时牌。拖拽给单位后，随机进行 6 次附魔。',
+  summary: '特殊临时牌。拖拽给单位后，随机进行 3 次附魔（消耗）。',
   target: 'friendly-unit',
   radius: 1.1,
   cooldown: 4,
-  energyCost: 5,
+  energyCost: 0,
+  uses: 1,
   lootOnly: true,
   effect: {
     type: 'apply-random-enchantments',
-    count: 6
+    count: 3
   },
   color: '#b68cff'
 };
@@ -281,101 +352,15 @@ const STRATEGY_REWARD_OPTION_DEFINITIONS = [
     id: 'temporary-immortality-card',
     action: 'grant-temporary-card',
     title: '获得不朽附魔',
-    description: '获得一张特殊临时牌：每秒恢复目标 2% 最大生命值。',
+    description: '获得一张特殊临时牌：每秒恢复目标 4% 最大生命值（消耗）。',
     temporaryCard: TEMPORARY_IMMORTALITY_CARD
   },
   {
     id: 'temporary-mana-surge-card',
     action: 'grant-temporary-card',
     title: '获得魔力涌动',
-    description: '获得一张特殊临时牌：对目标随机进行 6 次附魔。',
+    description: '获得一张特殊临时牌：对目标随机进行 3 次附魔（消耗）。',
     temporaryCard: TEMPORARY_MANA_SURGE_CARD
-  }
-];
-const BOSS_CORE_REWARDS = [
-  {
-    abilityId: 'summonUseBonus',
-    stacks: 2,
-    title: '军团扩编',
-    description: '单位卡每次额外召唤 1 名增援。',
-    cardId: 'barbarians'
-  },
-  {
-    abilityId: 'periodicEnergy',
-    stacks: 3,
-    title: '魔力泉涌',
-    description: '每 10 秒获得 3 点能量，支撑法术和高费牌。',
-    cardId: 'periodic-energy-ability'
-  },
-  {
-    abilityId: 'buildingDurability',
-    stacks: 3,
-    title: '阵地工法',
-    description: '之后新建建筑获得 60% 额外生命和耐久。',
-    cardId: 'building-durability-ability'
-  },
-  {
-    abilityId: 'enchantEcho',
-    stacks: 3,
-    title: '双重附魔',
-    description: '使用附魔牌时有 60% 概率额外生效一次。',
-    cardId: 'enchant-echo-ability'
-  },
-  {
-    abilityId: 'randomHealOnCard',
-    stacks: 2,
-    title: '生机循环',
-    description: '每次打出牌时治疗两名随机友军。',
-    cardId: 'random-heal-ability'
-  },
-  {
-    abilityId: 'deathExplosion',
-    stacks: 3,
-    title: '殉爆阵线',
-    description: '友方单位死亡时爆炸，适合人海和消耗流。',
-    cardId: 'death-explosion-ability'
-  },
-  {
-    abilityId: 'exhaustEnergy',
-    stacks: 3,
-    title: '节能律令',
-    description: '打出有能量消耗的牌时，最高约 48% 概率返还 1 点能量。',
-    cardId: 'exhaust-energy-ability'
-  },
-  {
-    abilityId: 'victoryGold',
-    stacks: 3,
-    title: '凯旋契约',
-    description: '胜利后金币奖励 +60%，适合追求局外成长。',
-    cardId: 'victory-gold-ability'
-  },
-  {
-    abilityId: 'summonUseBonus',
-    stacks: 4,
-    title: '无尽征召',
-    description: '单位卡每次额外召唤 2 名增援，直接支撑大规模推进。',
-    cardId: 'barbarians'
-  },
-  {
-    abilityId: 'periodicEnergy',
-    stacks: 5,
-    title: '奥术潮汐',
-    description: '每 10 秒获得 5 点能量，让高费组合持续运转。',
-    cardId: 'burst-energy'
-  },
-  {
-    abilityId: 'enchantEcho',
-    stacks: 5,
-    title: '附魔共鸣',
-    description: '附魔牌必定额外生效一次，附魔构筑核心。',
-    cardId: 'enchant-echo-ability'
-  },
-  {
-    abilityId: 'randomHealOnCard',
-    stacks: 4,
-    title: '复苏矩阵',
-    description: '每次打牌治疗四名随机友军，显著提高持续作战能力。',
-    cardId: 'random-heal-ability'
   }
 ];
 const SUMMON_DEPLOY_RADIUS = 7.5;
@@ -403,6 +388,7 @@ const PERF_LABELS = {
   combat: '战斗',
   effects: '特效',
   enemyCommander: '敌方指挥',
+  enemyEnchantment: '敌方附魔',
   frame: '整帧',
   guardVisuals: '驻守标记',
   hud: 'HUD',
@@ -414,7 +400,8 @@ const PERF_LABELS = {
   render: '渲染',
   selection: '选择',
   spiders: '蜘蛛生命周期',
-  strategySpawn: '敌军能量指挥',
+  strategySpawn: '敌军附魔',
+  enemyDirector: '敌军出兵',
   structure: '基地/营地反馈',
   unitVisuals: '单位视觉',
   waveSpawn: '刷怪/生成',
@@ -596,27 +583,37 @@ export class Game {
       ...(BALANCE.enemyDirector ?? {}),
       ...(this.levelSession.level.enemyDirector ?? {})
     };
-    const directorMaxEnergy = Math.max(1, Number(this.enemyDirectorConfig.maxEnergy ?? 30));
-    const directorStartingEnergy = Number(this.enemyDirectorConfig.startingEnergy ?? 0);
-    const directorBaseThreat = Number(this.enemyDirectorConfig.baseThreat ?? 1);
+    this.waveSchedule = createWaveSchedule(this.levelSession);
+    this.waveIndex = 0;
+    this.currentWave = null;
+    this.wave = 0;
     this.enemyDirector = {
-      energy: clamp(Number.isFinite(directorStartingEnergy) ? directorStartingEnergy : 0, 0, directorMaxEnergy),
-      threat: Math.max(0, Number.isFinite(directorBaseThreat) ? directorBaseThreat : 1),
-      threatTier: Math.max(1, Math.floor(Number.isFinite(directorBaseThreat) ? directorBaseThreat : 1)),
-      forceSerial: 0,
-      bossesDeployed: 0,
-      initialDelayRemaining: Math.max(0, Number(this.enemyDirectorConfig.initialDelaySeconds ?? 7)),
-      decisionTimer: 0,
-      eliteCooldown: 0,
-      bossCooldown: 0
+      energy: 999,
+      threatTier: 1,
+      threat: 1
     };
     this.currentEnemyForce = null;
     this.pendingStrategyRewards = [];
+    this.teamGenericUpgradeCounts = new Map();
+    this.teamSpecialUpgrades = new Map();
+    this.teamSupportModifiersApplied = new Set();
     this.bossesDefeated = 0;
+    this.pendingWaveAdvance = false;
+    this.silver = Math.max(0, Number(BALANCE.runCurrency?.starting ?? 0));
+    this.strategyRewardRerollCount = 0;
+    this.shopPrices = createInitialShopPrices();
+    this.awaitingOpeningReward = false;
+    this.runShopOpen = false;
+    this.runShopCausedPause = false;
+    this.runShopPendingOffers = {};
+    this.runShopActiveCategory = null;
+    this.runShopChoices = [];
+    this.runShopFreeReward = false;
     this.strategyEvent = null;
     this.enemyCampAttackTimer = 0;
     this.playerBaseAttackTimer = 0;
     this.lastCardPlayed = null;
+    this.runCardsPlayedCount = 0;
     this.selectedUnit = null;
     this.selectedUnits = [];
     this.selectedUnitIds = new Set();
@@ -634,6 +631,7 @@ export class Game {
         playerBasePosition.z
       ),
       projectileHitHeight: 2.1,
+      maxStructureDurability: BALANCE.playerBase.maxStructureDurability ?? 49,
       attributes: {
         maxHealth: BALANCE.playerBase.maxHealth,
         recoveryRadius: BALANCE.playerBase.recoveryRadius,
@@ -694,6 +692,7 @@ export class Game {
         enemyCampPosition.z
       ),
       projectileHitHeight: 2.2,
+      maxStructureDurability: BALANCE.enemyCamp.maxStructureDurability ?? 49,
       attributes: {
         maxHealth: BALANCE.enemyCamp.maxHealth
       }
@@ -723,18 +722,23 @@ export class Game {
     this.spells = new SpellSystem(this);
     this.cardEffects = new CardEffectSystem(this);
     this.recovery = new RecoverySystem(this);
-    this.cardSystem = new CardSystem(this, { deck: this.levelSession.deck });
-    this.cardSystem.ensureOpeningCardKind('summon');
+    this.cardSystem = new CardSystem(this, {
+      deck: this.levelSession.deck,
+      startWithEmptyDrawPile: true
+    });
     this.abilities = new AbilitySystem(this);
     this.lootDrops = new LootDropSystem(this);
     this.altars = new AltarSystem(this, this.world.config?.altars ?? this.worldConfig.altars);
+    this.spawnWildlife();
     this.enemyCommander = new EnemyCommanderSystem(this);
+    this.enemyEnchantment = new EnemyEnchantmentSystem(this);
     this.levelMechanics = new LevelMechanicSystem(this);
     this.selectionBox = createSelectionBoxElement();
 
     this.dom = {
       baseHealth: document.querySelector('#base-health'),
       waveLabel: document.querySelector('#wave-label'),
+      silverCount: document.querySelector('#silver-count'),
       wavePreview: document.querySelector('#wave-preview'),
       battleTime: document.querySelector('#battle-time'),
       unitCount: document.querySelector('#unit-count'),
@@ -761,6 +765,8 @@ export class Game {
     this.renderTuningUi = createRenderTuningPanel();
     if (this.dom.fpsMeter) this.dom.fpsMeter.hidden = false;
     this.strategyEventUi = createStrategyEventUi();
+    this.runShopUi = createRunShopUi();
+    this.bindRunShopUi();
     this.syncSettingsControls();
     this.syncRenderTuningPanel();
     this.syncPauseErrorControls();
@@ -821,6 +827,7 @@ export class Game {
     this.resize();
     document.body.classList.add('is-game-active');
     if (this.dom.settingsButton) this.dom.settingsButton.hidden = false;
+    if (this.runShopUi?.toggle) this.runShopUi.toggle.hidden = false;
     this.armReturnNavigationTrap();
     prewarmUnitModelTemplates(unitModelPrewarmEntries());
 
@@ -833,7 +840,9 @@ export class Game {
       });
       this.spawnEnemyWave(1, { orders: 'guard' });
     } else {
-      this.renderEnemyDirectorPanel();
+      this.updateWavePreview();
+      this.awaitingOpeningReward = true;
+      this.openStrategyEvent('opening-unit');
     }
 
     window.__VILLAGE_WAR_DEBUG__ = {
@@ -875,6 +884,7 @@ export class Game {
     this.buildings?.destroy?.();
     this.lootDrops?.destroy?.();
     this.enemyCommander?.destroy?.();
+    this.enemyEnchantment?.destroy?.();
     this.areaEffects?.destroy?.();
     this.levelMechanics?.destroy?.();
     this.attacks?.destroy?.();
@@ -887,8 +897,11 @@ export class Game {
     this.renderer.dispose();
     this.selectionBox?.remove();
     this.strategyEventUi?.root?.remove();
-    document.body.classList.remove('is-game-active', 'is-game-paused', 'is-strategy-event-open');
+    this.runShopUi?.overlay?.remove();
+    this.runShopUi?.toggle?.remove();
+    document.body.classList.remove('is-game-active', 'is-game-paused', 'is-strategy-event-open', 'is-run-shop-open');
     if (this.dom.settingsButton) this.dom.settingsButton.hidden = true;
+    if (this.runShopUi?.toggle) this.runShopUi.toggle.hidden = true;
     if (this.dom.fpsMeter) this.dom.fpsMeter.hidden = true;
     if (this.dom.pauseOverlay) this.dom.pauseOverlay.hidden = true;
     if (this.dom.perfPanel) this.dom.perfPanel.hidden = true;
@@ -926,7 +939,7 @@ export class Game {
     const runStep = (name, action) => this.runFrameStep(name, action);
     const runPerfStep = (name, action) => runStep(name, () => this.measurePerf(name, action));
     if (perf) {
-      runPerfStep('strategySpawn', () => this.updateEnemyDirector(dt));
+      runPerfStep('waveSpawn', () => this.updateWaveFlow());
       runPerfStep('card', () => this.cardSystem.update(dt));
       runPerfStep('abilities', () => this.abilities.update(dt));
       runPerfStep('playerBaseAttack', () => this.updatePlayerBaseAttack(dt));
@@ -954,7 +967,7 @@ export class Game {
       this.recordPerfSample();
       this.updatePerfPanel(dt);
     } else {
-      runStep('strategySpawn', () => this.updateEnemyDirector(dt));
+      runStep('waveSpawn', () => this.updateWaveFlow());
       runStep('card', () => this.cardSystem.update(dt));
       runStep('abilities', () => this.abilities.update(dt));
       runStep('playerBaseAttack', () => this.updatePlayerBaseAttack(dt));
@@ -982,252 +995,121 @@ export class Game {
     this.checkLevelEnd();
   }
 
-  updateEnemyDirector(dt) {
+  updateWaveFlow() {
     if (this.levelSession.debug || this.levelFinished || this.strategyEvent) return;
-    const director = this.enemyDirector;
-    director.threatUpdateTimer = Math.max(0, (director.threatUpdateTimer ?? 0) - dt);
-    if (director.threatUpdateTimer <= 0) {
-      director.threat = this.calculateEnemyThreat();
-      director.threatTier = Math.max(1, Math.floor(director.threat));
-      director.threatUpdateTimer = 0.5;
-    }
-    director.energy = Math.min(
-      this.enemyEnergyCapacity(),
-      director.energy + this.enemyEnergyRecoveryPerSecond() * dt
-    );
-    director.initialDelayRemaining = Math.max(0, director.initialDelayRemaining - dt);
-    director.eliteCooldown = Math.max(0, director.eliteCooldown - dt);
-    director.bossCooldown = Math.max(0, director.bossCooldown - dt);
-    if (director.initialDelayRemaining > 0) return;
+    if (!this.currentWave) return;
+    if (this.hasActiveWaveEnemies()) return;
+    this.completeCurrentWave();
+  }
 
-    director.decisionTimer -= dt;
-    if (director.decisionTimer > 0) return;
-    director.decisionTimer = Math.max(0.1, this.enemyDirectorConfig.decisionIntervalSeconds ?? 0.35);
+  hasActiveWaveEnemies() {
+    return this.enemyUnits.some((unit) => unit.alive && !unit.isWildlife);
+  }
 
-    const activeEnemyCount = this.enemyUnits.filter((unit) => unit.alive && !unit.isWildlife).length;
-    const activeEnemyLimit = Math.max(1, Math.floor(this.enemyDirectorConfig.activeEnemyLimit ?? 12));
-    const availableSlots = activeEnemyLimit - activeEnemyCount;
-    if (availableSlots <= 0) return;
-
-    const force = this.chooseEnemyForce(availableSlots);
-    if (!force) return;
-    director.energy = Math.max(0, director.energy - force.energyCost);
-    director.forceSerial = force.id;
-    if (force.kind === 'elite') {
-      director.eliteCooldown = Math.max(0, this.enemyDirectorConfig.eliteCooldownSeconds ?? 20);
+  startNextWave() {
+    if (this.levelFinished || this.levelSession.debug) return;
+    const wave = this.waveSchedule[this.waveIndex];
+    if (!wave) {
+      this.finishLevel(true);
+      return;
     }
-    if (force.kind === 'boss') {
-      director.bossesDeployed += 1;
-      director.bossCooldown = Math.max(0, this.enemyDirectorConfig.bossCooldownSeconds ?? 60);
-    }
-    this.currentEnemyForce = force;
-    this.spawnEnemyForce(force);
-    this.updateEnemyDirectorPanel();
+    this.currentWave = wave;
+    this.currentEnemyForce = wave;
+    this.waveIndex += 1;
+    this.wave = wave.index;
+    this.enemyDirector.threatTier = wave.index;
+    this.spawnEnemyWave(wave.index, {
+      orders: 'attack',
+      waveConfig: wave
+    });
+    this.updateWavePreview();
     this.updateHud(0);
   }
 
-  calculateEnemyThreat() {
-    const config = this.enemyDirectorConfig;
-    const aliveFriendlyUnits = this.friendlyUnits.reduce((count, unit) => (
-      count + (unit.alive && !unit.isWildlife ? 1 : 0)
-    ), 0);
-    const playerAltars = (this.altars?.altars ?? []).reduce((count, altar) => (
-      count + (altar.owner === TEAMS.PLAYER ? 1 : 0)
-    ), 0);
-    const campHealthRatio = this.enemyCamp?.maxHealth > 0
-      ? clamp(this.enemyCamp.health / this.enemyCamp.maxHealth, 0, 1)
-      : 1;
-    const threat =
-      (config.baseThreat ?? 1) +
-      this.elapsedTime * Math.max(0, config.threatPerSecond ?? 0) +
-      aliveFriendlyUnits * Math.max(0, config.threatPerFriendlyUnit ?? 0) +
-      playerAltars * Math.max(0, config.threatPerPlayerAltar ?? 0) +
-      (1 - campHealthRatio) * Math.max(0, config.threatPerEnemyCampDamageRatio ?? 0);
-    return clamp(threat, 0, Math.max(1, config.maxThreat ?? 10));
-  }
-
-  enemyEnergyCapacity() {
-    return Math.max(1, Number(this.enemyDirectorConfig.maxEnergy ?? 30));
-  }
-
-  enemyEnergyRecoveryPerSecond() {
-    const base = Math.max(0, Number(this.enemyDirectorConfig.baseEnergyPerSecond ?? 0.58));
-    const perThreat = Math.max(0, Number(this.enemyDirectorConfig.energyPerThreat ?? 0.11));
-    return base + this.enemyDirector.threat * perThreat;
-  }
-
-  enemyForceTargetKind() {
-    const director = this.enemyDirector;
-    const config = this.enemyDirectorConfig;
-    if (
-      director.threat >= this.enemyForceMinimumThreat('boss', config.bossMinThreat ?? Number.POSITIVE_INFINITY) &&
-      director.bossCooldown <= 0
-    ) {
-      return 'boss';
+  completeCurrentWave() {
+    const wave = this.currentWave;
+    if (!wave || this.levelFinished) return;
+    this.currentWave = null;
+    this.currentEnemyForce = null;
+    this.updateWavePreview();
+    if (wave.kind === 'boss') {
+      this.bossesDefeated += 1;
+      this.grantWaveSilver(wave);
+      if (this.bossesDefeated >= BOSS_WAVES_TO_WIN) {
+        this.finishLevel(true);
+        return;
+      }
+      this.pendingWaveAdvance = true;
+      this.openRunShop({ freeReward: true });
+      return;
     }
-    if (
-      director.threat >= this.enemyForceMinimumThreat('elite', config.eliteMinThreat ?? Number.POSITIVE_INFINITY) &&
-      director.eliteCooldown <= 0
-    ) {
-      return 'elite';
-    }
-    return director.threat >= (config.normalSquadThreat ?? 2) ? 'normal-squad' : 'normal';
+    this.grantWaveSilver(wave);
+    this.pendingWaveAdvance = true;
+    this.openStrategyEvent('wave-reward', { wave });
   }
 
-  enemyForceMinimumThreat(kind, fallback) {
-    const pool = kind === 'boss'
-      ? this.levelSession.level.bossPool
-      : kind === 'elite'
-        ? this.levelSession.level.elitePool
-        : null;
-    if (!Array.isArray(pool) || !pool.length) return fallback;
-    const configured = pool
-      .map((entry) => Number(entry?.minThreat))
-      .filter(Number.isFinite);
-    if (!configured.length) return fallback;
-    return Math.max(fallback, Math.min(...configured));
-  }
-
-  enemyForceEnergyCost(kind) {
-    if (kind === 'boss') return Math.max(1, Number(this.enemyDirectorConfig.bossCost ?? 25));
-    if (kind === 'elite') return Math.max(1, Number(this.enemyDirectorConfig.eliteCost ?? 11.5));
-    if (kind === 'normal-squad') return Math.max(1, Number(this.enemyDirectorConfig.normalSquadCost ?? 7.5));
-    return Math.max(1, Number(this.enemyDirectorConfig.normalCost ?? 4.2));
-  }
-
-  chooseEnemyForce(availableSlots) {
-    const director = this.enemyDirector;
-    const reserveFraction = clamp(this.enemyDirectorConfig.reserveFraction ?? 0.72, 0, 1);
-    const targetKind = this.enemyForceTargetKind();
-    if (targetKind === 'boss') {
-      const bossCost = this.enemyForceEnergyCost('boss');
-      const boss = this.createEnemyForce('boss', availableSlots);
-      if (boss && director.energy >= bossCost) return boss;
-      if (director.energy >= bossCost * reserveFraction) return null;
-    }
-    if (targetKind === 'elite' || targetKind === 'boss') {
-      const eliteCost = this.enemyForceEnergyCost('elite');
-      const elite = this.createEnemyForce('elite', availableSlots);
-      if (elite && director.energy >= eliteCost) return elite;
-      if (targetKind === 'elite' && director.energy >= eliteCost * reserveFraction) return null;
-    }
-
-    if (director.threat >= (this.enemyDirectorConfig.normalSquadThreat ?? 2)) {
-      const squad = this.createEnemyForce('normal-squad', availableSlots);
-      if (squad && director.energy >= squad.energyCost) return squad;
-    }
-    const normal = this.createEnemyForce('normal', availableSlots);
-    return normal && director.energy >= normal.energyCost ? normal : null;
-  }
-
-  createEnemyForce(requestedKind, availableSlots) {
-    const director = this.enemyDirector;
-    const kind = requestedKind === 'normal-squad' ? 'normal' : requestedKind;
-    const threatTier = Math.max(1, director.threatTier);
-    const minimumCount = requestedKind === 'normal-squad' || kind !== 'normal' ? 2 : 1;
-    if (availableSlots < minimumCount) return null;
-    const forceId = director.forceSerial + 1;
-    const bossOrdinal = kind === 'boss' ? director.bossesDeployed + 1 : 0;
-    const count = enemyForceCount({
-      requestedKind,
-      kind,
-      threatTier,
-      availableSlots,
-      bossOrdinal
-    });
-    const opening = director.threat <= (this.enemyDirectorConfig.openingThreatEnd ?? 2.4);
-    const effectiveDifficulty = resolveSessionBaseDifficulty(this.levelSession) + Math.max(0, threatTier - 1);
-    const affixId = threatTier >= 3
-      ? chooseDirectorAffix(threatTier, kind, this.levelSession.level.waveAffixFlow)
-      : null;
-    return {
-      id: forceId,
-      kind,
-      requestedKind,
-      threat: director.threat,
-      threatTier,
-      bossOrdinal,
-      count,
-      energyCost: this.enemyForceEnergyCost(requestedKind),
-      affixId,
-      opening,
-      effectiveDifficulty,
-      types: enemyForceTypes({
-        level: this.levelSession.level,
-        forceId,
-        kind,
-        count,
-        difficulty: effectiveDifficulty,
-        threatTier,
-        bossOrdinal,
-        opening
-      })
-    };
-  }
-
-  renderEnemyDirectorPanel() {
+  updateWavePreview() {
     const root = this.dom.wavePreview;
     if (!root) return;
+    const startIndex = this.currentWave
+      ? Math.max(0, this.currentWave.index - 1)
+      : this.waveIndex;
+    const waves = this.waveSchedule.slice(startIndex, startIndex + WAVE_PREVIEW_COUNT);
+    if (!waves.length) {
+      root.innerHTML = '';
+      return;
+    }
     root.innerHTML = `
-      <div class="enemy-director-panel">
-        <div class="enemy-director-heading">
-          <strong>敌军能量</strong>
-          <span data-enemy-director="threat">威胁 1.0</span>
-        </div>
-        <div class="enemy-energy-meter" aria-label="敌军共享能量">
-          <span data-enemy-director="energy-fill"></span>
-          <em data-enemy-director="energy-value">0 / 30</em>
-        </div>
-        <p data-enemy-director="intent">侦察准备中</p>
+      <div class="wave-preview-track" style="--wave-node-count: ${waves.length}">
+        ${waves.map((wave) => {
+          const isActive = this.currentWave === wave;
+          return `
+            <div class="wave-preview-node is-${cssKey(wave.kind)}${isActive ? ' is-active' : ''}">
+              <span class="wave-node-dot">${escapeHtml(wave.index)}</span>
+              <strong>${escapeHtml(waveKindShortLabel(wave))}</strong>
+              ${waveAffixPreviewMarkup(wave)}
+            </div>
+          `;
+        }).join('')}
       </div>
     `;
-    this.enemyDirectorUi = {
-      threat: root.querySelector('[data-enemy-director="threat"]'),
-      fill: root.querySelector('[data-enemy-director="energy-fill"]'),
-      energy: root.querySelector('[data-enemy-director="energy-value"]'),
-      intent: root.querySelector('[data-enemy-director="intent"]')
-    };
-    this.updateEnemyDirectorPanel();
   }
 
-  updateEnemyDirectorPanel() {
-    const ui = this.enemyDirectorUi;
-    if (!ui) return;
-    const director = this.enemyDirector;
-    const cap = this.enemyEnergyCapacity();
-    const energy = clamp(director.energy, 0, cap);
-    if (ui.threat) ui.threat.textContent = `威胁 ${director.threat.toFixed(1)}`;
-    if (ui.energy) ui.energy.textContent = `${energy.toFixed(1)} / ${cap}`;
-    if (ui.fill) ui.fill.style.width = `${(energy / cap) * 100}%`;
-    if (ui.intent) ui.intent.textContent = this.enemyDirectorIntent();
+  enemyEnchantCost(unit, level = 1) {
+    const costs = this.enemyDirectorConfig.enchantCosts ?? {};
+    let cost = Number(costs.base ?? 2.4) + Math.max(0, Math.floor(level) - 1) * Number(costs.perLevel ?? 0.8);
+    if (unit?.isBoss) cost *= Number(costs.bossMultiplier ?? 1.45);
+    else if (unit?.isElite) cost *= Number(costs.eliteMultiplier ?? 1.2);
+    return Math.max(0.5, cost);
   }
 
-  enemyDirectorIntent() {
-    const director = this.enemyDirector;
-    if (director.initialDelayRemaining > 0) {
-      return `侦察准备 ${Math.ceil(director.initialDelayRemaining)} 秒`;
-    }
-    const kind = this.enemyForceTargetKind();
-    const cost = this.enemyForceEnergyCost(kind);
-    const label = enemyForceKindLabel(kind);
-    if (director.energy >= cost) return `正在调度 ${label}`;
-    const reserve = clamp(this.enemyDirectorConfig.reserveFraction ?? 0.72, 0, 1);
-    if ((kind === 'elite' || kind === 'boss') && director.energy >= cost * reserve) {
-      return `储备 ${label}`;
-    }
-    return `蓄能：${label}`;
+  grantEnemyEnergy(amount) {
+    if (amount <= 0.001) return 0;
+    this.enemyDirector.energy = Math.min(999, (this.enemyDirector.energy ?? 0) + amount);
+    return amount;
+  }
+
+  spendEnemyEnergy(amount) {
+    if (amount <= 0) return true;
+    if ((this.enemyDirector.energy ?? 0) + 0.001 < amount) return false;
+    this.enemyDirector.energy = Math.max(0, this.enemyDirector.energy - amount);
+    return true;
+  }
+
+  enemyEnergyAvailableForEnchant(unit = null) {
+    if (unit?.isBoss || unit?.isElite) return this.enemyDirector.energy ?? 0;
+    const reserve = Math.max(0, Number(this.enemyDirectorConfig.spawnReserveEnergy ?? 4.5));
+    return Math.max(0, (this.enemyDirector.energy ?? 0) - reserve);
   }
 
   updateStrategyPreview() {
-    this.updateEnemyDirectorPanel();
+    this.updateWavePreview();
   }
 
   spawnEnemyForce(force) {
     if (!force) return;
-    this.spawnEnemyWave(force.threatTier, {
-      orders: 'attack',
-      waveConfig: force
-    });
+    const orders = force.kind === 'normal-squad' ? 'mixed' : 'attack';
+    this.spawnEnemyWave(force.threatTier, { orders, waveConfig: force });
   }
 
   queueStrategyReward(type, options = {}) {
@@ -1244,9 +1126,417 @@ export class Game {
   }
 
   finishStrategyReward() {
+    const shouldStartFirstWave = this.awaitingOpeningReward;
     this.closeStrategyEvent();
-    this.openNextStrategyReward();
-    this.updateStrategyPreview();
+    this.continueAfterStrategyFlow(shouldStartFirstWave);
+  }
+
+  continueAfterStrategyFlow(shouldStartFirstWave = false) {
+    if (this.openNextStrategyReward()) return;
+    if (shouldStartFirstWave) {
+      this.awaitingOpeningReward = false;
+      this.cardSystem?.drawToFullHand?.({ animate: true });
+      this.updateWavePreview();
+      this.startNextWave();
+      return;
+    }
+    if (this.pendingWaveAdvance) {
+      this.pendingWaveAdvance = false;
+      this.updateWavePreview();
+      this.startNextWave();
+    }
+  }
+
+  shopPrice(category) {
+    const categoryMeta = RUN_SHOP_CATEGORIES.find((entry) => entry.key === category);
+    if (Number.isFinite(categoryMeta?.fixedPrice)) {
+      return Math.max(0, Number(categoryMeta.fixedPrice));
+    }
+    let price = Math.max(0, Number(this.shopPrices?.[category] ?? RUN_SHOP_BASE_PRICE));
+    if (category === 'copy' || category === 'remove') {
+      price *= 2;
+    }
+    return price;
+  }
+
+  shopPriceIncrement() {
+    return Math.max(0, Number(BALANCE.runCurrency?.shop?.priceIncrement ?? RUN_SHOP_PRICE_INCREMENT));
+  }
+
+  canRunShopCategory(category) {
+    if (category === 'copy' || category === 'remove' || category === 'upgrade') {
+      if (!this.runShopCatalogCards().length) {
+        return { ok: false, reason: '暂无卡牌' };
+      }
+    }
+    if (category === 'energy') {
+      const maxEnergy = Number(BALANCE.playerEnergy?.max) || 12;
+      if ((this.cardSystem?.energy ?? 0) + 0.001 >= maxEnergy) {
+        return { ok: false, reason: '能量已满' };
+      }
+    }
+    if (category === 'attribute' && !this.buildAttributeUpgradeChoicePool().length) {
+      return { ok: false, reason: '暂无可购强化' };
+    }
+    if (category === 'trait' && !this.buildTraitUpgradeChoicePool().length) {
+      return { ok: false, reason: '专精已满' };
+    }
+    if (category === 'card' && !this.selectedCardPool({ allowAllFallback: true }).length) {
+      return { ok: false, reason: '牌池为空' };
+    }
+    if (category === 'temporary') {
+      const options = STRATEGY_REWARD_OPTION_DEFINITIONS
+        .filter((option) => option.action === 'grant-temporary-card' && option.temporaryCard);
+      if (!options.length) return { ok: false, reason: '暂无咒印' };
+    }
+    return { ok: true, reason: '' };
+  }
+
+  bindRunShopUi() {
+    const signal = this.eventController.signal;
+    this.runShopUi.overlay?.addEventListener('click', (event) => this.onRunShopClick(event), { signal });
+    this.runShopUi.root?.addEventListener('click', (event) => this.onRunShopClick(event), { signal });
+    this.runShopUi.overlay?.addEventListener('pointerdown', stopUiPropagation, { signal });
+    this.runShopUi.root?.addEventListener('pointerdown', stopUiPropagation, { signal });
+    this.runShopUi.overlay?.addEventListener('contextmenu', stopUiEvent, { signal });
+    this.runShopUi.root?.addEventListener('contextmenu', stopUiEvent, { signal });
+    this.runShopUi.toggle?.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      this.toggleRunShop();
+    }, { signal });
+    this.runShopUi.toggle?.addEventListener('pointerdown', stopUiPropagation, { signal });
+  }
+
+  toggleRunShop() {
+    if (this.levelFinished || this.levelSession.debug) return;
+    if (this.strategyEvent) return;
+    if (this.runShopFreeReward) return;
+    if (this.runShopOpen) {
+      this.closeRunShop();
+      return;
+    }
+    this.openRunShop();
+  }
+
+  openRunShop(options = {}) {
+    this.runShopOpen = true;
+    this.runShopFreeReward = options.freeReward === true;
+    this.runShopActiveCategory = null;
+    this.runShopChoices = [];
+    if (this.runShopFreeReward) {
+      this.runShopPendingOffers = {};
+    }
+    if (this.runShopUi.overlay) this.runShopUi.overlay.hidden = false;
+    this.runShopUi.toggle?.classList.add('is-active');
+    this.runShopUi.root?.classList.toggle('is-free-reward', this.runShopFreeReward);
+    document.body.classList.add('is-run-shop-open');
+    if (!this.paused) {
+      this.runShopCausedPause = true;
+      this.paused = true;
+      this.cancelCameraDrag();
+      this.cancelSelectionDrag();
+      document.body.classList.add('is-game-paused');
+      this.clock.getDelta();
+    } else {
+      this.runShopCausedPause = false;
+    }
+    this.renderRunShop();
+  }
+
+  closeRunShop(options = {}) {
+    if (this.runShopFreeReward && !options.force && !options.afterFreeReward) {
+      return;
+    }
+    const wasFreeReward = this.runShopFreeReward;
+    this.runShopOpen = false;
+    this.runShopFreeReward = false;
+    this.runShopActiveCategory = null;
+    this.runShopChoices = [];
+    if (this.runShopUi.overlay) this.runShopUi.overlay.hidden = true;
+    if (this.runShopUi.choices) this.runShopUi.choices.hidden = true;
+    this.runShopUi.root?.classList.remove('is-free-reward');
+    this.runShopUi.toggle?.classList.remove('is-active');
+    document.body.classList.remove('is-run-shop-open');
+    if (this.runShopCausedPause) {
+      this.paused = false;
+      document.body.classList.remove('is-game-paused');
+      this.clock.getDelta();
+    }
+    this.runShopCausedPause = false;
+    if (wasFreeReward || options.afterFreeReward) {
+      this.continueAfterStrategyFlow(false);
+    }
+  }
+
+  clearRunShopSelection() {
+    this.runShopActiveCategory = null;
+    this.runShopChoices = [];
+    this.runShopUi.choices.hidden = true;
+    this.renderRunShop();
+  }
+
+  selectRunShopCategory(category) {
+    if (category === 'energy') {
+      this.purchaseRunShopEnergy();
+      return;
+    }
+    const availability = this.canRunShopCategory(category);
+    if (!availability.ok) return;
+    const isFree = this.runShopFreeReward;
+    const price = this.shopPrice(category);
+    if (!isFree && this.silver + 0.001 < price) return;
+    const categoryMeta = RUN_SHOP_CATEGORIES.find((entry) => entry.key === category);
+    let choices = categoryMeta?.picker ? null : this.runShopPendingOffers[category];
+    if (!choices?.length) {
+      choices = this.createShopChoicesForCategory(category);
+      if (!choices.length) return;
+      if (!categoryMeta?.picker) {
+        choices = choices.slice(0, STRATEGY_CHOICE_COUNT);
+        this.runShopPendingOffers[category] = choices;
+      }
+    }
+    this.runShopActiveCategory = category;
+    this.runShopChoices = choices;
+    this.runShopUi.choices.hidden = false;
+    this.renderRunShop();
+  }
+
+  completeRunShopPurchase(choice) {
+    const category = this.runShopActiveCategory;
+    if (!category || !choice) return false;
+    const isFree = this.runShopFreeReward;
+    const price = this.shopPrice(category);
+    if (!isFree && this.silver + 0.001 < price) return false;
+    if (!this.applyStrategyChoice(choice)) return false;
+    if (!isFree) {
+      this.silver = Math.max(0, this.silver - price);
+      if (category !== 'energy') {
+        this.shopPrices[category] = price + this.shopPriceIncrement();
+        delete this.runShopPendingOffers[category];
+      }
+    } else {
+      delete this.runShopPendingOffers[category];
+    }
+    this.runShopActiveCategory = null;
+    this.runShopChoices = [];
+    this.runShopUi.choices.hidden = true;
+    this.updateHud(0);
+    if (isFree) {
+      this.closeRunShop({ afterFreeReward: true });
+      return true;
+    }
+    this.renderRunShop();
+    return true;
+  }
+
+  purchaseRunShopEnergy() {
+    const isFree = this.runShopFreeReward;
+    const price = this.shopPrice('energy');
+    if (!isFree && this.silver + 0.001 < price) return false;
+    const gained = this.cardSystem?.addEnergy?.(1) ?? 0;
+    if (gained <= 0) return false;
+    if (!isFree) {
+      this.silver = Math.max(0, this.silver - price);
+    } else {
+      this.closeRunShop({ afterFreeReward: true });
+    }
+    this.updateHud(0);
+    if (!isFree) this.renderRunShop();
+    return true;
+  }
+
+  renderRunShop() {
+    if (!this.runShopOpen || !this.runShopUi?.root) return;
+    if (this.runShopUi.silver) {
+      this.runShopUi.silver.textContent = formatSilverAmount(this.silver);
+    }
+    if (this.runShopActiveCategory && this.runShopChoices.length) {
+      const categoryMeta = RUN_SHOP_CATEGORIES.find((entry) => entry.key === this.runShopActiveCategory);
+      const isPicker = Boolean(categoryMeta?.picker);
+      const isCatalogPicker = Boolean(categoryMeta?.catalogPicker);
+      const useCardFaceGrid = isPicker || isCatalogPicker
+        || this.runShopActiveCategory === 'card'
+        || this.runShopActiveCategory === 'temporary';
+      this.runShopUi.root.classList.add('is-detail');
+      if (this.runShopUi.kicker) {
+        this.runShopUi.kicker.textContent = this.runShopFreeReward
+          ? `Boss 战利 #${this.bossesDefeated} · 免费一次`
+          : isCatalogPicker
+            ? '军需铺 · 全部卡牌 · 选定后立即购买'
+            : '军需铺 · 选定后立即购买';
+      }
+      if (this.runShopUi.title) this.runShopUi.title.textContent = categoryMeta?.title ?? '选择商品';
+      this.runShopUi.services.hidden = true;
+      this.runShopUi.choices.hidden = false;
+      this.runShopUi.choiceList.classList.toggle('is-card-picker', useCardFaceGrid);
+      this.runShopUi.choiceList.classList.toggle('is-catalog-picker', isCatalogPicker);
+      this.runShopUi.choiceList.innerHTML = this.runShopChoices
+        .map((choice, index) => runShopChoiceMarkup(choice, index, { game: this }))
+        .join('');
+      fitStrategyRewardCards(this.runShopUi.choiceList);
+      return;
+    }
+    this.runShopUi.root.classList.remove('is-detail');
+    if (this.runShopUi.kicker) {
+      this.runShopUi.kicker.textContent = this.runShopFreeReward
+        ? `Boss 战利 #${this.bossesDefeated} · 免费一次`
+        : '营地军需 · B';
+    }
+    if (this.runShopUi.title) {
+      this.runShopUi.title.textContent = this.runShopFreeReward ? '免费军需铺' : '军需铺';
+    }
+    this.runShopUi.services.hidden = false;
+    this.runShopUi.services.innerHTML = RUN_SHOP_CATEGORIES
+      .map((category) => runShopServiceMarkup(category, this))
+      .join('');
+    this.runShopUi.choiceList.classList.remove('is-card-picker', 'is-catalog-picker');
+    this.runShopUi.choices.hidden = true;
+    this.runShopUi.choiceList.innerHTML = '';
+  }
+
+  onRunShopClick(event) {
+    if (event.target === this.runShopUi.overlay) {
+      if (!this.runShopFreeReward) this.closeRunShop();
+      return;
+    }
+    const closeButton = event.target.closest('#run-shop-close');
+    if (closeButton) {
+      event.preventDefault();
+      if (!this.runShopFreeReward) this.closeRunShop();
+      return;
+    }
+    const backButton = event.target.closest('#run-shop-back');
+    if (backButton) {
+      event.preventDefault();
+      this.clearRunShopSelection();
+      return;
+    }
+    const serviceButton = event.target.closest('[data-run-shop-category]');
+    if (serviceButton && !serviceButton.disabled) {
+      event.preventDefault();
+      this.selectRunShopCategory(serviceButton.dataset.runShopCategory);
+      return;
+    }
+    const choiceButton = event.target.closest('[data-run-shop-choice-index]');
+    if (choiceButton && !choiceButton.disabled) {
+      event.preventDefault();
+      const index = Number(choiceButton.dataset.runShopChoiceIndex);
+      const choice = this.runShopChoices[index];
+      if (!choice || choice.disabled) return;
+      this.completeRunShopPurchase(choice);
+    }
+  }
+
+  grantSilver(amount, position = null) {
+    if (amount <= 0.001) return 0;
+    const gained = amount * SILVER_GAIN_MULTIPLIER;
+    if (gained <= 0.001) return 0;
+    this.silver += gained;
+    if (position && this.effects?.spawnEnergyNumber) {
+      this.effects.spawnEnergyNumber(position, gained, {
+        text: `+${formatSilverAmount(gained)} 银币`,
+        color: '#f6e7a8',
+        stroke: '#4a3818',
+        height: 2.45,
+        duration: 0.88,
+        fontSize: 82
+      });
+    }
+    this.updateHud(0);
+    if (this.runShopOpen) this.renderRunShop();
+    return gained;
+  }
+
+  grantWaveSilver(wave) {
+    if (!wave) return 0;
+    const rewards = BALANCE.runCurrency ?? {};
+    let amount = Number(rewards.waveNormal) || 3;
+    if (wave.kind === 'elite') amount = Number(rewards.waveElite) || 6;
+    return this.grantSilver(amount, this.playerBase?.position);
+  }
+
+  grantKillSilver(unit) {
+    if (!unit || unit.team !== TEAMS.ENEMY || unit.isSilentRemoval) return 0;
+    const rewards = BALANCE.runCurrency?.killRewards ?? {};
+    let amount = Number(rewards.normal) || 0.35;
+    if (unit.isBoss) amount = Number(rewards.boss) || 3.5;
+    else if (unit.isElite) amount = Number(rewards.elite) || 1.1;
+    else if (unit.isWildlife) amount = Number(rewards.wildlife) || 0.1;
+    const gained = this.grantSilver(amount, unit.position);
+    const pouchStacks = this.abilities?.getStacks?.('lootPouch') ?? 0;
+    if (pouchStacks > 0) {
+      this.silver += pouchStacks;
+      if (unit.position && this.effects?.spawnEnergyNumber) {
+        this.effects.spawnEnergyNumber(unit.position, pouchStacks, {
+          text: `+${formatSilverAmount(pouchStacks)} 银币`,
+          color: '#f6e7a8',
+          stroke: '#4a3818',
+          height: 2.2,
+          duration: 0.82,
+          fontSize: 76
+        });
+      }
+      this.updateHud(0);
+      if (this.runShopOpen) this.renderRunShop();
+      return gained + pouchStacks;
+    }
+    return gained;
+  }
+
+  getSpellAreaRadiusBonus() {
+    const stacks = this.abilities?.getStacks?.('tacticalMaster') ?? 0;
+    return 1 + 0.5 * Math.max(0, stacks);
+  }
+
+  scaleSpellAreaRadius(radius) {
+    return Math.max(0.5, radius * this.getSpellAreaRadiusBonus());
+  }
+
+  createShopChoicesForCategory(category, wave = null) {
+    if (category === 'card') {
+      return this.weightedCardChoices({
+        pool: this.selectedCardPool({ allowAllFallback: true }),
+        action: 'add-card',
+        actionLabel: '获得卡牌',
+        wave
+      });
+    }
+    if (category === 'attribute') {
+      const pool = this.buildAttributeUpgradeChoicePool();
+      if (!pool.length) return [];
+      return pickRandomItems(pool, Math.min(STRATEGY_CHOICE_COUNT, pool.length));
+    }
+    if (category === 'trait') {
+      return this.createTraitUpgradeChoices();
+    }
+    if (category === 'copy') {
+      return this.createRunShopCatalogPickerChoices('copy-card', '复制卡牌', '复制一张加入抽牌堆。');
+    }
+    if (category === 'remove') {
+      return this.createRunShopCatalogPickerChoices('remove-card', '移除卡牌', '移出本局全部同名卡牌。')
+        .map((choice) => ({
+          ...choice,
+          disabled: (this.cardSystem?.countDeckCardsById?.(choice.card?.id) ?? 0) <= 0
+        }));
+    }
+    if (category === 'upgrade') {
+      return this.createRunShopCatalogPickerChoices('upgrade-card', '升级卡牌', '该牌及同名牌等级 +1。');
+    }
+    if (category === 'temporary') {
+      const options = STRATEGY_REWARD_OPTION_DEFINITIONS
+        .filter((option) => option.action === 'grant-temporary-card' && option.temporaryCard);
+      if (!options.length) return [];
+      return pickRandomItems(options, Math.min(STRATEGY_CHOICE_COUNT, options.length)).map((option) => ({
+        action: 'grant-temporary-card',
+        actionLabel: '获得临时牌',
+        title: option.title,
+        description: option.description,
+        card: option.temporaryCard,
+        temporaryCard: option.temporaryCard
+      }));
+    }
+    return [];
   }
 
   openStrategyEvent(type, options = {}) {
@@ -1262,7 +1552,7 @@ export class Game {
       event = this.createFallbackCardChoiceEvent(options);
     }
     if (!event?.choices?.length) {
-      this.openNextStrategyReward();
+      this.startNextWave();
       return false;
     }
     this.strategyEvent = event;
@@ -1291,22 +1581,13 @@ export class Game {
       return {
         type,
         kicker: '开局准备',
-        title: '选择第一张单位卡',
-        summary: '开局抽牌堆为空，先从本局出战单位牌中选择一张，随后再补一张支援卡。',
+        title: '选择初始单位',
+        summary: '从出战单位牌中三选一，加入抽牌堆后开始第一波。',
         choices: this.openingUnitChoices({
           pool: summonPool,
           action: 'add-card',
-          actionLabel: '加入牌堆'
+          actionLabel: '获得单位'
         })
-      };
-    }
-    if (type === 'boss-reward') {
-      return {
-        type,
-        kicker: `Boss 奖励 #${this.bossesDefeated}`,
-        title: '选择一个构筑核心',
-        summary: 'Boss 奖励会改变这局的构筑方向，是强力局内被动。',
-        choices: this.createBossCoreChoices()
       };
     }
     if (type === 'elite-reward') {
@@ -1319,7 +1600,7 @@ export class Game {
         type,
         kicker: `精英战利品 / 威胁 ${threatLabel}`,
         title: '选择精英奖励',
-        summary: '精英被击败后获得一次局内强化，选择更适合当前战线的方向。',
+        summary: '精英被击败后获得一次局内强化，三选一可直接获得新卡、复制、专精或临时牌。',
         choices: this.createWaveRewardOptionChoices(force)
       };
     }
@@ -1329,17 +1610,21 @@ export class Game {
         type,
         kicker: `占领 ${altarName}`,
         title: '选择占领奖励',
-        summary: '祭坛会持续提供其领域效果；夺下它时再选择一次即时构筑奖励。',
+        summary: '占领祭坛后从卡牌奖励中三选一，可直接获得新卡、复制、单位专精或临时牌。',
         choices: this.createWaveRewardOptionChoices(this.currentEnemyForce)
       };
     }
     if (type === 'wave-reward') {
+      const eliteNote = options.wave?.kind === 'elite'
+        ? '本波为精英：已额外获得银币。'
+        : '';
       return {
         type,
+        wave: options.wave ?? null,
         kicker: waveEventKicker(options.wave),
-        title: '选择战场奖励',
-        summary: '从奖励池随机出现 3 个方向，选择后进入对应奖励或直接获得临时牌。',
-        choices: this.createWaveRewardOptionChoices(options.wave)
+        title: options.wave?.kind === 'elite' ? '精英波奖励' : '选择卡牌奖励',
+        summary: eliteNote || '从出战牌组随机出现 3 张卡牌，选一张加入抽牌堆。',
+        choices: this.createCardWaveRewardChoices(options.wave)
       };
     }
     if (type === 'card-kind-choice') {
@@ -1368,18 +1653,18 @@ export class Game {
       return {
         type,
         kicker: waveEventKicker(options.wave),
-        title: '升级一张卡牌',
-        summary: '选择当前局内的一张卡牌进行升级。单位卡会继续选择升级倾向。',
-        choices: this.createMaintenanceChoices()
+        title: '选择属性强化',
+        summary: '三选一：全队属性训练，立即对现有与后续单位生效，可重复叠加。',
+        choices: this.createAttributeUpgradeChoices()
       };
     }
     if (type === 'unit-upgrade') {
       return {
         type,
-        kicker: '单位升级',
-        title: `选择 ${options.card?.name ?? '单位卡'} 的升级倾向`,
-        summary: '通用属性可以重复选择，单位专属能力每局同一张卡只能获得一次。',
-        choices: this.createUnitUpgradeChoices(options.card)
+        kicker: '兵种特性',
+        title: '选择特性强化',
+        summary: '三选一：从本局出战兵种中随机出现特性专精，每种仅可获得一次。',
+        choices: this.createTraitUpgradeChoices()
       };
     }
     if (type === 'card-copy') {
@@ -1471,14 +1756,8 @@ export class Game {
 
   openingUnitChoices({ pool, action, actionLabel }) {
     const combatPool = pool.filter((card) => isOpeningCombatSummon(card));
-    const choices = pickRandomItems(
-      combatPool,
-      Math.min(OPENING_COMBAT_UNIT_CHOICES, STRATEGY_CHOICE_COUNT)
-    );
-    const pickedIds = new Set(choices.map((card) => card.id));
-    const remainingPool = pool.filter((card) => !pickedIds.has(card.id));
-    choices.push(...pickRandomItems(remainingPool, STRATEGY_CHOICE_COUNT - choices.length));
-    return choices.map((card) => ({
+    const sourcePool = combatPool.length >= STRATEGY_CHOICE_COUNT ? combatPool : pool;
+    return pickRandomItems(sourcePool, STRATEGY_CHOICE_COUNT).map((card) => ({
       action,
       actionLabel,
       card,
@@ -1499,42 +1778,188 @@ export class Game {
     }));
   }
 
+  createCardWaveRewardChoices(wave = null) {
+    return this.weightedCardChoices({
+      pool: this.selectedCardPool({ allowAllFallback: true }),
+      action: 'add-card',
+      actionLabel: '获得卡牌',
+      wave
+    });
+  }
+
   createWaveRewardOptionChoices(wave = null) {
-    const options = STRATEGY_REWARD_OPTION_DEFINITIONS.filter((option) => (
-      this.isWaveRewardOptionAvailable(option)
-    ));
-    return pickRandomItems(options, STRATEGY_CHOICE_COUNT).map((option) => {
-      const optionDescription = option.action === 'open-card-upgrade-choice'
-        ? '选择一张已有卡，然后选择这张卡对应的升级倾向。'
-        : option.description;
-      const card = option.temporaryCard
-        ? option.temporaryCard
-        : {
-            id: `reward-option-${option.id}`,
-            name: option.title,
-            kind: rewardOptionCardKind(option),
-            label: rewardOptionLabel(option),
-            artKey: option.artKey ?? 'tacticUpgrade',
-            summary: optionDescription,
-            target: 'none',
-            radius: 1,
-            cooldown: 0,
-            energyCost: 0,
-            color: option.color ?? '#9eeedb'
-          };
-      return {
-        action: option.action,
-        actionLabel: option.action === 'grant-temporary-card' ? '获得临时牌' : '选择方向',
-        title: option.title,
-        description: optionDescription,
-        metaText: option.action === 'open-card-upgrade-choice'
-          ? '已有卡牌 / 升级倾向'
-          : rewardOptionMetaText(option),
-        card,
-        cardKind: option.cardKind,
-        wave,
-        temporaryCard: option.temporaryCard
-      };
+    return this.createCardWaveRewardChoices(wave);
+  }
+
+  buildRuntimeUpgradeChoicePool() {
+    return [
+      ...this.buildAttributeUpgradeChoicePool(),
+      ...this.buildTraitUpgradeChoicePool()
+    ];
+  }
+
+  buildAttributeUpgradeChoicePool() {
+    return UNIT_GENERIC_UPGRADES.map((upgrade) => this.createTeamGenericUpgradeChoice(upgrade));
+  }
+
+  buildTraitUpgradeChoicePool() {
+    const choices = [];
+    this.deckUnitTypes().forEach((unitType) => {
+      const owned = this.teamSpecialUpgrades.get(unitType) ?? new Set();
+      (UNIT_SPECIAL_UPGRADES[unitType] ?? []).forEach((upgrade) => {
+        if (owned.has(upgrade.id)) return;
+        choices.push(this.createTeamSpecialUpgradeChoice(unitType, upgrade));
+      });
+    });
+    return choices;
+  }
+
+  deckUnitTypes() {
+    const types = new Set();
+    this.selectedCardPool().forEach((card) => {
+      if (card?.unitType) types.add(card.unitType);
+    });
+    this.cardSystem.allDeckCards().forEach((card) => {
+      if (card?.unitType) types.add(card.unitType);
+    });
+    return [...types];
+  }
+
+  ownedUnitTypes() {
+    const types = new Set();
+    this.cardSystem?.allDeckCards?.().forEach((card) => {
+      if (card?.unitType) types.add(card.unitType);
+    });
+    this.friendlyUnits?.forEach((unit) => {
+      if (unit?.alive && !unit.isWildlife && unit.type) types.add(unit.type);
+    });
+    return types;
+  }
+
+  createTeamGenericUpgradeChoice(upgrade) {
+    const stacks = this.teamGenericUpgradeCounts.get(upgrade.id) ?? 0;
+    return {
+      action: 'apply-team-upgrade',
+      actionLabel: '全队强化',
+      title: upgrade.name,
+      description: upgrade.summary,
+      upgrade,
+      card: {
+        id: `team-upgrade-${upgrade.id}`,
+        name: upgrade.name,
+        kind: 'tactic',
+        label: '队',
+        artKey: 'tacticUpgrade',
+        summary: stacks > 0
+          ? `${upgrade.summary}（已叠加 ${stacks} 次，立即对全队生效）`
+          : `${upgrade.summary}（立即对全队与后续单位生效）`,
+        energyCost: 0,
+        color: '#9eeedb',
+        level: stacks + 1
+      }
+    };
+  }
+
+  createTeamSpecialUpgradeChoice(unitType, upgrade) {
+    const unitName = UNIT_DEFINITIONS[unitType]?.name ?? unitType;
+    return {
+      action: 'apply-team-special-upgrade',
+      actionLabel: '兵种专精',
+      title: `${unitName}·${upgrade.name}`,
+      description: upgrade.summary,
+      unitType,
+      upgrade,
+      card: {
+        id: `team-special-${unitType}-${upgrade.id}`,
+        name: `${unitName}·${upgrade.name}`,
+        kind: 'ability',
+        label: '专',
+        artKey: unitType,
+        summary: `所有${unitName}获得：${upgrade.summary}`,
+        energyCost: 0,
+        color: '#ffd166',
+        level: 1
+      }
+    };
+  }
+
+  applyTeamGenericUpgrade(upgrade) {
+    if (!upgrade?.id || upgrade.kind !== 'unit-generic') return false;
+    const nextIndex = this.teamGenericUpgradeCounts.get(upgrade.id) ?? 0;
+    this.teamGenericUpgradeCounts.set(upgrade.id, nextIndex + 1);
+    this.friendlyUnits.forEach((unit) => {
+      if (!unit.alive || unit.isWildlife) return;
+      this.applyTeamGenericUpgradeLayerToUnit(unit, upgrade, nextIndex);
+    });
+    return true;
+  }
+
+  applyTeamSpecialUpgrade(unitType, upgrade) {
+    if (!unitType || !upgrade?.id || upgrade.kind !== 'unit-special') return false;
+    if (!this.teamSpecialUpgrades.has(unitType)) {
+      this.teamSpecialUpgrades.set(unitType, new Set());
+    }
+    const owned = this.teamSpecialUpgrades.get(unitType);
+    if (owned.has(upgrade.id)) return false;
+    owned.add(upgrade.id);
+    if (upgrade.supportModifiers && !this.teamSupportModifiersApplied.has(upgrade.id)) {
+      const sample = this.friendlyUnits.find((unit) => unit.type === unitType && unit.alive);
+      if (sample) applySupportUpgrade(sample, upgrade.supportModifiers);
+      this.teamSupportModifiersApplied.add(upgrade.id);
+    }
+    this.friendlyUnits.forEach((unit) => {
+      if (!unit.alive || unit.isWildlife || unit.type !== unitType) return;
+      this.applyTeamSpecialUpgradeToUnit(unit, upgrade);
+    });
+    return true;
+  }
+
+  applyTeamGenericUpgradeLayerToUnit(unit, upgrade, index = 0) {
+    const previousMaxHealth = unit.maxHealth;
+    const modifiers = teamGenericUpgradeModifiers(unit, upgrade, index);
+    if (!modifiers.length) return;
+    unit.attributes.addModifiers(modifiers, `team:${upgrade.id}:${index}`);
+    if (modifiersAffectHealthOrDurability(modifiers)) {
+      syncUnitAfterMaxHealthModifiers(unit, previousMaxHealth);
+    }
+    unit.clampToAttributeCaps();
+    unit.statusUiDirty = true;
+  }
+
+  applyTeamSpecialUpgradeToUnit(unit, upgrade) {
+    unit.runtimeUpgradeIds = unit.runtimeUpgradeIds ?? new Set();
+    unit.runtimeTraits = unit.runtimeTraits ?? new Set();
+    if (unit.runtimeUpgradeIds.has(upgrade.id)) return;
+    unit.runtimeUpgradeIds.add(upgrade.id);
+    if (upgrade.trait) unit.runtimeTraits.add(upgrade.trait);
+    if (upgrade.modifiers?.length) {
+      const previousMaxHealth = unit.maxHealth;
+      unit.attributes.addModifiers(upgrade.modifiers, `team:${upgrade.id}`);
+      if (modifiersAffectHealthOrDurability(upgrade.modifiers)) {
+        syncUnitAfterMaxHealthModifiers(unit, previousMaxHealth);
+      }
+    }
+    unit.clampToAttributeCaps();
+    unit.statusUiDirty = true;
+  }
+
+  applyTeamUpgradesToUnit(unit) {
+    if (!unit || unit.isWildlife) return;
+    unit.runtimeUpgradeIds = new Set();
+    unit.runtimeTraits = new Set();
+    this.teamGenericUpgradeCounts.forEach((count, upgradeId) => {
+      const upgrade = UNIT_GENERIC_UPGRADES.find((entry) => entry.id === upgradeId);
+      if (!upgrade) return;
+      for (let index = 0; index < count; index += 1) {
+        this.applyTeamGenericUpgradeLayerToUnit(unit, upgrade, index);
+      }
+    });
+    const ownedSpecials = this.teamSpecialUpgrades.get(unit.type);
+    if (!ownedSpecials?.size) return;
+    ownedSpecials.forEach((upgradeId) => {
+      const upgrade = runtimeUnitUpgradeDefinition(unit.type, upgradeId);
+      if (!upgrade) return;
+      this.applyTeamSpecialUpgradeToUnit(unit, upgrade);
     });
   }
 
@@ -1549,63 +1974,64 @@ export class Game {
   }
 
   nextUpcomingWave() {
-    const limit = Math.max(2, Math.floor(this.enemyDirectorConfig.activeEnemyLimit ?? 12));
-    return this.createEnemyForce(this.enemyForceTargetKind(), limit) ?? this.currentEnemyForce;
+    return this.waveSchedule[this.waveIndex] ?? this.currentWave ?? null;
   }
 
-  createBossCoreChoices() {
-    return pickRandomItems(BOSS_CORE_REWARDS, STRATEGY_CHOICE_COUNT).map((reward) => {
-      const definition = PLAYER_ABILITY_DEFINITIONS[reward.abilityId];
-      const card = CARD_DEFINITIONS.find((entry) => entry.id === reward.cardId) ??
-        CARD_DEFINITIONS.find((entry) => entry.effect?.abilityId === reward.abilityId) ??
-        {
-          id: `boss-core-${reward.abilityId}`,
-          name: reward.title,
-          kind: 'ability',
-          label: definition?.label ?? '核',
-          artKey: 'abilityPeriodicEnergy',
-          energyCost: 0,
-          summary: reward.description,
-          color: definition?.color ?? '#9eeedb'
-        };
-      return {
-        action: 'acquire-core',
-        actionLabel: '选择核心',
-        title: reward.title,
-        description: reward.description,
-        card: {
-          ...card,
-          name: reward.title,
-          summary: reward.description,
-          energyCost: 0,
-          level: reward.stacks
-        },
-        metaText: '构筑核心 / 局内被动',
-        abilityId: reward.abilityId,
-        stacks: reward.stacks
-      };
-    });
+  createAttributeUpgradeChoices() {
+    const pool = this.buildAttributeUpgradeChoicePool();
+    if (!pool.length) {
+      return this.createWaveRewardOptionChoices(this.nextUpcomingWave());
+    }
+    return pickRandomItems(pool, Math.min(STRATEGY_CHOICE_COUNT, pool.length));
+  }
+
+  createTraitUpgradeChoices() {
+    const pool = this.buildTraitUpgradeChoicePool();
+    if (!pool.length) {
+      return this.createAttributeUpgradeChoices();
+    }
+    const ownedTypes = this.ownedUnitTypes();
+    return pickWeightedCardItems(
+      pool,
+      Math.min(STRATEGY_CHOICE_COUNT, pool.length),
+      (choice) => (ownedTypes.has(choice.unitType) ? 12 : 0.35)
+    );
   }
 
   createMaintenanceChoices() {
-    const cards = this.uniqueRuntimeCards();
-    if (!cards.length) {
-      return this.weightedCardChoices({
-        pool: this.selectedCardPool({ allowAllFallback: true }),
-        action: 'add-card',
-        actionLabel: '加入牌堆',
-        wave: this.nextUpcomingWave()
-      });
-    }
-    return cards.map((card) => ({
-      action: 'select-upgrade-card',
-      actionLabel: '选择升级',
-      title: card.name,
-      description: runtimeUpgradeSummaryForCard(card),
-      metaText: runtimeUpgradeTitleForCard(card),
-      card,
-      targetCard: card
-    }));
+    return this.createAttributeUpgradeChoices();
+  }
+
+  activeRunCardInstances() {
+    return this.cardSystem?.activeRunCards?.() ?? [];
+  }
+
+  runShopCatalogCards() {
+    const seen = new Set();
+    return CARD_DEFINITIONS
+      .filter((card) => !card.lootOnly && card?.id)
+      .filter((card) => {
+        if (seen.has(card.id)) return false;
+        seen.add(card.id);
+        return true;
+      })
+      .map((card) => this.cardSystem?.applyRuntimeCardLevel?.(card) ?? card)
+      .sort((left, right) => cardSortKey(left).localeCompare(cardSortKey(right), 'zh-Hans-CN'));
+  }
+
+  createRunShopCatalogPickerChoices(action, actionLabel, descriptionSuffix) {
+    return this.runShopCatalogCards().map((card) => {
+      const inDeck = this.cardSystem?.countDeckCardsById?.(card.id) ?? 0;
+      const deckHint = inDeck > 0 ? `牌组 ×${inDeck}` : '未入组';
+      return {
+        action,
+        actionLabel,
+        title: card.name,
+        description: `${deckHint} · Lv.${card.level ?? 1} · ${descriptionSuffix}`,
+        card,
+        targetCard: card
+      };
+    });
   }
 
   uniqueRuntimeCards() {
@@ -1617,32 +2043,8 @@ export class Game {
     }).sort((a, b) => cardSortKey(a).localeCompare(cardSortKey(b), 'zh-Hans-CN'));
   }
 
-  createUnitUpgradeChoices(card) {
-    if (!card?.unitType) return [];
-    const owned = new Set(card.runtimeUpgrades?.unitUpgradeIds ?? []);
-    const genericChoices = UNIT_GENERIC_UPGRADES.map((upgrade) => ({
-      action: 'apply-card-upgrade',
-      actionLabel: '选择升级',
-      title: upgrade.name,
-      description: upgrade.summary,
-      metaText: '通用属性 / 可重复',
-      card,
-      targetCard: card,
-      upgrade
-    }));
-    const specialChoices = (UNIT_SPECIAL_UPGRADES[card.unitType] ?? [])
-      .filter((upgrade) => !owned.has(upgrade.id))
-      .map((upgrade) => ({
-        action: 'apply-card-upgrade',
-        actionLabel: '选择升级',
-        title: upgrade.name,
-        description: upgrade.summary,
-        metaText: '单位专属 / 本局唯一',
-        card,
-        targetCard: card,
-        upgrade
-      }));
-    return pickRandomItems([...genericChoices, ...specialChoices], STRATEGY_CHOICE_COUNT);
+  createUnitUpgradeChoices() {
+    return this.createTraitUpgradeChoices();
   }
 
   createCopyChoices() {
@@ -1680,97 +2082,104 @@ export class Game {
   renderStrategyEvent() {
     const event = this.strategyEvent;
     if (!event) return;
-    const typeMeta = strategyEventTypeMeta(event.type);
     event.choices = Array.isArray(event.choices) ? event.choices.filter(Boolean) : [];
+    if (event.choices.length > STRATEGY_CHOICE_COUNT) {
+      event.choices = event.choices.slice(0, STRATEGY_CHOICE_COUNT);
+    }
+    const typeMeta = strategyEventTypeMeta(event.type);
     this.strategyEventUi.root.dataset.eventType = typeMeta.key;
-    this.strategyEventUi.typeMark.textContent = typeMeta.mark;
-    this.strategyEventUi.typeLabel.textContent = typeMeta.label;
-    this.strategyEventUi.kicker.textContent = event.kicker;
-    this.strategyEventUi.title.textContent = event.title;
-    this.strategyEventUi.summary.textContent = event.summary;
+    this.strategyEventUi.root.setAttribute('aria-label', event.title ?? '选择奖励');
+    if (this.strategyEventUi.kicker) {
+      this.strategyEventUi.kicker.textContent = event.kicker ?? '';
+      this.strategyEventUi.kicker.hidden = !event.kicker;
+    }
+    if (this.strategyEventUi.title) {
+      this.strategyEventUi.title.textContent = event.title ?? '选择奖励';
+    }
+    if (this.strategyEventUi.summary) {
+      this.strategyEventUi.summary.textContent = event.summary ?? '';
+      this.strategyEventUi.summary.hidden = !event.summary;
+    }
     this.strategyEventUi.choices.innerHTML = event.choices
-      .map((choice, index) => strategyChoiceMarkup(choice, index))
+      .map((choice, index) => strategyRewardMarkup(choice, index))
       .join('');
+    this.renderStrategyEventActions(event);
+  }
+
+  getStrategyRewardRerollCost() {
+    return STRATEGY_REWARD_REROLL_BASE_COST * (2 ** Math.max(0, this.strategyRewardRerollCount ?? 0));
+  }
+
+  rerollStrategyRewardChoices() {
+    const event = this.strategyEvent;
+    if (!event || event.type !== 'wave-reward') return false;
+    const cost = this.getStrategyRewardRerollCost();
+    if (this.silver + 0.001 < cost) return false;
+    this.silver = Math.max(0, this.silver - cost);
+    this.strategyRewardRerollCount = Math.max(0, (this.strategyRewardRerollCount ?? 0) + 1);
+    event.choices = this.createCardWaveRewardChoices(event.wave);
+    this.renderStrategyEvent();
+    this.updateHud(0);
+    return true;
+  }
+
+  skipStrategyReward() {
+    if (!this.strategyEvent) return false;
+    this.finishStrategyReward();
+    return true;
+  }
+
+  renderStrategyEventActions(event) {
+    const actions = this.strategyEventUi.actions;
+    if (!actions) return;
+    if (event?.type !== 'wave-reward') {
+      actions.hidden = true;
+      actions.innerHTML = '';
+      return;
+    }
+    const rerollCost = this.getStrategyRewardRerollCost();
+    const canAffordReroll = this.silver + 0.001 >= rerollCost;
+    const rerollCount = Math.max(0, this.strategyRewardRerollCount ?? 0);
+    actions.hidden = false;
+    actions.innerHTML = `
+      <button
+        class="strategy-event-action is-reroll${canAffordReroll ? '' : ' is-disabled'}"
+        type="button"
+        data-strategy-action="reroll"
+        ${canAffordReroll ? '' : 'disabled aria-disabled="true"'}
+      >
+        <span class="strategy-event-action-label">重新随机</span>
+        <strong>${formatSilverAmount(rerollCost)} 银币</strong>
+        <small>已刷新 ${rerollCount} 次，下次费用翻倍</small>
+      </button>
+      <button class="strategy-event-action is-skip" type="button" data-strategy-action="skip">
+        <span class="strategy-event-action-label">放弃奖励</span>
+        <strong>直接进入下一波</strong>
+      </button>
+    `;
   }
 
   onStrategyEventClick(event) {
+    const actionButton = event.target.closest('[data-strategy-action]');
+    if (actionButton && this.strategyEvent) {
+      event.preventDefault();
+      event.stopPropagation();
+      const action = actionButton.dataset.strategyAction;
+      if (action === 'reroll' && !actionButton.disabled) {
+        this.rerollStrategyRewardChoices();
+      } else if (action === 'skip') {
+        this.skipStrategyReward();
+      }
+      return;
+    }
     const button = event.target.closest('[data-strategy-choice-index]');
     if (!button || !this.strategyEvent) return;
     event.preventDefault();
     event.stopPropagation();
     const index = Number(button.dataset.strategyChoiceIndex);
-    const eventType = this.strategyEvent.type;
     const choice = this.strategyEvent.choices[index];
     if (!choice || button.disabled) return;
-    if (choice.action === 'open-card-kind-choice') {
-      this.handleCardKindRewardSelection(choice);
-      return;
-    }
-    if (choice.action === 'open-card-upgrade-choice') {
-      this.handleCardUpgradeSelection(choice);
-      return;
-    }
-    if (choice.action === 'open-card-copy-choice') {
-      this.handleExistingCardCopySelection(choice);
-      return;
-    }
-    if (choice.action === 'select-upgrade-card') {
-      this.handleUpgradeCardSelection(choice);
-      return;
-    }
     if (!this.applyStrategyChoice(choice)) return;
-    this.finishStrategyReward();
-    if (eventType === 'opening-unit') {
-      this.openStrategyEvent('card-choice', { openingSupport: true });
-      return;
-    }
-  }
-
-  handleCardKindRewardSelection(choice) {
-    const event = this.createStrategyEvent('card-kind-choice', {
-      wave: choice.wave,
-      cardKind: choice.cardKind,
-      title: choice.title,
-      summary: `从本局出战${strategyKindLabel(choice.cardKind)}中随机出现 3 张，选择 1 张加入抽牌堆。`
-    });
-    if (!event?.choices?.length) return;
-    this.strategyEvent = event;
-    this.renderStrategyEvent();
-  }
-
-  handleCardUpgradeSelection(choice) {
-    const event = this.createStrategyEvent('card-maintenance', {
-      wave: choice.wave
-    });
-    if (!event?.choices?.length) return;
-    this.strategyEvent = event;
-    this.renderStrategyEvent();
-  }
-
-  handleExistingCardCopySelection(choice) {
-    const event = this.createStrategyEvent('existing-card-copy', {
-      wave: choice.wave
-    });
-    if (!event?.choices?.length) return;
-    this.strategyEvent = event;
-    this.renderStrategyEvent();
-  }
-
-  handleUpgradeCardSelection(choice) {
-    const card = choice.targetCard ?? choice.card;
-    if (!card) return;
-    if (card.kind === 'summon' && card.unitType) {
-      const event = this.createStrategyEvent('unit-upgrade', { card });
-      if (!event?.choices?.length) {
-        this.applyDirectCardUpgrade(card);
-        this.finishStrategyReward();
-        return;
-      }
-      this.strategyEvent = event;
-      this.renderStrategyEvent();
-      return;
-    }
-    if (!this.applyDirectCardUpgrade(card)) return;
     this.finishStrategyReward();
   }
 
@@ -1781,20 +2190,41 @@ export class Game {
         prefix: `event-${choice.card.id}-${Date.now()}`
       });
       applied = result.added;
-    } else if (choice.action === 'acquire-core') {
-      applied = this.abilities?.acquire(choice.abilityId, choice.stacks ?? 1) === true;
     } else if (choice.action === 'upgrade-card') {
-      applied = this.cardSystem.upgradeCardInstance(choice.targetCard, 1);
+      applied = this.cardSystem.upgradeCardFamily(choice.targetCard ?? choice.card, 1);
+    } else if (choice.action === 'apply-team-upgrade') {
+      applied = this.applyTeamGenericUpgrade(choice.upgrade);
+    } else if (choice.action === 'apply-team-special-upgrade') {
+      applied = this.applyTeamSpecialUpgrade(choice.unitType, choice.upgrade);
     } else if (choice.action === 'apply-card-upgrade') {
-      applied = this.cardSystem.applyRuntimeUpgrade(choice.targetCard, choice.upgrade);
+      if (choice.upgrade?.kind === 'unit-special') {
+        applied = this.applyTeamSpecialUpgrade(choice.targetCard?.unitType, choice.upgrade);
+      } else {
+        applied = this.applyTeamGenericUpgrade(choice.upgrade);
+      }
     } else if (choice.action === 'copy-card') {
-      applied = this.cardSystem.copyCardInstance(choice.targetCard, {
-        prefix: `event-copy-${choice.targetCard.id}-${Date.now()}`
-      }).added;
+      const targetCard = choice.targetCard ?? choice.card;
+      if (targetCard?.instanceId && this.cardSystem.allDeckCards().includes(targetCard)) {
+        applied = this.cardSystem.copyCardInstance(targetCard, {
+          prefix: `event-copy-${targetCard.id}-${Date.now()}`
+        }).added;
+      } else {
+        applied = this.cardSystem.addCardToDrawPile(targetCard, {
+          prefix: `shop-copy-${targetCard?.id ?? 'card'}-${Date.now()}`
+        }).added;
+      }
+    } else if (choice.action === 'remove-card') {
+      const targetCard = choice.targetCard ?? choice.card;
+      if (targetCard?.instanceId && this.cardSystem.allDeckCards().includes(targetCard)) {
+        applied = this.cardSystem.removeCardInstance(targetCard);
+      } else {
+        applied = this.cardSystem.removeCardFamily(targetCard?.id);
+      }
     } else if (choice.action === 'grant-temporary-card') {
-      applied = this.cardSystem.addCardToDrawPile(choice.temporaryCard ?? choice.card, {
-        prefix: `event-temporary-${choice.card.id}-${Date.now()}`,
-        applyRuntimeLevelBonus: false
+      applied = this.cardSystem.addTemporaryCard(choice.temporaryCard ?? choice.card, {
+        prefix: `event-temporary-${choice.temporaryCard?.id ?? choice.card?.id}-${Date.now()}`,
+        applyRuntimeLevelBonus: false,
+        energyCost: 0
       }).added;
     }
     if (!applied) return false;
@@ -2227,30 +2657,93 @@ export class Game {
   }
 
   handleUnitDeath(unit, source = null) {
-    const defeatedElite = unit?.team === TEAMS.ENEMY && unit.isElite === true;
-    const defeatedBoss = unit?.team === TEAMS.ENEMY && unit.isBoss === true;
-    const force = unit?.enemyForce ?? this.currentEnemyForce;
     const handled = this.unitRegistry.handleDeath(unit, source);
     if (!handled) return false;
 
-    if (defeatedBoss) {
-      this.bossesDefeated += 1;
-      this.queueStrategyReward('boss-reward', { force, boss: unit });
-    } else if (defeatedElite) {
-      this.queueStrategyReward('elite-reward', { force, elite: unit });
+    if (unit?.team === TEAMS.ENEMY) {
+      this.grantKillEnergy(unit);
+      this.grantKillSilver(unit);
     }
+
     return true;
   }
 
-  onAltarOwnershipChanged(event) {
-    if (
-      event?.reason !== 'captured' ||
-      event.owner !== TEAMS.PLAYER ||
-      event.previousOwner === TEAMS.PLAYER
-    ) {
-      return;
+  onUnitDied(unit, source = null) {
+    if (unit?.team !== TEAMS.ENEMY) return;
+    if (!source?.alive || source.team !== TEAMS.PLAYER || source.isBuilding) return;
+    if (!unit.buffs?.has?.('huntMarked')) return;
+
+    const share = 0.25;
+    const sourceTag = `hunt-mark:${unit.id}`;
+    const attackDamage = this.modifiers.getAttackDamage(unit);
+    const attackRate = this.modifiers.getAttackRate(unit);
+    const armor = this.modifiers.getArmor(unit);
+    const magicResistance = this.modifiers.getMagicResistance(unit);
+    const maxHealthGain = Math.max(0, unit.maxHealth * share);
+    const maxDurabilityGain = Math.max(0, (unit.weapon?.maxDurability ?? 0) * share);
+
+    source.attributes.addModifiers([
+      { stat: 'maxHealth', type: 'add', amount: maxHealthGain },
+      { stat: 'attackDamage', type: 'add', amount: attackDamage * share },
+      { stat: 'attackRate', type: 'add', amount: attackRate * share },
+      { stat: 'armor', type: 'add', amount: armor * share },
+      { stat: 'magicResistance', type: 'add', amount: magicResistance * share },
+      { stat: 'maxDurability', type: 'add', amount: maxDurabilityGain }
+    ], sourceTag);
+    source.health = Math.min(source.maxHealth, source.health + maxHealthGain);
+    source.weapon.durability = Math.min(
+      source.weapon.maxDurability,
+      source.weapon.durability + maxDurabilityGain
+    );
+    source.clampToAttributeCaps?.();
+    source.statusUiDirty = true;
+    this.effects.spawnDamageNumber(source.position, 1, {
+      text: '猎杀赏',
+      color: '#ffb18a',
+      stroke: '#4a2018',
+      height: source.projectileHitHeight ?? 1.55,
+      duration: 0.82,
+      fontSize: 76,
+      baseHeight: 0.48
+    });
+    this.effects.spawnRing(source.position, '#ff8866', 0.92, 0.48);
+  }
+
+  grantKillEnergy(unit) {
+    if (!unit || unit.team !== TEAMS.ENEMY || unit.isSilentRemoval) return;
+    const rewards = BALANCE.playerEnergy?.killRewards ?? {};
+    let amount = Number(rewards.normal) || 1;
+    if (unit.isBoss) amount = Number(rewards.boss) || 6;
+    else if (unit.isElite) amount = Number(rewards.elite) || 3;
+    else if (unit.isWildlife) amount = Number(rewards.wildlife) || 1;
+    else if (unit.isBuilding) amount = Number(rewards.structure) || 1;
+
+    const gained = this.cardSystem?.addEnergy?.(amount) ?? 0;
+    if (gained > 0 && unit.position) {
+      this.effects.spawnEnergyNumber(unit.position, gained, {
+        height: 2.55
+      });
     }
-    this.queueStrategyReward('altar-reward', { altar: event.altar });
+    this.abilities?.onEnemyKilled?.(unit, unit.position);
+  }
+
+  getEnemyForceSpawnPoints(count) {
+    const camp = this.enemyCamp.position.clone().setY(0);
+    const pathPoints = this.world?.pathPoints ?? BALANCE.world?.pathPoints ?? [];
+    const anchors = [];
+    if (pathPoints.length >= 2) {
+      const startIndex = Math.max(0, pathPoints.length - 4);
+      for (let i = startIndex; i < pathPoints.length; i += 1) {
+        anchors.push(new THREE.Vector3(pathPoints[i].x, 0, pathPoints[i].z));
+      }
+    }
+    anchors.push(camp);
+    const total = Math.max(1, count);
+    return Array.from({ length: total }, (_, index) => anchors[index % anchors.length]);
+  }
+
+  onAltarOwnershipChanged(event) {
+    void event;
   }
 
   summonUnits(type, count, point, radius = 1, options = {}) {
@@ -2267,6 +2760,7 @@ export class Game {
       this.applySummonCardLevel(unit, options.sourceCard);
       this.attachUnitStatus(unit);
       this.registerUnit(unit);
+      this.abilities?.onFriendlyUnitSummoned?.(unit, options.sourceCard);
       this.effects.spawnRing(unit.position, '#9dd8ff', 0.82, 0.52);
       if (selectSpawned) {
         this.selectUnit(unit);
@@ -2329,34 +2823,9 @@ export class Game {
   }
 
   applySummonCardLevel(unit, card) {
+    applySummonCardLevelModifiers(unit, card);
     applyBuildingCardUpgrade(unit, card);
-    const upgradeIds = card?.runtimeUpgrades?.unitUpgradeIds ?? [];
-    if (!upgradeIds.length) return;
-    unit.runtimeUpgradeIds = new Set(upgradeIds);
-    unit.runtimeTraits = new Set();
-    const modifiers = [];
-    upgradeIds.forEach((upgradeId, index) => {
-      const upgrade = runtimeUnitUpgradeDefinition(unit.type, upgradeId);
-      if (!upgrade) return;
-      if (upgrade.kind === 'unit-generic') {
-        modifiers.push(...unitGenericUpgradeModifiers(unit, upgrade, index));
-      }
-      if (upgrade.modifiers?.length) {
-        modifiers.push(...upgrade.modifiers);
-      }
-      if (upgrade.supportModifiers) {
-        applySupportUpgrade(unit, upgrade.supportModifiers);
-      }
-      if (upgrade.trait) {
-        unit.runtimeTraits.add(upgrade.trait);
-      }
-    });
-    if (modifiers.length) {
-      unit.attributes.addModifiers(modifiers, `card:${card.id}:runtime-upgrades`);
-    }
-    unit.health = unit.maxHealth;
-    unit.weapon.durability = unit.weapon.maxDurability;
-    unit.clampToAttributeCaps();
+    this.applyTeamUpgradesToUnit(unit);
   }
 
   spawnUpgradeTurret(owner, ability = {}) {
@@ -2388,6 +2857,7 @@ export class Game {
 
   updatePlayerBaseAttack(dt) {
     if (this.levelFinished || !this.playerBase?.alive) return;
+    if ((this.playerBase.structureDurability ?? 0) <= 0) return;
     this.playerBaseAttackTimer = Math.max(0, (this.playerBaseAttackTimer ?? 0) - dt);
     if (this.playerBaseAttackTimer > 0) return;
     const target = this.findPlayerBaseAttackTarget();
@@ -2425,6 +2895,9 @@ export class Game {
     if (!target?.alive || !target.takeRawDamage) return;
     const damage = Math.max(0, BALANCE.playerBase.attackDamage ?? 7);
     if (damage <= 0) return;
+    const durabilityCost = Math.max(0, BALANCE.playerBase.attackDurabilityCost ?? 1);
+    if ((this.playerBase.structureDurability ?? 0) < durabilityCost) return;
+    this.spendStructureDurability(this.playerBase, durabilityCost);
     const start = this.playerBase.position.clone();
     start.y += this.playerBase.projectileHitHeight ?? 2.1;
     const end = target.position.clone();
@@ -2442,12 +2915,13 @@ export class Game {
       duration: 0.72
     });
     if (target.alive === false) {
-      this.handleUnitDeath(target, null);
+      this.handleUnitDeath(target, this.playerBase);
     }
   }
 
   updateEnemyCampAttack(dt) {
     if (this.levelFinished || !this.enemyCamp?.alive) return;
+    if ((this.enemyCamp.structureDurability ?? 0) <= 0) return;
     this.enemyCampAttackTimer = Math.max(0, (this.enemyCampAttackTimer ?? 0) - dt);
     if (this.enemyCampAttackTimer > 0) return;
     const target = this.findEnemyCampAttackTarget();
@@ -2485,6 +2959,9 @@ export class Game {
     if (!target?.alive || !target.takeRawDamage) return;
     const damage = Math.max(0, BALANCE.enemyCamp.attackDamage ?? 7);
     if (damage <= 0) return;
+    const durabilityCost = Math.max(0, BALANCE.enemyCamp.attackDurabilityCost ?? 1);
+    if ((this.enemyCamp.structureDurability ?? 0) < durabilityCost) return;
+    this.spendStructureDurability(this.enemyCamp, durabilityCost);
     const start = this.enemyCamp.position.clone();
     start.y += this.enemyCamp.projectileHitHeight ?? 2.2;
     const end = target.position.clone();
@@ -2503,28 +2980,31 @@ export class Game {
     }
   }
 
-  spawnEnemyWave(threatTier, { orders = 'attack', waveConfig = null } = {}) {
-    const difficulty = waveConfig?.effectiveDifficulty ?? this.effectiveDifficultyForThreat(threatTier);
+  spawnEnemyWave(waveNumber, { orders = 'attack', waveConfig = null } = {}) {
+    const waveIndex = waveConfig?.index ?? waveNumber;
+    const difficulty = waveConfig?.effectiveDifficulty ?? this.effectiveDifficultyForWave(waveIndex);
     const count = waveConfig?.count ?? Math.min(
       MAX_ACTIVE_WAVE_SPAWNS,
-      2 + Math.floor(threatTier * 0.72) + Math.floor((difficulty - 1) * 0.45)
+      2 + Math.floor(waveIndex * 0.72) + Math.floor((difficulty - 1) * 0.45)
     );
+    const spawnPoints = this.getEnemyForceSpawnPoints(count);
     const spawnedUnits = [];
     for (let i = 0; i < count; i += 1) {
+      const spawnBase = spawnPoints[i % spawnPoints.length] ?? this.enemyCamp.position;
       const offset = polarOffset(i, count, 1.2 + (i % 3) * 0.45);
-      const position = this.resolveWalkablePoint(this.enemyCamp.position.clone().setY(0).add(offset));
+      const position = this.resolveWalkablePoint(spawnBase.clone().setY(0).add(offset));
       position.y = this.groundHeightAt(position);
       const unit = new UnitEntity({
-        type: this.enemyTypeForThreat(threatTier, i, difficulty, waveConfig),
+        type: this.enemyTypeForThreat(waveIndex, i, difficulty, waveConfig),
         team: TEAMS.ENEMY,
         position
       });
       unit.enemyForce = waveConfig ?? null;
-      this.applyEnemyDifficulty(unit, threatTier, difficulty);
+      this.applyEnemyDifficulty(unit, waveIndex, difficulty);
       this.applyOpeningForceScaling(unit, waveConfig);
       this.applyEnemyForceModifiers(unit, waveConfig, i);
       this.applyEnemyForceAffixModifiers(unit, waveConfig);
-      this.applySpiderSpawnTraits(unit, threatTier, difficulty, i);
+      this.applySpiderSpawnTraits(unit, waveIndex, difficulty, i);
       this.initializeSpiderLifecycle(unit);
       this.attachUnitStatus(unit);
       this.registerUnit(unit);
@@ -2533,7 +3013,8 @@ export class Game {
         this.orderEnemyAttack(unit, i, count);
       }
     }
-    this.enemyCommander?.registerWave(spawnedUnits, threatTier, orders);
+    this.enemyCommander?.registerWave(spawnedUnits, waveIndex, orders, waveConfig);
+    this.enemyEnchantment?.enchantSpawnWave?.(spawnedUnits, waveConfig);
   }
 
   enemyTypeForThreat(threatTier, index, difficulty, waveConfig = null) {
@@ -2572,12 +3053,13 @@ export class Game {
     if (!waveConfig) return;
     if (waveConfig.kind === 'elite') {
       if (index !== 0) return;
+      const eliteScale = BALANCE.waveScaling ?? {};
       unit.isElite = true;
       unit.name = `精英${unit.name}`;
       unit.attributes.addModifiers([
-        { stat: 'maxHealth', type: 'multiply', amount: 1.55 },
-        { stat: 'maxShield', type: 'multiply', amount: 1.55 },
-        { stat: 'attackDamage', type: 'multiply', amount: 1.22 },
+        { stat: 'maxHealth', type: 'multiply', amount: (eliteScale.eliteHealthMultiply ?? 1.45) * 0.5 },
+        { stat: 'maxShield', type: 'multiply', amount: (eliteScale.eliteHealthMultiply ?? 1.45) * 0.5 },
+        { stat: 'attackDamage', type: 'multiply', amount: eliteScale.eliteDamageMultiply ?? 1.16 },
         { stat: 'knockbackResistance', type: 'add', amount: 0.14 }
       ], `force:${waveConfig.id ?? waveConfig.index ?? 0}:elite`);
       unit.health = unit.maxHealth;
@@ -2589,19 +3071,40 @@ export class Game {
     if (waveConfig.kind !== 'boss') return;
     if (index === 0) {
       const bossRank = Math.max(1, waveConfig.bossOrdinal ?? 1);
+      const bossScale = BALANCE.waveScaling ?? {};
       unit.isBoss = true;
       unit.name = `Boss ${unit.name}`;
       unit.attributes.addModifiers([
-        { stat: 'maxHealth', type: 'multiply', amount: 4.4 + bossRank * 0.65 },
-        { stat: 'maxShield', type: 'multiply', amount: 3.6 + bossRank * 0.45 },
-        { stat: 'attackDamage', type: 'multiply', amount: 1.35 + bossRank * 0.12 },
-        { stat: 'knockback', type: 'multiply', amount: 1.18 },
-        { stat: 'knockbackResistance', type: 'add', amount: 0.28 + bossRank * 0.04 }
+        {
+          stat: 'maxHealth',
+          type: 'multiply',
+          amount: (bossScale.bossHealthBase ?? 2.5) + bossRank * (bossScale.bossHealthPerRank ?? 0.3)
+        },
+        {
+          stat: 'maxShield',
+          type: 'multiply',
+          amount: (bossScale.bossShieldBase ?? 1.95) + bossRank * (bossScale.bossShieldPerRank ?? 0.2)
+        },
+        {
+          stat: 'attackDamage',
+          type: 'multiply',
+          amount: (bossScale.bossDamageBase ?? 1.22) + bossRank * (bossScale.bossDamagePerRank ?? 0.08)
+        },
+        { stat: 'knockback', type: 'multiply', amount: 1.12 },
+        { stat: 'knockbackResistance', type: 'add', amount: 0.22 + bossRank * 0.03 }
       ], `force:${waveConfig.id ?? waveConfig.index ?? 0}:boss`);
+      const bossStatMultiply = bossScale.bossStatMultiply ?? 1;
+      if (Math.abs(bossStatMultiply - 1) > 0.001) {
+        unit.attributes.addModifiers([
+          { stat: 'maxHealth', type: 'multiply', amount: bossStatMultiply },
+          { stat: 'maxShield', type: 'multiply', amount: bossStatMultiply },
+          { stat: 'attackDamage', type: 'multiply', amount: bossStatMultiply }
+        ], `force:${waveConfig.id ?? waveConfig.index ?? 0}:boss-scale`);
+      }
       unit.health = unit.maxHealth;
       unit.shield = unit.maxShield;
       unit.weapon.durability = unit.weapon.maxDurability;
-      unit.visualRoot?.scale?.multiplyScalar?.(1.32);
+      unit.visualRoot?.scale?.multiplyScalar?.(unit.type === 'frostTrollBoss' ? 1 : 1.32);
       unit.projectileHitHeight = (unit.projectileHitHeight ?? 1.6) * 1.18;
       return;
     }
@@ -2615,19 +3118,8 @@ export class Game {
   }
 
   applyEnemyForceAffixModifiers(unit, waveConfig) {
-    const affixId = waveConfig?.affixId;
-    if (!affixId) return;
-    const affix = WAVE_AFFIX_DEFINITIONS[affixId];
-    if (!affix?.buffId) return;
-    const applied = this.buffs.applyBuff(unit, affix.buffId, unit, {
-      level: waveAffixLevel(waveConfig),
-      sourceWaveAffix: affixId
-    });
-    if (!applied) return;
-    unit.health = unit.maxHealth;
-    unit.shield = Math.min(unit.shield, unit.maxShield);
-    unit.weapon.durability = unit.weapon.maxDurability;
-    unit.statusUiDirty = true;
+    void unit;
+    void waveConfig;
   }
 
   levelBaseDifficulty() {
@@ -2638,13 +3130,22 @@ export class Game {
     return resolveSessionBaseDifficulty(this.levelSession);
   }
 
-  effectiveDifficultyForThreat(threatTier = this.enemyDirector?.threatTier ?? 1) {
+  effectiveDifficultyForWave(wave = this.wave) {
+    return this.effectiveDifficulty() + waveDifficultyBonus(wave, this.levelSession);
+  }
+
+  effectiveDifficultyForThreat(threatTier = this.currentWave?.index ?? this.wave ?? 1) {
     return this.effectiveDifficulty() + Math.max(0, Math.floor(threatTier) - 1);
   }
 
   applyEnemyDifficulty(unit, threatTier, difficulty) {
-    const healthFactor = 1 + (difficulty - 1) * 0.14 + (threatTier - 1) * 0.035;
-    const damageFactor = 1 + (difficulty - 1) * 0.12 + (threatTier - 1) * 0.025;
+    const scale = BALANCE.waveScaling ?? {};
+    const healthFactor = 1
+      + (difficulty - 1) * (scale.difficultyHealthPerLevel ?? 0.11)
+      + (threatTier - 1) * (scale.threatHealthPerTier ?? 0.028);
+    const damageFactor = 1
+      + (difficulty - 1) * (scale.difficultyDamagePerLevel ?? 0.1)
+      + (threatTier - 1) * (scale.threatDamagePerTier ?? 0.022);
     unit.attributes.addModifiers([
       {
         stat: 'maxHealth',
@@ -2879,11 +3380,7 @@ export class Game {
 
     const groundOffset = groundY - unit.position.y;
     if (groundOffset > UNIT_GROUND_EPSILON) {
-      if (groundOffset > UNIT_MAX_SMOOTH_CLIMB_HEIGHT) {
-        unit.position.y = groundY;
-      } else {
-        unit.position.y += Math.min(groundOffset, UNIT_CLIMB_SPEED * dt);
-      }
+      unit.position.y = groundY;
       unit.verticalVelocity = 0;
       unit.grounded = true;
       return;
@@ -3327,6 +3824,7 @@ export class Game {
     this.playerBase.invincible = Boolean(enabled);
     if (!this.playerBase.invincible) return;
     this.playerBase.health = this.playerBase.maxHealth;
+    this.playerBase.structureDurability = this.playerBase.maxStructureDurability;
     this.playerBase.alive = true;
     this.playerBase.healthLagRatio = 1;
     this.playerBase.healthLagDelay = 0;
@@ -3339,6 +3837,7 @@ export class Game {
   damagePlayerBase(amount) {
     if (this.playerBase.invincible) {
       this.playerBase.health = this.playerBase.maxHealth;
+      this.playerBase.structureDurability = this.playerBase.maxStructureDurability;
       this.playerBase.alive = true;
       this.playerBase.healthLagRatio = 1;
       this.playerBase.healthLagDelay = 0;
@@ -3347,6 +3846,7 @@ export class Game {
     }
     const previousHealth = this.playerBase.health;
     this.playerBase.health = Math.max(0, this.playerBase.health - amount);
+    this.spendStructureDurability(this.playerBase, 1);
     registerStructureHealthLoss(this.playerBase, previousHealth, this.elapsedTime);
     this.playerBase.alive = this.playerBase.health > 0;
     this.updateStructureStatusElement(this.playerBase, 0);
@@ -3356,12 +3856,16 @@ export class Game {
     this.effects.spawnDamageNumber(this.playerBase.position, amount, {
       height: 2.55
     });
+    if (!this.playerBase.alive) {
+      this.playerBase.health = 0;
+    }
   }
 
   damageEnemyCamp(amount) {
     if (!this.enemyCamp.alive) return;
     const previousHealth = this.enemyCamp.health;
     this.enemyCamp.health = Math.max(0, this.enemyCamp.health - amount);
+    this.spendStructureDurability(this.enemyCamp, 1);
     registerStructureHealthLoss(this.enemyCamp, previousHealth, this.elapsedTime);
     this.enemyCamp.alive = this.enemyCamp.health > 0;
     this.updateStructureStatusElement(this.enemyCamp, 0);
@@ -3371,7 +3875,14 @@ export class Game {
     this.effects.spawnDamageNumber(this.enemyCamp.position, amount, {
       height: 2.7
     });
+    const campDamageRatio = amount / Math.max(1, this.enemyCamp.maxHealth);
+    if (campDamageRatio >= 0.02) {
+      const rewards = this.enemyDirectorConfig.battleRewards ?? {};
+      const grant = campDamageRatio * (Number(rewards.campDamageRatio) || 3.2);
+      this.grantEnemyEnergy(grant, this.enemyCamp.position);
+    }
     if (!this.enemyCamp.alive) {
+      this.enemyCamp.health = 0;
       this.finishLevel(true);
     }
   }
@@ -3394,7 +3905,7 @@ export class Game {
     this.onLevelComplete?.({
       victory,
       elapsedTime: this.elapsedTime,
-      threat: Number(this.enemyDirector.threat.toFixed(1)),
+      threat: this.wave,
       session: this.levelSession,
       playerBaseHealth: this.playerBase.health,
       enemyCampHealth: this.enemyCamp.health,
@@ -3626,15 +4137,32 @@ export class Game {
     }
     if (key === 'escape') {
       event.preventDefault();
+      if (this.runShopOpen) {
+        if (this.runShopActiveCategory) {
+          this.clearRunShopSelection();
+        } else {
+          this.closeRunShop();
+        }
+        return;
+      }
       this.setPaused(!this.paused, '设置');
       return;
     }
-    if (this.paused) return;
+    if (key === 'b') {
+      event.preventDefault();
+      this.toggleRunShop();
+      return;
+    }
     if (key === 'n') {
       event.preventDefault();
       this.setNavDebugEnabled(!this.navDebugEnabled);
+      this.cardSystem?.setHint?.(
+        this.navDebugEnabled ? '寻路网格：开启（N 关闭）' : '寻路网格：关闭（N 开启）',
+        'nav-debug'
+      );
       return;
     }
+    if (this.paused) return;
     if (!this.selectedUnits.some((unit) => unit.alive && unit.team === TEAMS.PLAYER)) return;
     if (key === 's') {
       event.preventDefault();
@@ -4256,6 +4784,8 @@ export class Game {
     }
     if (this.navDebugEnabled) {
       this.ensureNavDebugGrid();
+    } else {
+      this.cardSystem?.clearHint?.('nav-debug');
     }
   }
 
@@ -4397,15 +4927,54 @@ export class Game {
     const element = structure.statusElement;
     if (!element?.parts) return;
     const hpRatio = clamp(structure.health / structure.maxHealth, 0, 1);
+    const durabilityRatio = clamp(
+      structure.structureDurability / Math.max(1, structure.maxStructureDurability),
+      0,
+      1
+    );
     updateStructureHealthLag(structure, hpRatio, dt);
     element.parts.hp.style.transform = `scaleX(${hpRatio})`;
     element.parts.healthLoss.style.transform = `scaleX(${structure.healthLagRatio})`;
     element.parts.healthLoss.hidden = structure.healthLagRatio <= hpRatio + 0.006;
+    if (element.parts.durability) {
+      element.parts.durability.style.transform = `scaleX(${durabilityRatio})`;
+    }
     updateHealthTicks(element.parts.ticks, structure.maxHealth);
     const screen = this.projectWorldUi(structure.position, structure.statusHeight ?? 2.8);
     element.hidden = !structure.alive || !screen.visible;
     if (element.hidden) return;
     element.style.transform = `translate3d(${screen.x}px, ${screen.y}px, 0) translate(-50%, -100%)`;
+  }
+
+  spendStructureDurability(structure, amount = 1) {
+    if (!structure) return;
+    structure.structureDurability = Math.max(
+      0,
+      (structure.structureDurability ?? 0) - Math.max(0, amount)
+    );
+  }
+
+  repairStructure(structure, { healthPercent = 0, durabilityPercent = 0 } = {}) {
+    if (!structure?.alive) return { health: 0, durability: 0 };
+    const previousHealth = structure.health;
+    const healthGain = Math.max(0, structure.maxHealth * healthPercent);
+    const durabilityGain = Math.max(0, structure.maxStructureDurability * durabilityPercent);
+    if (healthGain > 0) {
+      structure.health = Math.min(structure.maxHealth, structure.health + healthGain);
+      registerStructureHealthLoss(structure, previousHealth, this.elapsedTime);
+    }
+    if (durabilityGain > 0) {
+      structure.structureDurability = Math.min(
+        structure.maxStructureDurability,
+        (structure.structureDurability ?? 0) + durabilityGain
+      );
+    }
+    structure.alive = structure.health > 0;
+    this.updateStructureStatusElement(structure, 0);
+    return {
+      health: Math.max(0, structure.health - previousHealth),
+      durability: durabilityGain
+    };
   }
 
   updateHud(dt = 0) {
@@ -4421,10 +4990,14 @@ export class Game {
       );
       this.dom.baseHealth.textContent = `${baseRatio}%`;
     }
-    this.dom.waveLabel.textContent = this.enemyDirector.threat.toFixed(1);
+    this.dom.waveLabel.textContent = this.currentWave
+      ? `${this.currentWave.index}/${this.waveSchedule.length}`
+      : (this.wave > 0 ? '整备' : '准备');
+    if (this.dom.silverCount) {
+      this.dom.silverCount.textContent = formatSilverAmount(this.silver);
+    }
     this.dom.battleTime.textContent = formatBattleTime(this.elapsedTime);
     this.dom.unitCount.textContent = String(this.friendlyUnits.length);
-    this.updateEnemyDirectorPanel();
     if (this.selectedUnits.length > 1) {
       if (this.dom.selectedPanel) this.dom.selectedPanel.hidden = false;
       const totalHealth = Math.round(
@@ -4492,7 +5065,7 @@ export class Game {
     this.perfHistory.push({
       sampleId: sample.sampleId,
       elapsedTime: Number(this.elapsedTime.toFixed(1)),
-      threat: Number(this.enemyDirector.threat.toFixed(1)),
+      threat: this.wave,
       fps: sample.fps ?? 0,
       sections: sample.sections ?? {},
       counts: sample.counts ?? {}
@@ -4596,19 +5169,14 @@ export class Game {
   }
 
   enemyDirectorSnapshot() {
-    const director = this.enemyDirector;
+    const wave = this.currentWave ?? this.waveSchedule[this.waveIndex] ?? null;
     return {
-      energy: Number(director.energy.toFixed(2)),
-      maxEnergy: this.enemyEnergyCapacity(),
-      energyPerSecond: Number(this.enemyEnergyRecoveryPerSecond().toFixed(2)),
-      threat: Number(director.threat.toFixed(2)),
-      threatTier: director.threatTier,
-      targetKind: this.enemyForceTargetKind(),
-      initialDelaySeconds: Number(Math.max(0, director.initialDelayRemaining).toFixed(1)),
-      eliteCooldownSeconds: Number(Math.max(0, director.eliteCooldown).toFixed(1)),
-      bossCooldownSeconds: Number(Math.max(0, director.bossCooldown).toFixed(1)),
-      forcesDeployed: director.forceSerial,
-      bossesDeployed: director.bossesDeployed
+      wave: this.wave,
+      waveIndex: this.waveIndex,
+      waveKind: wave?.kind ?? 'normal',
+      bossOrdinal: wave?.bossOrdinal ?? 0,
+      bossesDefeated: this.bossesDefeated,
+      totalWaves: this.waveSchedule.length
     };
   }
 
@@ -4617,7 +5185,7 @@ export class Game {
       level: this.levelSession.level.id,
       sceneKey: this.world.config?.sceneKey ?? this.worldConfig.sceneKey,
       elapsedTime: Number(this.elapsedTime.toFixed(1)),
-      threat: Number(this.enemyDirector.threat.toFixed(1)),
+      wave: this.wave,
       enemyDirector: this.enemyDirectorSnapshot(),
       counts: this.createPerfCounters(),
       pathWorker: {
@@ -4638,7 +5206,7 @@ export class Game {
       elapsedTime: Number(this.elapsedTime.toFixed(1)),
       friendly: this.friendlyUnits.length,
       enemies: this.enemyUnits.length,
-      threat: Number(this.enemyDirector.threat.toFixed(1)),
+      threat: this.wave,
       enemyDirector: this.enemyDirectorSnapshot(),
       pendingStrategyRewards: this.pendingStrategyRewards.length,
       currentEnemyForce: this.currentEnemyForce
@@ -4793,35 +5361,100 @@ function normalizeLevelSession(session) {
   };
 }
 
-function enemyForceCount({ requestedKind, kind, threatTier, availableSlots, bossOrdinal }) {
+function enemyForceCount({ requestedKind, kind, threatTier, availableSlots, bossOrdinal, affixId }) {
+  const affixBonusRaw = Math.max(0, Math.floor(WAVE_AFFIX_DEFINITIONS[affixId]?.countBonus ?? 0));
+  const affixBonus = threatTier >= 5 ? affixBonusRaw : Math.min(affixBonusRaw, 1);
   if (kind === 'boss') {
-    return Math.min(availableSlots, 2 + Math.floor(Math.max(0, bossOrdinal - 1) / 2));
+    return Math.min(availableSlots, 2 + Math.floor(Math.max(0, bossOrdinal - 1) / 2) + affixBonus);
   }
   if (kind === 'elite') {
-    return Math.min(availableSlots, 2 + Math.floor(Math.max(0, threatTier - 4) / 4));
+    return Math.min(availableSlots, 2 + Math.floor(Math.max(0, threatTier - 4) / 3) + affixBonus);
   }
   if (requestedKind === 'normal-squad') {
-    return Math.min(availableSlots, 2 + Math.floor(Math.max(0, threatTier - 4) / 5));
+    const baseCount = threatTier <= 2
+      ? 2
+      : threatTier <= 4
+        ? 3
+        : 3 + Math.floor((threatTier - 4) / 2);
+    return Math.min(availableSlots, baseCount + affixBonus);
   }
   return 1;
 }
 
-function enemyForceTypes({ level, forceId, kind, count, difficulty, threatTier, bossOrdinal, opening }) {
+function collectPlayerCompositionBias(friendlyUnits) {
+  const units = (friendlyUnits ?? []).filter((unit) => unit?.alive && !unit.isWildlife);
+  let melee = 0;
+  let ranged = 0;
+  let buildings = 0;
+  let support = 0;
+  units.forEach((unit) => {
+    if (unit.isBuilding) {
+      buildings += 1;
+      return;
+    }
+    const role = unit.definition?.role;
+    if (unit.definition?.support || role === 'support') support += 1;
+    else if (role === 'ranged') ranged += 1;
+    else melee += 1;
+  });
+  return { melee, ranged, buildings, support, total: units.length };
+}
+
+function compositionPreferredTypes(bias, enemyPool) {
+  const preferred = new Set();
+  if (!bias || bias.total < 3 || !Array.isArray(enemyPool)) return preferred;
+  enemyPool.forEach((entry) => {
+    const type = entry?.type;
+    const definition = UNIT_DEFINITIONS[type];
+    if (!definition) return;
+    if (bias.buildings >= 1 && definition.role === 'melee' && (definition.attackRange ?? 1.5) <= 2.6) {
+      preferred.add(type);
+    }
+    if (bias.ranged >= bias.melee && bias.ranged >= 3 && definition.role === 'melee') {
+      preferred.add(type);
+    }
+    if (bias.melee >= bias.ranged + 2 && bias.melee >= 4 && definition.role === 'ranged') {
+      preferred.add(type);
+    }
+    if (bias.support >= 1 && (definition.moveSpeed ?? 0) >= 3.1) {
+      preferred.add(type);
+    }
+  });
+  return preferred;
+}
+
+function enemyForceTypes({
+  level,
+  forceId,
+  kind,
+  count,
+  difficulty,
+  threatTier,
+  bossOrdinal,
+  opening,
+  affixId,
+  compositionPreferred = null
+}) {
   const enemyPool = Array.isArray(level?.enemyPool) ? level.enemyPool : [];
   const elitePool = Array.isArray(level?.elitePool) ? level.elitePool : [];
   const bossPool = Array.isArray(level?.bossPool) ? level.bossPool : [];
+  const affixPreferred = new Set(WAVE_AFFIX_DEFINITIONS[affixId]?.preferredTypes ?? []);
+  const compositionSet = compositionPreferred instanceof Set
+    ? compositionPreferred
+    : new Set(compositionPreferred ?? []);
+  const preferred = new Set([...affixPreferred, ...compositionSet]);
   return Array.from({ length: count }, (_, unitIndex) => {
     if (kind === 'boss' && unitIndex === 0) {
-      return selectEnemyFromPool(bossPool, threatTier, forceId + bossOrdinal, difficulty) ??
+      return selectEnemyFromPool(bossPool, threatTier, forceId + bossOrdinal, difficulty, preferred) ??
         enemyBossType(enemyPool, forceId, difficulty, threatTier, bossOrdinal);
     }
     if (kind === 'elite' && unitIndex === 0) {
-      return selectEnemyFromPool(elitePool, threatTier, forceId, difficulty) ??
-        selectEnemyFromPool(enemyPool, threatTier, forceId, difficulty) ??
+      return selectEnemyFromPool(elitePool, threatTier, forceId, difficulty, preferred) ??
+        selectEnemyFromPool(enemyPool, threatTier, forceId, difficulty, preferred) ??
         'goblinSoldier';
     }
     if (opening) return 'goblinSoldier';
-    return selectEnemyFromPool(enemyPool, threatTier, forceId + unitIndex, difficulty) ?? 'goblinSoldier';
+    return selectEnemyFromPool(enemyPool, threatTier, forceId + unitIndex, difficulty, preferred) ?? 'goblinSoldier';
   });
 }
 
@@ -4928,8 +5561,8 @@ function strategyAssaultPreview(assault) {
     .slice(0, 2)
     .map((type) => UNIT_DEFINITIONS[type]?.name ?? type)
     .join(' / ');
-  const affix = assault.affixId ? ` · ${waveAffixLabel(assault.affixId)}` : '';
-  return `${assault.count} 名${types ? ` · ${types}` : ''}${affix}`;
+  const affix = waveAffixListLabel(assault);
+  return `${assault.count} 名${types ? ` · ${types}` : ''}${affix ? ` · ${affix}` : ''}`;
 }
 
 function createWaveSchedule(session) {
@@ -4937,48 +5570,50 @@ function createWaveSchedule(session) {
   const baseDifficulty = resolveSessionBaseDifficulty(session);
   const selectedDifficulty = clampLevelDifficulty(session?.difficulty ?? 1);
   const difficultyGrowth = resolveSessionDifficultyGrowth(session);
-  const seed = hashStringToSeed(
-    `${level.id ?? 'level'}:${session.startedAt ?? Date.now()}:${baseDifficulty}:${selectedDifficulty}:${difficultyGrowth.toFixed(3)}`
-  );
-  const random = seededRandom(seed);
   const affixFlow = normalizeWaveAffixFlow(level.waveAffixFlow);
-  const monsterPool = normalizeTypePool(level.waveMonsterTypes ?? WAVE_MONSTER_TYPES, WAVE_MONSTER_TYPES);
-  const bossPool = normalizeTypePool(level.waveBossTypes ?? WAVE_BOSS_TYPES, WAVE_BOSS_TYPES);
-  const totalWaves = BOSS_WAVES_TO_WIN * WAVES_PER_BOSS;
+  const totalWaves = TOTAL_WAVES;
   const schedule = [];
 
   for (let index = 1; index <= totalWaves; index += 1) {
     const isBoss = index % WAVES_PER_BOSS === 0;
     const kind = isBoss ? 'boss' : index % ELITE_WAVE_INTERVAL === 0 ? 'elite' : 'normal';
     const bossOrdinal = isBoss ? Math.floor(index / WAVES_PER_BOSS) : 0;
+    const opening = index <= 2;
     const difficultyBonus = waveDifficultyBonus(index, difficultyGrowth);
     const effectiveDifficulty = baseDifficulty + difficultyBonus;
     const affixId = chooseWaveAffix(index, kind, affixFlow);
+    const affixIds = chooseWaveAffixes(index, kind, affixFlow, effectiveDifficulty);
     const affix = WAVE_AFFIX_DEFINITIONS[affixId];
-    const waveMonsterPool = filterWaveMonsterPool(monsterPool, index, effectiveDifficulty);
-    const waveBossPool = filterWaveBossPool(bossPool, bossOrdinal, effectiveDifficulty);
     const countBonus = waveAffixCountBonus(affix, index, kind);
     const count = Math.min(
       MAX_ACTIVE_WAVE_SPAWNS,
       waveEnemyCount(kind, index, effectiveDifficulty, bossOrdinal) + countBonus
     );
-    const types = waveEnemyTypes({
+    const types = enemyForceTypes({
+      level,
+      forceId: index,
       kind,
       count,
-      random,
-      monsterPool: waveMonsterPool,
-      bossPool: waveBossPool,
-      affixId
+      difficulty: effectiveDifficulty,
+      threatTier: index,
+      bossOrdinal,
+      opening,
+      affixId,
+      compositionPreferred: new Set()
     });
     schedule.push({
+      id: index,
       index,
       kind,
       affixId,
+      affixIds,
       bossOrdinal,
       count,
       types,
       effectiveDifficulty,
-      difficultyBonus
+      difficultyBonus,
+      threatTier: index,
+      opening
     });
   }
 
@@ -5096,9 +5731,58 @@ function normalizeWaveAffixFlow(flow) {
 }
 
 function chooseWaveAffix(index, kind, flow = DEFAULT_WAVE_AFFIX_FLOW) {
-  const affixId = flow[(index - 1) % flow.length];
-  if (WAVE_AFFIX_DEFINITIONS[affixId]) return affixId;
-  return kind === 'boss' ? 'siege' : 'swarm';
+  const affixIds = chooseWaveAffixes(index, kind, flow, 1);
+  return affixIds[0] ?? (kind === 'boss' ? 'siege' : 'swarm');
+}
+
+function chooseWaveAffixes(index, kind, flow = DEFAULT_WAVE_AFFIX_FLOW, effectiveDifficulty = 1) {
+  const normalized = normalizeWaveAffixFlow(flow);
+  const count = waveAffixCount(index, kind, effectiveDifficulty);
+  const affixIds = [];
+  for (let offset = 0; offset < count; offset += 1) {
+    const affixId = normalized[(index - 1 + offset) % normalized.length];
+    if (!WAVE_AFFIX_DEFINITIONS[affixId] || affixIds.includes(affixId)) continue;
+    affixIds.push(affixId);
+  }
+  if (!affixIds.length) {
+    affixIds.push(kind === 'boss' ? 'siege' : 'swarm');
+  }
+  return affixIds;
+}
+
+function waveAffixCount(index, kind, effectiveDifficulty = 1) {
+  if (index <= 2) return 1;
+  let count = 1;
+  const difficulty = Math.max(1, Math.floor(effectiveDifficulty ?? 1));
+  if (difficulty >= 3) count = 2;
+  if (difficulty >= 5 && (kind === 'elite' || kind === 'boss')) count = Math.max(count, 2);
+  if (difficulty >= 7 && kind === 'boss') count = 3;
+  if (difficulty >= 9 && kind === 'elite') count = 3;
+  return Math.min(3, count);
+}
+
+function waveAffixIdsForConfig(waveConfig) {
+  if (Array.isArray(waveConfig?.affixIds) && waveConfig.affixIds.length) {
+    return waveConfig.affixIds.filter((affixId) => WAVE_AFFIX_DEFINITIONS[affixId]);
+  }
+  return waveConfig?.affixId ? [waveConfig.affixId] : [];
+}
+
+function waveAffixPreviewLabel(wave) {
+  const affixIds = waveAffixIdsForConfig(wave);
+  if (!affixIds.length) return '';
+  return affixIds
+    .map((affixId) => {
+      const affix = WAVE_AFFIX_DEFINITIONS[affixId];
+      return affix ? `${affix.name}附魔` : affixId;
+    })
+    .join(' · ');
+}
+
+function waveAffixPreviewMarkup(wave) {
+  const label = waveAffixPreviewLabel(wave);
+  if (!label) return '';
+  return `<span class="wave-preview-affix">${escapeHtml(label)}</span>`;
 }
 
 function waveAffixLevel(waveConfig) {
@@ -5112,10 +5796,32 @@ function waveKindLabel(wave) {
   return '普通';
 }
 
+function waveKindShortLabel(wave) {
+  if (wave.kind === 'boss') return 'Boss';
+  if (wave.kind === 'elite') return '精英';
+  return '普通';
+}
+
+function cardRunLocationLabel(game, card) {
+  const cs = game?.cardSystem;
+  if (!cs || !card) return '卡牌';
+  if (cs.handCards.includes(card)) return '手牌';
+  if (cs.temporaryCards.includes(card)) return '临时';
+  if (cs.drawPile.includes(card)) return '抽牌堆';
+  if (cs.discardPile.includes(card)) return '弃牌堆';
+  return '卡牌';
+}
+
 function waveAffixLabel(affixId) {
   const affix = WAVE_AFFIX_DEFINITIONS[affixId];
   if (!affix) return '无词缀';
-  return `${affix.name}`;
+  return `${affix.name}附魔`;
+}
+
+function waveAffixListLabel(wave) {
+  const affixIds = waveAffixIdsForConfig(wave);
+  if (!affixIds.length) return '无词缀';
+  return affixIds.map((affixId) => waveAffixLabel(affixId)).join(' · ');
 }
 
 function waveEventKicker(wave) {
@@ -5123,11 +5829,12 @@ function waveEventKicker(wave) {
   const forceThreat = Number(wave.threat ?? wave.threatTier);
   if (Number.isFinite(forceThreat) || wave.requestedKind) {
     const kind = wave.requestedKind ?? wave.kind ?? 'normal';
-    const affix = wave.affixId ? ` · ${waveAffixLabel(wave.affixId)}` : '';
+    const affix = waveAffixListLabel(wave);
+    const affixText = affix && affix !== '无词缀' ? ` · ${affix}` : '';
     const threat = Number.isFinite(forceThreat) ? ` / 威胁 ${forceThreat.toFixed(1)}` : '';
-    return `敌军${enemyForceKindLabel(kind)}${threat}${affix}`;
+    return `敌军${enemyForceKindLabel(kind)}${threat}${affixText}`;
   }
-  return `第 ${wave.index} 波结束 / ${waveKindLabel(wave)} · ${waveAffixLabel(wave.affixId)}`;
+  return `第 ${wave.index} 波结束 / ${waveKindLabel(wave)} · ${waveAffixListLabel(wave)}`;
 }
 
 function pickRandomItems(items, count) {
@@ -5206,53 +5913,30 @@ function runtimeUnitUpgradeDefinition(unitType, upgradeId) {
 }
 
 function unitGenericUpgradeModifiers(unit, upgrade, index = 0) {
-  const sourceSuffix = `${upgrade.id}:${index}`;
+  void unit;
+  void index;
   if (upgrade.stat === 'vitality') {
-    const baseHealth = Math.max(0, unit.definition.maxHealth ?? 0);
-    const baseDurability = Math.max(0, unit.definition.weapon?.maxDurability ?? 0);
     return [
-      {
-        id: `${sourceSuffix}:health`,
-        stat: 'maxHealth',
-        type: 'add',
-        amount: baseHealth * 0.5
-      },
-      {
-        id: `${sourceSuffix}:durability`,
-        stat: 'maxDurability',
-        type: 'add',
-        amount: baseDurability * 0.5
-      }
+      { stat: 'maxHealth', type: 'multiply', percent: 0.1 },
+      { stat: 'maxDurability', type: 'multiply', percent: 0.1 }
     ];
   }
   if (upgrade.stat === 'attack') {
-    const baseAttack = Math.max(0, unit.definition.damage ?? 0);
-    return [{
-      id: `${sourceSuffix}:attack`,
-      stat: 'attackDamage',
-      type: 'add',
-      amount: baseAttack * 0.5
-    }];
+    return [{ stat: 'attackDamage', type: 'multiply', percent: 0.1 }];
   }
   if (upgrade.stat === 'armor') {
-    const baseArmor = Math.max(0, unit.definition.armor ?? 0);
-    return [{
-      id: `${sourceSuffix}:armor`,
-      stat: 'armor',
-      type: 'add',
-      amount: baseArmor > 0 ? baseArmor * 0.5 : 1
-    }];
+    return [{ stat: 'armor', type: 'multiply', percent: 0.1 }];
   }
   if (upgrade.stat === 'magicResistance') {
-    const baseResistance = Math.max(0, unit.definition.magicResistance ?? 0);
-    return [{
-      id: `${sourceSuffix}:magicResistance`,
-      stat: 'magicResistance',
-      type: 'add',
-      amount: baseResistance > 0 ? baseResistance * 0.5 : 1
-    }];
+    return [{ stat: 'magicResistance', type: 'multiply', percent: 0.1 }];
   }
   return [];
+}
+
+function scaleUnitHealthAfterMaxHealthChange(unit, previousMaxHealth) {
+  const prevMax = Math.max(1, previousMaxHealth);
+  const ratio = clamp(unit.health / prevMax, 0, 1);
+  unit.health = Math.max(1, unit.maxHealth * ratio);
 }
 
 function applySupportUpgrade(unit, supportModifiers) {
@@ -5263,6 +5947,12 @@ function applySupportUpgrade(unit, supportModifiers) {
     if (Number.isFinite(modifier.amountFactor) && Number.isFinite(ability.amount)) {
       ability.amount *= modifier.amountFactor;
     }
+    if (Number.isFinite(modifier.amountFactor) && Number.isFinite(ability.baseHealthPercent)) {
+      ability.baseHealthPercent *= modifier.amountFactor;
+    }
+    if (Number.isFinite(modifier.amountFactor) && Number.isFinite(ability.baseDurabilityPercent)) {
+      ability.baseDurabilityPercent *= modifier.amountFactor;
+    }
     if (Number.isFinite(modifier.cooldownFactor) && Number.isFinite(ability.cooldown)) {
       ability.cooldown *= modifier.cooldownFactor;
     }
@@ -5270,6 +5960,59 @@ function applySupportUpgrade(unit, supportModifiers) {
       ability.tickInterval *= modifier.tickIntervalFactor;
     }
   });
+}
+
+const SUMMON_CARD_LEVEL_STAT_PERCENT = 0.25;
+const UNIT_SUMMON_LEVEL_STATS = [
+  'maxHealth',
+  'maxShield',
+  'moveSpeed',
+  'attackRange',
+  'attackRate',
+  'attackDamage',
+  'armor',
+  'magicResistance',
+  'knockback',
+  'knockbackResistance',
+  'aggroRange',
+  'projectileSpeed',
+  'dodgeChance',
+  'maxDurability'
+];
+
+function summonCardLevelModifiers(bonusLevel) {
+  if (bonusLevel <= 0) return [];
+  const percent = SUMMON_CARD_LEVEL_STAT_PERCENT * bonusLevel;
+  return UNIT_SUMMON_LEVEL_STATS.map((stat) => ({
+    stat,
+    type: 'multiply',
+    percent
+  }));
+}
+
+function modifiersAffectHealthOrDurability(modifiers = []) {
+  return modifiers.some((modifier) => (
+    modifier.stat === 'maxHealth' || modifier.stat === 'maxDurability'
+  ));
+}
+
+function syncUnitAfterMaxHealthModifiers(unit, previousMaxHealth) {
+  scaleUnitHealthAfterMaxHealthChange(unit, previousMaxHealth);
+  unit.weapon.durability = Math.min(unit.weapon.maxDurability, unit.weapon.durability);
+}
+
+function applySummonCardLevelModifiers(unit, card) {
+  if (card?.kind !== 'summon') return;
+  const bonusLevel = Math.max(0, Math.floor(card?.level ?? 1) - 1);
+  if (bonusLevel <= 0) return;
+  const previousMaxHealth = unit.maxHealth;
+  unit.attributes.addModifiers(
+    summonCardLevelModifiers(bonusLevel),
+    `card:${card.id}:summon-level`
+  );
+  syncUnitAfterMaxHealthModifiers(unit, previousMaxHealth);
+  unit.clampToAttributeCaps?.();
+  unit.statusUiDirty = true;
 }
 
 function applyBuildingCardUpgrade(unit, card) {
@@ -5328,12 +6071,125 @@ function cardSortKey(card) {
   return `${order}:${card?.name ?? card?.id ?? ''}`;
 }
 
+function formatSilverAmount(amount) {
+  const value = Math.max(0, Number(amount) || 0);
+  if (Math.abs(value - Math.round(value)) < 0.05) return String(Math.round(value));
+  return value.toFixed(1);
+}
+
 function randomItem(items) {
   return items[Math.floor(Math.random() * items.length)] ?? items[0];
 }
 
+function strategyRewardMarkup(choice, index) {
+  const visual = strategyRewardVisualMeta(choice);
+  const title = choice.title ?? choice.card?.name ?? '奖励';
+  const description = choice.description ?? choice.card?.summary ?? '';
+  const meta = choice.metaText ? `<span class="strategy-reward-meta">${escapeHtml(choice.metaText)}</span>` : '';
+  const disabledAttr = choice.disabled ? ' disabled aria-disabled="true"' : '';
+  const iconClass = 'strategy-reward-icon';
+  return `
+    <button
+      class="strategy-reward-option is-${visual.kindKey}${choice.disabled ? ' is-disabled' : ''}"
+      type="button"
+      data-strategy-choice-index="${index}"
+      style="--reward-accent:${visual.accent}"${disabledAttr}
+    >
+      <span class="${iconClass}" aria-hidden="true">${escapeHtml(visual.icon)}</span>
+      <span class="strategy-reward-type">${escapeHtml(visual.typeLabel)}</span>
+      <strong class="strategy-reward-title">${escapeHtml(title)}</strong>
+      <p class="strategy-reward-desc">${escapeHtml(description)}</p>
+      ${meta}
+      <span class="strategy-reward-action">${escapeHtml(choice.actionLabel ?? visual.actionLabel)}</span>
+    </button>
+  `;
+}
+
+function strategyRewardVisualMeta(choice) {
+  if (choice.action === 'apply-team-upgrade' || choice.upgrade?.kind === 'unit-generic') {
+    return {
+      kindKey: 'attribute',
+      typeLabel: '属性强化',
+      actionLabel: '获得强化',
+      icon: '↑',
+      accent: '#9eeedb'
+    };
+  }
+  if (choice.action === 'apply-team-special-upgrade' || choice.upgrade?.kind === 'unit-special') {
+    return {
+      kindKey: 'trait',
+      typeLabel: '特性强化',
+      actionLabel: '获得特性',
+      icon: '★',
+      accent: '#ffd166'
+    };
+  }
+  if (choice.action === 'copy-card') {
+    const card = choice.card ?? choice.targetCard;
+    return {
+      kindKey: 'copy',
+      typeLabel: '复制奖励',
+      actionLabel: '复制卡牌',
+      icon: '⧉',
+      accent: cardThemeColor(card)
+    };
+  }
+  if (choice.action === 'remove-card') {
+    const card = choice.card ?? choice.targetCard;
+    return {
+      kindKey: 'remove',
+      typeLabel: '移除卡牌',
+      actionLabel: '移除卡牌',
+      icon: '✕',
+      accent: '#ff8a8a'
+    };
+  }
+  if (choice.action === 'upgrade-card') {
+    const card = choice.card ?? choice.targetCard;
+    return {
+      kindKey: 'upgrade',
+      typeLabel: '升级卡牌',
+      actionLabel: '升级卡牌',
+      icon: '⬆',
+      accent: cardThemeColor(card)
+    };
+  }
+  if (choice.action === 'grant-temporary-card') {
+    const card = choice.temporaryCard ?? choice.card;
+    return {
+      kindKey: 'temporary',
+      typeLabel: '临时牌',
+      actionLabel: '获得临时牌',
+      icon: '⏱',
+      accent: cardThemeColor(card)
+    };
+  }
+  if (choice.action === 'add-card') {
+    const card = choice.card;
+    return {
+      kindKey: 'card',
+      typeLabel: '卡牌奖励',
+      actionLabel: '获得卡牌',
+      icon: '▣',
+      accent: cardThemeColor(card)
+    };
+  }
+  return {
+    kindKey: 'reward',
+    typeLabel: strategyRewardKindLabel(choice, choice.card ?? {}),
+    actionLabel: choice.actionLabel ?? '选择',
+    icon: '✦',
+    accent: choice.color ?? '#9eeedb'
+  };
+}
+
 function strategyChoiceMarkup(choice, index) {
-  const card = choice.card ?? {
+  return strategyRewardMarkup(choice, index);
+}
+
+function resolveStrategyChoiceCard(choice, index) {
+  if (choice.card) return choice.card;
+  return {
     id: `strategy-choice-${index}`,
     name: choice.title ?? '奖励',
     kind: rewardOptionCardKind(choice),
@@ -5341,28 +6197,46 @@ function strategyChoiceMarkup(choice, index) {
     artKey: choice.artKey ?? 'tacticUpgrade',
     summary: choice.description ?? '',
     energyCost: 0,
-    color: choice.color ?? '#9eeedb'
+    color: choice.color ?? '#9eeedb',
+    level: 1
   };
-  const color = cardThemeColor(card);
-  const metaText = choice.metaText ?? strategyKindLabel(card.kind);
-  const actionMeta = strategyChoiceActionMeta(choice);
-  const actionKey = cssKey(actionMeta.key);
-  const kindKey = cssKey(card?.kind ?? 'card');
-  return `
-    <button class="strategy-choice is-choice-${actionKey} is-kind-${kindKey}" type="button" data-strategy-choice-index="${index}" style="--card-color:${color}">
-      <span class="strategy-choice-topline">
-        <span class="strategy-choice-action">${escapeHtml(choice.actionLabel)}</span>
-        <span class="strategy-choice-type">${escapeHtml(actionMeta.label)}</span>
-      </span>
-      <span class="strategy-choice-cost">${cardEnergyCost(card)}</span>
-      <div class="strategy-choice-art">${createCardArtMarkup(card)}</div>
-      <span class="strategy-choice-body">
-        <strong>${escapeHtml(choice.title)}</strong>
-        <em>${escapeHtml(actionMeta.label)} · ${escapeHtml(metaText)}</em>
-        <span>${escapeHtml(choice.description)}</span>
-      </span>
-    </button>
-  `;
+}
+
+function strategyRewardKindLabel(choice, card) {
+  if (choice.action === 'apply-team-upgrade') return '全队训练';
+  if (choice.action === 'apply-team-special-upgrade') return '兵种专精';
+  if (choice.action === 'apply-card-upgrade') {
+    return choice.upgrade?.kind === 'unit-special' ? '兵种专精' : '全队训练';
+  }
+  if (choice.action === 'copy-card') return '复制';
+  if (choice.action === 'grant-temporary-card') return '临时牌';
+  return strategyKindLabel(card.kind);
+}
+
+function dedupeStrategyChoices(choices) {
+  const seen = new Set();
+  return choices.filter((choice) => {
+    const key = strategyChoiceDedupeKey(choice);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function strategyChoiceDedupeKey(choice) {
+  if (choice.action === 'apply-team-upgrade') {
+    return `team-upgrade:${choice.upgrade?.id}`;
+  }
+  if (choice.action === 'apply-team-special-upgrade') {
+    return `team-special:${choice.unitType}:${choice.upgrade?.id}`;
+  }
+  if (choice.action === 'apply-card-upgrade') {
+    return `upgrade:${choice.targetCard?.unitType ?? choice.targetCard?.id}:${choice.upgrade?.id}`;
+  }
+  if (choice.action === 'add-card') return `add:${choice.card?.id}`;
+  if (choice.action === 'copy-card') return `copy:${choice.card?.id}`;
+  if (choice.action === 'grant-temporary-card') return `temp:${choice.temporaryCard?.id ?? choice.card?.id}`;
+  return `${choice.action}:${choice.title}:${choice.description}`;
 }
 
 function strategyEventTypeMeta(type) {
@@ -5377,9 +6251,6 @@ function strategyEventTypeMeta(type) {
   }
   if (type === 'existing-card-copy') {
     return { key: 'copy', mark: '复', label: '复制奖励' };
-  }
-  if (type === 'boss-reward') {
-    return { key: 'boss', mark: '核', label: 'Boss 奖励' };
   }
   if (type === 'card-maintenance') {
     return { key: 'upgrade', mark: '升', label: '升级事件' };
@@ -5400,10 +6271,11 @@ function strategyChoiceActionMeta(choice) {
   if (choice.action === 'grant-temporary-card') return { key: 'restore-card', label: '临时奖励' };
   if (choice.action === 'add-card') return { key: 'add-card', label: '新卡奖励' };
   if (choice.action === 'select-upgrade-card') return { key: 'select-upgrade', label: '选择升级对象' };
+  if (choice.action === 'apply-team-upgrade') return { key: 'team-upgrade', label: '全队训练' };
+  if (choice.action === 'apply-team-special-upgrade') return { key: 'team-special', label: '兵种专精' };
   if (choice.action === 'apply-card-upgrade') return { key: 'apply-upgrade', label: '升级倾向' };
   if (choice.action === 'upgrade-card') return { key: 'upgrade-card', label: '等级提升' };
   if (choice.action === 'copy-card') return { key: 'copy-card', label: '复制奖励' };
-  if (choice.action === 'acquire-core') return { key: 'boss-core', label: '构筑核心' };
   return { key: choice.action ?? 'choice', label: choice.actionLabel ?? '奖励' };
 }
 
@@ -5442,6 +6314,140 @@ function rewardOptionMetaText(option) {
   return '特殊临时牌 / 本局限定';
 }
 
+function createInitialShopPrices() {
+  const basePrice = Number(BALANCE.runCurrency?.shop?.basePrice ?? RUN_SHOP_BASE_PRICE);
+  const prices = {};
+  RUN_SHOP_CATEGORIES.forEach((category) => {
+    prices[category.key] = basePrice;
+  });
+  return prices;
+}
+
+function createRunShopUi() {
+  const overlay = document.querySelector('#run-shop-overlay');
+  const root = overlay?.querySelector('#run-shop-panel') ?? document.querySelector('#run-shop-panel');
+  return {
+    overlay,
+    root,
+    toggle: document.querySelector('#run-shop-toggle'),
+    kicker: root?.querySelector('.run-shop-kicker'),
+    title: root?.querySelector('.run-shop-title'),
+    silver: root?.querySelector('#run-shop-silver'),
+    services: root?.querySelector('#run-shop-services'),
+    choices: root?.querySelector('#run-shop-choices'),
+    choiceList: root?.querySelector('#run-shop-choice-list')
+  };
+}
+
+function runShopServiceMarkup(category, game) {
+  const isFree = game.runShopFreeReward === true;
+  const price = game.shopPrice(category.key);
+  const availability = game.canRunShopCategory(category.key);
+  const canAfford = isFree || game.silver + 0.001 >= price;
+  const disabled = !availability.ok || !canAfford;
+  const statusText = !availability.ok
+    ? availability.reason
+    : isFree
+      ? '免费'
+      : `${formatSilverAmount(price)} 银币`;
+  const isActive = game.runShopActiveCategory === category.key;
+  return `
+    <button
+      class="run-shop-service${isActive ? ' is-active' : ''}${disabled ? ' is-disabled' : ''}"
+      type="button"
+      data-run-shop-category="${escapeHtml(category.key)}"
+      ${disabled ? 'disabled aria-disabled="true"' : ''}
+    >
+      <span class="run-shop-service-icon" aria-hidden="true">${escapeHtml(category.icon)}</span>
+      <span class="run-shop-service-body">
+        <strong class="run-shop-service-title">${escapeHtml(category.title)}</strong>
+        <span class="run-shop-service-desc">${escapeHtml(category.description)}</span>
+      </span>
+      <span class="run-shop-service-price">${escapeHtml(statusText)}</span>
+    </button>
+  `;
+}
+
+function runShopChoiceUsesCardFace(choice) {
+  const card = choice.targetCard ?? choice.card ?? choice.temporaryCard;
+  if (!card) return false;
+  return [
+    'add-card',
+    'copy-card',
+    'remove-card',
+    'upgrade-card',
+    'grant-temporary-card'
+  ].includes(choice.action);
+}
+
+function runShopCardFaceInnerMarkup(card) {
+  return `
+    <div class="card-cost">${cardEnergyCost(card)}</div>
+    <div class="card-level">Lv.${card.level ?? 1}</div>
+    ${cardUseBarMarkup(card)}
+    <div class="card-face">
+      <div class="card-header">
+        <div class="card-rune">${escapeHtml(card.label ?? '')}</div>
+        <div class="card-kind">${escapeHtml(strategyKindLabel(card.kind))}</div>
+      </div>
+      ${createCardArtMarkup(card)}
+      <div class="card-name">${escapeHtml(card.name ?? '')}</div>
+      <div class="card-text">${escapeHtml(card.summary ?? '')}</div>
+    </div>
+  `;
+}
+
+function runShopChoiceMarkup(choice, index, options = {}) {
+  const card = choice.targetCard ?? choice.card ?? choice.temporaryCard;
+  if (runShopChoiceUsesCardFace(choice)) {
+    const visual = strategyRewardVisualMeta(choice);
+    const description = choice.description ?? '';
+    const location = options.game ? cardRunLocationLabel(options.game, card) : '';
+    const locationBadge = location && location !== '卡牌'
+      ? `<span class="run-shop-choice-location">${escapeHtml(location)}</span>`
+      : '';
+    const meta = description && description !== card.summary
+      ? `<span class="run-shop-choice-desc">${escapeHtml(description)}</span>`
+      : '';
+    return `
+      <button
+        class="run-shop-choice-card strategy-reward-card card is-${visual.kindKey}${choice.disabled ? ' is-disabled' : ''}"
+        type="button"
+        data-run-shop-choice-index="${index}"
+        style="--card-color:${cardThemeColor(card)}"
+        ${choice.disabled ? 'disabled aria-disabled="true"' : ''}
+      >
+        ${locationBadge}
+        ${runShopCardFaceInnerMarkup(card)}
+        ${meta}
+        <span class="run-shop-choice-action">${escapeHtml(choice.actionLabel ?? visual.actionLabel)}</span>
+      </button>
+    `;
+  }
+  const visual = strategyRewardVisualMeta(choice);
+  const title = choice.title ?? choice.card?.name ?? '奖励';
+  const description = choice.description ?? choice.card?.summary ?? '';
+  const location = options.game ? cardRunLocationLabel(options.game, choice.targetCard ?? choice.card) : '';
+  const locationBadge = location && location !== '卡牌'
+    ? `<span class="run-shop-choice-location">${escapeHtml(location)}</span>`
+    : '';
+  return `
+    <button
+      class="run-shop-choice is-${visual.kindKey}${choice.disabled ? ' is-disabled' : ''}"
+      type="button"
+      data-run-shop-choice-index="${index}"
+      style="--reward-accent:${visual.accent}"
+      ${choice.disabled ? 'disabled aria-disabled="true"' : ''}
+    >
+      <span class="run-shop-choice-icon" aria-hidden="true">${escapeHtml(visual.icon)}</span>
+      ${locationBadge}
+      <strong class="run-shop-choice-title">${escapeHtml(title)}</strong>
+      <span class="run-shop-choice-desc">${escapeHtml(description)}</span>
+      <span class="run-shop-choice-action">${escapeHtml(choice.actionLabel ?? visual.actionLabel)}</span>
+    </button>
+  `;
+}
+
 function createStrategyEventUi() {
   let root = document.querySelector('#strategy-event-overlay');
   if (!root) {
@@ -5453,32 +6459,29 @@ function createStrategyEventUi() {
     root.setAttribute('aria-modal', 'true');
     document.querySelector('#app')?.appendChild(root);
   }
-  if (!root.querySelector('.strategy-event-type-badge')) {
+  if (!root.querySelector('.strategy-event-panel')) {
     root.innerHTML = `
       <div class="strategy-event-panel">
-        <div class="strategy-event-header">
-          <div class="strategy-event-type-badge">
-            <span></span>
-            <strong></strong>
-          </div>
-          <div class="strategy-event-heading">
-            <div class="strategy-event-kicker"></div>
-            <h2></h2>
-          </div>
-        </div>
-        <p></p>
+        <div class="strategy-event-kicker"></div>
+        <h2 class="strategy-event-title">选择奖励</h2>
+        <p class="strategy-event-summary"></p>
         <div class="strategy-event-choices"></div>
+        <div class="strategy-event-actions" hidden></div>
       </div>
     `;
+  } else if (!root.querySelector('.strategy-event-actions')) {
+    root.querySelector('.strategy-event-panel')?.appendChild(Object.assign(document.createElement('div'), {
+      className: 'strategy-event-actions',
+      hidden: true
+    }));
   }
   return {
     root,
-    typeMark: root.querySelector('.strategy-event-type-badge span'),
-    typeLabel: root.querySelector('.strategy-event-type-badge strong'),
     kicker: root.querySelector('.strategy-event-kicker'),
-    title: root.querySelector('h2'),
-    summary: root.querySelector('p'),
-    choices: root.querySelector('.strategy-event-choices')
+    title: root.querySelector('.strategy-event-title'),
+    summary: root.querySelector('.strategy-event-summary'),
+    choices: root.querySelector('.strategy-event-choices'),
+    actions: root.querySelector('.strategy-event-actions')
   };
 }
 
@@ -5559,7 +6562,7 @@ function enemyEnchantmentLevel(threatTier, difficulty) {
   return 1 + Math.floor((Math.max(1, difficulty) - 1) / 2) + Math.floor((Math.max(1, threatTier) - 1) / 3);
 }
 
-function selectEnemyFromPool(pool, threatTier, index, difficulty) {
+function selectEnemyFromPool(pool, threatTier, index, difficulty, preferredTypes = null) {
   if (!Array.isArray(pool) || pool.length === 0) return null;
   const candidates = pool.filter((entry) => (
     threatTier >= (entry.minThreat ?? entry.minWave ?? 1) &&
@@ -5567,13 +6570,21 @@ function selectEnemyFromPool(pool, threatTier, index, difficulty) {
   ));
   if (!candidates.length) return pool[0]?.type ?? null;
 
-  const totalWeight = candidates.reduce((sum, entry) => sum + Math.max(1, entry.weight ?? 1), 0);
+  const preferred = preferredTypes instanceof Set ? preferredTypes : new Set(preferredTypes ?? []);
+  const weighted = preferred.size
+    ? candidates.flatMap((entry) => {
+      const repeats = preferred.has(entry.type) ? 4 : 1;
+      return Array.from({ length: repeats }, () => entry);
+    })
+    : candidates;
+
+  const totalWeight = weighted.reduce((sum, entry) => sum + Math.max(1, entry.weight ?? 1), 0);
   let roll = stableEnemyRoll(threatTier, index, difficulty) % totalWeight;
-  for (const entry of candidates) {
+  for (const entry of weighted) {
     roll -= Math.max(1, entry.weight ?? 1);
     if (roll < 0) return entry.type;
   }
-  return candidates[candidates.length - 1].type;
+  return weighted[weighted.length - 1].type;
 }
 
 function stableEnemyRoll(threatTier, index, difficulty) {
@@ -6652,12 +7663,16 @@ function createStructureStatusElement(team) {
       <span class="world-health-fill"></span>
       <span class="world-health-ticks"></span>
     </div>
+    <div class="world-durability-bar">
+      <span class="world-durability-fill"></span>
+    </div>
   `;
   element.hidden = true;
   element.parts = {
     hp: element.querySelector('.world-health-fill'),
     healthLoss: element.querySelector('.world-health-loss-fill'),
-    ticks: element.querySelector('.world-health-ticks')
+    ticks: element.querySelector('.world-health-ticks'),
+    durability: element.querySelector('.world-durability-fill')
   };
   return element;
 }
@@ -6665,7 +7680,7 @@ function createStructureStatusElement(team) {
 function unitStatusHeight(unit) {
   if (Number.isFinite(unit.definition?.statusHeight)) return unit.definition.statusHeight;
   if (unit.type === 'goblinTroll' || unit.type === 'shieldBearer') return 2.35;
-  if (unit.type === 'ogre') return 2.65;
+  if (unit.type === 'ogre') return 3.98;
   if (unit.type === 'wizard' || unit.type === 'frostAcolyte') return 1.85;
   if (unit.type === 'skeletonArcher' || unit.type === 'venomArcher') return 2.02;
   if (unit.type === 'skeletonSoldier') return 2.05;
@@ -6677,12 +7692,14 @@ function unitStatusHeight(unit) {
   return 2.25;
 }
 
-function createStructureState({ id, position, projectileHitHeight, attributes }) {
+function createStructureState({ id, position, projectileHitHeight, attributes, maxStructureDurability = 49 }) {
   const structure = {
     id,
     kind: 'structure',
     position,
     projectileHitHeight,
+    maxStructureDurability,
+    structureDurability: maxStructureDurability,
     attributes: new AttributeSet(attributes),
     alive: true,
     healthLagRatio: 1,

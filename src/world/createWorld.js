@@ -81,6 +81,7 @@ const DUNGEON_BRIDGE_HEIGHT_BLEND_START = DUNGEON_BRIDGE_OVERHANG + DUNGEON_SAFE
 const DUNGEON_BRIDGE_HEIGHT_BLEND_DEPTH = 2.8;
 const WORLD_NAV_MESH_STEP = 0.8;
 const WORLD_NAV_EDGE_MARGIN = 0.35;
+const WORLD_NAV_LAND_WALK_THRESHOLD = 0.5;
 const WORLD_NAV_PLAYER_BASE_RADIUS = 2.25;
 const WORLD_NAV_ENEMY_CAMP_RADIUS = 2.65;
 const WORLD_NAV_COTTAGE_RADIUS = 1.35;
@@ -378,8 +379,8 @@ const WORLD_PRESETS = {
       waterHeight: -1.28,
       coastRimHeight: 0.58,
       landLift: 1.48,
-      coastBlendStart: 0.72,
-      coastBlendEnd: 0.84,
+      coastBlendStart: 0.38,
+      coastBlendEnd: 0.54,
       snowCenter: { x: 8, z: -32 },
       hills: [
         { x: -31, z: 9, rx: 22, rz: 27, height: 2.2 },
@@ -1230,12 +1231,19 @@ export function terrainHeightAt(x, z) {
       (1 - smoothstep(0.82, 1, landMask)) *
       (terrain.coastRimHeight ?? 0.48);
     const waterHeight = config.landmass.waterHeight ?? terrain.waterHeight ?? -1.2;
-    const landLift = terrain.landLift ?? 0;
-    return mix(
-      waterHeight,
-      height + landLift + coastRim,
-      smoothstep(terrain.coastBlendStart ?? 0.38, terrain.coastBlendEnd ?? 0.94, landMask)
+    const landHeight = height + (terrain.landLift ?? 0) + coastRim;
+
+    // 可走陆地 (mask>=0.5) 必须保持陆地高度；此前海岸混合阈值过高会把内陆挖成水坑。
+    if (landMask >= WORLD_NAV_LAND_WALK_THRESHOLD) {
+      return landHeight;
+    }
+
+    const blend = smoothstep(
+      terrain.coastBlendStart ?? 0.38,
+      terrain.coastBlendEnd ?? 0.54,
+      landMask
     );
+    return mix(waterHeight, landHeight, blend);
   }
 
   return Math.max(0, height);
@@ -1301,8 +1309,8 @@ function createGroundMesh() {
   const geometry = new THREE.PlaneGeometry(
     config.ground.width,
     config.ground.depth,
-    106,
-    102
+    128,
+    124
   );
   const position = geometry.attributes.position;
   for (let i = 0; i < position.count; i += 1) {
@@ -1938,7 +1946,7 @@ function isWorldNavigationWalkableAt(x, z) {
     z < bounds.minZ + WORLD_NAV_EDGE_MARGIN ||
     z > bounds.maxZ - WORLD_NAV_EDGE_MARGIN
   ) return false;
-  if (config.landmass && landmassMaskAt(x, z) < 0.5) return false;
+  if (config.landmass && landmassMaskAt(x, z) < WORLD_NAV_LAND_WALK_THRESHOLD) return false;
   return !isInsideWorldNavigationBlocker(x, z);
 }
 
@@ -2018,6 +2026,13 @@ function registerWorldNavigationBlocker(x, z, radius, kind = 'decor') {
     radius: Math.max(0.16, radius),
     kind
   });
+}
+
+function registerRockNavigationBlocker(x, z, size, scale = null) {
+  const scaleX = scale?.x ?? 1;
+  const scaleZ = scale?.z ?? 1;
+  const footprint = Math.max(0.42, size * 0.54 * Math.max(scaleX, scaleZ, 0.72));
+  registerWorldNavigationBlocker(x, z, footprint, 'rock');
 }
 
 function createDungeonNavigationGraph() {
@@ -3767,7 +3782,8 @@ function placeRocks(scene, pathPoints, random) {
     if (!isDecorationClear(x, z, pathPoints, 3.4)) continue;
     const elevation = terrainHeightAt(x, z);
     if (!ridgeBias && elevation < 2.6 && random() > 0.35) continue;
-    const rock = createRock(0.42 + random() * (z < -22 ? 1.28 : 0.88), {
+    const size = 0.42 + random() * (z < -22 ? 1.28 : 0.88);
+    const rock = createRock(size, {
       color: random() > 0.45 ? '#748083' : '#858b84',
       snowCap: random() > 0.35
     });
@@ -3776,6 +3792,7 @@ function placeRocks(scene, pathPoints, random) {
     if (z < -24) {
       rock.scale.y *= 1.2;
     }
+    registerRockNavigationBlocker(x, z, size, rock.scale);
     addStaticCulledObject(scene, rock);
   }
 }
@@ -3801,6 +3818,7 @@ function placeBoulderClusters(scene, pathPoints, random) {
         random() * Math.PI * 2,
         (random() - 0.5) * 0.1
       );
+      registerRockNavigationBlocker(x, z, size, rock.scale);
       addStaticCulledObject(scene, rock);
     }
   });
@@ -3817,6 +3835,7 @@ function placeLandmarkBoulders(scene, pathPoints) {
     rock.scale.set(item.sx, item.sy, item.sz);
     placeOnTerrain(rock, item.x, item.z, 0.02);
     rock.rotation.y = item.rot;
+    registerRockNavigationBlocker(item.x, item.z, item.size, rock.scale);
     addStaticCulledObject(scene, rock);
   });
 }
