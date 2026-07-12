@@ -6,6 +6,9 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="theme-color" content="#172016" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <link rel="manifest" href="%BASE_URL%manifest.webmanifest" />
     <title>Village War Prototype</title>
   </head>
@@ -69,6 +72,7 @@
           </header>
           <p class="run-shop-balance">持有 <strong id="run-shop-silver">0</strong> 银币</p>
           <div id="run-shop-services" class="run-shop-services"></div>
+          <button id="run-shop-skip" class="run-shop-skip" type="button" hidden>跳过奖励，继续出征</button>
           <div id="run-shop-choices" class="run-shop-choices" hidden>
             <button id="run-shop-back" class="run-shop-back" type="button">← 返回服务列表</button>
             <div id="run-shop-choice-list" class="run-shop-choice-list"></div>

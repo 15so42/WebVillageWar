@@ -330,7 +330,13 @@ export class CardSystem {
     this.updateDrag(event);
     const drag = this.drag;
     const shouldDiscard = drag.mode === 'discard' && drag.canPayDiscard;
-    const shouldPlay = drag.mode === 'play' && drag.valid;
+    const releaseDistance = Math.hypot(
+      event.clientX - drag.startX,
+      event.clientY - drag.startY
+    );
+    const shouldPlay = drag.mode === 'play'
+      && drag.valid
+      && releaseDistance >= PLAY_DRAG_MIN_DISTANCE;
     if (shouldDiscard) {
       this.cleanupDrag(event, { preserveSourceElement: true });
       this.discardDraggedCard(drag);
@@ -1162,13 +1168,29 @@ export class CardSystem {
   copyCardInstance(card, options = {}) {
     if (!card || !this.allDeckCards().includes(card)) return { added: false, location: 'none' };
     const { maxUses: _maxUses, remainingUses: _remainingUses, instanceId: _instanceId, ...template } = card;
-    return this.addCardToDrawPile({
-      ...template,
-      instanceId: undefined
-    }, {
-      prefix: options.prefix ?? `copy-${Date.now()}`,
-      applyRuntimeLevelBonus: false
-    });
+    const newCard = createCardInstance(
+      this.applyRuntimeCardLevel(template, { applyRuntimeLevelBonus: false }),
+      options.prefix ?? `copy-${Date.now()}`
+    );
+    const handSlot = this.findEmptyHandSlotIndex();
+    if (handSlot >= 0) {
+      this.handCards[handSlot] = newCard;
+      this.pendingDrawAnimations.add(newCard);
+      this.renderHand();
+      this.updatePileUi();
+      this.updateCardAffordability();
+      return { added: true, location: 'hand', card: newCard };
+    }
+    this.drawPile.unshift(newCard);
+    this.updatePileUi();
+    return { added: true, location: 'draw', card: newCard };
+  }
+
+  findEmptyHandSlotIndex() {
+    for (let index = 0; index < HAND_SIZE; index += 1) {
+      if (!this.handCards[index]) return index;
+    }
+    return -1;
   }
 
   allDeckCards() {
@@ -2535,9 +2557,8 @@ function formatEnergy(value) {
 }
 
 function discardEnergyCost(card) {
-  const playCost = cardEnergyCost(card);
-  if (playCost <= 0) return 0;
-  return Math.max(1, Math.ceil(playCost * 0.5));
+  void card;
+  return 1;
 }
 
 function parseCssNumber(value) {

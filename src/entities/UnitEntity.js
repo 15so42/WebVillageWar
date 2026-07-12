@@ -229,6 +229,7 @@ export class UnitEntity {
   }
 
   spendDurability(amount) {
+    if (amount <= 0) return;
     const previousDurability = this.weapon.durability;
     this.weapon.durability = clamp(this.weapon.durability - amount, 0, this.weapon.maxDurability);
     if (this.weapon.durability !== previousDurability) {

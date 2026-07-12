@@ -539,14 +539,24 @@ body.is-meta-open .selection-box {
 .run-shop-overlay {
   position: fixed;
   inset: 0;
-  z-index: 24;
+  z-index: 46;
   display: flex;
   align-items: flex-start;
   justify-content: center;
   padding: 8vh 20px 20px;
-  background: rgba(6, 10, 12, 0.42);
-  backdrop-filter: blur(4px);
+  background: rgba(6, 10, 12, 0.58);
+  backdrop-filter: blur(6px);
   pointer-events: auto;
+}
+
+body.is-run-shop-open .run-shop-overlay {
+  z-index: 46;
+}
+
+body.is-run-shop-open .card-hand,
+body.is-run-shop-open .game-command-dock,
+body.is-run-shop-open .card-pile-dock {
+  pointer-events: none;
 }
 
 .run-shop-overlay[hidden] {
@@ -758,6 +768,24 @@ body.is-meta-open .selection-box {
   cursor: pointer;
 }
 
+.run-shop-skip {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px 12px;
+  border: 1px dashed rgba(255, 210, 102, 0.35);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 248, 232, 0.72);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.run-shop-skip:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 248, 232, 0.92);
+}
+
 .run-shop-choice-list {
   display: grid;
   gap: 8px;
@@ -767,8 +795,37 @@ body.is-meta-open .selection-box {
 .run-shop-choice-list.is-catalog-picker {
   max-height: min(52vh, 420px);
   overflow-y: auto;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   padding-right: 4px;
+}
+
+.run-shop-choice-list.is-card-picker {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.run-shop-choice-list.is-card-picker.is-horizontal-row,
+.run-shop-choice-list.is-horizontal-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  justify-content: center;
+  align-items: stretch;
+  gap: 14px;
+  max-height: none;
+  overflow-x: auto;
+  overflow-y: visible;
+  padding: 4px 6px 10px;
+  grid-template-columns: unset;
+}
+
+.run-shop-choice-list.is-horizontal-row .run-shop-choice,
+.run-shop-choice-list.is-horizontal-row .run-shop-choice-card {
+  flex: 0 0 auto;
+  width: min(168px, 30vw);
+  max-width: 180px;
+}
+
+.run-shop-choice-list.is-horizontal-row .run-shop-choice {
+  min-height: 128px;
 }
 
 .run-shop-choice-list.is-catalog-picker {
@@ -5520,6 +5577,22 @@ body.is-meta-open .selection-box {
     min-width: 46px;
     height: 34px;
     font-size: 11px;
+  }
+
+  .strategy-event-overlay,
+  .run-shop-overlay {
+    align-items: flex-start;
+    padding: 2vh 8px 8px;
+  }
+
+  .strategy-event-panel,
+  .run-shop-panel {
+    transform: scale(0.7);
+    transform-origin: top center;
+  }
+
+  .run-shop-choice-list.is-catalog-picker {
+    max-height: min(46vh, 380px);
   }
 }
 

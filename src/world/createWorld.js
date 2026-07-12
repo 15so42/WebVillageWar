@@ -762,6 +762,8 @@ const WORLD_PRESETS = {
       ridges: []
     },
     monsterCamp: { x: -2, z: -33, rot: -0.2, scale: 1.12, offset: 0.18 },
+    playerBasePosition: { x: 0, z: 31 },
+    enemyCampPosition: { x: -2, z: -33 },
     snowfall: {
       enabled: false,
       countScale: 0,

@@ -36,7 +36,9 @@ export class BuffSystem {
   }
 
   afterDamage(context) {
-    if (context.source?.alive !== false && (context.damageDealt ?? context.damage ?? 0) > 0) {
+    const dealt = context.damageDealt ?? context.damage ?? 0;
+    const attackConnected = context.isAttack === true && context.target?.alive !== false;
+    if (context.source?.alive !== false && (dealt > 0 || attackConnected)) {
       this.runBuffEffects(context.source, 'afterDamage', context);
     }
     if (context.target?.alive !== false) {
@@ -324,11 +326,10 @@ export class BuffSystem {
       if (!context.target?.weapon || context.damage <= 0) return;
       const absorbPerDurability = resolveBlockAbsorbPerDurability(effect, context);
       const durability = Math.max(0, context.target.weapon.durability ?? 0);
-      const maxDurability = Math.max(0.01, context.target.weapon.maxDurability ?? durability);
-      const durabilityRatio = clamp01(durability / maxDurability);
-      if (durability <= 0 || durabilityRatio <= 0) return;
-      const maxAbsorbByRatio = context.damage * durabilityRatio;
-      const absorbed = Math.min(context.damage, maxAbsorbByRatio, durability * absorbPerDurability);
+      if (durability <= 0) return;
+      const absorbCapacity = durability * absorbPerDurability;
+      const absorbed = Math.min(context.damage, absorbCapacity);
+      if (absorbed <= 0.001) return;
       const spentDurability = absorbed / absorbPerDurability;
       context.target.spendDurability?.(spentDurability);
       context.damage = Math.max(0, context.damage - absorbed);

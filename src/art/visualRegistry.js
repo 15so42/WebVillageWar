@@ -29,6 +29,7 @@ import {
   createHolyBoltModel,
   createIceShardModel,
   createKnightModel,
+  createLanternBoltModel,
   createSpearmanModel,
   createSwordsmanModel,
   createTowerShieldModel,

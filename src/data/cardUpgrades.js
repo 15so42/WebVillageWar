@@ -3,28 +3,28 @@ export const UNIT_GENERIC_UPGRADES = [
     id: 'unit-vitality',
     kind: 'unit-generic',
     name: '强健体魄',
-    summary: '全队生命与武器耐久 +10%。',
+    summary: '全队生命与武器耐久 +10%（至少 +1）。',
     stat: 'vitality'
   },
   {
     id: 'unit-attack',
     kind: 'unit-generic',
     name: '锋刃训练',
-    summary: '全队攻击力 +10%。',
+    summary: '全队攻击力 +10%（至少 +1）。',
     stat: 'attack'
   },
   {
     id: 'unit-armor',
     kind: 'unit-generic',
     name: '披甲训练',
-    summary: '全队护甲 +10%。',
+    summary: '全队护甲 +10%（至少 +1）。',
     stat: 'armor'
   },
   {
     id: 'unit-magic-resistance',
     kind: 'unit-generic',
     name: '抗咒训练',
-    summary: '全队魔抗 +10%。',
+    summary: '全队魔抗 +10%（至少 +1）。',
     stat: 'magicResistance'
   }
 ];

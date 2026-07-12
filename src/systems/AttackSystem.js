@@ -177,7 +177,10 @@ export class AttackSystem {
   updatePendingAttacks(dt) {
     for (let i = this.pendingAttacks.length - 1; i >= 0; i -= 1) {
       const attack = this.pendingAttacks[i];
-      if (!attack) {
+      if (!attack || !Number.isFinite(attack.elapsed)) {
+        if (attack?.source?.id != null && this.activeAttackBySourceId.get(attack.source.id) === attack) {
+          this.activeAttackBySourceId.delete(attack.source.id);
+        }
         this.pendingAttacks.splice(i, 1);
         continue;
       }

@@ -3,7 +3,7 @@ export const TEAMS = {
   ENEMY: 'enemy'
 };
 
-export const DECK_SIZE = 30;
+export const DECK_SIZE = 36;
 export const ACTIVE_DECK_SIZE = 12;
 
 export const UNIT_DEFINITIONS = {
@@ -824,7 +824,7 @@ export const UNIT_DEFINITIONS = {
     },
     weapon: {
       name: '食材储备',
-      maxDurability: 44,
+      maxDurability: 88,
       durabilityCost: 0
     }
   },
@@ -1397,6 +1397,63 @@ export const UNIT_DEFINITIONS = {
     weapon: {
       name: '巨木棒',
       maxDurability: 38,
+      durabilityCost: 0
+    }
+  },
+  frostTrollBoss: {
+    name: '冰霜巨魔',
+    role: 'melee',
+    art: {
+      modelKey: 'unit.frostTrollBoss',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Heavy_Walk',
+        attack: 'Club_Slam',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.72,
+          events: {
+            impact: 0.58
+          }
+        },
+        hit: {
+          duration: 0.28
+        }
+      }
+    },
+    maxHealth: 128,
+    maxShield: 64,
+    collisionRadius: 0.72,
+    statusHeight: 2.85,
+    projectileHitHeight: 2.4,
+    speed: 1.85,
+    attackRange: 2.2,
+    attackRate: 0.48,
+    damage: 11,
+    armor: 7,
+    magicResistance: 4,
+    dodgeChance: 0.02,
+    knockback: 5.8,
+    knockbackResistance: 0.76,
+    aggroRange: 12,
+    monsterAbility: {
+      type: 'frostNova',
+      key: 'frost-troll-nova',
+      cooldown: 11,
+      initialCooldown: 5,
+      range: 6.5,
+      radius: 4.2,
+      damage: 8,
+      slowDuration: 3,
+      statusBuffId: 'frostSnared'
+    },
+    weapon: {
+      name: '霜纹巨锤',
+      maxDurability: 72,
       durabilityCost: 0
     }
   },
@@ -3253,6 +3310,7 @@ export const WAVE_MONSTER_TYPES = [
 ];
 
 export const WAVE_BOSS_TYPES = [
+  'frostTrollBoss',
   'goblinTroll',
   'ogre',
   'scorpion',
@@ -3370,7 +3428,7 @@ export const CARD_DEFINITIONS = [
     target: 'ground',
     radius: 1.15,
     cooldown: 5.5,
-    energyCost: 2,
+    energyCost: 3,
     unitType: 'spearman',
     count: 1,
     effect: {
@@ -3390,7 +3448,7 @@ export const CARD_DEFINITIONS = [
     target: 'ground',
     radius: 1.15,
     cooldown: 8,
-    energyCost: 5,
+    energyCost: 3,
     unitType: 'towerShield',
     count: 1,
     effect: {
@@ -3748,11 +3806,12 @@ export const CARD_DEFINITIONS = [
     kind: 'tactic',
     label: '涌',
     artKey: 'tacticEnergyLarge',
-    summary: '获得 3 点能量；升级后每级额外 +1',
+    summary: '获得 3 点能量；升级后每级额外 +1（本局 2 次）',
     target: 'none',
     radius: 1,
     cooldown: 0,
     energyCost: 0,
+    uses: 2,
     effect: {
       type: 'gain-energy',
       amountBase: 3,
@@ -4235,7 +4294,7 @@ export const CARD_DEFINITIONS = [
     kind: 'enchant',
     label: '挡',
     artKey: 'block',
-    summary: '受伤时优先消耗武器耐久吸收伤害，等级提高效率',
+    summary: '受伤时消耗武器耐久吸收伤害（约 2.2 伤/点耐久），等级提高效率',
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 4,
@@ -4659,7 +4718,14 @@ export const STARTER_CARD_IDS = [
   'spirit-shield-enchant',
   'power-enchant',
   'toughness-enchant',
-  'block-enchant'
+  'block-enchant',
+  'exhaust-energy-ability',
+  'periodic-energy-ability',
+  'random-heal-ability',
+  'legion-expansion-ability',
+  'loot-pouch-ability',
+  'frontline-bulwark-ability',
+  'summon-endurance-ability'
 ];
 
 export const CARD_META = {
@@ -4803,12 +4869,39 @@ export const CARD_META = {
     upgradeBaseCost: 110
   },
   'exhaust-energy-ability': {
-    buyCost: 150,
+    initial: true,
+    buyCost: 0,
     upgradeBaseCost: 95
   },
   'periodic-energy-ability': {
-    buyCost: 165,
+    initial: true,
+    buyCost: 0,
     upgradeBaseCost: 105
+  },
+  'random-heal-ability': {
+    initial: true,
+    buyCost: 0,
+    upgradeBaseCost: 125
+  },
+  'legion-expansion-ability': {
+    initial: true,
+    buyCost: 0,
+    upgradeBaseCost: 125
+  },
+  'loot-pouch-ability': {
+    initial: true,
+    buyCost: 0,
+    upgradeBaseCost: 110
+  },
+  'frontline-bulwark-ability': {
+    initial: true,
+    buyCost: 0,
+    upgradeBaseCost: 115
+  },
+  'summon-endurance-ability': {
+    initial: true,
+    buyCost: 0,
+    upgradeBaseCost: 110
   },
   'enchant-echo-ability': {
     buyCost: 190,
@@ -4830,17 +4923,9 @@ export const CARD_META = {
     buyCost: 170,
     upgradeBaseCost: 110
   },
-  'random-heal-ability': {
-    buyCost: 195,
-    upgradeBaseCost: 125
-  },
   'victory-gold-ability': {
     buyCost: 175,
     upgradeBaseCost: 115
-  },
-  'legion-expansion-ability': {
-    buyCost: 195,
-    upgradeBaseCost: 125
   },
   'kill-harvest-ability': {
     buyCost: 185,
@@ -4854,10 +4939,6 @@ export const CARD_META = {
     buyCost: 205,
     upgradeBaseCost: 130
   },
-  'loot-pouch-ability': {
-    buyCost: 170,
-    upgradeBaseCost: 110
-  },
   'tactical-master-ability': {
     buyCost: 180,
     upgradeBaseCost: 115
@@ -4865,14 +4946,6 @@ export const CARD_META = {
   'ranged-volley-ability': {
     buyCost: 185,
     upgradeBaseCost: 120
-  },
-  'frontline-bulwark-ability': {
-    buyCost: 175,
-    upgradeBaseCost: 115
-  },
-  'summon-endurance-ability': {
-    buyCost: 165,
-    upgradeBaseCost: 105
   },
   'knockback-starfall-ability': {
     buyCost: 210,
@@ -4971,7 +5044,7 @@ export const LEVEL_DEFINITIONS = [
       { type: 'snowDuskShaman', weight: 1, minThreat: 4, minDifficulty: 1 }
     ],
     bossPool: [
-      { type: 'snowDuskShaman', weight: 1, minThreat: 4.8, minDifficulty: 1 }
+      { type: 'frostTrollBoss', weight: 1, minThreat: 4.8, minDifficulty: 1 }
     ],
     enemyStrategy: {
       profile: 'snow-control',

@@ -114,7 +114,7 @@ const RUN_SHOP_CATEGORIES = [
   {
     key: 'copy',
     title: '复制卡牌',
-    description: '从全部卡牌中选一张，复制加入抽牌堆。',
+    description: '从已有卡牌中选一张复制；手牌有空位则优先进手牌。',
     icon: '⧉',
     picker: true,
     catalogPicker: true
@@ -122,7 +122,7 @@ const RUN_SHOP_CATEGORIES = [
   {
     key: 'remove',
     title: '移除卡牌',
-    description: '从全部卡牌中选一张，移出本局牌组。',
+    description: '从已有卡牌中选一张，移出本局全部同名卡牌。',
     icon: '✕',
     picker: true,
     catalogPicker: true
@@ -130,7 +130,7 @@ const RUN_SHOP_CATEGORIES = [
   {
     key: 'upgrade',
     title: '升级卡牌',
-    description: '从全部卡牌中选一张，等级 +1。',
+    description: '从已有卡牌中选一张，该牌及同名牌等级 +1。',
     icon: '⬆',
     picker: true,
     catalogPicker: true
@@ -605,10 +605,13 @@ export class Game {
     this.awaitingOpeningReward = false;
     this.runShopOpen = false;
     this.runShopCausedPause = false;
+    this.runShopUiBoundOverlay = null;
     this.runShopPendingOffers = {};
     this.runShopActiveCategory = null;
     this.runShopChoices = [];
     this.runShopFreeReward = false;
+    this.levelTestMode = false;
+    this.debugTimeScale = 1;
     this.strategyEvent = null;
     this.enemyCampAttackTimer = 0;
     this.playerBaseAttackTimer = 0;
@@ -921,7 +924,8 @@ export class Game {
   tick() {
     if (this.destroyed) return;
     const rawDt = this.clock.getDelta();
-    const dt = Math.min(rawDt, 0.05);
+    const timeScale = this.levelTestMode ? this.debugTimeScale : 1;
+    const dt = Math.min(rawDt, 0.05) * timeScale;
     this.updateFpsMeter(rawDt);
     if (this.paused) {
       this.updateCamera(0);
@@ -997,13 +1001,38 @@ export class Game {
 
   updateWaveFlow() {
     if (this.levelSession.debug || this.levelFinished || this.strategyEvent) return;
-    if (!this.currentWave) return;
+    if (!this.currentWave) {
+      if (this.pendingWaveAdvance && !this.runShopOpen) {
+        this.continueAfterStrategyFlow(false);
+      }
+      return;
+    }
     if (this.hasActiveWaveEnemies()) return;
     this.completeCurrentWave();
   }
 
   hasActiveWaveEnemies() {
-    return this.enemyUnits.some((unit) => unit.alive && !unit.isWildlife);
+    const wave = this.currentWave;
+    if (!wave) return false;
+
+    const waveEnemies = this.enemyUnits.filter((unit) => (
+      unit.alive && !unit.isWildlife && isUnitInWave(unit, wave)
+    ));
+    if (!waveEnemies.length) return false;
+
+    if (wave.kind === 'boss' && !waveEnemies.some((unit) => unit.isBoss)) {
+      this.clearWaveEnemyStragglers(waveEnemies);
+      return false;
+    }
+    if (wave.kind === 'elite' && !waveEnemies.some((unit) => unit.isElite)) {
+      this.clearWaveEnemyStragglers(waveEnemies);
+      return false;
+    }
+    return true;
+  }
+
+  clearWaveEnemyStragglers(units) {
+    units.forEach((unit) => this.removeEnemyUnitSilently(unit));
   }
 
   startNextWave() {
@@ -1165,8 +1194,8 @@ export class Game {
 
   canRunShopCategory(category) {
     if (category === 'copy' || category === 'remove' || category === 'upgrade') {
-      if (!this.runShopCatalogCards().length) {
-        return { ok: false, reason: '暂无卡牌' };
+      if (!this.runShopOwnedCards().length) {
+        return { ok: false, reason: '牌组中没有可操作的卡牌' };
       }
     }
     if (category === 'energy') {
@@ -1193,25 +1222,32 @@ export class Game {
   }
 
   bindRunShopUi() {
+    const ui = this.runShopUi;
+    if (!ui?.overlay) return;
+    if (ui.overlay === this.runShopUiBoundOverlay) return;
+    this.runShopUiBoundOverlay = ui.overlay;
     const signal = this.eventController.signal;
-    this.runShopUi.overlay?.addEventListener('click', (event) => this.onRunShopClick(event), { signal });
-    this.runShopUi.root?.addEventListener('click', (event) => this.onRunShopClick(event), { signal });
-    this.runShopUi.overlay?.addEventListener('pointerdown', stopUiPropagation, { signal });
-    this.runShopUi.root?.addEventListener('pointerdown', stopUiPropagation, { signal });
-    this.runShopUi.overlay?.addEventListener('contextmenu', stopUiEvent, { signal });
-    this.runShopUi.root?.addEventListener('contextmenu', stopUiEvent, { signal });
-    this.runShopUi.toggle?.addEventListener('click', (event) => {
+    ui.overlay.addEventListener('click', (event) => this.onRunShopClick(event), { signal });
+    ui.root?.addEventListener('click', (event) => this.onRunShopClick(event), { signal });
+    ui.overlay.addEventListener('pointerdown', stopUiPropagation, { signal });
+    ui.root?.addEventListener('pointerdown', stopUiPropagation, { signal });
+    ui.overlay.addEventListener('contextmenu', stopUiEvent, { signal });
+    ui.root?.addEventListener('contextmenu', stopUiEvent, { signal });
+    ui.toggle?.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
       this.toggleRunShop();
     }, { signal });
-    this.runShopUi.toggle?.addEventListener('pointerdown', stopUiPropagation, { signal });
+    ui.toggle?.addEventListener('pointerdown', stopUiPropagation, { signal });
   }
 
   toggleRunShop() {
     if (this.levelFinished || this.levelSession.debug) return;
     if (this.strategyEvent) return;
-    if (this.runShopFreeReward) return;
+    if (this.runShopFreeReward) {
+      if (this.runShopOpen) this.closeRunShop({ force: true });
+      return;
+    }
     if (this.runShopOpen) {
       this.closeRunShop();
       return;
@@ -1220,6 +1256,11 @@ export class Game {
   }
 
   openRunShop(options = {}) {
+    this.runShopUi = ensureRunShopUi(this.runShopUi);
+    this.bindRunShopUi();
+    if (this.strategyEventUi?.root) {
+      this.strategyEventUi.root.hidden = true;
+    }
     this.runShopOpen = true;
     this.runShopFreeReward = options.freeReward === true;
     this.runShopActiveCategory = null;
@@ -1227,7 +1268,10 @@ export class Game {
     if (this.runShopFreeReward) {
       this.runShopPendingOffers = {};
     }
-    if (this.runShopUi.overlay) this.runShopUi.overlay.hidden = false;
+    if (this.runShopUi.overlay) {
+      this.runShopUi.overlay.hidden = false;
+      this.runShopUi.overlay.removeAttribute('hidden');
+    }
     this.runShopUi.toggle?.classList.add('is-active');
     this.runShopUi.root?.classList.toggle('is-free-reward', this.runShopFreeReward);
     document.body.classList.add('is-run-shop-open');
@@ -1241,7 +1285,13 @@ export class Game {
     } else {
       this.runShopCausedPause = false;
     }
+    if (this.runShopFreeReward) {
+      this.cardSystem?.setHint?.('Boss 战利：请选择一项免费军需奖励', 'boss-shop');
+    } else {
+      this.cardSystem?.setHint?.('军需铺已打开，按 B 或 Esc 关闭', 'run-shop');
+    }
     this.renderRunShop();
+    this.runShopUi.root?.focus?.();
   }
 
   closeRunShop(options = {}) {
@@ -1249,22 +1299,32 @@ export class Game {
       return;
     }
     const wasFreeReward = this.runShopFreeReward;
+    const causedPause = this.runShopCausedPause;
     this.runShopOpen = false;
     this.runShopFreeReward = false;
     this.runShopActiveCategory = null;
     this.runShopChoices = [];
-    if (this.runShopUi.overlay) this.runShopUi.overlay.hidden = true;
-    if (this.runShopUi.choices) this.runShopUi.choices.hidden = true;
-    this.runShopUi.root?.classList.remove('is-free-reward');
-    this.runShopUi.toggle?.classList.remove('is-active');
+    if (this.runShopUi?.overlay) {
+      this.runShopUi.overlay.hidden = true;
+      this.runShopUi.overlay.setAttribute('hidden', '');
+    }
+    if (this.runShopUi?.choices) this.runShopUi.choices.hidden = true;
+    this.runShopUi?.root?.classList.remove('is-free-reward');
+    this.runShopUi?.toggle?.classList.remove('is-active');
     document.body.classList.remove('is-run-shop-open');
-    if (this.runShopCausedPause) {
+    this.runShopCausedPause = false;
+    if (causedPause || (this.paused && !this.strategyEvent && this.dom.pauseOverlay?.hidden !== false)) {
       this.paused = false;
       document.body.classList.remove('is-game-paused');
+      if (this.dom.pauseOverlay) this.dom.pauseOverlay.hidden = true;
       this.clock.getDelta();
     }
-    this.runShopCausedPause = false;
     if (wasFreeReward || options.afterFreeReward) {
+      if (this.paused) {
+        this.paused = false;
+        document.body.classList.remove('is-game-paused');
+        this.clock.getDelta();
+      }
       this.continueAfterStrategyFlow(false);
     }
   }
@@ -1272,7 +1332,7 @@ export class Game {
   clearRunShopSelection() {
     this.runShopActiveCategory = null;
     this.runShopChoices = [];
-    this.runShopUi.choices.hidden = true;
+    if (this.runShopUi?.choices) this.runShopUi.choices.hidden = true;
     this.renderRunShop();
   }
 
@@ -1285,7 +1345,10 @@ export class Game {
     if (!availability.ok) return;
     const isFree = this.runShopFreeReward;
     const price = this.shopPrice(category);
-    if (!isFree && this.silver + 0.001 < price) return;
+    if (!isFree && this.silver + 0.001 < price) {
+      this.cardSystem?.setHint?.('银币不足', 'run-shop');
+      return;
+    }
     const categoryMeta = RUN_SHOP_CATEGORIES.find((entry) => entry.key === category);
     let choices = categoryMeta?.picker ? null : this.runShopPendingOffers[category];
     if (!choices?.length) {
@@ -1298,7 +1361,7 @@ export class Game {
     }
     this.runShopActiveCategory = category;
     this.runShopChoices = choices;
-    this.runShopUi.choices.hidden = false;
+    if (this.runShopUi?.choices) this.runShopUi.choices.hidden = false;
     this.renderRunShop();
   }
 
@@ -1307,8 +1370,14 @@ export class Game {
     if (!category || !choice) return false;
     const isFree = this.runShopFreeReward;
     const price = this.shopPrice(category);
-    if (!isFree && this.silver + 0.001 < price) return false;
-    if (!this.applyStrategyChoice(choice)) return false;
+    if (!isFree && this.silver + 0.001 < price) {
+      this.cardSystem?.setHint?.('银币不足', 'run-shop');
+      return false;
+    }
+    if (!this.applyStrategyChoice(choice)) {
+      this.cardSystem?.setHint?.('购买失败，请重试', 'run-shop');
+      return false;
+    }
     if (!isFree) {
       this.silver = Math.max(0, this.silver - price);
       if (category !== 'energy') {
@@ -1318,9 +1387,13 @@ export class Game {
     } else {
       delete this.runShopPendingOffers[category];
     }
+    this.cardSystem?.setHint?.(
+      `${choice.title ?? '商品'} 已购入${isFree ? '' : `，-${formatSilverAmount(price)} 银币`}`,
+      'run-shop'
+    );
     this.runShopActiveCategory = null;
     this.runShopChoices = [];
-    this.runShopUi.choices.hidden = true;
+    if (this.runShopUi?.choices) this.runShopUi.choices.hidden = true;
     this.updateHud(0);
     if (isFree) {
       this.closeRunShop({ afterFreeReward: true });
@@ -1358,23 +1431,28 @@ export class Game {
       const useCardFaceGrid = isPicker || isCatalogPicker
         || this.runShopActiveCategory === 'card'
         || this.runShopActiveCategory === 'temporary';
+      const useHorizontalRow = useCardFaceGrid && !isCatalogPicker;
       this.runShopUi.root.classList.add('is-detail');
       if (this.runShopUi.kicker) {
         this.runShopUi.kicker.textContent = this.runShopFreeReward
           ? `Boss 战利 #${this.bossesDefeated} · 免费一次`
           : isCatalogPicker
-            ? '军需铺 · 全部卡牌 · 选定后立即购买'
+            ? '军需铺 · 已有卡牌 · 选定后立即购买'
             : '军需铺 · 选定后立即购买';
       }
       if (this.runShopUi.title) this.runShopUi.title.textContent = categoryMeta?.title ?? '选择商品';
-      this.runShopUi.services.hidden = true;
-      this.runShopUi.choices.hidden = false;
-      this.runShopUi.choiceList.classList.toggle('is-card-picker', useCardFaceGrid);
-      this.runShopUi.choiceList.classList.toggle('is-catalog-picker', isCatalogPicker);
-      this.runShopUi.choiceList.innerHTML = this.runShopChoices
-        .map((choice, index) => runShopChoiceMarkup(choice, index, { game: this }))
-        .join('');
-      fitStrategyRewardCards(this.runShopUi.choiceList);
+      if (this.runShopUi.services) this.runShopUi.services.hidden = true;
+      if (this.runShopUi.choices) this.runShopUi.choices.hidden = false;
+      this.runShopUi.choiceList?.classList.toggle('is-card-picker', useCardFaceGrid);
+      this.runShopUi.choiceList?.classList.toggle('is-catalog-picker', isCatalogPicker);
+      this.runShopUi.choiceList?.classList.toggle('is-horizontal-row', useHorizontalRow);
+      if (this.runShopUi.choiceList) {
+        this.runShopUi.choiceList.innerHTML = this.runShopChoices
+          .map((choice, index) => runShopChoiceMarkup(choice, index, { game: this }))
+          .join('');
+        fitStrategyRewardCards(this.runShopUi.choiceList);
+      }
+      if (this.runShopUi.skip) this.runShopUi.skip.hidden = true;
       return;
     }
     this.runShopUi.root.classList.remove('is-detail');
@@ -1386,13 +1464,18 @@ export class Game {
     if (this.runShopUi.title) {
       this.runShopUi.title.textContent = this.runShopFreeReward ? '免费军需铺' : '军需铺';
     }
-    this.runShopUi.services.hidden = false;
-    this.runShopUi.services.innerHTML = RUN_SHOP_CATEGORIES
-      .map((category) => runShopServiceMarkup(category, this))
-      .join('');
-    this.runShopUi.choiceList.classList.remove('is-card-picker', 'is-catalog-picker');
-    this.runShopUi.choices.hidden = true;
-    this.runShopUi.choiceList.innerHTML = '';
+    if (this.runShopUi.services) {
+      this.runShopUi.services.hidden = false;
+      this.runShopUi.services.innerHTML = RUN_SHOP_CATEGORIES
+        .map((category) => runShopServiceMarkup(category, this))
+        .join('');
+    }
+    if (this.runShopUi.skip) {
+      this.runShopUi.skip.hidden = !this.runShopFreeReward;
+    }
+    this.runShopUi.choiceList?.classList.remove('is-card-picker', 'is-catalog-picker', 'is-horizontal-row');
+    if (this.runShopUi.choices) this.runShopUi.choices.hidden = true;
+    if (this.runShopUi.choiceList) this.runShopUi.choiceList.innerHTML = '';
   }
 
   onRunShopClick(event) {
@@ -1410,6 +1493,12 @@ export class Game {
     if (backButton) {
       event.preventDefault();
       this.clearRunShopSelection();
+      return;
+    }
+    const skipButton = event.target.closest('#run-shop-skip');
+    if (skipButton) {
+      event.preventDefault();
+      if (this.runShopFreeReward) this.closeRunShop({ force: true });
       return;
     }
     const serviceButton = event.target.closest('[data-run-shop-category]');
@@ -1503,25 +1592,19 @@ export class Game {
       });
     }
     if (category === 'attribute') {
-      const pool = this.buildAttributeUpgradeChoicePool();
-      if (!pool.length) return [];
-      return pickRandomItems(pool, Math.min(STRATEGY_CHOICE_COUNT, pool.length));
+      return this.createAttributeUpgradeChoices();
     }
     if (category === 'trait') {
       return this.createTraitUpgradeChoices();
     }
     if (category === 'copy') {
-      return this.createRunShopCatalogPickerChoices('copy-card', '复制卡牌', '复制一张加入抽牌堆。');
+      return this.createRunShopOwnedPickerChoices('copy-card', '复制卡牌', '复制一张加入牌组。');
     }
     if (category === 'remove') {
-      return this.createRunShopCatalogPickerChoices('remove-card', '移除卡牌', '移出本局全部同名卡牌。')
-        .map((choice) => ({
-          ...choice,
-          disabled: (this.cardSystem?.countDeckCardsById?.(choice.card?.id) ?? 0) <= 0
-        }));
+      return this.createRunShopOwnedPickerChoices('remove-card', '移除卡牌', '移出本局全部同名卡牌。');
     }
     if (category === 'upgrade') {
-      return this.createRunShopCatalogPickerChoices('upgrade-card', '升级卡牌', '该牌及同名牌等级 +1。');
+      return this.createRunShopOwnedPickerChoices('upgrade-card', '升级卡牌', '该牌及同名牌等级 +1。');
     }
     if (category === 'temporary') {
       const options = STRATEGY_REWARD_OPTION_DEFINITIONS
@@ -1552,7 +1635,7 @@ export class Game {
       event = this.createFallbackCardChoiceEvent(options);
     }
     if (!event?.choices?.length) {
-      this.startNextWave();
+      this.continueAfterStrategyFlow(false);
       return false;
     }
     this.strategyEvent = event;
@@ -1804,7 +1887,10 @@ export class Game {
 
   buildTraitUpgradeChoicePool() {
     const choices = [];
-    this.deckUnitTypes().forEach((unitType) => {
+    const ownedTypes = this.ownedUnitTypes();
+    const deckTypes = this.deckUnitTypes();
+    const orderedTypes = [...new Set([...ownedTypes, ...deckTypes])];
+    orderedTypes.forEach((unitType) => {
       const owned = this.teamSpecialUpgrades.get(unitType) ?? new Set();
       (UNIT_SPECIAL_UPGRADES[unitType] ?? []).forEach((upgrade) => {
         if (owned.has(upgrade.id)) return;
@@ -1916,7 +2002,7 @@ export class Game {
 
   applyTeamGenericUpgradeLayerToUnit(unit, upgrade, index = 0) {
     const previousMaxHealth = unit.maxHealth;
-    const modifiers = teamGenericUpgradeModifiers(unit, upgrade, index);
+    const modifiers = unitGenericUpgradeModifiers(unit, upgrade, index);
     if (!modifiers.length) return;
     unit.attributes.addModifiers(modifiers, `team:${upgrade.id}:${index}`);
     if (modifiersAffectHealthOrDurability(modifiers)) {
@@ -2006,28 +2092,19 @@ export class Game {
     return this.cardSystem?.activeRunCards?.() ?? [];
   }
 
-  runShopCatalogCards() {
-    const seen = new Set();
-    return CARD_DEFINITIONS
-      .filter((card) => !card.lootOnly && card?.id)
-      .filter((card) => {
-        if (seen.has(card.id)) return false;
-        seen.add(card.id);
-        return true;
-      })
-      .map((card) => this.cardSystem?.applyRuntimeCardLevel?.(card) ?? card)
-      .sort((left, right) => cardSortKey(left).localeCompare(cardSortKey(right), 'zh-Hans-CN'));
+  runShopOwnedCards() {
+    return this.uniqueRuntimeCards();
   }
 
-  createRunShopCatalogPickerChoices(action, actionLabel, descriptionSuffix) {
-    return this.runShopCatalogCards().map((card) => {
+  createRunShopOwnedPickerChoices(action, actionLabel, descriptionSuffix) {
+    return this.runShopOwnedCards().map((card) => {
       const inDeck = this.cardSystem?.countDeckCardsById?.(card.id) ?? 0;
-      const deckHint = inDeck > 0 ? `牌组 ×${inDeck}` : '未入组';
+      const location = cardRunLocationLabel(this, card);
       return {
         action,
         actionLabel,
         title: card.name,
-        description: `${deckHint} · Lv.${card.level ?? 1} · ${descriptionSuffix}`,
+        description: `${location} · 牌组 ×${inDeck} · Lv.${card.level ?? 1} · ${descriptionSuffix}`,
         card,
         targetCard: card
       };
@@ -2206,20 +2283,12 @@ export class Game {
       const targetCard = choice.targetCard ?? choice.card;
       if (targetCard?.instanceId && this.cardSystem.allDeckCards().includes(targetCard)) {
         applied = this.cardSystem.copyCardInstance(targetCard, {
-          prefix: `event-copy-${targetCard.id}-${Date.now()}`
-        }).added;
-      } else {
-        applied = this.cardSystem.addCardToDrawPile(targetCard, {
-          prefix: `shop-copy-${targetCard?.id ?? 'card'}-${Date.now()}`
+          prefix: `copy-${targetCard.id}-${Date.now()}`
         }).added;
       }
     } else if (choice.action === 'remove-card') {
       const targetCard = choice.targetCard ?? choice.card;
-      if (targetCard?.instanceId && this.cardSystem.allDeckCards().includes(targetCard)) {
-        applied = this.cardSystem.removeCardInstance(targetCard);
-      } else {
-        applied = this.cardSystem.removeCardFamily(targetCard?.id);
-      }
+      applied = this.cardSystem.removeCardFamily(targetCard?.id);
     } else if (choice.action === 'grant-temporary-card') {
       applied = this.cardSystem.addTemporaryCard(choice.temporaryCard ?? choice.card, {
         prefix: `event-temporary-${choice.temporaryCard?.id ?? choice.card?.id}-${Date.now()}`,
@@ -2653,6 +2722,7 @@ export class Game {
   }
 
   registerUnit(unit) {
+    unit.game = this;
     return this.unitRegistry.register(unit);
   }
 
@@ -2730,16 +2800,36 @@ export class Game {
   getEnemyForceSpawnPoints(count) {
     const camp = this.enemyCamp.position.clone().setY(0);
     const pathPoints = this.world?.pathPoints ?? BALANCE.world?.pathPoints ?? [];
+    const playerZ = this.playerBase?.position?.z ?? BALANCE.playerBase.position.z;
+    const campZ = camp.z;
+    const spawnZCutoff = playerZ + (campZ - playerZ) * 0.55;
     const anchors = [];
+
+    const monsterCamp = this.worldConfig?.monsterCamp ?? this.world?.config?.monsterCamp;
+    if (monsterCamp) {
+      anchors.push(new THREE.Vector3(monsterCamp.x, 0, monsterCamp.z));
+    }
+
     if (pathPoints.length >= 2) {
-      const startIndex = Math.max(0, pathPoints.length - 4);
-      for (let i = startIndex; i < pathPoints.length; i += 1) {
-        anchors.push(new THREE.Vector3(pathPoints[i].x, 0, pathPoints[i].z));
+      const enemyPathPoints = pathPoints.filter((point) => point.z <= spawnZCutoff);
+      const tailCount = Math.min(4, Math.max(1, enemyPathPoints.length));
+      const tailStart = Math.max(0, enemyPathPoints.length - tailCount);
+      for (let i = tailStart; i < enemyPathPoints.length; i += 1) {
+        const point = enemyPathPoints[i];
+        anchors.push(new THREE.Vector3(point.x, 0, point.z));
       }
     }
+
     anchors.push(camp);
+
+    const uniqueAnchors = [];
+    anchors.forEach((anchor) => {
+      if (uniqueAnchors.some((existing) => existing.distanceTo(anchor) < 1.5)) return;
+      uniqueAnchors.push(anchor);
+    });
+    const spawnAnchors = uniqueAnchors.length ? uniqueAnchors : [camp];
     const total = Math.max(1, count);
-    return Array.from({ length: total }, (_, index) => anchors[index % anchors.length]);
+    return Array.from({ length: total }, (_, index) => spawnAnchors[index % spawnAnchors.length]);
   }
 
   onAltarOwnershipChanged(event) {
@@ -2893,7 +2983,9 @@ export class Game {
 
   applyPlayerBaseAttack(target) {
     if (!target?.alive || !target.takeRawDamage) return;
-    const damage = Math.max(0, BALANCE.playerBase.attackDamage ?? 7);
+    const damage = this.levelTestMode
+      ? 999
+      : Math.max(0, BALANCE.playerBase.attackDamage ?? 7);
     if (damage <= 0) return;
     const durabilityCost = Math.max(0, BALANCE.playerBase.attackDurabilityCost ?? 1);
     if ((this.playerBase.structureDurability ?? 0) < durabilityCost) return;
@@ -3240,6 +3332,7 @@ export class Game {
     });
     egg.hatchTimer = SPIDER_EGG_HATCH_SECONDS;
     egg.parentSpiderId = parent.id;
+    egg.enemyForce = parent.enemyForce ?? this.currentEnemyForce ?? null;
     this.attachUnitStatus(egg);
     this.registerUnit(egg);
     this.effects.spawnRing(egg.position, '#b6d48d', 0.56, 0.45);
@@ -3834,6 +3927,47 @@ export class Game {
     }
   }
 
+  toggleLevelTestMode() {
+    if (!this.levelTestMode) {
+      const input = window.prompt('输入关卡测试模式密码');
+      if (input !== 'satest') {
+        this.cardSystem?.setHint?.('密码错误', 'test-mode');
+        return;
+      }
+      this.levelTestMode = true;
+    } else {
+      this.levelTestMode = false;
+    }
+    this.applyLevelTestMode();
+  }
+
+  applyLevelTestMode() {
+    if (this.levelTestMode) {
+      this.setPlayerBaseInvincible(true);
+      this.debugTimeScale = 1;
+      this.cardSystem?.setHint?.(
+        '关卡测试模式：基地无敌 / 玩家基地不消耗耐久 / 基地防御999攻（Z慢放 X常速 C快放，F6关闭）',
+        'test-mode'
+      );
+      return;
+    }
+    this.debugTimeScale = 1;
+    this.setPlayerBaseInvincible(false);
+    this.updateHud(0);
+    this.cardSystem?.setHint?.('关卡测试模式已关闭', 'test-mode');
+  }
+
+  setDebugTimeScale(scale) {
+    if (!this.levelTestMode) return;
+    this.debugTimeScale = Math.max(0.05, Math.min(8, Number(scale) || 1));
+    const label = this.debugTimeScale === 1
+      ? '常速'
+      : this.debugTimeScale < 1
+        ? '慢放'
+        : '快放';
+    this.cardSystem?.setHint?.(`测试${label} ×${this.debugTimeScale.toFixed(2)}`, 'test-mode');
+  }
+
   damagePlayerBase(amount) {
     if (this.playerBase.invincible) {
       this.playerBase.health = this.playerBase.maxHealth;
@@ -4135,11 +4269,18 @@ export class Game {
       this.toggleRenderTuningPanel();
       return;
     }
+    if (key === 'f6') {
+      event.preventDefault();
+      this.toggleLevelTestMode();
+      return;
+    }
     if (key === 'escape') {
       event.preventDefault();
       if (this.runShopOpen) {
         if (this.runShopActiveCategory) {
           this.clearRunShopSelection();
+        } else if (this.runShopFreeReward) {
+          this.closeRunShop({ force: true });
         } else {
           this.closeRunShop();
         }
@@ -4161,6 +4302,23 @@ export class Game {
         'nav-debug'
       );
       return;
+    }
+    if (this.levelTestMode) {
+      if (key === 'z') {
+        event.preventDefault();
+        this.setDebugTimeScale(0.35);
+        return;
+      }
+      if (key === 'x') {
+        event.preventDefault();
+        this.setDebugTimeScale(1);
+        return;
+      }
+      if (key === 'c') {
+        event.preventDefault();
+        this.setDebugTimeScale(2.5);
+        return;
+      }
     }
     if (this.paused) return;
     if (!this.selectedUnits.some((unit) => unit.alive && unit.team === TEAMS.PLAYER)) return;
@@ -4477,7 +4635,7 @@ export class Game {
   isMobileSelectionDoubleTap(event) {
     const tap = this.lastMobileTap;
     if (!tap) return false;
-    if (tap.kind !== 'select' && tap.kind !== 'empty') return false;
+    if (tap.kind !== 'select' && tap.kind !== 'empty' && tap.kind !== 'command') return false;
     const elapsed = performance.now() - tap.time;
     const distance = Math.hypot(event.clientX - tap.x, event.clientY - tap.y);
     return elapsed <= MOBILE_DOUBLE_TAP_MS && distance <= MOBILE_DOUBLE_TAP_DISTANCE;
@@ -4548,14 +4706,12 @@ export class Game {
       };
     } else {
       const moved = this.issueMoveCommand(event);
-      this.lastMobileTap = moved
-        ? null
-        : {
-            x: event.clientX,
-            y: event.clientY,
-            time: performance.now(),
-            kind: 'empty'
-          };
+      this.lastMobileTap = {
+        x: event.clientX,
+        y: event.clientY,
+        time: performance.now(),
+        kind: moved ? 'command' : 'empty'
+      };
     }
   }
 
@@ -4948,6 +5104,7 @@ export class Game {
 
   spendStructureDurability(structure, amount = 1) {
     if (!structure) return;
+    if (this.levelTestMode && structure === this.playerBase) return;
     structure.structureDurability = Math.max(
       0,
       (structure.structureDurability ?? 0) - Math.max(0, amount)
@@ -5790,6 +5947,11 @@ function waveAffixLevel(waveConfig) {
   return 1 + Math.floor((threatTier - 1) / 3);
 }
 
+function isUnitInWave(unit, wave) {
+  if (!unit || !wave) return false;
+  return unit.enemyForce === wave;
+}
+
 function waveKindLabel(wave) {
   if (wave.kind === 'boss') return `Boss ${wave.bossOrdinal}/${BOSS_WAVES_TO_WIN}`;
   if (wave.kind === 'elite') return '精英';
@@ -5912,23 +6074,50 @@ function runtimeUnitUpgradeDefinition(unitType, upgradeId) {
     null;
 }
 
+function teamGenericUpgradeAmount(baseValue) {
+  return Math.max(1, Math.round(Math.max(0, baseValue) * 0.1));
+}
+
 function unitGenericUpgradeModifiers(unit, upgrade, index = 0) {
-  void unit;
   void index;
   if (upgrade.stat === 'vitality') {
     return [
-      { stat: 'maxHealth', type: 'multiply', percent: 0.1 },
-      { stat: 'maxDurability', type: 'multiply', percent: 0.1 }
+      {
+        stat: 'maxHealth',
+        type: 'add',
+        amount: teamGenericUpgradeAmount(unit.maxHealth ?? unit.attributes?.get?.('maxHealth') ?? 0)
+      },
+      {
+        stat: 'maxDurability',
+        type: 'add',
+        amount: teamGenericUpgradeAmount(
+          unit.weapon?.maxDurability ?? unit.maxDurability ?? unit.attributes?.get?.('maxDurability') ?? 0
+        )
+      }
     ];
   }
   if (upgrade.stat === 'attack') {
-    return [{ stat: 'attackDamage', type: 'multiply', percent: 0.1 }];
+    return [{
+      stat: 'attackDamage',
+      type: 'add',
+      amount: teamGenericUpgradeAmount(unit.attackDamage ?? unit.attributes?.get?.('attackDamage') ?? 0)
+    }];
   }
   if (upgrade.stat === 'armor') {
-    return [{ stat: 'armor', type: 'multiply', percent: 0.1 }];
+    return [{
+      stat: 'armor',
+      type: 'add',
+      amount: teamGenericUpgradeAmount(unit.armor ?? unit.attributes?.get?.('armor') ?? 0)
+    }];
   }
   if (upgrade.stat === 'magicResistance') {
-    return [{ stat: 'magicResistance', type: 'multiply', percent: 0.1 }];
+    return [{
+      stat: 'magicResistance',
+      type: 'add',
+      amount: teamGenericUpgradeAmount(
+        unit.magicResistance ?? unit.attributes?.get?.('magicResistance') ?? 0
+      )
+    }];
   }
   return [];
 }
@@ -6324,20 +6513,60 @@ function createInitialShopPrices() {
 }
 
 function createRunShopUi() {
-  const overlay = document.querySelector('#run-shop-overlay');
-  const root = overlay?.querySelector('#run-shop-panel') ?? document.querySelector('#run-shop-panel');
+  return ensureRunShopUi(null);
+}
+
+function ensureRunShopUi(existing = null) {
+  const overlays = [...document.querySelectorAll('#run-shop-overlay')];
+  let overlay = overlays[0] ?? null;
+  for (let i = 1; i < overlays.length; i += 1) {
+    overlays[i].remove();
+  }
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'run-shop-overlay';
+    overlay.className = 'run-shop-overlay';
+    overlay.hidden = true;
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.innerHTML = RUN_SHOP_OVERLAY_INNER_HTML;
+    document.body.appendChild(overlay);
+  } else {
+    document.body.appendChild(overlay);
+  }
+  const root = overlay.querySelector('#run-shop-panel');
   return {
     overlay,
     root,
-    toggle: document.querySelector('#run-shop-toggle'),
+    toggle: existing?.toggle ?? document.querySelector('#run-shop-toggle'),
     kicker: root?.querySelector('.run-shop-kicker'),
     title: root?.querySelector('.run-shop-title'),
     silver: root?.querySelector('#run-shop-silver'),
     services: root?.querySelector('#run-shop-services'),
+    skip: root?.querySelector('#run-shop-skip'),
     choices: root?.querySelector('#run-shop-choices'),
     choiceList: root?.querySelector('#run-shop-choice-list')
   };
 }
+
+const RUN_SHOP_OVERLAY_INNER_HTML = `
+  <section id="run-shop-panel" class="run-shop-panel" aria-label="军需铺" tabindex="-1">
+    <header class="run-shop-header">
+      <div class="run-shop-heading">
+        <span class="run-shop-kicker">营地军需 · B</span>
+        <h2 class="run-shop-title">军需铺</h2>
+      </div>
+      <button id="run-shop-close" class="run-shop-close" type="button" aria-label="关闭军需铺">×</button>
+    </header>
+    <p class="run-shop-balance">持有 <strong id="run-shop-silver">0</strong> 银币</p>
+    <div id="run-shop-services" class="run-shop-services"></div>
+    <button id="run-shop-skip" class="run-shop-skip" type="button" hidden>跳过奖励，继续出征</button>
+    <div id="run-shop-choices" class="run-shop-choices" hidden>
+      <button id="run-shop-back" class="run-shop-back" type="button">← 返回服务列表</button>
+      <div id="run-shop-choice-list" class="run-shop-choice-list"></div>
+    </div>
+  </section>
+`;
 
 function runShopServiceMarkup(category, game) {
   const isFree = game.runShopFreeReward === true;
