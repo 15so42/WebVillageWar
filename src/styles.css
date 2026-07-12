@@ -41,7 +41,8 @@ body.is-meta-open .card-pile-dock,
 body.is-meta-open .pile-viewer,
 body.is-meta-open .game-command-dock,
 body.is-meta-open .temporary-card-slot,
-body.is-meta-open .selection-box {
+body.is-meta-open .selection-box,
+body.is-meta-open .mobile-box-select-hint {
   display: none;
 }
 
@@ -1225,6 +1226,15 @@ body.is-run-shop-open .card-pile-dock {
   background: #9eeedb;
 }
 
+.game-command-dock button.is-active {
+  color: #102c28;
+  border-color: rgba(158, 238, 219, 0.92);
+  background: #9eeedb;
+  box-shadow:
+    0 0 0 1px rgba(158, 238, 219, 0.35),
+    0 12px 28px rgba(0, 0, 0, 0.28);
+}
+
 .temporary-card-slot {
   position: fixed;
   z-index: 6;
@@ -1289,6 +1299,46 @@ body.is-run-shop-open .card-pile-dock {
 .mobile-action-dock button:active {
   color: #102c28;
   background: #9eeedb;
+}
+
+.mobile-action-dock button.is-active {
+  color: #102c28;
+  border-color: rgba(158, 238, 219, 0.92);
+  background: #9eeedb;
+  box-shadow:
+    0 0 0 1px rgba(158, 238, 219, 0.35),
+    0 10px 24px rgba(0, 0, 0, 0.28);
+}
+
+.mobile-box-select-hint {
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+  pointer-events: none;
+  box-shadow:
+    inset 0 0 0 3px rgba(158, 238, 219, 0.72),
+    inset 0 0 48px rgba(158, 238, 219, 0.16);
+}
+
+.mobile-box-select-hint[hidden] {
+  display: none;
+}
+
+.mobile-box-select-hint-label {
+  position: absolute;
+  top: max(10px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 12px;
+  border: 1px solid rgba(158, 238, 219, 0.45);
+  border-radius: 999px;
+  color: #eafff8;
+  background: rgba(18, 28, 29, 0.82);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  backdrop-filter: blur(10px);
 }
 
 .mobile-action-feedback {

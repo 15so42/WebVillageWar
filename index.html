@@ -90,6 +90,7 @@
 
       <section id="card-hand" class="card-hand" aria-label="card hand"></section>
       <div id="game-command-dock" class="game-command-dock" aria-label="单位命令">
+        <button type="button" data-command-action="box-select" aria-label="框选" aria-pressed="false">框</button>
         <button type="button" data-command-action="stop" aria-label="停止">停</button>
         <button type="button" data-command-action="guard" aria-label="驻守">守</button>
       </div>
@@ -100,6 +101,9 @@
         <button type="button" data-mobile-action="pwa" aria-label="安装 PWA">PWA</button>
       </div>
       <div id="mobile-action-feedback" class="mobile-action-feedback" role="status" aria-live="polite" hidden></div>
+      <div id="mobile-box-select-hint" class="mobile-box-select-hint" hidden aria-hidden="true">
+        <span class="mobile-box-select-hint-label">框选模式 · 拖动选择友军</span>
+      </div>
       <section id="perf-panel" class="perf-panel" aria-label="performance chart" hidden>
         <div class="perf-panel-header">
           <strong>Perf</strong>

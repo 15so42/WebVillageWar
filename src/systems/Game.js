@@ -368,8 +368,6 @@ const SPIDER_FIRST_EGG_SECONDS = 37;
 const SPIDER_EGG_INTERVAL_SECONDS = 60;
 const SPIDER_EGG_HATCH_SECONDS = 15;
 const TOUCH_TAP_THRESHOLD = 7;
-const MOBILE_DOUBLE_TAP_MS = 360;
-const MOBILE_DOUBLE_TAP_DISTANCE = 38;
 const MOBILE_PINCH_MIN_DISTANCE = 24;
 const STRUCTURE_HEALTH_LAG_DELAY = 0.4;
 const STRUCTURE_HEALTH_LAG_RAPID_DELAY = 0.08;
@@ -571,9 +569,7 @@ export class Game {
     this.cameraDrag = null;
     this.activeTouchPointers = new Map();
     this.touchGesture = null;
-    this.lastMobileTap = null;
-    this.pendingMobileMoveTap = null;
-    this.pendingMobileMoveTimer = null;
+    this.mobileBoxSelectMode = false;
     this.updateCamera(0);
 
     this.clock = new THREE.Clock();
@@ -765,7 +761,9 @@ export class Game {
       perfPanel: document.querySelector('#perf-panel'),
       perfCanvas: document.querySelector('#perf-chart'),
       perfStatus: document.querySelector('#perf-panel-status'),
-      perfStats: document.querySelector('#perf-stats')
+      perfStats: document.querySelector('#perf-stats'),
+      mobileBoxSelectButton: document.querySelector('[data-command-action="box-select"]'),
+      mobileBoxSelectHint: document.querySelector('#mobile-box-select-hint')
     };
     this.renderTuningUi = createRenderTuningPanel();
     if (this.dom.fpsMeter) this.dom.fpsMeter.hidden = false;
@@ -791,6 +789,7 @@ export class Game {
     window.addEventListener('blur', () => {
       this.cancelCameraDrag();
       this.cancelTouchGesture();
+      this.setMobileBoxSelectMode(false);
       this.activeTouchPointers.clear();
     }, { signal });
     canvas.addEventListener('wheel', (event) => this.onCanvasWheel(event), { passive: false, signal });
@@ -884,7 +883,7 @@ export class Game {
     if (this.destroyed) return;
     this.destroyed = true;
     this.stop();
-    this.clearPendingMobileMoveTap();
+    this.setMobileBoxSelectMode(false);
     this.eventController.abort();
     this.cardSystem?.destroy?.();
     this.buildings?.destroy?.();
@@ -4198,12 +4197,9 @@ export class Game {
         this.beginTouchGesture(event);
         return;
       }
-      if (this.isMobileSelectionDoubleTap(event)) {
-        this.clearPendingMobileMoveTap();
-        this.lastMobileTap = null;
+      if (this.mobileBoxSelectMode) {
         this.beginSelectionDrag(event);
       } else {
-        this.clearPendingMobileMoveTap();
         this.beginCameraDrag(event, {
           mode: 'touch-pan',
           issueCommandOnTap: true
@@ -4363,11 +4359,23 @@ export class Game {
     if (this.endCameraDrag(event)) return;
     if (!this.isCurrentSelectionEvent(event)) return;
     const drag = this.selectionDrag;
+    const wasMobileBoxSelect = this.mobileBoxSelectMode;
     this.selectionDrag = null;
     if (event.pointerId != null) {
       safeReleasePointerCapture(this.canvas, event.pointerId);
     }
     this.hideSelectionBox();
+
+    if (wasMobileBoxSelect) {
+      if (drag.active) {
+        const units = this.unitsInScreenRect(drag);
+        this.selectUnits(units, { mode: units.length ? 'box' : 'none' });
+      } else {
+        this.selectUnits([], { mode: 'none' });
+      }
+      this.setMobileBoxSelectMode(false);
+      return;
+    }
 
     if (drag.active) {
       this.selectUnits(this.unitsInScreenRect(drag), { mode: 'box' });
@@ -4384,6 +4392,9 @@ export class Game {
     }
     if (this.endCameraDrag(event)) return;
     if (!this.isCurrentSelectionEvent(event)) return;
+    if (this.mobileBoxSelectMode) {
+      this.setMobileBoxSelectMode(false);
+    }
     this.selectionDrag = null;
     if (event.pointerId != null) {
       safeReleasePointerCapture(this.canvas, event.pointerId);
@@ -4445,10 +4456,34 @@ export class Game {
     event.stopPropagation();
     if (this.paused) return;
     const action = button.dataset.commandAction;
-    if (action === 'stop') {
+    if (action === 'box-select') {
+      this.toggleMobileBoxSelectMode();
+    } else if (action === 'stop') {
       this.stopSelectedUnits();
     } else if (action === 'guard') {
       this.guardSelectedUnits();
+    }
+  }
+
+  toggleMobileBoxSelectMode() {
+    this.setMobileBoxSelectMode(!this.mobileBoxSelectMode);
+  }
+
+  setMobileBoxSelectMode(active) {
+    const next = active === true;
+    if (this.mobileBoxSelectMode === next) return;
+    this.mobileBoxSelectMode = next;
+    document.body.classList.toggle('is-mobile-box-select-active', next);
+    if (this.dom.mobileBoxSelectHint) {
+      this.dom.mobileBoxSelectHint.hidden = !next;
+      this.dom.mobileBoxSelectHint.setAttribute('aria-hidden', next ? 'false' : 'true');
+    }
+    if (this.dom.mobileBoxSelectButton) {
+      this.dom.mobileBoxSelectButton.classList.toggle('is-active', next);
+      this.dom.mobileBoxSelectButton.setAttribute('aria-pressed', next ? 'true' : 'false');
+    }
+    if (!next) {
+      this.cancelSelectionDrag();
     }
   }
 
@@ -4520,8 +4555,7 @@ export class Game {
       lastCenterX: metrics.centerX,
       lastCenterY: metrics.centerY
     };
-    this.lastMobileTap = null;
-    this.clearPendingMobileMoveTap();
+    this.setMobileBoxSelectMode(false);
     this.edgePanActive = false;
     this.canvas.classList.add('is-camera-dragging');
     points.forEach((point) => safeSetPointerCapture(this.canvas, point.id));
@@ -4638,35 +4672,6 @@ export class Game {
     this.selectionBox.hidden = true;
   }
 
-  isMobileSelectionDoubleTap(event) {
-    const tap = this.lastMobileTap;
-    if (!tap) return false;
-    if (tap.kind !== 'select' && tap.kind !== 'empty') return false;
-    const elapsed = performance.now() - tap.time;
-    const distance = Math.hypot(event.clientX - tap.x, event.clientY - tap.y);
-    return elapsed <= MOBILE_DOUBLE_TAP_MS && distance <= MOBILE_DOUBLE_TAP_DISTANCE;
-  }
-
-  clearPendingMobileMoveTap() {
-    if (this.pendingMobileMoveTimer != null) {
-      window.clearTimeout(this.pendingMobileMoveTimer);
-      this.pendingMobileMoveTimer = null;
-    }
-    this.pendingMobileMoveTap = null;
-  }
-
-  schedulePendingMobileMoveTap(clientX, clientY) {
-    this.clearPendingMobileMoveTap();
-    this.pendingMobileMoveTap = { x: clientX, y: clientY };
-    this.pendingMobileMoveTimer = window.setTimeout(() => {
-      this.pendingMobileMoveTimer = null;
-      const pending = this.pendingMobileMoveTap;
-      this.pendingMobileMoveTap = null;
-      if (!pending || !this.hasMovablePlayerSelection()) return;
-      this.issueMoveCommand({ clientX: pending.x, clientY: pending.y });
-    }, MOBILE_DOUBLE_TAP_MS + 16);
-  }
-
   hasMovablePlayerSelection() {
     return this.selectedUnits.some((unit) => (
       unit?.alive &&
@@ -4711,8 +4716,6 @@ export class Game {
 
   handleMobileTapCommand(event) {
     if (this.lootDrops?.tryOpenPickup(event)) {
-      this.lastMobileTap = null;
-      this.clearPendingMobileMoveTap();
       return;
     }
 
@@ -4724,34 +4727,10 @@ export class Game {
         })
       : this.pickSelectableUnit(event.clientX, event.clientY);
     if (unit) {
-      this.clearPendingMobileMoveTap();
       this.selectUnit(unit);
-      this.lastMobileTap = {
-        x: event.clientX,
-        y: event.clientY,
-        time: performance.now(),
-        kind: 'select'
-      };
       return;
     }
-    if (hasCommandableSelection) {
-      this.schedulePendingMobileMoveTap(event.clientX, event.clientY);
-      this.lastMobileTap = {
-        x: event.clientX,
-        y: event.clientY,
-        time: performance.now(),
-        kind: 'empty'
-      };
-      return;
-    }
-    this.clearPendingMobileMoveTap();
     this.issueMoveCommand(event);
-    this.lastMobileTap = {
-      x: event.clientX,
-      y: event.clientY,
-      time: performance.now(),
-      kind: 'empty'
-    };
   }
 
   unitsInScreenRect(drag) {
