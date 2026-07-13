@@ -9,23 +9,13 @@ const debugState = document.querySelector('#debug-state');
 const mobileActionDock = document.querySelector('#mobile-action-dock');
 const mobileActionFeedback = document.querySelector('#mobile-action-feedback');
 
-let deferredInstallPrompt = null;
 let feedbackTimer = 0;
 const UI_SCALE_STORAGE_KEY = 'village-war-ui-scale';
-const UI_SCALE_OPTIONS = [0.8, 0.9, 1];
+const UI_SCALE_OPTIONS = [0.4, 0.6, 0.8];
+const DEFAULT_UI_SCALE = 0.6;
 const APP_BASE_URL = new URL(import.meta.env.BASE_URL || './', window.location.href);
 
 applyStoredUiScale();
-
-window.addEventListener('beforeinstallprompt', (event) => {
-  event.preventDefault();
-  deferredInstallPrompt = event;
-});
-
-window.addEventListener('appinstalled', () => {
-  deferredInstallPrompt = null;
-  showMobileFeedback('已安装到主屏幕');
-});
 
 mobileActionDock?.addEventListener('click', (event) => {
   const button = event.target?.closest?.('[data-mobile-action]');
@@ -37,10 +27,10 @@ mobileActionDock?.addEventListener('click', (event) => {
     requestAppFullscreen();
   } else if (action === 'landscape') {
     requestLandscape();
+  } else if (action === 'portrait') {
+    requestPortrait();
   } else if (action === 'ui-scale') {
     cycleUiScale();
-  } else if (action === 'pwa') {
-    requestPwaInstall();
   }
 });
 
@@ -213,15 +203,23 @@ async function requestLandscape() {
   }
 }
 
-async function requestPwaInstall() {
-  if (deferredInstallPrompt) {
-    deferredInstallPrompt.prompt();
-    const choice = await deferredInstallPrompt.userChoice.catch(() => null);
-    deferredInstallPrompt = null;
-    showMobileFeedback(choice?.outcome === 'accepted' ? '已开始安装' : '已取消安装');
+async function requestPortrait() {
+  const orientation = screen.orientation;
+  if (!orientation?.lock) {
+    showMobileFeedback('请旋转手机，并关闭系统横屏锁定');
     return;
   }
-  showMobileFeedback('请用浏览器菜单选择“添加到主屏幕”');
+  try {
+    await orientation.lock('portrait');
+    showMobileFeedback('已请求竖屏');
+  } catch {
+    try {
+      orientation.unlock?.();
+    } catch {
+      // Some browsers expose unlock but still reject it outside installed apps.
+    }
+    showMobileFeedback('请旋转手机，并关闭系统横屏锁定');
+  }
 }
 
 function showMobileFeedback(message) {
@@ -236,28 +234,44 @@ function showMobileFeedback(message) {
 
 function applyStoredUiScale() {
   const stored = Number(readStoredUiScale());
-  const scale = UI_SCALE_OPTIONS.includes(stored) ? stored : UI_SCALE_OPTIONS[0];
+  const scale = UI_SCALE_OPTIONS.includes(stored) ? stored : DEFAULT_UI_SCALE;
   applyUiScale(scale);
 }
 
 function cycleUiScale() {
   const current = currentUiScale();
   const index = UI_SCALE_OPTIONS.findIndex((scale) => Math.abs(scale - current) < 0.01);
-  const next = UI_SCALE_OPTIONS[(index + 1) % UI_SCALE_OPTIONS.length];
+  const next = index >= 0 ? UI_SCALE_OPTIONS[(index + 1) % UI_SCALE_OPTIONS.length] : DEFAULT_UI_SCALE;
   writeStoredUiScale(next);
   applyUiScale(next);
-  showMobileFeedback(`UI 缩放 ${Math.round(next * 100)}%`);
+  showMobileFeedback(`Ui缩放 ${Math.round(next * 100)}%`);
 }
 
 function currentUiScale() {
   const raw = getComputedStyle(document.documentElement).getPropertyValue('--mobile-ui-scale');
   const value = Number(raw.trim());
-  return Number.isFinite(value) ? value : UI_SCALE_OPTIONS[0];
+  return Number.isFinite(value) ? value : DEFAULT_UI_SCALE;
 }
 
 function applyUiScale(scale) {
   document.documentElement.style.setProperty('--mobile-ui-scale', String(scale));
+  syncMobileUiMetrics(scale);
 }
+
+function syncMobileUiMetrics(scale = currentUiScale()) {
+  const width = window.innerWidth || 0;
+  const isPortrait = window.matchMedia?.('(orientation: portrait)')?.matches ?? false;
+  const cardHeight = isPortrait ? 179 : (width <= 760 ? 196 : 176);
+  document.documentElement.style.setProperty('--mobile-hand-visual-height', `${Math.round(cardHeight * scale)}px`);
+  const energyPanel = document.querySelector('.energy-panel');
+  const energyHeight = energyPanel?.getBoundingClientRect?.().height ?? 0;
+  if (energyHeight > 0) {
+    document.documentElement.style.setProperty('--mobile-energy-panel-height', `${Math.round(energyHeight)}px`);
+  }
+}
+
+window.addEventListener('resize', () => syncMobileUiMetrics(), { passive: true });
+screen.orientation?.addEventListener?.('change', () => syncMobileUiMetrics());
 
 function readStoredUiScale() {
   try {

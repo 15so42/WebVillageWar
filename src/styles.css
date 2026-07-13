@@ -1,5 +1,8 @@
 :root {
-  --mobile-ui-scale: 1;
+  --mobile-ui-scale: 0.6;
+  --mobile-hand-visual-height: 108px;
+  --mobile-energy-panel-height: 54px;
+  --mobile-hint-gap: 8px;
   --game-hud-inset: 10px;
   --game-hud-width: min(210px, calc(100vw - 28px));
   --run-shop-toggle-width: 108px;
@@ -2590,7 +2593,8 @@ body.is-run-shop-open .card-pile-dock {
 }
 
 .card.has-scrollable-text {
-  touch-action: pan-y;
+  /* Keep none so upward drag is not stolen as a pan/scroll gesture. */
+  touch-action: none;
 }
 
 .card::before,
@@ -2644,6 +2648,37 @@ body.is-run-shop-open .card-pile-dock {
 .card.is-locked {
   cursor: not-allowed;
   opacity: 0.62;
+}
+
+.card.is-cooling {
+  filter: grayscale(0.18) brightness(0.88);
+}
+
+.card-cooldown-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  border-radius: inherit;
+  color: #fff2c7;
+  background:
+    linear-gradient(
+      to top,
+      rgba(8, 13, 14, 0.78) calc((1 - var(--cooldown-progress, 1)) * 100%),
+      rgba(8, 13, 14, 0.08) calc((1 - var(--cooldown-progress, 1)) * 100%)
+    );
+  pointer-events: none;
+}
+
+.card-cooldown-label {
+  min-width: 34px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(8, 13, 14, 0.72);
+  font-size: 12px;
+  font-weight: 900;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.72);
 }
 
 .card.is-dragging {
@@ -3089,7 +3124,7 @@ body.is-run-shop-open .card-pile-dock {
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  touch-action: pan-y;
+  touch-action: none;
   padding: 6px 7px;
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.13);
@@ -4217,7 +4252,7 @@ body.is-run-shop-open .card-pile-dock {
 
 @media (pointer: coarse) {
   :root {
-    --mobile-ui-scale: 0.8;
+    --mobile-ui-scale: 0.6;
   }
 
   .desktop-hint {
@@ -4308,33 +4343,45 @@ body.is-run-shop-open .card-pile-dock {
   }
 
   .wave-preview {
+    top: 8px;
     left: 50%;
     right: auto;
-    width: min(620px, calc(100vw - 216px));
-    min-width: 280px;
-    min-height: 40px;
-    padding: 3px 8px 4px;
+    width: min(calc(100vw - 112px), 280px);
+    min-width: 0;
+    min-height: 34px;
+    padding: 2px 6px 3px;
     overflow: hidden;
-    transform: translateX(-50%);
+    transform: translateX(-50%) scale(var(--mobile-ui-scale));
+    transform-origin: top center;
+  }
+
+  .wave-preview-affix {
+    display: none;
+  }
+
+  .strategy-event-panel,
+  .run-shop-panel {
+    transform: scale(var(--mobile-ui-scale));
+    transform-origin: top center;
   }
 
   .wave-preview-track {
-    grid-template-columns: repeat(var(--wave-node-count, 5), minmax(0, 1fr));
+    grid-template-columns: repeat(var(--wave-node-count, 3), minmax(0, 1fr));
     min-width: 0;
-    padding: 0 6px;
+    padding: 0 4px;
   }
 
   .wave-preview-track::before {
-    top: 11px;
-    left: 24px;
-    right: 24px;
-    height: 3px;
+    top: 9px;
+    left: 16px;
+    right: 16px;
+    height: 2px;
   }
 
   .wave-node-dot {
-    width: 24px;
-    height: 24px;
-    font-size: 10px;
+    width: 20px;
+    height: 20px;
+    font-size: 9px;
   }
 
   .wave-preview-node {
@@ -4342,23 +4389,23 @@ body.is-run-shop-open .card-pile-dock {
   }
 
   .wave-preview-node strong {
-    font-size: 10px;
+    font-size: 8px;
   }
 
   .wave-preview-node span:not(.wave-node-dot) {
-    font-size: 8px;
+    font-size: 7px;
   }
 }
 
 @media (pointer: coarse) and (max-height: 430px) {
   :root {
-    --mobile-ui-scale: 0.8;
+    --mobile-ui-scale: 0.6;
   }
 }
 
 @media (pointer: coarse) and (max-height: 370px) {
   :root {
-    --mobile-ui-scale: 0.8;
+    --mobile-ui-scale: 0.6;
   }
 }
 
@@ -4535,7 +4582,7 @@ body.is-run-shop-open .card-pile-dock {
   }
 
   .energy-panel {
-    bottom: 150px;
+    bottom: calc(16px + env(safe-area-inset-bottom) + var(--mobile-hand-visual-height));
     width: min(360px, calc(100vw - 160px));
     padding: 5px 7px 6px;
   }
@@ -4550,7 +4597,7 @@ body.is-run-shop-open .card-pile-dock {
   }
 
   .game-hint-panel {
-    bottom: 190px;
+    bottom: calc(16px + env(safe-area-inset-bottom) + var(--mobile-hand-visual-height) + var(--mobile-energy-panel-height) + var(--mobile-hint-gap));
     width: min(360px, calc(100vw - 160px));
     min-height: 22px;
     padding: 3px 8px 4px;
@@ -4623,7 +4670,8 @@ body.is-run-shop-open .card-pile-dock {
     min-width: 0;
     min-height: 46px;
     overflow: hidden;
-    transform: translateX(-50%);
+    transform: translateX(-50%) scale(var(--mobile-ui-scale));
+    transform-origin: top center;
     pointer-events: none;
   }
 
@@ -4711,13 +4759,13 @@ body.is-run-shop-open .card-pile-dock {
   }
 
   .energy-panel {
-    bottom: 166px;
+    bottom: calc(16px + env(safe-area-inset-bottom) + var(--mobile-hand-visual-height));
     width: min(420px, calc(100vw - 20px));
     padding: 7px 8px 8px;
   }
 
   .game-hint-panel {
-    bottom: 258px;
+    bottom: calc(16px + env(safe-area-inset-bottom) + var(--mobile-hand-visual-height) + var(--mobile-energy-panel-height) + var(--mobile-hint-gap));
     width: min(420px, calc(100vw - 20px));
     min-height: 26px;
     padding: 4px 10px 5px;
@@ -4944,13 +4992,13 @@ body.is-run-shop-open .card-pile-dock {
   }
 
   .energy-panel {
-    bottom: 150px;
+    bottom: calc(16px + env(safe-area-inset-bottom) + var(--mobile-hand-visual-height));
     width: min(360px, calc(100vw - 160px));
     padding: 5px 7px 6px;
   }
 
   .game-hint-panel {
-    bottom: 190px;
+    bottom: calc(16px + env(safe-area-inset-bottom) + var(--mobile-hand-visual-height) + var(--mobile-energy-panel-height) + var(--mobile-hint-gap));
     width: min(360px, calc(100vw - 160px));
     font-size: 10px;
   }
@@ -5472,7 +5520,7 @@ body.is-run-shop-open .card-pile-dock {
     justify-content: center;
     align-items: flex-end;
     gap: 6px;
-    transform: translateX(-50%) scale(0.64);
+    transform: translateX(-50%) scale(var(--mobile-ui-scale));
     transform-origin: bottom center;
   }
 
@@ -5550,7 +5598,7 @@ body.is-run-shop-open .card-pile-dock {
   }
 
   .energy-panel {
-    bottom: calc(135px + env(safe-area-inset-bottom));
+    bottom: calc(14px + env(safe-area-inset-bottom) + var(--mobile-hand-visual-height));
     width: min(310px, calc((100vw - 112px) / var(--mobile-ui-scale)));
     padding: 6px 8px 7px;
   }
@@ -5565,7 +5613,7 @@ body.is-run-shop-open .card-pile-dock {
   }
 
   .game-hint-panel {
-    bottom: calc(325px + env(safe-area-inset-bottom));
+    bottom: calc(14px + env(safe-area-inset-bottom) + var(--mobile-hand-visual-height) + var(--mobile-energy-panel-height) + var(--mobile-hint-gap));
     width: min(310px, calc((100vw - 112px) / var(--mobile-ui-scale)));
     min-height: 24px;
     padding: 4px 8px 5px;
@@ -5607,7 +5655,7 @@ body.is-run-shop-open .card-pile-dock {
 
   .temporary-card-slot {
     bottom: calc(191px + env(safe-area-inset-bottom));
-    transform: translateX(-50%) scale(0.62);
+    transform: translateX(-50%) scale(var(--mobile-ui-scale));
     transform-origin: bottom center;
   }
 
@@ -5635,9 +5683,54 @@ body.is-run-shop-open .card-pile-dock {
     padding: 2vh 8px 8px;
   }
 
+  .wave-preview {
+    top: 8px;
+    left: 50%;
+    width: min(calc(100vw - 112px), 240px);
+    min-width: 0;
+    min-height: 32px;
+    padding: 2px 6px 3px;
+    transform: translateX(-50%) scale(var(--mobile-ui-scale));
+    transform-origin: top center;
+  }
+
+  .wave-preview-track {
+    grid-template-columns: repeat(var(--wave-node-count, 3), minmax(0, 1fr));
+    padding: 0 4px;
+  }
+
+  .wave-preview-track::before {
+    top: 9px;
+    left: 16px;
+    right: 16px;
+    height: 2px;
+  }
+
+  .wave-node-dot {
+    width: 20px;
+    height: 20px;
+    font-size: 9px;
+  }
+
+  .wave-preview-node {
+    gap: 1px;
+  }
+
+  .wave-preview-node strong {
+    font-size: 8px;
+  }
+
+  .wave-preview-node span:not(.wave-node-dot) {
+    font-size: 7px;
+  }
+
+  .wave-preview-affix {
+    display: none;
+  }
+
   .strategy-event-panel,
   .run-shop-panel {
-    transform: scale(0.7);
+    transform: scale(var(--mobile-ui-scale));
     transform-origin: top center;
   }
 
@@ -5837,6 +5930,13 @@ body.is-run-shop-open .card-pile-dock {
 
 body.is-animation-preview-active .mobile-action-dock {
   display: none;
+}
+
+@media (pointer: coarse) and (orientation: landscape) {
+  body:not(.is-animation-preview-active) .mobile-action-dock {
+    display: grid;
+    visibility: visible;
+  }
 }
 
 @media (max-width: 760px) {

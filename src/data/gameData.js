@@ -5,6 +5,14 @@ export const TEAMS = {
 
 export const DECK_SIZE = 36;
 export const ACTIVE_DECK_SIZE = 12;
+export const TERRAIN_CARD_IDS = ['meteor', 'poison-fog', 'white-smoke', 'plague-field'];
+export const TERRAIN_CARD_COOLDOWN_SECONDS = 22;
+
+export function isTerrainCard(card) {
+  if (!card) return false;
+  if (card.terrainCard === true) return true;
+  return TERRAIN_CARD_IDS.includes(card.id);
+}
 
 export const UNIT_DEFINITIONS = {
   knight: {
@@ -255,7 +263,7 @@ export const UNIT_DEFINITIONS = {
     speed: 2.35,
     attackRange: 1.25,
     attackRate: 0.78,
-    damage: 1,
+    damage: 5,
     armor: 8,
     magicResistance: 0,
     dodgeChance: 0.01,
@@ -3264,7 +3272,7 @@ export const PLAYER_ABILITY_DEFINITIONS = {
     name: '铁壁前线',
     label: '壁',
     color: '#8a8f78',
-    summary: '护甲高于 12 的友方单位每秒恢复 1 点生命/层'
+    summary: '护甲高于 7 的友方单位每秒恢复 1 点生命/层'
   },
   summonEndurance: {
     id: 'summonEndurance',
@@ -3564,17 +3572,17 @@ export const CARD_DEFINITIONS = [
     kind: 'building',
     label: '塔',
     artKey: 'arrowTower',
-    summary: '30 秒建成，建成后自动射击周围敌人',
+    summary: '15 秒建成，建成后自动射击周围敌人',
     target: 'ground',
     radius: 1.35,
     cooldown: 16,
     energyCost: 5,
     unitType: 'arrowTower',
-    buildSeconds: 30,
+    buildSeconds: 15,
     effect: {
       type: 'build-structure',
       unitType: 'arrowTower',
-      buildSeconds: 30
+      buildSeconds: 15
     },
     color: '#8f6a3f'
   },
@@ -3584,17 +3592,17 @@ export const CARD_DEFINITIONS = [
     kind: 'building',
     label: '修',
     artKey: 'repairStation',
-    summary: '消耗自身耐久，缓慢恢复周围单位武器耐久',
+    summary: '15 秒建成；消耗自身耐久，缓慢恢复周围单位武器耐久',
     target: 'ground',
     radius: 1.45,
     cooldown: 18,
     energyCost: 5,
     unitType: 'repairStation',
-    buildSeconds: 30,
+    buildSeconds: 15,
     effect: {
       type: 'build-structure',
       unitType: 'repairStation',
-      buildSeconds: 30
+      buildSeconds: 15
     },
     color: '#6b9ab8'
   },
@@ -3604,17 +3612,17 @@ export const CARD_DEFINITIONS = [
     kind: 'building',
     label: '食',
     artKey: 'canteen',
-    summary: '消耗自身耐久，缓慢治疗周围受伤单位',
+    summary: '15 秒建成；消耗自身耐久，缓慢治疗周围受伤单位',
     target: 'ground',
     radius: 1.55,
     cooldown: 18,
     energyCost: 5,
     unitType: 'canteen',
-    buildSeconds: 30,
+    buildSeconds: 15,
     effect: {
       type: 'build-structure',
       unitType: 'canteen',
-      buildSeconds: 30
+      buildSeconds: 15
     },
     color: '#b98758'
   },
@@ -3624,17 +3632,17 @@ export const CARD_DEFINITIONS = [
     kind: 'building',
     label: '标',
     artKey: 'beacon',
-    summary: '可建在任意可通行地面，建成后允许在附近派遣单位',
+    summary: '15 秒建成；可建在任意可通行地面，建成后允许在附近派遣单位',
     target: 'ground',
     radius: 1.25,
     cooldown: 14,
     energyCost: 5,
     unitType: 'beacon',
-    buildSeconds: 30,
+    buildSeconds: 15,
     effect: {
       type: 'build-structure',
       unitType: 'beacon',
-      buildSeconds: 30
+      buildSeconds: 15
     },
     color: '#dff8ff'
   },
@@ -3684,11 +3692,12 @@ export const CARD_DEFINITIONS = [
     kind: 'spell',
     label: '陨',
     artKey: 'meteor',
-    summary: '对敌方区域造成范围伤害与击退',
+    summary: '0 费地形牌。使用后留在手牌，22 秒冷却；主动下滑才会进入弃牌堆。',
     target: 'ground',
     radius: 3.25,
-    cooldown: 8.5,
-    energyCost: 6,
+    terrainCard: true,
+    cooldown: 22,
+    energyCost: 0,
     damage: 38,
     defenseDamageType: 'magic',
     knockback: 7,
@@ -3704,11 +3713,12 @@ export const CARD_DEFINITIONS = [
     kind: 'spell',
     label: '毒',
     artKey: 'poisonFog',
-    summary: '10 秒毒雾，仅对敌方单位施加最大生命值中毒',
+    summary: '0 费地形牌。10 秒毒雾，仅对敌方单位施加最大生命值中毒；使用后 22 秒冷却并留在手牌。',
     target: 'ground',
     radius: 3.65,
-    cooldown: 10.5,
-    energyCost: 4,
+    terrainCard: true,
+    cooldown: 22,
+    energyCost: 0,
     effect: {
       type: 'create-area-effect',
       areaEffect: {
@@ -3733,11 +3743,12 @@ export const CARD_DEFINITIONS = [
     kind: 'spell',
     label: '烟',
     artKey: 'whiteSmoke',
-    summary: '30 秒白烟，仅对友方单位提供等级相关闪避率',
+    summary: '0 费地形牌。30 秒白烟，仅对友方单位提供等级相关闪避率；使用后 22 秒冷却并留在手牌。',
     target: 'ground',
     radius: 3.45,
-    cooldown: 16,
-    energyCost: 4,
+    terrainCard: true,
+    cooldown: 22,
+    energyCost: 0,
     effect: {
       type: 'create-area-effect',
       areaEffect: {
@@ -3760,11 +3771,12 @@ export const CARD_DEFINITIONS = [
     kind: 'spell',
     label: '疫',
     artKey: 'plagueFog',
-    summary: '范围内敌人感染瘟疫：99 秒持续伤害，每秒造成等级×1% 最大生命，并小范围传播',
+    summary: '0 费地形牌。范围内敌人感染瘟疫；使用后 22 秒冷却并留在手牌，主动下滑才会进入弃牌堆。',
     target: 'ground',
     radius: 3.55,
-    cooldown: 14,
-    energyCost: 4,
+    terrainCard: true,
+    cooldown: 22,
+    energyCost: 0,
     effect: {
       type: 'create-area-effect',
       areaEffect: {
@@ -4146,7 +4158,7 @@ export const CARD_DEFINITIONS = [
     kind: 'ability',
     label: '壁',
     artKey: 'abilityBuildingDurability',
-    summary: '护甲 >12 的友方单位每秒恢复 1 点生命/层',
+    summary: '护甲 >7 的友方单位每秒恢复 1 点生命/层',
     target: 'none',
     radius: 1,
     cooldown: 0,
@@ -4225,7 +4237,7 @@ export const CARD_DEFINITIONS = [
     summary: '普通攻击点燃目标',
     target: 'friendly-unit',
     radius: 1.1,
-    cooldown: 4,
+    cooldown: 0,
     energyCost: 2,
     enchantmentId: 'fire',
     effect: {
@@ -4243,7 +4255,7 @@ export const CARD_DEFINITIONS = [
     summary: '受击时反弹伤害',
     target: 'friendly-unit',
     radius: 1.1,
-    cooldown: 4,
+    cooldown: 0,
     energyCost: 4,
     enchantmentId: 'thorns',
     effect: {
@@ -4261,7 +4273,7 @@ export const CARD_DEFINITIONS = [
     summary: '每级固定减免 0.5 伤害',
     target: 'friendly-unit',
     radius: 1.1,
-    cooldown: 4,
+    cooldown: 0,
     energyCost: 2,
     enchantmentId: 'toughness',
     effect: {
@@ -4279,7 +4291,7 @@ export const CARD_DEFINITIONS = [
     summary: '按等级获得百分比减伤',
     target: 'friendly-unit',
     radius: 1.1,
-    cooldown: 4,
+    cooldown: 0,
     energyCost: 4,
     enchantmentId: 'protection',
     effect: {
@@ -4297,7 +4309,7 @@ export const CARD_DEFINITIONS = [
     summary: '受伤时消耗武器耐久吸收伤害（约 2.2 伤/点耐久），等级提高效率',
     target: 'friendly-unit',
     radius: 1.1,
-    cooldown: 4,
+    cooldown: 0,
     energyCost: 2,
     enchantmentId: 'block',
     effect: {
@@ -4315,7 +4327,7 @@ export const CARD_DEFINITIONS = [
     summary: '每级 +1 基础攻击力',
     target: 'friendly-unit',
     radius: 1.1,
-    cooldown: 4,
+    cooldown: 0,
     energyCost: 2,
     enchantmentId: 'power',
     effect: {
@@ -4333,7 +4345,7 @@ export const CARD_DEFINITIONS = [
     summary: '命中后在目标处爆炸，对周围敌人造成等级 x2 物理伤害',
     target: 'friendly-unit',
     radius: 1.1,
-    cooldown: 4,
+    cooldown: 0,
     energyCost: 4,
     enchantmentId: 'explosion',
     effect: {
@@ -4351,7 +4363,7 @@ export const CARD_DEFINITIONS = [
     summary: '每级 +5% 暴击率，暴击造成三倍伤害；超过 100% 后转为提高暴击倍率',
     target: 'friendly-unit',
     radius: 1.1,
-    cooldown: 4,
+    cooldown: 0,
     energyCost: 4,
     enchantmentId: 'critical',
     effect: {
@@ -4369,7 +4381,7 @@ export const CARD_DEFINITIONS = [
     summary: '待机每 5 秒增加等级 x0.1 攻击距离，下一次攻击转为额外伤害并清零',
     target: 'friendly-unit',
     radius: 1.1,
-    cooldown: 4,
+    cooldown: 0,
     energyCost: 2,
     enchantmentId: 'focus',
     effect: {
@@ -4387,7 +4399,7 @@ export const CARD_DEFINITIONS = [
     summary: '受伤时按缺血比例概率恢复等级点生命',
     target: 'friendly-unit',
     radius: 1.1,
-    cooldown: 4,
+    cooldown: 0,
     energyCost: 4,
     enchantmentId: 'phoenix',
     effect: {
@@ -4405,7 +4417,7 @@ export const CARD_DEFINITIONS = [
     summary: '每 5 秒恢复等级 x2 的武器耐久',
     target: 'friendly-unit',
     radius: 1.1,
-    cooldown: 4,
+    cooldown: 0,
     energyCost: 2,
     enchantmentId: 'spiritWeapon',
     effect: {
@@ -4423,7 +4435,7 @@ export const CARD_DEFINITIONS = [
     summary: '附近单位死亡时增加最大生命，3 秒冷却',
     target: 'friendly-unit',
     radius: 1.1,
-    cooldown: 4,
+    cooldown: 0,
     energyCost: 4,
     enchantmentId: 'soulEater',
     effect: {
@@ -4441,7 +4453,7 @@ export const CARD_DEFINITIONS = [
     summary: '按普通攻击伤害比例恢复生命',
     target: 'friendly-unit',
     radius: 1.1,
-    cooldown: 4,
+    cooldown: 0,
     energyCost: 4,
     enchantmentId: 'lifesteal',
     effect: {
@@ -4459,7 +4471,7 @@ export const CARD_DEFINITIONS = [
     summary: '命中后汲取目标，3 秒内造成伤害并治疗自己',
     target: 'friendly-unit',
     radius: 1.1,
-    cooldown: 4,
+    cooldown: 0,
     energyCost: 4,
     enchantmentId: 'drain',
     effect: {
@@ -4477,7 +4489,7 @@ export const CARD_DEFINITIONS = [
     summary: '命中后造成最大生命值百分比毒伤',
     target: 'friendly-unit',
     radius: 1.1,
-    cooldown: 4,
+    cooldown: 0,
     energyCost: 4,
     enchantmentId: 'poison',
     effect: {
@@ -4495,7 +4507,7 @@ export const CARD_DEFINITIONS = [
     summary: '命中后造成低额持续伤害',
     target: 'friendly-unit',
     radius: 1.1,
-    cooldown: 4,
+    cooldown: 0,
     energyCost: 2,
     enchantmentId: 'bleed',
     effect: {
@@ -4513,7 +4525,7 @@ export const CARD_DEFINITIONS = [
     summary: '每秒恢复生命',
     target: 'friendly-unit',
     radius: 1.1,
-    cooldown: 4,
+    cooldown: 0,
     energyCost: 2,
     enchantmentId: 'recovery',
     effect: {
@@ -4531,7 +4543,7 @@ export const CARD_DEFINITIONS = [
     summary: '每秒获得护盾',
     target: 'friendly-unit',
     radius: 1.1,
-    cooldown: 4,
+    cooldown: 0,
     energyCost: 4,
     enchantmentId: 'spiritShield',
     effect: {
@@ -4549,7 +4561,7 @@ export const CARD_DEFINITIONS = [
     summary: '生命和攻击略降，但移动与攻速提升',
     target: 'friendly-unit',
     radius: 1.1,
-    cooldown: 4,
+    cooldown: 0,
     energyCost: 2,
     enchantmentId: 'waveSwarm',
     effect: {
@@ -4567,7 +4579,7 @@ export const CARD_DEFINITIONS = [
     summary: '提高最大生命、护盾与护甲，适合前排',
     target: 'friendly-unit',
     radius: 1.1,
-    cooldown: 4,
+    cooldown: 0,
     energyCost: 4,
     enchantmentId: 'waveArmored',
     effect: {
@@ -4585,7 +4597,7 @@ export const CARD_DEFINITIONS = [
     summary: '提高移动速度与攻击节奏',
     target: 'friendly-unit',
     radius: 1.1,
-    cooldown: 4,
+    cooldown: 0,
     energyCost: 2,
     enchantmentId: 'waveRush',
     effect: {
@@ -4603,7 +4615,7 @@ export const CARD_DEFINITIONS = [
     summary: '提高射程、弹速与少量伤害',
     target: 'friendly-unit',
     radius: 1.1,
-    cooldown: 4,
+    cooldown: 0,
     energyCost: 2,
     enchantmentId: 'waveRanged',
     effect: {
@@ -4621,7 +4633,7 @@ export const CARD_DEFINITIONS = [
     summary: '提高伤害、击退和少量生命',
     target: 'friendly-unit',
     radius: 1.1,
-    cooldown: 4,
+    cooldown: 0,
     energyCost: 4,
     enchantmentId: 'waveSiege',
     effect: {
@@ -4639,7 +4651,7 @@ export const CARD_DEFINITIONS = [
     summary: '攻击时额外造成（50+等级×25）%护甲的伤害',
     target: 'friendly-unit',
     radius: 1.1,
-    cooldown: 4,
+    cooldown: 0,
     energyCost: 2,
     enchantmentId: 'heavyStrike',
     effect: {
@@ -4657,7 +4669,7 @@ export const CARD_DEFINITIONS = [
     summary: '附近每名友军每级 +1 攻击',
     target: 'friendly-unit',
     radius: 1.1,
-    cooldown: 4,
+    cooldown: 0,
     energyCost: 1,
     enchantmentId: 'wolfInstinct',
     lootOnly: true,
@@ -4676,7 +4688,7 @@ export const CARD_DEFINITIONS = [
     summary: '每级 +25% 攻击与最大生命',
     target: 'friendly-unit',
     radius: 1.1,
-    cooldown: 4,
+    cooldown: 0,
     energyCost: 2,
     enchantmentId: 'ursineSpirit',
     lootOnly: true,

@@ -77,6 +77,7 @@ const UNIT_MAX_SMOOTH_CLIMB_HEIGHT = 0.58;
 const UNIT_GROUND_EPSILON = 0.006;
 const MAX_ACTIVE_WAVE_SPAWNS = 7;
 const WAVE_PREVIEW_COUNT = 5;
+const MOBILE_WAVE_PREVIEW_COUNT = 3;
 const MAX_LEVEL_DIFFICULTY = 10;
 const TOTAL_WAVES = 21;
 const BOSS_WAVES_TO_WIN = 3;
@@ -247,7 +248,7 @@ const TEMPORARY_IMMORTALITY_CARD = {
   summary: '特殊临时牌。使目标每秒恢复 4% 最大生命值（消耗）。',
   target: 'friendly-unit',
   radius: 1.1,
-  cooldown: 4,
+  cooldown: 0,
   energyCost: 0,
   uses: 1,
   lootOnly: true,
@@ -267,7 +268,7 @@ const TEMPORARY_MANA_SURGE_CARD = {
   summary: '特殊临时牌。拖拽给单位后，随机进行 3 次附魔（消耗）。',
   target: 'friendly-unit',
   radius: 1.1,
-  cooldown: 4,
+  cooldown: 0,
   energyCost: 0,
   uses: 1,
   lootOnly: true,
@@ -592,6 +593,7 @@ export class Game {
     };
     this.currentEnemyForce = null;
     this.pendingStrategyRewards = [];
+    this.rewardedAltarIds = new Set();
     this.teamGenericUpgradeCounts = new Map();
     this.teamSpecialUpgrades = new Map();
     this.teamSupportModifiersApplied = new Set();
@@ -1085,7 +1087,8 @@ export class Game {
     const startIndex = this.currentWave
       ? Math.max(0, this.currentWave.index - 1)
       : this.waveIndex;
-    const waves = this.waveSchedule.slice(startIndex, startIndex + WAVE_PREVIEW_COUNT);
+    const previewCount = wavePreviewNodeCount();
+    const waves = this.waveSchedule.slice(startIndex, startIndex + previewCount);
     if (!waves.length) {
       root.innerHTML = '';
       return;
@@ -1587,7 +1590,7 @@ export class Game {
   createShopChoicesForCategory(category, wave = null) {
     if (category === 'card') {
       return this.weightedCardChoices({
-        pool: this.selectedCardPool({ allowAllFallback: true }),
+        pool: this.selectedCardPool({ allowAllFallback: true, excludeKinds: ['ability'] }),
         action: 'add-card',
         actionLabel: '获得卡牌',
         wave
@@ -1693,10 +1696,10 @@ export class Game {
       const altarName = options.altar?.name ?? '祭坛';
       return {
         type,
-        kicker: `占领 ${altarName}`,
-        title: '选择占领奖励',
-        summary: '占领祭坛后从卡牌奖励中三选一，可直接获得新卡、复制、单位专精或临时牌。',
-        choices: this.createWaveRewardOptionChoices(this.currentEnemyForce)
+        kicker: `首次占领 ${altarName}`,
+        title: '选择能力卡',
+        summary: '首次占领祭坛可从能力卡中三选一，立即获得对应能力。重复占领不会再次触发。',
+        choices: this.createAltarAbilityRewardChoices()
       };
     }
     if (type === 'wave-reward') {
@@ -1811,6 +1814,7 @@ export class Game {
     const source = sourceDeck
       .filter((card) => !card.lootOnly)
       .filter((card) => !options.kind || card.kind === options.kind)
+      .filter((card) => !options.excludeKinds?.includes(card.kind))
       .filter((card) => {
         if (!card?.id || seen.has(card.id)) return false;
         seen.add(card.id);
@@ -1826,6 +1830,7 @@ export class Game {
     return CARD_DEFINITIONS
       .filter((card) => !card.lootOnly)
       .filter((card) => !options.kind || card.kind === options.kind)
+      .filter((card) => !options.excludeKinds?.includes(card.kind))
       .map((card) => this.cardSystem?.applyRuntimeCardLevel?.(card) ?? card);
   }
 
@@ -1874,6 +1879,14 @@ export class Game {
 
   createWaveRewardOptionChoices(wave = null) {
     return this.createCardWaveRewardChoices(wave);
+  }
+
+  createAltarAbilityRewardChoices() {
+    return this.randomCardChoices({
+      pool: CARD_DEFINITIONS.filter((card) => card.kind === 'ability' && !card.lootOnly),
+      action: 'acquire-ability',
+      actionLabel: '获得能力'
+    });
   }
 
   buildRuntimeUpgradeChoicePool() {
@@ -2297,6 +2310,13 @@ export class Game {
         applyRuntimeLevelBonus: false,
         energyCost: 0
       }).added;
+    } else if (choice.action === 'acquire-ability') {
+      applied = this.cardEffects.resolve({
+        card: choice.card,
+        point: null,
+        targetUnit: null,
+        targetCard: null
+      }) !== false;
     }
     if (!applied) return false;
     this.applyStrategyChoiceCost(choice);
@@ -2632,6 +2652,7 @@ export class Game {
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height, false);
     this.world?.update?.(0, this.cameraTarget, this.camera, { forceStaticCulling: true });
+    this.updateWavePreview();
   }
 
   applyInitialCameraConfig() {
@@ -2835,7 +2856,11 @@ export class Game {
   }
 
   onAltarOwnershipChanged(event) {
-    void event;
+    if (!event || event.owner !== TEAMS.PLAYER || event.reason !== 'captured') return;
+    const altarId = event.altar?.id;
+    if (!altarId || this.rewardedAltarIds.has(altarId)) return;
+    this.rewardedAltarIds.add(altarId);
+    this.queueStrategyReward('altar-reward', { altar: event.altar });
   }
 
   summonUnits(type, count, point, radius = 1, options = {}) {
@@ -3172,7 +3197,7 @@ export class Game {
         {
           stat: 'maxHealth',
           type: 'multiply',
-          amount: (bossScale.bossHealthBase ?? 2.5) + bossRank * (bossScale.bossHealthPerRank ?? 0.3)
+          amount: ((bossScale.bossHealthBase ?? 2.5) + bossRank * (bossScale.bossHealthPerRank ?? 0.3)) * 0.7
         },
         {
           stat: 'maxShield',
@@ -3195,6 +3220,10 @@ export class Game {
           { stat: 'attackDamage', type: 'multiply', amount: bossStatMultiply }
         ], `force:${waveConfig.id ?? waveConfig.index ?? 0}:boss-scale`);
       }
+      const targetBossShield = unit.maxHealth * 0.5;
+      unit.attributes.addModifiers([
+        { stat: 'maxShield', type: 'add', amount: targetBossShield - unit.maxShield }
+      ], `force:${waveConfig.id ?? waveConfig.index ?? 0}:boss-shield-cap`);
       unit.health = unit.maxHealth;
       unit.shield = unit.maxShield;
       unit.weapon.durability = unit.weapon.maxDurability;
@@ -5854,11 +5883,23 @@ function resolveSessionDifficultyGrowth(session) {
   return levelGrowth * (1 + (selectedDifficulty - 1) * WAVE_DIFFICULTY_GROWTH_PER_SELECTED_DIFFICULTY);
 }
 
+function wavePreviewNodeCount() {
+  if (window.matchMedia?.('(pointer: coarse)')?.matches) {
+    return MOBILE_WAVE_PREVIEW_COUNT;
+  }
+  return WAVE_PREVIEW_COUNT;
+}
+
 function waveDifficultyBonus(wave, sessionOrGrowth = 1) {
   const growth = Number.isFinite(sessionOrGrowth)
     ? sessionOrGrowth
     : resolveSessionDifficultyGrowth(sessionOrGrowth);
-  return Math.floor((Math.max(0, wave - 1) / WAVE_DIFFICULTY_STEP_WAVES) * growth);
+  const steps = Math.max(0, wave - 1);
+  if (steps <= 0) return 0;
+  const slowSteps = Math.min(steps, 5);
+  const fastSteps = Math.max(0, steps - 5);
+  const weightedSteps = slowSteps * 0.55 + fastSteps * 1.25;
+  return Math.floor((weightedSteps / WAVE_DIFFICULTY_STEP_WAVES) * growth);
 }
 
 function clampLevelDifficulty(value) {
@@ -6368,6 +6409,16 @@ function strategyRewardVisualMeta(choice) {
       typeLabel: '临时牌',
       actionLabel: '获得临时牌',
       icon: '⏱',
+      accent: cardThemeColor(card)
+    };
+  }
+  if (choice.action === 'acquire-ability') {
+    const card = choice.card;
+    return {
+      kindKey: 'ability',
+      typeLabel: '能力卡',
+      actionLabel: '获得能力',
+      icon: '★',
       accent: cardThemeColor(card)
     };
   }

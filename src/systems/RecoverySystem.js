@@ -42,7 +42,7 @@ export class RecoverySystem {
     const healAmount = stacks;
     this.game.friendlyUnits.forEach((unit) => {
       if (!unit.alive || unit.underConstruction) return;
-      if (this.game.modifiers.getArmor(unit) <= 12) return;
+      if (this.game.modifiers.getArmor(unit) <= 7) return;
       if (unit.health >= unit.maxHealth - 0.01) return;
       const healed = unit.restoreHealth(healAmount);
       if (healed <= 0.01) return;

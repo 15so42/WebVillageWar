@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { basicMat, createReticle } from '../art/lowpoly.js';
-import { ACTIVE_DECK_SIZE, BALANCE, CARD_DEFINITIONS } from '../data/gameData.js';
+import { ACTIVE_DECK_SIZE, BALANCE, CARD_DEFINITIONS, isTerrainCard, TERRAIN_CARD_COOLDOWN_SECONDS } from '../data/gameData.js';
 import { insideBattlefield } from '../utils/math.js';
 import { disposeObject3D } from '../utils/dispose.js';
 
@@ -47,6 +47,7 @@ export class CardSystem {
     this.temporaryCards = [];
     this.runtimeCardLevelBonuses = new Map();
     this.runtimeCardUpgrades = new Map();
+    this.cardCooldownUntil = new Map();
     this.pendingDrawAnimations = new Set();
     this.drag = null;
     this.raycaster = new THREE.Raycaster();
@@ -106,6 +107,7 @@ export class CardSystem {
     if (previousEnergy !== this.energy) {
       this.updateCardAffordability();
     }
+    this.updateCardCooldownUi();
   }
 
   renderHand() {
@@ -157,6 +159,7 @@ export class CardSystem {
       <div class="card-cost">${cardEnergyCost(card)}</div>
       <div class="card-level">Lv.${card.level ?? 1}</div>
       ${cardUseBarMarkup(card)}
+      ${cardCooldownOverlayMarkup(this, card)}
       <div class="card-face">
         <div class="card-header">
           <div class="card-rune">${card.label}</div>
@@ -278,7 +281,11 @@ export class CardSystem {
 
   startDrag(event, card) {
     if (event.button !== 0) return;
-    if (!this.canSpend(cardEnergyCost(card)) && !this.canSpend(discardEnergyCost(card))) {
+    if (this.isCardOnCooldown(card) && !this.canSpend(discardEnergyCost(card))) {
+      this.flashEnergyPanel();
+      return;
+    }
+    if (!this.isCardOnCooldown(card) && !this.canSpend(cardEnergyCost(card)) && !this.canSpend(discardEnergyCost(card))) {
       this.flashEnergyPanel();
       return;
     }
@@ -322,7 +329,9 @@ export class CardSystem {
   };
 
   onPointerCancel = (event) => {
-    this.finishDrag(event);
+    // Mobile browsers cancel the pointer when a pan/scroll gesture wins.
+    // Never treat cancel as a play/discard release.
+    this.cancelActiveDrag(event);
   };
 
   finishDrag(event) {
@@ -363,7 +372,7 @@ export class CardSystem {
     this.drag.valid = false;
     this.drag.targetUnit = null;
     this.drag.targetCard = null;
-    this.drag.canPayPlay = this.canSpend(cardEnergyCost(this.drag.card));
+    this.drag.canPayPlay = !this.isCardOnCooldown(this.drag.card) && this.canSpend(cardEnergyCost(this.drag.card));
     this.drag.canPayDiscard = this.canSpend(discardEnergyCost(this.drag.card));
     this.drag.mode = this.resolveDragMode(event);
     this.clearHandCardTargetHighlights();
@@ -756,6 +765,7 @@ export class CardSystem {
   }
 
   playDraggedCard(drag) {
+    if (this.isCardOnCooldown(drag.card)) return false;
     const cost = cardEnergyCost(drag.card);
     if (!this.canSpend(cost)) {
       this.flashEnergyPanel();
@@ -765,6 +775,12 @@ export class CardSystem {
     this.spendEnergy(cost);
     this.game.runCardsPlayedCount = (this.game.runCardsPlayedCount ?? 0) + 1;
     this.game.abilities?.onCardPlayed(drag.card, drag);
+    if (isTerrainCard(drag.card)) {
+      this.startCardCooldown(drag.card);
+      this.renderHand();
+      this.updateCardAffordability();
+      return true;
+    }
     this.moveCardToDiscard(drag.card);
     return true;
   }
@@ -1496,12 +1512,71 @@ export class CardSystem {
         ? this.temporaryCards[Number(element.dataset.temporaryIndex)]
         : this.handCards[Number(element.dataset.handIndex)];
       if (!card) return;
-      const canPlay = this.canSpend(cardEnergyCost(card));
+      const onCooldown = this.isCardOnCooldown(card);
+      const canPlay = !onCooldown && this.canSpend(cardEnergyCost(card));
       const canDiscard = this.canSpend(discardEnergyCost(card));
       element.setAttribute('aria-disabled', String(!canPlay));
       element.classList.toggle('is-discard-only', !canPlay && canDiscard);
       element.classList.toggle('is-locked', !canPlay && !canDiscard);
+      element.classList.toggle('is-cooling', onCooldown);
     });
+  }
+
+  isCardOnCooldown(card) {
+    if (!isTerrainCard(card)) return false;
+    const until = this.cardCooldownUntil.get(card.instanceId);
+    return Number.isFinite(until) && (this.game.elapsedTime ?? 0) < until;
+  }
+
+  getCardCooldownRemaining(card) {
+    if (!isTerrainCard(card)) return 0;
+    const until = this.cardCooldownUntil.get(card.instanceId);
+    if (!Number.isFinite(until)) return 0;
+    return Math.max(0, until - (this.game.elapsedTime ?? 0));
+  }
+
+  startCardCooldown(card) {
+    if (!isTerrainCard(card)) return;
+    const duration = Math.max(0, Number(card.cooldown ?? TERRAIN_CARD_COOLDOWN_SECONDS));
+    this.cardCooldownUntil.set(card.instanceId, (this.game.elapsedTime ?? 0) + duration);
+  }
+
+  updateCardCooldownUi() {
+    let needsRefresh = false;
+    document.querySelectorAll('#card-hand .card, #temporary-card-slot .card').forEach((element) => {
+      const card = element.dataset.cardLocation === 'temporary'
+        ? this.temporaryCards[Number(element.dataset.temporaryIndex)]
+        : this.handCards[Number(element.dataset.handIndex)];
+      if (!card || !isTerrainCard(card)) return;
+      const remaining = this.getCardCooldownRemaining(card);
+      const total = Math.max(0.001, Number(card.cooldown ?? TERRAIN_CARD_COOLDOWN_SECONDS));
+      const overlay = element.querySelector('.card-cooldown-mask');
+      if (remaining <= 0) {
+        if (overlay) overlay.remove();
+        return;
+      }
+      const progress = Math.max(0, Math.min(1, remaining / total));
+      if (!overlay) {
+        needsRefresh = true;
+        return;
+      }
+      overlay.style.setProperty('--cooldown-progress', String(progress));
+      const label = overlay.querySelector('.card-cooldown-label');
+      if (label) label.textContent = `${Math.ceil(remaining)}s`;
+    });
+    if (needsRefresh) {
+      this.renderHand();
+      this.renderTemporaryCards();
+      this.updateCardAffordability();
+      return;
+    }
+    const hasActiveCooldown = [...this.cardCooldownUntil.entries()].some(([, until]) => (
+      Number.isFinite(until) && (this.game.elapsedTime ?? 0) < until
+    ));
+    if (!hasActiveCooldown && this.cardCooldownUntil.size > 0) {
+      this.cardCooldownUntil.clear();
+      this.updateCardAffordability();
+    }
   }
 
   updateAbilityIcons(abilities = []) {
@@ -1667,6 +1742,19 @@ export function cardUseBarMarkup(card, className = 'card-use-bar') {
     segments.push(`<span${index < remaining ? ' class="is-filled"' : ''}></span>`);
   }
   return `<div class="${className}" aria-hidden="true">${segments.join('')}</div>`;
+}
+
+function cardCooldownOverlayMarkup(cardSystem, card) {
+  if (!isTerrainCard(card)) return '';
+  const remaining = cardSystem.getCardCooldownRemaining(card);
+  if (remaining <= 0) return '';
+  const total = Math.max(0.001, Number(card.cooldown ?? TERRAIN_CARD_COOLDOWN_SECONDS));
+  const progress = Math.max(0, Math.min(1, remaining / total));
+  return `
+    <div class="card-cooldown-mask" style="--cooldown-progress:${progress}">
+      <span class="card-cooldown-label">${Math.ceil(remaining)}s</span>
+    </div>
+  `;
 }
 
 function kindLabel(kind) {
@@ -2708,10 +2796,6 @@ function bindScrollableCardText(element) {
   const shouldScrollText = () => (
     text.scrollHeight > text.clientHeight + 1 || text.scrollWidth > text.clientWidth + 1
   );
-  text.addEventListener('pointerdown', (event) => {
-    if (!shouldScrollText()) return;
-    event.stopPropagation();
-  });
   text.addEventListener('wheel', (event) => {
     if (!shouldScrollText()) return;
     event.stopPropagation();

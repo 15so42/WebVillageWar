@@ -70,6 +70,7 @@ function enchantCardById() {
 function entryNote(card) {
   if (!card) return '敌军或环境效果';
   if (card.lootOnly) return '战利品 / 临时牌专属';
+  if ((card.cooldown ?? 0) <= 0) return `${card.energyCost ?? 0} 能量`;
   return `${card.energyCost ?? 0} 能量 · 冷却 ${card.cooldown ?? 0}s`;
 }
 
