@@ -15,8 +15,10 @@
 | 模式 | 2 人合作打 AI（现有 PvE 波次流程） |
 | 牌组 | **双方各用自己的牌组**（Meta 里各自选的 deck） |
 | 能量 / 出牌 | **各自独立**，各打各的 |
+| 能力卡 / 队伍升级 | **各自独立**（`AbilitySystem`、通用/特化升级按 slot 拆分） |
 | 波次奖励 | **各自弹各自的三选一**，互不影响 |
-| 军需铺 / 银币 | **各自独立** |
+| 军需铺 / 银币 | **各自独立**（价格、待选、开关状态互不覆盖） |
+| 击杀奖励 | 有 `ownerPlayerId` 的击杀归该玩家；**基地等无归属击杀双方各得 1 能量 + 足额银币** |
 | 营地 | **共享一个** `playerBase`（血量、耐久、胜负绑定） |
 | 敌军血量 | 合作模式下 × **2.5** |
 | 敌军攻击 | 合作模式下 × **1.3** |
@@ -84,6 +86,7 @@
 | `runShopOpen / runShopPendingOffers / shopPrices / runShopActiveCategory` | 军需铺 | `Game.runShop*` |
 | `pendingStrategyRewards / strategyRewardRerollCount` | 波次奖励队列 | `Game.pendingStrategyRewards` |
 | `teamGenericUpgradeCounts / teamSpecialUpgrades` | 波次升级 | `Game.teamGenericUpgradeCounts` |
+| `abilities`（运行时） | 能力叠层 | `AbilitySystem`（按 slot：`abilitySystems.p1/p2`） |
 | `selectedUnits / selectionMode` | 选兵状态 | `Game.selectedUnits` |
 | `strategyEvent` | 当前策略 UI 状态 | `Game.strategyEvent`（按 slot 拆分） |
 

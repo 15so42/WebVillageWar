@@ -766,6 +766,11 @@ export class Game {
           mountUi: true,
           startWithEmptyDrawPile: true
         });
+        this.abilitySystems = null;
+        this.abilities = new AbilitySystem(this, {
+          playerSlot: this.localPlayerSlot,
+          mountUi: true
+        });
       } else {
         this.cardSystems = {
           p1: new CardSystem(this, {
@@ -782,6 +787,17 @@ export class Game {
           })
         };
         this.cardSystem = this.cardSystems[this.localPlayerSlot];
+        this.abilitySystems = {
+          p1: new AbilitySystem(this, {
+            playerSlot: 'p1',
+            mountUi: this.localPlayerSlot === 'p1'
+          }),
+          p2: new AbilitySystem(this, {
+            playerSlot: 'p2',
+            mountUi: this.localPlayerSlot === 'p2'
+          })
+        };
+        this.abilities = this.abilitySystems[this.localPlayerSlot];
       }
     } else {
       this.cardSystems = null;
@@ -789,8 +805,9 @@ export class Game {
         deck: this.levelSession.deck,
         startWithEmptyDrawPile: true
       });
+      this.abilitySystems = null;
+      this.abilities = new AbilitySystem(this);
     }
-    this.abilities = new AbilitySystem(this);
     this.lootDrops = new LootDropSystem(this);
     this.altars = new AltarSystem(this, this.world.config?.altars ?? this.worldConfig.altars);
     this.spawnWildlife();
@@ -1031,7 +1048,7 @@ export class Game {
     if (perf) {
       runPerfStep('waveSpawn', () => this.updateWaveFlow());
       runPerfStep('card', () => this.updateCardSystems(dt));
-      runPerfStep('abilities', () => this.abilities.update(dt));
+      runPerfStep('abilities', () => this.updateAbilitySystems(dt));
       runPerfStep('playerBaseAttack', () => this.updatePlayerBaseAttack(dt));
       runPerfStep('enemyCampAttack', () => this.updateEnemyCampAttack(dt));
       runPerfStep('enemyCommander', () => this.enemyCommander.update(dt));
@@ -1059,7 +1076,7 @@ export class Game {
     } else {
       runStep('waveSpawn', () => this.updateWaveFlow());
       runStep('card', () => this.updateCardSystems(dt));
-      runStep('abilities', () => this.abilities.update(dt));
+      runStep('abilities', () => this.updateAbilitySystems(dt));
       runStep('playerBaseAttack', () => this.updatePlayerBaseAttack(dt));
       runStep('enemyCampAttack', () => this.updateEnemyCampAttack(dt));
       runStep('enemyCommander', () => this.enemyCommander.update(dt));
@@ -1946,11 +1963,28 @@ export class Game {
     if (unit.isBoss) amount = Number(rewards.boss) || 3.5;
     else if (unit.isElite) amount = Number(rewards.elite) || 1.1;
     else if (unit.isWildlife) amount = Number(rewards.wildlife) || 0.1;
-    const ownerSlot = resolveKillSilverSlot(this, source);
-    const gained = this.grantSilver(amount, unit.position, ownerSlot);
-    const pouchStacks = this.abilities?.getStacks?.('lootPouch') ?? 0;
+
+    const ownerSlot = resolveKillOwnerSlot(this, source);
+    if (this.coop?.enabled && this.players && ownerSlot == null) {
+      // 基地等无归属击杀：双方各拿足额银币
+      let total = 0;
+      this.coopPlayerSlots().forEach((slot) => {
+        total += this.grantSilver(amount, unit.position, slot);
+        const pouchStacks = this.abilitiesFor(slot)?.getStacks?.('lootPouch') ?? 0;
+        if (pouchStacks > 0) {
+          this.addSilver(pouchStacks, slot);
+          total += pouchStacks;
+        }
+      });
+      this.updateHud(0);
+      return total;
+    }
+
+    const slot = ownerSlot ?? this.localPlayerSlot;
+    const gained = this.grantSilver(amount, unit.position, slot);
+    const pouchStacks = this.abilitiesFor(slot)?.getStacks?.('lootPouch') ?? 0;
     if (pouchStacks > 0) {
-      this.addSilver(pouchStacks, ownerSlot);
+      this.addSilver(pouchStacks, slot);
       if (unit.position && this.effects?.spawnEnergyNumber) {
         this.effects.spawnEnergyNumber(unit.position, pouchStacks, {
           text: `+${formatSilverAmount(pouchStacks)} 银币`,
@@ -1969,7 +2003,7 @@ export class Game {
   }
 
   getSpellAreaRadiusBonus() {
-    const stacks = this.abilities?.getStacks?.('tacticalMaster') ?? 0;
+    const stacks = this.getAbilityStacks('tacticalMaster', this.activeEconomySlot ?? this.localPlayerSlot);
     return 1 + 0.5 * Math.max(0, stacks);
   }
 
@@ -2385,8 +2419,10 @@ export class Game {
     if (!upgrade?.id || upgrade.kind !== 'unit-generic') return false;
     const nextIndex = this.teamGenericUpgradeCounts.get(upgrade.id) ?? 0;
     this.teamGenericUpgradeCounts.set(upgrade.id, nextIndex + 1);
+    const slot = this.activeEconomySlot ?? this.localPlayerSlot;
     this.friendlyUnits.forEach((unit) => {
       if (!unit.alive || unit.isWildlife) return;
+      if (this.coop?.enabled && unit.ownerPlayerId && unit.ownerPlayerId !== slot) return;
       this.applyTeamGenericUpgradeLayerToUnit(unit, upgrade, nextIndex);
     });
     return true;
@@ -2400,13 +2436,19 @@ export class Game {
     const owned = this.teamSpecialUpgrades.get(unitType);
     if (owned.has(upgrade.id)) return false;
     owned.add(upgrade.id);
+    const slot = this.activeEconomySlot ?? this.localPlayerSlot;
     if (upgrade.supportModifiers && !this.teamSupportModifiersApplied.has(upgrade.id)) {
-      const sample = this.friendlyUnits.find((unit) => unit.type === unitType && unit.alive);
+      const sample = this.friendlyUnits.find((unit) => (
+        unit.type === unitType &&
+        unit.alive &&
+        (!this.coop?.enabled || !unit.ownerPlayerId || unit.ownerPlayerId === slot)
+      ));
       if (sample) applySupportUpgrade(sample, upgrade.supportModifiers);
       this.teamSupportModifiersApplied.add(upgrade.id);
     }
     this.friendlyUnits.forEach((unit) => {
       if (!unit.alive || unit.isWildlife || unit.type !== unitType) return;
+      if (this.coop?.enabled && unit.ownerPlayerId && unit.ownerPlayerId !== slot) return;
       this.applyTeamSpecialUpgradeToUnit(unit, upgrade);
     });
     return true;
@@ -3169,6 +3211,14 @@ export class Game {
     this.cardSystem.update(dt);
   }
 
+  updateAbilitySystems(dt) {
+    if (this.abilitySystems) {
+      Object.values(this.abilitySystems).forEach((system) => system.update(dt));
+      return;
+    }
+    this.abilities?.update?.(dt);
+  }
+
   getSilver(slot = this.activeEconomySlot ?? this.localPlayerSlot) {
     if (this.players?.[slot]) return this.players[slot].silver;
     return this.silver;
@@ -3196,6 +3246,7 @@ export class Game {
     const previous = {
       activeEconomySlot: this.activeEconomySlot,
       cardSystem: this.cardSystem,
+      abilities: this.abilities,
       strategyEvent: this.strategyEvent,
       shopPrices: this.shopPrices,
       strategyRewardRerollCount: this.strategyRewardRerollCount,
@@ -3204,10 +3255,14 @@ export class Game {
       runShopActiveCategory: this.runShopActiveCategory,
       runShopChoices: this.runShopChoices,
       runShopPendingOffers: this.runShopPendingOffers,
-      silver: this.silver
+      silver: this.silver,
+      teamGenericUpgradeCounts: this.teamGenericUpgradeCounts,
+      teamSpecialUpgrades: this.teamSpecialUpgrades,
+      teamSupportModifiersApplied: this.teamSupportModifiersApplied
     };
     this.activeEconomySlot = slot;
     if (this.cardSystems?.[slot]) this.cardSystem = this.cardSystems[slot];
+    if (this.abilitySystems?.[slot]) this.abilities = this.abilitySystems[slot];
     this.strategyEvent = run.strategyEvent;
     this.shopPrices = run.shopPrices;
     this.strategyRewardRerollCount = run.strategyRewardRerollCount;
@@ -3217,6 +3272,9 @@ export class Game {
     this.runShopChoices = run.runShopChoices;
     this.runShopPendingOffers = run.runShopPendingOffers;
     this.silver = run.silver;
+    this.teamGenericUpgradeCounts = run.teamGenericUpgradeCounts;
+    this.teamSpecialUpgrades = run.teamSpecialUpgrades;
+    this.teamSupportModifiersApplied = run.teamSupportModifiersApplied;
     try {
       return action();
     } finally {
@@ -3229,8 +3287,12 @@ export class Game {
       run.runShopChoices = this.runShopChoices;
       run.runShopPendingOffers = this.runShopPendingOffers;
       run.silver = this.silver;
+      run.teamGenericUpgradeCounts = this.teamGenericUpgradeCounts;
+      run.teamSpecialUpgrades = this.teamSpecialUpgrades;
+      run.teamSupportModifiersApplied = this.teamSupportModifiersApplied;
       this.activeEconomySlot = previous.activeEconomySlot;
       this.cardSystem = previous.cardSystem;
+      this.abilities = previous.abilities;
       this.strategyEvent = previous.strategyEvent;
       this.shopPrices = previous.shopPrices;
       this.strategyRewardRerollCount = previous.strategyRewardRerollCount;
@@ -3240,11 +3302,42 @@ export class Game {
       this.runShopChoices = previous.runShopChoices;
       this.runShopPendingOffers = previous.runShopPendingOffers;
       this.silver = previous.silver;
+      this.teamGenericUpgradeCounts = previous.teamGenericUpgradeCounts;
+      this.teamSpecialUpgrades = previous.teamSpecialUpgrades;
+      this.teamSupportModifiersApplied = previous.teamSupportModifiersApplied;
     }
   }
 
   coopPlayerSlots() {
     return this.players ? ['p1', 'p2'] : [this.localPlayerSlot ?? 'p1'];
+  }
+
+  abilitiesFor(slotOrUnit = null) {
+    if (!this.abilitySystems) return this.abilities;
+    if (typeof slotOrUnit === 'string') {
+      return this.abilitySystems[slotOrUnit] ?? this.abilities;
+    }
+    const owner = slotOrUnit?.ownerPlayerId;
+    if (owner && this.abilitySystems[owner]) return this.abilitySystems[owner];
+    const slot = this.activeEconomySlot ?? this.localPlayerSlot;
+    return this.abilitySystems[slot] ?? this.abilities;
+  }
+
+  getAbilityStacks(abilityId, slotOrUnit = null) {
+    if (!this.abilitySystems) {
+      return this.abilities?.getStacks?.(abilityId) ?? 0;
+    }
+    if (typeof slotOrUnit === 'string') {
+      return this.abilitySystems[slotOrUnit]?.getStacks?.(abilityId) ?? 0;
+    }
+    if (slotOrUnit?.ownerPlayerId) {
+      return this.abilitySystems[slotOrUnit.ownerPlayerId]?.getStacks?.(abilityId) ?? 0;
+    }
+    // 无归属来源（基地等共享效果）：双方叠层相加
+    return this.coopPlayerSlots().reduce(
+      (sum, slot) => sum + (this.abilitySystems[slot]?.getStacks?.(abilityId) ?? 0),
+      0
+    );
   }
 
   updateSilverHud() {
@@ -3273,7 +3366,7 @@ export class Game {
     this.networkBridge?.notifyUnitDied?.(unit.id);
 
     if (unit?.team === TEAMS.ENEMY) {
-      this.grantKillEnergy(unit);
+      this.grantKillEnergy(unit, source);
       this.grantKillSilver(unit, source);
     }
 
@@ -3321,8 +3414,23 @@ export class Game {
     this.effects.spawnRing(source.position, '#ff8866', 0.92, 0.48);
   }
 
-  grantKillEnergy(unit) {
+  grantKillEnergy(unit, source = null) {
     if (!unit || unit.team !== TEAMS.ENEMY || unit.isSilentRemoval) return;
+    const ownerSlot = resolveKillOwnerSlot(this, source);
+
+    if (this.coop?.enabled && this.players && ownerSlot == null) {
+      // 基地等无归属击杀：双方各得 1 能量，并触发各自击杀能力
+      this.coopPlayerSlots().forEach((slot) => {
+        const cards = this.cardSystems?.[slot] ?? (slot === this.localPlayerSlot ? this.cardSystem : null);
+        const gained = cards?.addEnergy?.(1) ?? 0;
+        if (gained > 0 && unit.position && slot === this.localPlayerSlot) {
+          this.effects.spawnEnergyNumber(unit.position, gained, { height: 2.55 });
+        }
+        this.abilitiesFor(slot)?.onEnemyKilled?.(unit, unit.position);
+      });
+      return;
+    }
+
     const rewards = BALANCE.playerEnergy?.killRewards ?? {};
     let amount = Number(rewards.normal) || 1;
     if (unit.isBoss) amount = Number(rewards.boss) || 6;
@@ -3330,13 +3438,15 @@ export class Game {
     else if (unit.isWildlife) amount = Number(rewards.wildlife) || 1;
     else if (unit.isBuilding) amount = Number(rewards.structure) || 1;
 
-    const gained = this.cardSystem?.addEnergy?.(amount) ?? 0;
+    const slot = ownerSlot ?? this.localPlayerSlot;
+    const cards = this.cardSystems?.[slot] ?? (slot === this.localPlayerSlot ? this.cardSystem : null);
+    const gained = cards?.addEnergy?.(amount) ?? 0;
     if (gained > 0 && unit.position) {
       this.effects.spawnEnergyNumber(unit.position, gained, {
         height: 2.55
       });
     }
-    this.abilities?.onEnemyKilled?.(unit, unit.position);
+    this.abilitiesFor(slot)?.onEnemyKilled?.(unit, unit.position);
   }
 
   getEnemyForceSpawnPoints(count) {
@@ -3397,7 +3507,7 @@ export class Game {
       this.applySummonCardLevel(unit, options.sourceCard);
       this.attachUnitStatus(unit);
       this.registerUnit(unit);
-      this.abilities?.onFriendlyUnitSummoned?.(unit, options.sourceCard);
+      this.abilitiesFor(unit)?.onFriendlyUnitSummoned?.(unit, options.sourceCard);
       this.effects.spawnRing(unit.position, '#9dd8ff', 0.82, 0.52);
       if (selectSpawned) {
         this.selectUnit(unit);
@@ -3415,7 +3525,7 @@ export class Game {
     });
     unit.ownerPlayerId = options.ownerPlayerId ?? this.cardSystem?.playerSlot ?? this.localPlayerSlot;
     this.applySummonCardLevel(unit, options.sourceCard);
-    this.abilities?.applyNewBuildingDurability(unit);
+    this.abilitiesFor(unit)?.applyNewBuildingDurability(unit);
     this.attachUnitStatus(unit);
     this.registerUnit(unit);
     this.buildings.startConstruction(unit, options.buildSeconds ?? options.sourceCard?.buildSeconds ?? 30);
@@ -3463,7 +3573,12 @@ export class Game {
   applySummonCardLevel(unit, card) {
     applySummonCardLevelModifiers(unit, card);
     applyBuildingCardUpgrade(unit, card);
-    this.applyTeamUpgradesToUnit(unit);
+    const owner = unit.ownerPlayerId ?? this.activeEconomySlot ?? this.localPlayerSlot;
+    if (this.players?.[owner]) {
+      this.withPlayerContext(owner, () => this.applyTeamUpgradesToUnit(unit));
+    } else {
+      this.applyTeamUpgradesToUnit(unit);
+    }
   }
 
   spawnUpgradeTurret(owner, ability = {}) {
@@ -3484,6 +3599,7 @@ export class Game {
       position
     });
     turret.ownerUnitId = owner.id;
+    turret.ownerPlayerId = owner.ownerPlayerId ?? this.activeEconomySlot ?? this.localPlayerSlot;
     turret.controlMode = owner.controlMode;
     turret.guardPoint = owner.guardPoint?.clone?.() ?? owner.position.clone();
     turret.guardRadius = Math.max(6.5, owner.guardRadius ?? 6.5);
@@ -4600,7 +4716,7 @@ export class Game {
       playerBaseHealth: this.playerBase.health,
       enemyCampHealth: this.enemyCamp.health,
       bossesDefeated: this.bossesDefeated,
-      rewardMultiplier: this.abilities?.getRewardMultiplier?.() ?? 1
+      rewardMultiplier: this.abilitiesFor(this.localPlayerSlot)?.getRewardMultiplier?.() ?? 1
     });
   }
 
@@ -6081,14 +6197,14 @@ export class Game {
   }
 }
 
-function resolveKillSilverSlot(game, source) {
+function resolveKillOwnerSlot(game, source) {
   if (!game?.coop?.enabled || !game.players) {
     return game?.localPlayerSlot ?? 'p1';
   }
   const owner = source?.ownerPlayerId;
   if (owner && game.players[owner]) return owner;
-  // 基地炮等无归属伤害：双方各拿一半不方便，默认归 p1 避免丢银；也可后续改均分
-  return 'p1';
+  // 基地 / 无归属：返回 null，由发放逻辑给双方
+  return null;
 }
 
 function normalizeLevelSession(session) {

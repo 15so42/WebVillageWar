@@ -107,6 +107,7 @@ export class CombatSystem {
     if (source && finalKnockback > 0 && !isStaticUnit(target)) {
       if (source.team === TEAMS.PLAYER && target.team === TEAMS.ENEMY) {
         target.recentPlayerKnockback = true;
+        target.recentPlayerKnockbackOwner = source.ownerPlayerId ?? null;
         target.knockbackSessionDistance = 0;
       }
       const dir = direction2D(source.position, target.position);
@@ -245,7 +246,9 @@ export class CombatSystem {
     const source = context.source;
     if (!source?.alive || source.team !== TEAMS.PLAYER) return;
 
-    const volleyStacks = this.game.abilities?.getStacks?.('rangedVolley') ?? 0;
+    const volleyStacks = this.game.getAbilityStacks?.('rangedVolley', source)
+      ?? this.game.abilities?.getStacks?.('rangedVolley')
+      ?? 0;
     if (volleyStacks > 0 && context.isAttack) {
       const attackRange = this.game.modifiers.getAttackRange(source);
       if (attackRange > 5) {
@@ -257,8 +260,12 @@ export class CombatSystem {
   onKnockbackEnded(unit, distance) {
     if (!unit?.alive || unit.team !== TEAMS.ENEMY || !unit.recentPlayerKnockback) return;
     unit.recentPlayerKnockback = false;
+    const knockbackOwner = unit.recentPlayerKnockbackOwner ?? null;
+    unit.recentPlayerKnockbackOwner = null;
     if (distance < 0.08) return;
-    const stacks = this.game.abilities?.getStacks?.('knockbackStarfall') ?? 0;
+    const stacks = this.game.getAbilityStacks?.('knockbackStarfall', knockbackOwner)
+      ?? this.game.abilities?.getStacks?.('knockbackStarfall')
+      ?? 0;
     if (stacks <= 0) return;
     const radius = 1.05 + Math.min(1.35, distance * 0.07);
     const damage = (4 + distance * 0.75) * (1 + 0.22 * Math.max(0, stacks - 1));

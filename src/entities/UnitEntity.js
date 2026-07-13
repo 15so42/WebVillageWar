@@ -34,6 +34,7 @@ export class UnitEntity {
     this.knockbackVelocity = new THREE.Vector3();
     this.knockbackSessionDistance = 0;
     this.recentPlayerKnockback = false;
+    this.recentPlayerKnockbackOwner = null;
     this.verticalVelocity = 0;
     this.grounded = true;
     this.isBuilding = this.definition.isBuilding === true;

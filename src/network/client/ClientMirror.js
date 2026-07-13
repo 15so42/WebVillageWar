@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { TEAMS, UNIT_DEFINITIONS } from '../../data/gameData.js';
+import { PLAYER_ABILITY_DEFINITIONS, TEAMS, UNIT_DEFINITIONS } from '../../data/gameData.js';
 import { UnitEntity } from '../../entities/UnitEntity.js';
 import { SYNC, VISUAL_STATE_FROM_CODE } from '../protocol/syncConfig.js';
 import { applyNetworkFx } from './NetworkFxRelay.js';
@@ -123,8 +123,25 @@ export class ClientMirror {
       }));
     }
     this.game.updateSilverHud?.();
+    this.applyAbilityState(state.abilities);
     this.game.applyNetworkPrivateUi?.(state);
     this.game.networkBridge?.coopStatusUi?.render?.();
+  }
+
+  applyAbilityState(rows) {
+    const abilities = this.game.abilities;
+    if (!abilities?.abilities || !Array.isArray(rows)) return;
+    abilities.abilities.clear();
+    rows.forEach((row) => {
+      const definition = PLAYER_ABILITY_DEFINITIONS[row.id];
+      if (!definition) return;
+      abilities.abilities.set(row.id, {
+        ...definition,
+        stacks: Math.max(0, Number(row.stacks) || 0),
+        expiresAt: row.expiresAt ?? null
+      });
+    });
+    abilities.updateUi?.();
   }
 
   applyEvent(event) {

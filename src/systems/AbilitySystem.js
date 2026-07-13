@@ -18,12 +18,27 @@ const SUMMON_REINFORCEMENT_CHANCE_PER_STACK = 0.5;
 const PERIODIC_ENERGY_INTERVAL_SECONDS = 10;
 
 export class AbilitySystem {
-  constructor(game) {
+  constructor(game, options = {}) {
     this.game = game;
+    this.playerSlot = options.playerSlot ?? game?.localPlayerSlot ?? 'p1';
+    this.mountUi = options.mountUi !== false;
     this.abilities = new Map();
     this.warDrumCardCounter = 0;
     this.periodicEnergyTimer = 0;
     this.updateUi();
+  }
+
+  get cardSystem() {
+    return this.game.cardSystems?.[this.playerSlot] ?? this.game.cardSystem;
+  }
+
+  ownedFriendlyUnits({ includeBuildings = true } = {}) {
+    return this.game.friendlyUnits.filter((unit) => {
+      if (!unit?.alive || unit.team !== TEAMS.PLAYER) return false;
+      if (!includeBuildings && unit.isBuilding) return false;
+      if (!this.game.coop?.enabled) return true;
+      return !unit.ownerPlayerId || unit.ownerPlayerId === this.playerSlot;
+    });
   }
 
   update(dt) {
@@ -88,12 +103,15 @@ export class AbilitySystem {
 
   onFriendlyUnitSummoned(unit, sourceCard = null) {
     void sourceCard;
+    if (this.game.coop?.enabled && unit?.ownerPlayerId && unit.ownerPlayerId !== this.playerSlot) {
+      return;
+    }
     this.applySummonEndurance(unit);
     if (!this.getStacks('arsenal') || !unit?.alive || unit.team !== TEAMS.PLAYER) return;
     const unitType = unit.type;
     if (!unitType) return;
     const sourceTag = `ability:arsenal:${unitType}:${Math.floor((this.game.elapsedTime ?? 0) * 10)}`;
-    this.game.friendlyUnits.forEach((ally) => {
+    this.ownedFriendlyUnits().forEach((ally) => {
       if (!ally.alive || ally.type !== unitType) return;
       ally.attributes.addModifiers([
         {
@@ -109,6 +127,9 @@ export class AbilitySystem {
 
   onFriendlyUnitDeath(unit) {
     if (!unit?.position || unit.isBuilding) return;
+    if (this.game.coop?.enabled && unit.ownerPlayerId && unit.ownerPlayerId !== this.playerSlot) {
+      return;
+    }
     const stacks = this.getStacks('martyrdomLine');
     if (stacks <= 0) return;
     const damage = MARTYRDOM_DAMAGE_PER_STACK * stacks;
@@ -257,10 +278,7 @@ export class AbilitySystem {
     void card;
     const stacks = this.getStacks('randomHealOnCard');
     if (stacks <= 0) return;
-    const targets = this.game.friendlyUnits.filter((unit) => (
-      unit.alive &&
-      unit.team === TEAMS.PLAYER &&
-      !unit.isBuilding &&
+    const targets = this.ownedFriendlyUnits({ includeBuildings: false }).filter((unit) => (
       !unit.underConstruction
     ));
     if (!targets.length) return;
@@ -285,16 +303,14 @@ export class AbilitySystem {
     void card;
     const stacks = this.getStacks('revivalMatrix');
     if (stacks <= 0) return;
-    const targets = this.game.friendlyUnits.filter((unit) => (
-      unit.alive &&
-      unit.team === TEAMS.PLAYER &&
-      !unit.isBuilding &&
-      !unit.underConstruction &&
-      unit.health < unit.maxHealth - 0.01
+    const targets = this.ownedFriendlyUnits({ includeBuildings: false }).filter((unit) => (
+      !unit.underConstruction
     ));
     if (!targets.length) return;
-    targets.sort((left, right) => (left.health / left.maxHealth) - (right.health / right.maxHealth));
-    const target = targets[0];
+    const target = targets.reduce((lowest, unit) => (
+      !lowest || (unit.health / unit.maxHealth) < (lowest.health / lowest.maxHealth) ? unit : lowest
+    ), null);
+    if (!target) return;
     const amount = target.maxHealth * TRIAGE_HEAL_PERCENT * stacks;
     const healed = target.restoreHealth(amount);
     if (healed <= 0.01) return;
@@ -321,10 +337,10 @@ export class AbilitySystem {
     this.warDrumCardCounter += 1;
     if (this.warDrumCardCounter < WAR_DRUM_CARDS_PER_DRAW) return;
     this.warDrumCardCounter = 0;
-    const before = this.game.cardSystem?.handCards?.length ?? 0;
-    this.game.cardSystem?.drawToFullHand?.({ animate: true });
-    this.game.cardSystem?.renderHand?.();
-    const after = this.game.cardSystem?.handCards?.length ?? 0;
+    const before = this.cardSystem?.handCards?.length ?? 0;
+    this.cardSystem?.drawToFullHand?.({ animate: this.mountUi });
+    this.cardSystem?.renderHand?.();
+    const after = this.cardSystem?.handCards?.length ?? 0;
     if (after <= before) return;
     this.game.effects.spawnDamageNumber(this.game.playerBase.position, 1, {
       text: '战鼓抽牌',
@@ -335,6 +351,23 @@ export class AbilitySystem {
       fontSize: 76,
       baseHeight: 0.48
     });
+  }
+
+  gainEnergy(amount, position = null) {
+    const gained = this.cardSystem?.addEnergy?.(amount) ?? 0;
+    if (gained > 0 && position) {
+      this.game.effects.spawnEnergyNumber(position, gained, {
+        height: 2.72
+      });
+    }
+    return gained;
+  }
+
+  updateUi() {
+    if (!this.mountUi) return;
+    this.cardSystem?.updateAbilityIcons?.(
+      this.getActiveAbilities().filter((ability) => this.getStacks(ability.id) > 0)
+    );
   }
 
   tickPeriodicEnergy(dt) {
@@ -350,16 +383,6 @@ export class AbilitySystem {
     }
   }
 
-  gainEnergy(amount, position = null) {
-    const gained = this.game.cardSystem.addEnergy(amount);
-    if (gained > 0 && position) {
-      this.game.effects.spawnEnergyNumber(position, gained, {
-        height: 2.72
-      });
-    }
-    return gained;
-  }
-
   expireTimedAbilities() {
     const now = this.game.elapsedTime ?? 0;
     let changed = false;
@@ -371,12 +394,6 @@ export class AbilitySystem {
     if (changed) {
       this.updateUi();
     }
-  }
-
-  updateUi() {
-    this.game.cardSystem?.updateAbilityIcons?.(
-      this.getActiveAbilities().filter((ability) => this.getStacks(ability.id) > 0)
-    );
   }
 }
 

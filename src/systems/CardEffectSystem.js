@@ -46,7 +46,10 @@ export class CardEffectSystem {
   spawnUnits({ card, effect, point }) {
     if (!point || this.game.canDeploySummonAt?.(point) === false) return false;
     const baseCount = effect.count ?? card.count;
-    const reinforcementBonus = this.game.abilities?.getSummonReinforcementBonus?.(card) ?? 0;
+    const abilityOwner = this.game.activeEconomySlot
+      ?? this.game.cardSystem?.playerSlot
+      ?? this.game.localPlayerSlot;
+    const reinforcementBonus = this.game.abilitiesFor?.(abilityOwner)?.getSummonReinforcementBonus?.(card) ?? 0;
     this.game.summonUnits(
       effect.unitType ?? card.unitType,
       Math.max(1, Math.floor(baseCount ?? 1) + reinforcementBonus),
@@ -152,7 +155,10 @@ export class CardEffectSystem {
     const abilityId = effect.abilityId ?? card.abilityId;
     const stacks = resolveCardEffectNumber(card, effect, 'stacks', 1);
     const durationSeconds = resolveCardEffectNumber(card, effect, 'durationSeconds', effect.durationSeconds ?? 0);
-    return this.game.abilities?.acquire(abilityId, stacks, { durationSeconds }) === true;
+    const abilityOwner = this.game.activeEconomySlot
+      ?? this.game.cardSystem?.playerSlot
+      ?? this.game.localPlayerSlot;
+    return this.game.abilitiesFor?.(abilityOwner)?.acquire(abilityId, stacks, { durationSeconds }) === true;
   }
 
   gainEnergy({ card, effect }) {

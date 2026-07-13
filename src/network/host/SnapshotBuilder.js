@@ -167,7 +167,8 @@ export class SnapshotBuilder {
       discardCount: cards.discardPile.length,
       silver: isLocal ? this.game.getSilver(slot) : run.silver,
       strategyUi: serializeStrategyUi(strategyEvent),
-      runShopUi: serializeRunShopUi(shopRun)
+      runShopUi: serializeRunShopUi(shopRun),
+      abilities: serializeAbilities(this.game.abilitySystems?.[slot] ?? (isLocal ? this.game.abilities : null))
     };
   }
 
@@ -236,4 +237,17 @@ function serializeRunShopUi(run) {
       card: serializeCardSummary(choice.card ?? choice.targetCard ?? choice.temporaryCard)
     }))
   };
+}
+
+function serializeAbilities(abilitySystem) {
+  if (!abilitySystem?.abilities) return [];
+  const rows = [];
+  abilitySystem.abilities.forEach((ability, id) => {
+    rows.push({
+      id,
+      stacks: ability.stacks ?? 0,
+      expiresAt: ability.expiresAt ?? null
+    });
+  });
+  return rows;
 }

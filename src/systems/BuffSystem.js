@@ -176,7 +176,9 @@ export class BuffSystem {
   }
 
   applyAbilityShieldBonus(target) {
-    const stacks = this.game.abilities?.getStacks?.('shieldAugment') ?? 0;
+    const stacks = this.game.getAbilityStacks?.('shieldAugment', target)
+      ?? this.game.abilities?.getStacks?.('shieldAugment')
+      ?? 0;
     if (stacks <= 0 || !target?.alive || target.team !== TEAMS.PLAYER) return;
     if (target.maxShield <= 0.001) return;
     const bonus = 2 * stacks;
@@ -532,7 +534,7 @@ export class BuffSystem {
       const maxHealthDamagePerSecond =
         Math.max(0, context.target.maxHealth ?? 0) * Math.max(0, maxHealthPercentPerSecond);
       const damage = (damagePerSecond + maxHealthDamagePerSecond) * tickInterval
-        * (this.game.abilities?.getDotDamageMultiplier?.(context.source) ?? 1);
+        * (this.game.abilitiesFor?.(context.source)?.getDotDamageMultiplier?.(context.source) ?? 1);
       const damageTypes = new Set();
       if (context.buff.damageType === 'true' || effect.damageType === 'true') {
         damageTypes.add('true');
@@ -576,7 +578,7 @@ export class BuffSystem {
       const percentPerLevel = effect.percentPerLevel ?? 0.01;
       const tickInterval = context.buff.tickInterval ?? effect.tickInterval ?? 1;
       const damage = Math.max(0, context.target.maxHealth ?? 0) * percentPerLevel * level * tickInterval
-        * (this.game.abilities?.getDotDamageMultiplier?.(context.source) ?? 1);
+        * (this.game.abilitiesFor?.(context.source)?.getDotDamageMultiplier?.(context.source) ?? 1);
       if (damage > 0.001) {
         this.game.combat.applyDamage(context.target, damage, context.source, 0, {
           damage,
@@ -604,7 +606,7 @@ export class BuffSystem {
       const healPerSecond = context.buff.healPerSecond ?? effect.healPerSecond ?? damagePerSecond;
       const tickInterval = context.buff.tickInterval ?? effect.tickInterval ?? 1;
       const damage = damagePerSecond * tickInterval
-        * (this.game.abilities?.getDotDamageMultiplier?.(context.source) ?? 1);
+        * (this.game.abilitiesFor?.(context.source)?.getDotDamageMultiplier?.(context.source) ?? 1);
       const healedAmount = healPerSecond * tickInterval;
       const damageTypes = new Set();
       if (context.buff.damageType === 'true' || effect.damageType === 'true') {
@@ -803,7 +805,9 @@ export class BuffSystem {
   }
 
   trySpreadBurning(context) {
-    const stacks = this.game.abilities?.getStacks?.('fireSpread') ?? 0;
+    const stacks = this.game.getAbilityStacks?.('fireSpread', context.source)
+      ?? this.game.abilities?.getStacks?.('fireSpread')
+      ?? 0;
     if (stacks <= 0) return;
     const source = context.source;
     if (!source?.alive || source.team !== TEAMS.PLAYER) return;
