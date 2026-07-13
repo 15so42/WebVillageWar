@@ -28,6 +28,7 @@ export class CoopMatchController {
     this.roomClient = new RoomClient();
     this.activeBridge = null;
     this.pendingMatch = null;
+    this.matchStarting = false;
     this.unsubscribe = this.roomClient.onUpdate((state) => this.handleRoomUpdate(state));
   }
 
@@ -38,22 +39,26 @@ export class CoopMatchController {
   }
 
   createRoom(playerName = '玩家 1') {
+    this.matchStarting = false;
     const deck = this.getDeckSelection?.() ?? [];
     if (deck.length !== DECK_SIZE) {
       this.onNotice?.(`请先选满 ${DECK_SIZE} 张卡牌`);
       return;
     }
+    this.onNotice?.('正在创建房间…');
     this.roomClient.createRoom(playerName, deck.length).catch((error) => {
       this.onNotice?.(error?.message ?? '连接服务器失败');
     });
   }
 
   joinRoom(roomId, playerName = '玩家 2') {
+    this.matchStarting = false;
     const deck = this.getDeckSelection?.() ?? [];
     if (deck.length !== DECK_SIZE) {
       this.onNotice?.(`请先选满 ${DECK_SIZE} 张卡牌`);
       return;
     }
+    this.onNotice?.('正在加入房间…');
     this.roomClient.joinRoom(String(roomId || '').trim().toUpperCase(), playerName, deck.length).catch((error) => {
       this.onNotice?.(error?.message ?? '连接服务器失败');
     });
@@ -72,25 +77,21 @@ export class CoopMatchController {
   }
 
   leaveRoom() {
+    this.matchStarting = false;
     this.roomClient.leaveRoom();
     this.pendingMatch = null;
   }
 
   startMatch() {
-    if (!this.roomClient.isHost) {
-      this.onNotice?.('只有房主可以开始');
-      return;
-    }
+    if (!this.roomClient.isHost) return;
+    if (this.matchStarting) return;
     const room = this.roomClient.room;
+    if (!room || room.state === 'running') return;
     const p2 = room?.players?.p2;
-    if (!p2?.connected) {
-      this.onNotice?.('等待队友加入');
-      return;
-    }
-    if (!room.players.p1?.ready || !p2.ready) {
-      this.onNotice?.('双方都需准备');
-      return;
-    }
+    if (!p2?.connected) return;
+    if (!room.players.p1?.ready || !p2.ready) return;
+
+    this.matchStarting = true;
     const levelId = this.getSelectedLevelId?.() ?? LEVEL_DEFINITIONS[0]?.id;
     const level = this.selectedLevel?.(levelId) ?? LEVEL_DEFINITIONS[0];
     const difficulty = this.getSelectedDifficulty?.() ?? 1;
@@ -114,18 +115,36 @@ export class CoopMatchController {
     });
   }
 
+  tryAutoStartMatch(room) {
+    if (!this.roomClient.isHost) return;
+    if (this.matchStarting || room?.state === 'running') return;
+    const p1 = room?.players?.p1;
+    const p2 = room?.players?.p2;
+    if (!p1?.ready || !p2?.ready || p2.connected === false) {
+      this.matchStarting = false;
+      return;
+    }
+    this.startMatch();
+  }
+
   handleRoomUpdate(state) {
     if (state.event === 'error') {
       this.onNotice?.(state.message ?? '联机错误');
+      this.matchStarting = false;
       return;
     }
+    if (state.event === MSG.ROOM_CREATE || state.event === MSG.ROOM_JOIN) {
+      this.onNotice?.('');
+    }
     this.onLobbyVisible?.(state);
+    if (state.event === MSG.ROOM_STATE || state.event === MSG.ROOM_CREATE || state.event === MSG.ROOM_JOIN) {
+      this.tryAutoStartMatch(state.room ?? this.roomClient.room);
+    }
     if (state.event === MSG.NET_FORWARD) {
       const payload = state.forward?.payload;
       if (payload?.type === 'match_start') {
         this.launchMatch(payload, this.roomClient.playerSlot);
       }
-      return;
     }
   }
 

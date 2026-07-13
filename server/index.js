@@ -50,12 +50,14 @@ function roomSnapshot(room) {
     levelId: room.levelId,
     difficulty: room.difficulty,
     players: Object.fromEntries(
-      Object.entries(room.players).map(([slot, player]) => [slot, {
-        name: player.name,
-        ready: player.ready,
-        connected: player.connected,
-        deckSize: player.deckSize ?? 0
-      }])
+      Object.entries(room.players)
+        .filter(([, player]) => player)
+        .map(([slot, player]) => [slot, {
+          name: player.name,
+          ready: player.ready,
+          connected: player.connected,
+          deckSize: player.deckSize ?? 0
+        }])
     )
   };
 }
@@ -237,82 +239,87 @@ wss.on('connection', (socket) => {
     } catch {
       return;
     }
-    switch (message.type) {
-      case MSG.ROOM_CREATE:
-        createRoom(socket, message.name, message.deckSize ?? 0);
-        break;
-      case MSG.ROOM_JOIN:
-        joinRoom(socket, message.roomId, message.name, message.deckSize ?? 0);
-        break;
-      case MSG.ROOM_LEAVE:
-        leaveRoom(socket);
-        break;
-      case MSG.ROOM_READY: {
-        const info = sockets.get(socket);
-        const room = info ? rooms.get(info.roomId) : null;
-        const player = room?.players?.[info?.playerSlot];
-        if (player) {
-          player.ready = Boolean(message.ready);
-          if (Array.isArray(message.deck)) player.deck = message.deck;
-          broadcastRoom(room);
-        }
-        break;
-      }
-      case MSG.ROOM_START: {
-        const info = sockets.get(socket);
-        const room = info ? rooms.get(info.roomId) : null;
-        if (!room || info.playerSlot !== room.hostSlot) {
-          send(socket, { type: MSG.ERROR, message: '只有房主可以开始' });
+    try {
+      switch (message.type) {
+        case MSG.ROOM_CREATE:
+          createRoom(socket, message.name, message.deckSize ?? 0);
+          break;
+        case MSG.ROOM_JOIN:
+          joinRoom(socket, message.roomId, message.name, message.deckSize ?? 0);
+          break;
+        case MSG.ROOM_LEAVE:
+          leaveRoom(socket);
+          break;
+        case MSG.ROOM_READY: {
+          const info = sockets.get(socket);
+          const room = info ? rooms.get(info.roomId) : null;
+          const player = room?.players?.[info?.playerSlot];
+          if (player) {
+            player.ready = Boolean(message.ready);
+            if (Array.isArray(message.deck)) player.deck = message.deck;
+            broadcastRoom(room);
+          }
           break;
         }
-        room.state = 'running';
-        room.levelId = message.levelId;
-        room.difficulty = message.difficulty;
-        broadcastRoom(room);
-        const startPayload = {
-          type: 'match_start',
-          levelId: message.levelId,
-          difficulty: message.difficulty,
-          matchSeed: message.matchSeed ?? Date.now(),
-          players: {
-            p1: {
-              name: room.players.p1?.name,
-              deck: room.players.p1?.deck ?? []
-            },
-            p2: {
-              name: room.players.p2?.name,
-              deck: room.players.p2?.deck ?? []
-            }
+        case MSG.ROOM_START: {
+          const info = sockets.get(socket);
+          const room = info ? rooms.get(info.roomId) : null;
+          if (!room || info.playerSlot !== room.hostSlot) {
+            send(socket, { type: MSG.ERROR, message: '只有房主可以开始' });
+            break;
           }
-        };
-        room.sockets.forEach((peer) => {
-          const peerInfo = sockets.get(peer);
-          send(peer, {
-            type: MSG.NET_FORWARD,
-            roomId: room.id,
-            from: room.hostSlot,
-            to: peerInfo?.playerSlot ?? 'all',
-            payload: startPayload
+          room.state = 'running';
+          room.levelId = message.levelId;
+          room.difficulty = message.difficulty;
+          broadcastRoom(room);
+          const startPayload = {
+            type: 'match_start',
+            levelId: message.levelId,
+            difficulty: message.difficulty,
+            matchSeed: message.matchSeed ?? Date.now(),
+            players: {
+              p1: {
+                name: room.players.p1?.name,
+                deck: room.players.p1?.deck ?? []
+              },
+              p2: {
+                name: room.players.p2?.name,
+                deck: room.players.p2?.deck ?? []
+              }
+            }
+          };
+          room.sockets.forEach((peer) => {
+            const peerInfo = sockets.get(peer);
+            send(peer, {
+              type: MSG.NET_FORWARD,
+              roomId: room.id,
+              from: room.hostSlot,
+              to: peerInfo?.playerSlot ?? 'all',
+              payload: startPayload
+            });
           });
-        });
-        break;
+          break;
+        }
+        case MSG.RECONNECT:
+          handleReconnect(socket, message);
+          break;
+        case MSG.HEARTBEAT: {
+          const info = sockets.get(socket);
+          const room = info ? rooms.get(info.roomId) : null;
+          const player = room?.players?.[info?.playerSlot];
+          if (player) player.lastSeen = Date.now();
+          send(socket, { type: MSG.HEARTBEAT, ok: true });
+          break;
+        }
+        case MSG.NET_FORWARD:
+          forwardMessage(socket, message);
+          break;
+        default:
+          break;
       }
-      case MSG.RECONNECT:
-        handleReconnect(socket, message);
-        break;
-      case MSG.HEARTBEAT: {
-        const info = sockets.get(socket);
-        const room = info ? rooms.get(info.roomId) : null;
-        const player = room?.players?.[info?.playerSlot];
-        if (player) player.lastSeen = Date.now();
-        send(socket, { type: MSG.HEARTBEAT, ok: true });
-        break;
-      }
-      case MSG.NET_FORWARD:
-        forwardMessage(socket, message);
-        break;
-      default:
-        break;
+    } catch (error) {
+      console.error('[coop-server] message handler error:', error);
+      send(socket, { type: MSG.ERROR, message: '服务器处理失败，请重试' });
     }
   });
   socket.on('close', () => leaveRoom(socket));

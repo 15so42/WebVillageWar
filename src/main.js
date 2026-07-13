@@ -206,7 +206,10 @@ try {
           selectedLevel: () => meta.selectedLevel(),
           cardWithLevel: (id) => meta.cardWithLevel(id),
           onStartGame: (session, bridge) => startCoopSession(session, bridge),
-          onNotice: (message) => meta.setNotice(message),
+          onNotice: (message) => {
+            meta.setNotice(message);
+            coopLobby?.setNotice?.(message);
+          },
           onLobbyVisible: (state) => coopLobby?.render(state)
         });
       }
@@ -219,6 +222,8 @@ try {
           onBack: () => meta.show('menu')
         });
       }
+      // 避免旧会话卡死创房；进入大厅时清掉过期重连凭证
+      coopController.roomClient?.transport?.clearSession?.();
       coopLobby.show(meta.notice ?? '');
     }
   });

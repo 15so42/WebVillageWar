@@ -9,20 +9,46 @@ export class WebSocketTransport {
     this.closeHandlers = new Set();
     this.reconnectToken = null;
     this.manualClose = false;
+    this.connectPromise = null;
   }
 
   connect() {
     this.manualClose = false;
-    if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
+    if (this.socket?.readyState === WebSocket.OPEN) {
       return Promise.resolve();
     }
-    return new Promise((resolve, reject) => {
+    if (this.socket?.readyState === WebSocket.CONNECTING && this.connectPromise) {
+      return this.connectPromise;
+    }
+    if (this.socket) {
+      try {
+        this.socket.onopen = null;
+        this.socket.onmessage = null;
+        this.socket.onerror = null;
+        this.socket.onclose = null;
+        this.socket.close();
+      } catch {
+        // ignore
+      }
+      this.socket = null;
+    }
+
+    this.connectPromise = new Promise((resolve, reject) => {
+      let settled = false;
       const socket = new WebSocket(this.url);
       this.socket = socket;
+
+      const finish = (fn, value) => {
+        if (settled) return;
+        settled = true;
+        fn(value);
+      };
+
       socket.addEventListener('open', () => {
         this.openHandlers.forEach((handler) => handler());
-        resolve();
+        finish(resolve);
       }, { once: true });
+
       socket.addEventListener('message', (event) => {
         let payload = null;
         try {
@@ -32,13 +58,22 @@ export class WebSocketTransport {
         }
         this.handlers.forEach((handler) => handler(payload));
       });
+
       socket.addEventListener('close', () => {
         this.closeHandlers.forEach((handler) => handler(this.manualClose));
+        if (!settled) {
+          finish(reject, new Error('WebSocket 连接已关闭'));
+        }
       });
+
       socket.addEventListener('error', () => {
-        reject(new Error('WebSocket 连接失败'));
+        finish(reject, new Error('WebSocket 连接失败，请确认已运行 npm run server:coop'));
       }, { once: true });
+    }).finally(() => {
+      this.connectPromise = null;
     });
+
+    return this.connectPromise;
   }
 
   onMessage(handler) {
@@ -66,6 +101,7 @@ export class WebSocketTransport {
     this.manualClose = true;
     this.socket?.close();
     this.socket = null;
+    this.connectPromise = null;
   }
 
   get connected() {

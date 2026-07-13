@@ -6006,11 +6006,37 @@ body.is-coop-lobby-open #meta-root {
 }
 
 .coop-room-card,
-.coop-room-actions-stack {
+.coop-room-actions-stack,
+.coop-lobby-entry {
   padding: 18px;
   border-radius: 16px;
   background: rgba(8, 14, 18, 0.72);
   border: 1px solid rgba(164, 198, 220, 0.18);
+}
+
+.coop-lobby-entry {
+  display: grid;
+  gap: 14px;
+}
+
+.coop-lobby-divider {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 12px;
+  align-items: center;
+  color: #8eacbf;
+  font-size: 0.86rem;
+}
+
+.coop-lobby-divider::before,
+.coop-lobby-divider::after {
+  content: '';
+  height: 1px;
+  background: rgba(164, 198, 220, 0.22);
+}
+
+.coop-create-button {
+  width: 100%;
 }
 
 .coop-room-code {
