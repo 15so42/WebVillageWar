@@ -29,6 +29,8 @@ const CARD_RANGE_RING_RENDER_ORDER = 63;
 export class CardSystem {
   constructor(game, options = {}) {
     this.game = game;
+    this.playerSlot = options.playerSlot ?? 'p1';
+    this.mountUi = options.mountUi !== false;
     const normalizedDeck = normalizeDeck(options.deck ?? CARD_DEFINITIONS);
     const activeDeckSize = Math.min(
       normalizedDeck.length,
@@ -64,7 +66,12 @@ export class CardSystem {
     this.enchantTargetRing.scale.setScalar(0.78);
     this.game.scene.add(this.enchantTargetRing);
     this.ghost = document.querySelector('#drag-ghost');
-    this.hand = document.querySelector('#card-hand');
+    this.hand = this.mountUi
+      ? document.querySelector('#card-hand')
+      : document.createElement('div');
+    if (!this.mountUi) {
+      this.hand.hidden = true;
+    }
     this.energyPanel = createEnergyPanel(this.hand);
     this.temporarySlot = createTemporaryCardSlot(this.energyPanel);
     this.energyParts = collectEnergyPanel(this.energyPanel);

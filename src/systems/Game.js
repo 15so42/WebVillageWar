@@ -3,6 +3,7 @@ import { createAttackRangeRing, createGuardFlag, createSelectionRing } from '../
 import {
   BALANCE,
   CARD_DEFINITIONS,
+  COOP_ENEMY_SCALING,
   LEVEL_DEFINITIONS,
   TEAMS,
   UNIT_DEFINITIONS,
@@ -18,6 +19,7 @@ import {
 import { UnitEntity } from '../entities/UnitEntity.js';
 import { prewarmUnitModelTemplates } from '../art/visualRegistry.js';
 import { createWorld } from '../world/createWorld.js';
+import { createCoopPlayerStates, isCoopSession } from '../coop/CoopSession.js';
 import { BuffSystem } from './BuffSystem.js';
 import { BuildingSystem } from './BuildingSystem.js';
 import { CardEffectSystem } from './CardEffectSystem.js';
@@ -518,9 +520,30 @@ const CAMERA_FOG_COMPENSATION_NEAR_SCALE = 0.34;
 const CAMERA_FOG_COMPENSATION_FAR_SCALE = 2.4;
 
 export class Game {
-  constructor({ canvas, session = null, onLevelComplete = null, onRestart = null, onExitToMenu = null } = {}) {
+  constructor({
+    canvas,
+    session = null,
+    networkBridge = null,
+    onLevelComplete = null,
+    onRestart = null,
+    onExitToMenu = null
+  } = {}) {
     this.canvas = canvas;
     this.levelSession = normalizeLevelSession(session);
+    this.networkRole = session?.networkRole ?? 'offline';
+    this.localPlayerSlot = session?.localPlayerSlot ?? 'p1';
+    this.networkBridge = networkBridge ?? null;
+    this.networkClientMode = this.networkRole === 'client';
+    this.coop = isCoopSession(this.levelSession)
+      ? {
+        enabled: true,
+        healthMult: this.levelSession.coop?.healthMult ?? COOP_ENEMY_SCALING.healthMult,
+        damageMult: this.levelSession.coop?.damageMult ?? COOP_ENEMY_SCALING.damageMult
+      }
+      : null;
+    this.players = isCoopSession(this.levelSession)
+      ? createCoopPlayerStates(this.levelSession)
+      : null;
     this.onLevelComplete = onLevelComplete;
     this.onRestart = onRestart;
     this.onExitToMenu = onExitToMenu;
@@ -599,7 +622,11 @@ export class Game {
     this.teamSupportModifiersApplied = new Set();
     this.bossesDefeated = 0;
     this.pendingWaveAdvance = false;
-    this.silver = Math.max(0, Number(BALANCE.runCurrency?.starting ?? 0));
+    if (this.players) {
+      this.silver = this.players[this.localPlayerSlot].silver;
+    } else {
+      this.silver = Math.max(0, Number(BALANCE.runCurrency?.starting ?? 0));
+    }
     this.strategyRewardRerollCount = 0;
     this.shopPrices = createInitialShopPrices();
     this.awaitingOpeningReward = false;
@@ -725,10 +752,41 @@ export class Game {
     this.spells = new SpellSystem(this);
     this.cardEffects = new CardEffectSystem(this);
     this.recovery = new RecoverySystem(this);
-    this.cardSystem = new CardSystem(this, {
-      deck: this.levelSession.deck,
-      startWithEmptyDrawPile: true
-    });
+    if (isCoopSession(this.levelSession)) {
+      const coopPlayers = this.levelSession.players ?? {};
+      if (this.networkClientMode) {
+        const localDeck = coopPlayers[this.localPlayerSlot]?.deck ?? [];
+        this.cardSystems = null;
+        this.cardSystem = new CardSystem(this, {
+          deck: localDeck,
+          playerSlot: this.localPlayerSlot,
+          mountUi: true,
+          startWithEmptyDrawPile: true
+        });
+      } else {
+        this.cardSystems = {
+          p1: new CardSystem(this, {
+            deck: coopPlayers.p1?.deck ?? [],
+            playerSlot: 'p1',
+            mountUi: this.localPlayerSlot === 'p1',
+            startWithEmptyDrawPile: true
+          }),
+          p2: new CardSystem(this, {
+            deck: coopPlayers.p2?.deck ?? [],
+            playerSlot: 'p2',
+            mountUi: this.localPlayerSlot === 'p2',
+            startWithEmptyDrawPile: true
+          })
+        };
+        this.cardSystem = this.cardSystems[this.localPlayerSlot];
+      }
+    } else {
+      this.cardSystems = null;
+      this.cardSystem = new CardSystem(this, {
+        deck: this.levelSession.deck,
+        startWithEmptyDrawPile: true
+      });
+    }
     this.abilities = new AbilitySystem(this);
     this.lootDrops = new LootDropSystem(this);
     this.altars = new AltarSystem(this, this.world.config?.altars ?? this.worldConfig.altars);
@@ -856,6 +914,9 @@ export class Game {
       snapshot: () => this.snapshot(),
       samplePixels: () => this.samplePixels()
     };
+    if (this.networkBridge) {
+      this.networkBridge.bindGame(this);
+    }
   }
 
   applyWorldRenderTone() {
@@ -900,6 +961,7 @@ export class Game {
     this.pathWorker?.terminate?.();
     this.pathWorker = null;
     this.pendingPathRequests.clear();
+    this.networkBridge?.unbindGame();
     this.disposeNavDebug();
     this.renderer.dispose();
     this.selectionBox?.remove();
@@ -938,6 +1000,16 @@ export class Game {
       this.renderer.render(this.scene, this.camera);
       return;
     }
+    if (this.networkClientMode) {
+      this.networkBridge?.updateClientFrame(dt);
+      this.updateCamera(dt);
+      this.world.update?.(dt, this.cameraTarget, this.camera);
+      this.updateUnitVisuals(dt);
+      this.updateHud(dt);
+      this.renderer.render(this.scene, this.camera);
+      return;
+    }
+    this.networkBridge?.beforeTick(dt);
     const perf = this.perfTracker;
     if (perf) {
       perf.beginFrame(dt);
@@ -948,7 +1020,7 @@ export class Game {
     const runPerfStep = (name, action) => runStep(name, () => this.measurePerf(name, action));
     if (perf) {
       runPerfStep('waveSpawn', () => this.updateWaveFlow());
-      runPerfStep('card', () => this.cardSystem.update(dt));
+      runPerfStep('card', () => this.updateCardSystems(dt));
       runPerfStep('abilities', () => this.abilities.update(dt));
       runPerfStep('playerBaseAttack', () => this.updatePlayerBaseAttack(dt));
       runPerfStep('enemyCampAttack', () => this.updateEnemyCampAttack(dt));
@@ -976,7 +1048,7 @@ export class Game {
       this.updatePerfPanel(dt);
     } else {
       runStep('waveSpawn', () => this.updateWaveFlow());
-      runStep('card', () => this.cardSystem.update(dt));
+      runStep('card', () => this.updateCardSystems(dt));
       runStep('abilities', () => this.abilities.update(dt));
       runStep('playerBaseAttack', () => this.updatePlayerBaseAttack(dt));
       runStep('enemyCampAttack', () => this.updateEnemyCampAttack(dt));
@@ -1350,7 +1422,7 @@ export class Game {
     if (!availability.ok) return;
     const isFree = this.runShopFreeReward;
     const price = this.shopPrice(category);
-    if (!isFree && this.silver + 0.001 < price) {
+    if (!isFree && this.getSilver() + 0.001 < price) {
       this.cardSystem?.setHint?.('银币不足', 'run-shop');
       return;
     }
@@ -1375,7 +1447,7 @@ export class Game {
     if (!category || !choice) return false;
     const isFree = this.runShopFreeReward;
     const price = this.shopPrice(category);
-    if (!isFree && this.silver + 0.001 < price) {
+    if (!isFree && this.getSilver() + 0.001 < price) {
       this.cardSystem?.setHint?.('银币不足', 'run-shop');
       return false;
     }
@@ -1384,7 +1456,7 @@ export class Game {
       return false;
     }
     if (!isFree) {
-      this.silver = Math.max(0, this.silver - price);
+      this.setSilver(this.getSilver() - price);
       if (category !== 'energy') {
         this.shopPrices[category] = price + this.shopPriceIncrement();
         delete this.runShopPendingOffers[category];
@@ -1415,7 +1487,7 @@ export class Game {
     const gained = this.cardSystem?.addEnergy?.(1) ?? 0;
     if (gained <= 0) return false;
     if (!isFree) {
-      this.silver = Math.max(0, this.silver - price);
+      this.setSilver(this.getSilver() - price);
     } else {
       this.closeRunShop({ afterFreeReward: true });
     }
@@ -1427,7 +1499,7 @@ export class Game {
   renderRunShop() {
     if (!this.runShopOpen || !this.runShopUi?.root) return;
     if (this.runShopUi.silver) {
-      this.runShopUi.silver.textContent = formatSilverAmount(this.silver);
+      this.runShopUi.silver.textContent = formatSilverAmount(this.getSilver());
     }
     if (this.runShopActiveCategory && this.runShopChoices.length) {
       const categoryMeta = RUN_SHOP_CATEGORIES.find((entry) => entry.key === this.runShopActiveCategory);
@@ -1526,7 +1598,7 @@ export class Game {
     if (amount <= 0.001) return 0;
     const gained = amount * SILVER_GAIN_MULTIPLIER;
     if (gained <= 0.001) return 0;
-    this.silver += gained;
+    this.addSilver(gained);
     if (position && this.effects?.spawnEnergyNumber) {
       this.effects.spawnEnergyNumber(position, gained, {
         text: `+${formatSilverAmount(gained)} 银币`,
@@ -1560,7 +1632,7 @@ export class Game {
     const gained = this.grantSilver(amount, unit.position);
     const pouchStacks = this.abilities?.getStacks?.('lootPouch') ?? 0;
     if (pouchStacks > 0) {
-      this.silver += pouchStacks;
+      this.addSilver(pouchStacks);
       if (unit.position && this.effects?.spawnEnergyNumber) {
         this.effects.spawnEnergyNumber(unit.position, pouchStacks, {
           text: `+${formatSilverAmount(pouchStacks)} 银币`,
@@ -2206,8 +2278,8 @@ export class Game {
     const event = this.strategyEvent;
     if (!event || event.type !== 'wave-reward') return false;
     const cost = this.getStrategyRewardRerollCost();
-    if (this.silver + 0.001 < cost) return false;
-    this.silver = Math.max(0, this.silver - cost);
+    if (this.getSilver() + 0.001 < cost) return false;
+    this.setSilver(this.getSilver() - cost);
     this.strategyRewardRerollCount = Math.max(0, (this.strategyRewardRerollCount ?? 0) + 1);
     event.choices = this.createCardWaveRewardChoices(event.wave);
     this.renderStrategyEvent();
@@ -2230,7 +2302,7 @@ export class Game {
       return;
     }
     const rerollCost = this.getStrategyRewardRerollCost();
-    const canAffordReroll = this.silver + 0.001 >= rerollCost;
+    const canAffordReroll = this.getSilver() + 0.001 >= rerollCost;
     const rerollCount = Math.max(0, this.strategyRewardRerollCount ?? 0);
     actions.hidden = false;
     actions.innerHTML = `
@@ -2746,12 +2818,63 @@ export class Game {
 
   registerUnit(unit) {
     unit.game = this;
+    if (this.coop?.enabled && unit.team === TEAMS.PLAYER && !unit.ownerPlayerId) {
+      unit.ownerPlayerId = this.localPlayerSlot;
+    }
     return this.unitRegistry.register(unit);
+  }
+
+  updateCardSystems(dt) {
+    if (this.cardSystems) {
+      Object.values(this.cardSystems).forEach((system) => system.update(dt));
+      return;
+    }
+    this.cardSystem.update(dt);
+  }
+
+  getSilver(slot = this.localPlayerSlot) {
+    if (this.players?.[slot]) return this.players[slot].silver;
+    return this.silver;
+  }
+
+  setSilver(value, slot = this.localPlayerSlot) {
+    const next = Math.max(0, value);
+    if (this.players?.[slot]) {
+      this.players[slot].silver = next;
+      if (slot === this.localPlayerSlot) this.silver = next;
+      return;
+    }
+    this.silver = next;
+  }
+
+  addSilver(amount, slot = this.localPlayerSlot) {
+    this.setSilver(this.getSilver(slot) + amount, slot);
+  }
+
+  updateSilverHud() {
+    if (this.dom.silverCount) {
+      this.dom.silverCount.textContent = formatSilverAmount(this.getSilver());
+    }
+    if (this.runShopUi?.silver) {
+      this.runShopUi.silver.textContent = formatSilverAmount(this.getSilver());
+    }
+  }
+
+  canControlUnit(unit) {
+    if (!unit?.alive) return false;
+    if (!this.coop?.enabled) return unit.team === TEAMS.PLAYER;
+    return unit.team === TEAMS.PLAYER && unit.ownerPlayerId === this.localPlayerSlot;
+  }
+
+  commandSelectedUnitsToPoint(point) {
+    if (!point) return false;
+    return this.commandSelectedUnits(point);
   }
 
   handleUnitDeath(unit, source = null) {
     const handled = this.unitRegistry.handleDeath(unit, source);
     if (!handled) return false;
+    this.networkBridge?.notifyUnitDied?.(unit.id);
 
     if (unit?.team === TEAMS.ENEMY) {
       this.grantKillEnergy(unit);
@@ -2874,6 +2997,7 @@ export class Game {
         team: TEAMS.PLAYER,
         position
       });
+      unit.ownerPlayerId = options.ownerPlayerId ?? this.activeCardPlayerSlot?.() ?? this.localPlayerSlot;
       this.applySummonCardLevel(unit, options.sourceCard);
       this.attachUnitStatus(unit);
       this.registerUnit(unit);
@@ -2893,6 +3017,7 @@ export class Game {
       team: TEAMS.PLAYER,
       position
     });
+    unit.ownerPlayerId = options.ownerPlayerId ?? this.activeCardPlayerSlot?.() ?? this.localPlayerSlot;
     this.applySummonCardLevel(unit, options.sourceCard);
     this.abilities?.applyNewBuildingDurability(unit);
     this.attachUnitStatus(unit);
@@ -3263,12 +3388,16 @@ export class Game {
 
   applyEnemyDifficulty(unit, threatTier, difficulty) {
     const scale = BALANCE.waveScaling ?? {};
-    const healthFactor = 1
+    let healthFactor = 1
       + (difficulty - 1) * (scale.difficultyHealthPerLevel ?? 0.11)
       + (threatTier - 1) * (scale.threatHealthPerTier ?? 0.028);
-    const damageFactor = 1
+    let damageFactor = 1
       + (difficulty - 1) * (scale.difficultyDamagePerLevel ?? 0.1)
       + (threatTier - 1) * (scale.threatDamagePerTier ?? 0.022);
+    if (this.coop?.enabled) {
+      healthFactor *= this.coop.healthMult ?? COOP_ENEMY_SCALING.healthMult;
+      damageFactor *= this.coop.damageMult ?? COOP_ENEMY_SCALING.damageMult;
+    }
     unit.attributes.addModifiers([
       {
         stat: 'maxHealth',
@@ -4202,17 +4331,28 @@ export class Game {
     this.selectedUnits.forEach((unit) => {
       unit.statusUiDirty = true;
     });
-    this.selectedUnits = units.filter((unit) => {
-      if (!unit?.alive || unique.has(unit.id)) return false;
+    const filtered = units.filter((unit) => {
+      if (!unit?.alive || unique.has(unit.id) || !this.canControlUnit(unit)) return false;
       unique.add(unit.id);
       return true;
     });
+    this.selectedUnits = filtered;
     this.selectedUnitIds = new Set(this.selectedUnits.map((unit) => unit.id));
     this.selectedUnits.forEach((unit) => {
       unit.statusUiDirty = true;
     });
     this.selectedUnit = this.selectedUnits[0] ?? null;
     this.selectionMode = this.selectedUnits.length ? mode : 'none';
+    const run = this.players?.[this.localPlayerSlot];
+    if (run) {
+      run.selectedUnits = this.selectedUnits.slice();
+      run.selectedUnitIds = new Set(this.selectedUnitIds);
+      run.selectedUnit = this.selectedUnit;
+      run.selectionMode = this.selectionMode;
+    }
+    if (this.networkClientMode) {
+      this.networkBridge?.commandSender?.selectUnits([...this.selectedUnitIds], this.selectionMode);
+    }
   }
 
   onCanvasPointerDown(event) {
@@ -4721,7 +4861,9 @@ export class Game {
     this.setPointerFromClient(clientX, clientY);
     this.raycaster.setFromCamera(this.pointer, this.camera);
     const objects = units
-      .filter((unit) => unit?.alive && unit.mesh?.children?.length)
+      .filter((unit) => unit?.alive && unit.mesh?.children?.length && (
+        options.ignoreOwnership || this.canControlUnit(unit) || unit.team !== TEAMS.PLAYER
+      ))
       .flatMap((unit) => unit.mesh.children);
     const hit = this.raycaster
       .intersectObjects(objects, true)
@@ -4768,7 +4910,7 @@ export class Game {
     const minY = Math.min(drag.startY, drag.currentY);
     const maxY = Math.max(drag.startY, drag.currentY);
     return this.friendlyUnits.filter((unit) => {
-      if (!unit.alive) return false;
+      if (!unit.alive || !this.canControlUnit(unit)) return false;
       const screen = this.worldToScreen(unit.position);
       return screen.x >= minX && screen.x <= maxX && screen.y >= minY && screen.y <= maxY;
     });
@@ -4777,6 +4919,9 @@ export class Game {
   issueMoveCommand(event) {
     const point = this.groundPointFromClient(event.clientX, event.clientY);
     if (!point || !this.selectedUnits.length) return false;
+    if (this.networkClientMode) {
+      return Boolean(this.networkBridge?.commandSender?.issueMove(point));
+    }
     return this.commandSelectedUnits(point);
   }
 
@@ -5198,7 +5343,7 @@ export class Game {
       ? `${this.currentWave.index}/${this.waveSchedule.length}`
       : (this.wave > 0 ? '整备' : '准备');
     if (this.dom.silverCount) {
-      this.dom.silverCount.textContent = formatSilverAmount(this.silver);
+      this.dom.silverCount.textContent = formatSilverAmount(this.getSilver());
     }
     this.dom.battleTime.textContent = formatBattleTime(this.elapsedTime);
     this.dom.unitCount.textContent = String(this.friendlyUnits.length);
@@ -5556,13 +5701,23 @@ function normalizeLevelSession(session) {
       instanceId: `debug-${card.id}-${index}`
     }));
   const level = session?.level ?? fallbackLevel;
-  return {
+  const normalized = {
     level,
     difficulty: clampLevelDifficulty(session?.difficulty ?? 1),
     deck: Array.isArray(session?.deck) ? session.deck : fallbackDeck,
     debug: session?.debug === true,
     startedAt: session?.startedAt ?? Date.now()
   };
+  if (session?.mode === 'coop') {
+    normalized.mode = 'coop';
+    normalized.networkRole = session.networkRole ?? 'offline';
+    normalized.localPlayerSlot = session.localPlayerSlot ?? 'p1';
+    normalized.roomId = session.roomId ?? null;
+    normalized.matchSeed = session.matchSeed ?? Date.now();
+    normalized.coop = session.coop ?? null;
+    normalized.players = session.players ?? null;
+  }
+  return normalized;
 }
 
 function enemyForceCount({ requestedKind, kind, threatTier, availableSlots, bossOrdinal, affixId }) {

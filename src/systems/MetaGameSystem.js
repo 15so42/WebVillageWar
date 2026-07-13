@@ -170,10 +170,11 @@ const CHANGELOG_ENTRIES = [
 ];
 
 export class MetaGameSystem {
-  constructor({ onStartLevel, onStartDebug = null, onStartAnimationPreview = null }) {
+  constructor({ onStartLevel, onStartDebug = null, onStartAnimationPreview = null, onOpenCoop = null }) {
     this.onStartLevel = onStartLevel;
     this.onStartDebug = onStartDebug;
     this.onStartAnimationPreview = onStartAnimationPreview;
+    this.onOpenCoop = onOpenCoop;
     this.progress = loadProgress();
     this.view = 'menu';
     this.selectedLevelId = this.progress.preferences.selectedLevelId;
@@ -275,6 +276,10 @@ export class MetaGameSystem {
     }
     if (action === 'levels') {
       this.show('levels');
+      return;
+    }
+    if (action === 'coop') {
+      this.onOpenCoop?.();
       return;
     }
     if (action === 'shop') {
@@ -486,6 +491,7 @@ export class MetaGameSystem {
         </div>
         <nav class="meta-menu-actions" aria-label="主菜单">
           <button class="meta-menu-button" type="button" data-action="levels">选关</button>
+          <button class="meta-menu-button" type="button" data-action="coop">联机</button>
           <button class="meta-menu-button" type="button" data-action="shop">商店</button>
           <button class="meta-menu-button" type="button" data-action="guide">玩法说明</button>
           <button class="meta-menu-button" type="button" data-action="encyclopedia">附魔百科</button>

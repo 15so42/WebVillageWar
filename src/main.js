@@ -3,6 +3,8 @@ import { AnimationPreviewScene } from './systems/AnimationPreviewScene.js';
 import { DebugScene, createDebugSession } from './systems/DebugScene.js';
 import { Game } from './systems/Game.js';
 import { MetaGameSystem } from './systems/MetaGameSystem.js';
+import { CoopLobbySystem } from './systems/CoopLobbySystem.js';
+import { CoopMatchController } from './network/CoopMatchController.js';
 
 const canvas = document.querySelector('#game-canvas');
 const debugState = document.querySelector('#debug-state');
@@ -44,6 +46,8 @@ if ('serviceWorker' in navigator) {
 try {
   let activeGame = null;
   let meta = null;
+  let coopLobby = null;
+  let coopController = null;
   const recordLaunchError = (error, source) => {
     window.__VILLAGE_WAR_LAST_LAUNCH_ERROR__ = {
       source,
@@ -146,6 +150,42 @@ try {
       meta.setNotice?.('动画预览启动失败，请刷新页面后重试');
     }
   };
+  const startCoopSession = (session, networkBridge) => {
+    meta.hide();
+    coopLobby?.hide();
+    activeGame?.destroy?.();
+    try {
+      activeGame = new Game({
+        canvas,
+        session,
+        networkBridge,
+        onLevelComplete: (result) => {
+          activeGame?.destroy?.();
+          activeGame = null;
+          coopController?.destroy();
+          coopController = null;
+          meta.completeLevel(result);
+        },
+        onRestart: (restartSession) => {
+          startCoopSession(restartSession, networkBridge);
+        },
+        onExitToMenu: () => {
+          activeGame?.destroy?.();
+          activeGame = null;
+          coopController?.destroy();
+          coopController = null;
+          meta.show('menu');
+        }
+      });
+      activeGame.start();
+    } catch (error) {
+      activeGame?.destroy?.();
+      activeGame = null;
+      recordLaunchError(error, 'coop');
+      meta.show('menu');
+      meta.setNotice?.('联机开局失败，请确认中继服已启动');
+    }
+  };
   meta = new MetaGameSystem({
     onStartLevel: (session) => {
       startSession(session);
@@ -155,6 +195,31 @@ try {
     },
     onStartAnimationPreview: () => {
       startAnimationPreview();
+    },
+    onOpenCoop: () => {
+      meta.hide();
+      if (!coopController) {
+        coopController = new CoopMatchController({
+          getDeckSelection: () => meta.deckSelection,
+          getSelectedLevelId: () => meta.selectedLevelId,
+          getSelectedDifficulty: () => meta.selectedDifficulty,
+          selectedLevel: () => meta.selectedLevel(),
+          cardWithLevel: (id) => meta.cardWithLevel(id),
+          onStartGame: (session, bridge) => startCoopSession(session, bridge),
+          onNotice: (message) => meta.setNotice(message),
+          onLobbyVisible: (state) => coopLobby?.render(state)
+        });
+      }
+      if (!coopLobby) {
+        coopLobby = new CoopLobbySystem({
+          controller: coopController,
+          getSelectedLevelId: () => meta.selectedLevelId,
+          getSelectedDifficulty: () => meta.selectedDifficulty,
+          selectedLevel: () => meta.selectedLevel(),
+          onBack: () => meta.show('menu')
+        });
+      }
+      coopLobby.show(meta.notice ?? '');
     }
   });
 } catch (error) {

@@ -5970,3 +5970,98 @@ body.is-animation-preview-active .mobile-action-dock {
     grid-template-columns: 1fr 1fr;
   }
 }
+
+body.is-coop-lobby-open #meta-root {
+  display: none;
+}
+
+.coop-lobby-root {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: radial-gradient(circle at top, rgba(36, 58, 74, 0.92), rgba(10, 16, 20, 0.96));
+}
+
+.coop-lobby {
+  width: min(560px, 100%);
+  display: grid;
+  gap: 18px;
+  color: #eef4f8;
+}
+
+.coop-lobby-header {
+  display: grid;
+  gap: 10px;
+}
+
+.coop-lobby-back {
+  justify-self: start;
+  border: 0;
+  background: transparent;
+  color: #b9d4e8;
+  cursor: pointer;
+}
+
+.coop-room-card,
+.coop-room-actions-stack {
+  padding: 18px;
+  border-radius: 16px;
+  background: rgba(8, 14, 18, 0.72);
+  border: 1px solid rgba(164, 198, 220, 0.18);
+}
+
+.coop-room-code {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 1.1rem;
+}
+
+.coop-room-code strong {
+  font-size: 2rem;
+  letter-spacing: 0.18em;
+}
+
+.coop-player-list {
+  margin: 12px 0 0;
+  padding-left: 18px;
+}
+
+.coop-room-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.coop-join-field {
+  display: grid;
+  gap: 6px;
+}
+
+.coop-join-field input {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(164, 198, 220, 0.24);
+  background: rgba(0, 0, 0, 0.28);
+  color: #eef4f8;
+}
+
+.coop-lobby-notice,
+.coop-lobby-hint,
+.coop-wait-host {
+  color: #a8c0d2;
+  margin: 0;
+}
+
+.coop-ally-badge {
+  margin-left: auto;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(72, 118, 148, 0.35);
+  color: #dff3ff;
+  font-size: 0.82rem;
+}

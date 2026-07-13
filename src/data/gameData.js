@@ -5342,3 +5342,10 @@ export const BALANCE = {
     ]
   }
 };
+
+export const COOP_ENEMY_SCALING = {
+  healthMult: 2.5,
+  damageMult: 1.3
+};
+
+export const COOP_PLAYER_SLOTS = ['p1', 'p2'];
