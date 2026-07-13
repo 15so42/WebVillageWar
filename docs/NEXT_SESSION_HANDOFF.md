@@ -1,8 +1,14 @@
 # 下一会话交接
 
-更新日期：2026-07-02  
-当前分支：`main`  
+更新日期：2026-07-13  
+当前分支：见 `git branch`（联机开发建议从最新主开发分支开 `feature/coop-multiplayer`）  
 项目目录：`C:\Users\yangkun'\Documents\VillageWarTest`
+
+## 当前优先任务：双人合作联机
+
+**完整设计、协议、改造清单、里程碑见 [`docs/COOP_MULTIPLAYER.md`](./COOP_MULTIPLAYER.md)。**
+
+摘要：2 人合作打 AI；各自牌组/能量/银币/军需铺/波次奖励；共享一个营地；敌军 2.5x 血 / 1.3x 攻、数量不变；创房者 = Host；支持断线重连。先实现阶段 A 本地双人原型，再搭中继与同步。
 
 ## 项目定位
 
