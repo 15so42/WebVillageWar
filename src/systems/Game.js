@@ -1004,6 +1004,7 @@ export class Game {
       this.networkBridge?.updateClientFrame(dt);
       this.updateCamera(dt);
       this.world.update?.(dt, this.cameraTarget, this.camera);
+      this.effects.update(dt);
       this.updateUnitVisuals(dt);
       this.updateHud(dt);
       this.renderer.render(this.scene, this.camera);
@@ -2997,7 +2998,7 @@ export class Game {
         team: TEAMS.PLAYER,
         position
       });
-      unit.ownerPlayerId = options.ownerPlayerId ?? this.activeCardPlayerSlot?.() ?? this.localPlayerSlot;
+      unit.ownerPlayerId = options.ownerPlayerId ?? this.cardSystem?.playerSlot ?? this.localPlayerSlot;
       this.applySummonCardLevel(unit, options.sourceCard);
       this.attachUnitStatus(unit);
       this.registerUnit(unit);
@@ -3017,7 +3018,7 @@ export class Game {
       team: TEAMS.PLAYER,
       position
     });
-    unit.ownerPlayerId = options.ownerPlayerId ?? this.activeCardPlayerSlot?.() ?? this.localPlayerSlot;
+    unit.ownerPlayerId = options.ownerPlayerId ?? this.cardSystem?.playerSlot ?? this.localPlayerSlot;
     this.applySummonCardLevel(unit, options.sourceCard);
     this.abilities?.applyNewBuildingDurability(unit);
     this.attachUnitStatus(unit);

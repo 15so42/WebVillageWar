@@ -772,6 +772,9 @@ export class CardSystem {
   }
 
   playDraggedCard(drag) {
+    if (this.game.networkClientMode) {
+      return this.sendPlayCardCommand(drag);
+    }
     if (this.isCardOnCooldown(drag.card)) return false;
     const cost = cardEnergyCost(drag.card);
     if (!this.canSpend(cost)) {
@@ -793,6 +796,9 @@ export class CardSystem {
   }
 
   discardDraggedCard(drag) {
+    if (this.game.networkClientMode) {
+      return this.sendDiscardCardCommand(drag);
+    }
     const cost = discardEnergyCost(drag.card);
     if (!this.canSpend(cost)) {
       this.flashEnergyPanel();
@@ -1675,6 +1681,78 @@ export class CardSystem {
     this.hintOwner = null;
     this.hintPanel.classList.remove('is-visible');
     this.hintPanel.hidden = true;
+  }
+
+  sendPlayCardCommand(drag) {
+    const sender = this.game.networkBridge?.commandSender;
+    if (!sender || !drag?.card?.instanceId) return false;
+    return sender.playCard({
+      cardInstanceId: drag.card.instanceId,
+      point: drag.point ? [drag.point.x, drag.point.z] : null,
+      targetUnitId: drag.targetUnit?.id ?? null,
+      targetCardInstanceId: drag.targetCard?.instanceId ?? null
+    });
+  }
+
+  sendDiscardCardCommand(drag) {
+    const sender = this.game.networkBridge?.commandSender;
+    if (!sender || !drag?.card?.instanceId) return false;
+    return sender.discardCard({
+      cardInstanceId: drag.card.instanceId,
+      sourceLocation: drag.sourceLocation ?? 'hand'
+    });
+  }
+
+  playFromNetworkPayload(payload) {
+    const card = this.findCardByInstanceId(payload.cardInstanceId);
+    if (!card) return false;
+    const previousSystem = this.game.cardSystem;
+    this.game.cardSystem = this;
+    try {
+      return this.playDraggedCard(this.buildDragFromNetworkPayload(card, payload));
+    } finally {
+      this.game.cardSystem = previousSystem;
+    }
+  }
+
+  discardFromNetworkPayload(payload) {
+    const card = this.findCardByInstanceId(payload.cardInstanceId);
+    if (!card) return false;
+    const previousSystem = this.game.cardSystem;
+    this.game.cardSystem = this;
+    try {
+      return this.discardDraggedCard({
+        card,
+        sourceLocation: payload.sourceLocation === 'temporary' ? 'temporary' : 'hand'
+      });
+    } finally {
+      this.game.cardSystem = previousSystem;
+    }
+  }
+
+  findCardByInstanceId(instanceId) {
+    return this.handCards.find((card) => card.instanceId === instanceId)
+      ?? this.temporaryCards.find((card) => card.instanceId === instanceId)
+      ?? null;
+  }
+
+  buildDragFromNetworkPayload(card, payload) {
+    const point = Array.isArray(payload.point)
+      ? new THREE.Vector3(payload.point[0], 0, payload.point[1] ?? payload.point[2] ?? 0)
+      : null;
+    const targetUnit = payload.targetUnitId
+      ? this.game.friendlyUnits.find((unit) => unit.id === payload.targetUnitId)
+      : null;
+    const targetCard = payload.targetCardInstanceId
+      ? this.handCards.find((entry) => entry.instanceId === payload.targetCardInstanceId)
+      : null;
+    return {
+      card,
+      point,
+      targetUnit,
+      targetCard,
+      sourceLocation: this.temporaryCards.includes(card) ? 'temporary' : 'hand'
+    };
   }
 
   destroy() {

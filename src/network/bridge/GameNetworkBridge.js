@@ -1,7 +1,9 @@
 import { MSG } from '../protocol/messages.js';
 import { ClientMirror } from '../client/ClientMirror.js';
 import { CommandSender } from '../client/CommandSender.js';
+import { installHostEffectsRelay } from '../client/NetworkFxRelay.js';
 import { HostAuthority } from '../host/HostAuthority.js';
+import { CoopPlayerStatusUi } from '../../systems/CoopPlayerStatusUi.js';
 
 export class GameNetworkBridge {
   constructor({ role, localSlot, transport, roomId }) {
@@ -16,6 +18,8 @@ export class GameNetworkBridge {
     this.lastAckTick = 0;
     this.lastAckSeq = 0;
     this.unsubscribe = null;
+    this.restoreEffectsRelay = null;
+    this.coopStatusUi = null;
   }
 
   bindGame(game) {
@@ -33,6 +37,13 @@ export class GameNetworkBridge {
         sendToSlot: (slot, payload) => this.sendNet(payload, slot),
         sendToAll: (payload) => this.sendNet(payload, 'all')
       });
+      this.restoreEffectsRelay = installHostEffectsRelay(
+        game,
+        (payload) => this.host?.emitEvent(payload)
+      );
+    }
+    if (game.coop?.enabled) {
+      this.coopStatusUi = new CoopPlayerStatusUi(game);
     }
     if (this.transport) {
       this.unsubscribe = this.transport.onMessage((message) => this.onTransportMessage(message));
@@ -42,6 +53,10 @@ export class GameNetworkBridge {
   unbindGame() {
     this.unsubscribe?.();
     this.unsubscribe = null;
+    this.restoreEffectsRelay?.();
+    this.restoreEffectsRelay = null;
+    this.coopStatusUi?.destroy();
+    this.coopStatusUi = null;
     this.mirror?.destroy();
     this.mirror = null;
     this.host = null;
@@ -91,6 +106,7 @@ export class GameNetworkBridge {
       if (payload.type === MSG.SNAPSHOT_WORLD) {
         this.lastAckTick = payload.tick ?? this.lastAckTick;
         this.mirror?.applyWorldSnapshot(payload);
+        this.updatePlayersPublic(payload.playersPublic);
         return;
       }
       if (payload.type === MSG.SNAPSHOT_TRANSFORM) {
@@ -105,9 +121,6 @@ export class GameNetworkBridge {
         this.mirror?.applyEvent(payload);
         return;
       }
-      if (payload.type === 'client_reconnected' && this.role === 'host') {
-        this.host?.sendFullSnapshot(payload.playerSlot, payload.lastAckTick ?? 0);
-      }
     }
   }
 
@@ -117,19 +130,26 @@ export class GameNetworkBridge {
       world: message.world ?? message,
       transform: message.transform
     });
-    if (message.playerSlot === this.localSlot || !message.transform) {
-      // full snapshot may embed world only
+    const playersPublic = message.world?.playersPublic ?? message.playersPublic;
+    if (playersPublic) {
+      this.updatePlayersPublic(playersPublic);
     }
   }
 
   beforeTick(dt) {
     if (this.role === 'host') {
       this.host?.update(dt);
+      this.coopStatusUi?.render();
     }
   }
 
   updateClientFrame(dt) {
     this.mirror?.updateFrame(dt);
+    this.coopStatusUi?.render();
+  }
+
+  updatePlayersPublic(rows) {
+    this.coopStatusUi?.updatePlayersPublic(rows);
   }
 
   get commandSender() {

@@ -6065,3 +6065,102 @@ body.is-coop-lobby-open #meta-root {
   color: #dff3ff;
   font-size: 0.82rem;
 }
+
+.coop-player-status {
+  margin-top: 8px;
+  display: grid;
+  gap: 8px;
+}
+
+.coop-player-status-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.coop-player-chip {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(164, 198, 220, 0.22);
+  background: rgba(8, 14, 18, 0.55);
+  color: #e8f2fa;
+  text-align: left;
+  cursor: pointer;
+}
+
+.coop-player-chip.is-local {
+  border-color: rgba(126, 198, 255, 0.45);
+  background: rgba(24, 48, 64, 0.62);
+}
+
+.coop-player-chip.is-expanded {
+  box-shadow: inset 0 0 0 1px rgba(170, 220, 255, 0.35);
+}
+
+.coop-player-chip-title {
+  font-size: 0.78rem;
+  color: #b7d0e2;
+}
+
+.coop-player-chip-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 0.86rem;
+}
+
+.coop-player-detail {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(6, 10, 14, 0.78);
+  border: 1px solid rgba(164, 198, 220, 0.18);
+}
+
+.coop-player-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.coop-player-detail-close {
+  border: 0;
+  background: transparent;
+  color: #9ec4de;
+  cursor: pointer;
+}
+
+.coop-player-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin: 0;
+}
+
+.coop-player-detail-grid dt {
+  font-size: 0.72rem;
+  color: #8ea9bc;
+}
+
+.coop-player-detail-grid dd {
+  margin: 2px 0 0;
+  font-size: 0.92rem;
+}
+
+.coop-player-detail-hint {
+  margin: 8px 0 0;
+  font-size: 0.75rem;
+  color: #8ea9bc;
+}
+
+@media (max-width: 720px) {
+  .coop-player-status-row {
+    grid-template-columns: 1fr;
+  }
+
+  .coop-player-detail-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

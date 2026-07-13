@@ -124,12 +124,19 @@ export class SnapshotBuilder {
     return ['p1', 'p2'].map((slot) => {
       const run = game.players[slot];
       const cards = game.cardSystems?.[slot];
+      const sessionName = game.levelSession?.players?.[slot]?.name;
       return {
         slot,
+        name: sessionName ?? (slot === 'p1' ? '玩家 1' : '玩家 2'),
         energy: cards?.energy ?? 0,
         silver: run?.silver ?? 0,
         handCount: cards?.handCards?.length ?? 0,
-        connected: run?.connected !== false
+        drawCount: cards?.drawPile?.length ?? 0,
+        discardCount: cards?.discardPile?.length ?? 0,
+        tempCount: cards?.temporaryCards?.length ?? 0,
+        connected: run?.connected !== false,
+        runShopOpen: Boolean(run?.runShopOpen),
+        strategyPending: run?.pendingStrategyRewards?.length ?? 0
       };
     });
   }

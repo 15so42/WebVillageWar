@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { TEAMS, UNIT_DEFINITIONS } from '../../data/gameData.js';
 import { UnitEntity } from '../../entities/UnitEntity.js';
 import { SYNC, VISUAL_STATE_FROM_CODE } from '../protocol/syncConfig.js';
+import { applyNetworkFx } from './NetworkFxRelay.js';
 
 export class ClientMirror {
   constructor(game) {
@@ -52,6 +53,7 @@ export class ClientMirror {
       this.game.wave = snapshot.wave.index;
     }
     this.applyPlayersPublic(snapshot.playersPublic);
+    this.game.networkBridge?.updatePlayersPublic?.(snapshot.playersPublic);
   }
 
   applyTransformSnapshot(snapshot) {
@@ -98,9 +100,13 @@ export class ClientMirror {
     const run = this.game.players?.[state.playerSlot];
     if (run) run.silver = state.silver;
     this.game.updateSilverHud?.();
+    this.game.networkBridge?.coopStatusUi?.render?.();
   }
 
   applyEvent(event) {
+    if (event.name?.startsWith('fx_')) {
+      applyNetworkFx(this.game, event);
+    }
     switch (event.name) {
       case 'unit_died': {
         const record = this.records.get(event.unitId);
@@ -118,14 +124,8 @@ export class ClientMirror {
         };
         break;
       }
-      case 'fx_move': {
-        this.game.effects?.spawnMoveDestination?.(
-          new THREE.Vector3(event.x, 0, event.z),
-          event.radius ?? 1.2
-        );
-        break;
-      }
       default:
+        if (!event.name?.startsWith('fx_')) break;
         break;
     }
   }
@@ -185,13 +185,7 @@ export class ClientMirror {
   }
 
   applyPlayersPublic(rows) {
-    if (!Array.isArray(rows)) return;
-    const ally = rows.find((row) => row.slot !== this.game.localPlayerSlot);
-    const badge = document.querySelector('#coop-ally-badge');
-    if (badge && ally) {
-      badge.hidden = false;
-      badge.textContent = `队友 能量 ${ally.energy} · 手牌 ${ally.handCount} · 银币 ${ally.silver}`;
-    }
+    void rows;
   }
 
   destroy() {

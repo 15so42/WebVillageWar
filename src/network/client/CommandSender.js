@@ -41,4 +41,12 @@ export class CommandSender {
   issueStop() {
     return this.sendCommand('issue_stop', {});
   }
+
+  playCard(payload) {
+    return this.sendCommand('play_card', payload);
+  }
+
+  discardCard(payload) {
+    return this.sendCommand('discard_card', payload);
+  }
 }

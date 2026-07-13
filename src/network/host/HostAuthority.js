@@ -86,6 +86,9 @@ export class HostAuthority {
       case 'play_card':
         this.applyPlayCard(slot, command.payload);
         break;
+      case 'discard_card':
+        this.applyDiscardCard(slot, command.payload);
+        break;
       default:
         break;
     }
@@ -123,14 +126,6 @@ export class HostAuthority {
     game.selectUnits(run.selectedUnits, { mode: run.selectionMode });
     const target = new THREE.Vector3(payload.point[0], 0, payload.point[2]);
     const moved = game.commandSelectedUnitsToPoint(target);
-    if (moved) {
-      this.emitEvent({
-        name: 'fx_move',
-        x: payload.point[0],
-        z: payload.point[2],
-        radius: payload.radius ?? 1.2
-      });
-    }
     if (slot !== game.localPlayerSlot) {
       game.selectUnits(previousSelection, { mode: game.selectionMode });
     }
@@ -149,8 +144,20 @@ export class HostAuthority {
   }
 
   applyPlayCard(slot, payload) {
-    // 出牌命令在后续阶段接 CardSystem；MVP 先保留入口
-    void slot;
-    void payload;
+    const cards = this.game.cardSystems?.[slot];
+    if (!cards || !payload?.cardInstanceId) return;
+    const played = cards.playFromNetworkPayload(payload);
+    if (played) {
+      this.flushPrivateStates(true);
+    }
+  }
+
+  applyDiscardCard(slot, payload) {
+    const cards = this.game.cardSystems?.[slot];
+    if (!cards || !payload?.cardInstanceId) return;
+    const discarded = cards.discardFromNetworkPayload(payload);
+    if (discarded) {
+      this.flushPrivateStates(true);
+    }
   }
 }
