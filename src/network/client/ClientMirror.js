@@ -92,14 +92,38 @@ export class ClientMirror {
   applyPrivateState(state) {
     if (!state || state.playerSlot !== this.game.localPlayerSlot) return;
     const cards = this.game.cardSystem;
-    if (!cards || !Array.isArray(state.hand)) return;
-    cards.energy = state.energy;
-    cards.handCards = state.hand.map((card) => ({ ...card }));
-    cards.renderHand?.();
-    cards.updateEnergyUi?.(true);
+    if (cards && Array.isArray(state.hand)) {
+      cards.energy = state.energy;
+      cards.handCards = state.hand.map((card) => ({ ...card }));
+      cards.renderHand?.();
+      cards.updateEnergyUi?.(true);
+    }
     const run = this.game.players?.[state.playerSlot];
-    if (run) run.silver = state.silver;
+    if (run) {
+      run.silver = state.silver;
+      run.strategyEvent = state.strategyUi
+        ? {
+          type: state.strategyUi.type,
+          kicker: state.strategyUi.kicker,
+          title: state.strategyUi.title,
+          summary: state.strategyUi.summary,
+          wave: state.strategyUi.wave,
+          choices: (state.strategyUi.choices ?? []).map((choice) => ({
+            ...choice,
+            card: choice.card ? { ...choice.card } : null
+          }))
+        }
+        : null;
+      run.runShopOpen = Boolean(state.runShopUi?.open);
+      run.runShopFreeReward = Boolean(state.runShopUi?.freeReward);
+      run.runShopActiveCategory = state.runShopUi?.activeCategory ?? null;
+      run.runShopChoices = (state.runShopUi?.choices ?? []).map((choice) => ({
+        ...choice,
+        card: choice.card ? { ...choice.card } : null
+      }));
+    }
     this.game.updateSilverHud?.();
+    this.game.applyNetworkPrivateUi?.(state);
     this.game.networkBridge?.coopStatusUi?.render?.();
   }
 

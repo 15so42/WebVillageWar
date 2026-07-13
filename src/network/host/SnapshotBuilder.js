@@ -135,8 +135,11 @@ export class SnapshotBuilder {
         discardCount: cards?.discardPile?.length ?? 0,
         tempCount: cards?.temporaryCards?.length ?? 0,
         connected: run?.connected !== false,
-        runShopOpen: Boolean(run?.runShopOpen),
-        strategyPending: run?.pendingStrategyRewards?.length ?? 0
+        runShopOpen: Boolean(run?.runShopOpen) || (slot === game.localPlayerSlot && game.runShopOpen),
+        strategyPending: Boolean(
+          (slot === game.localPlayerSlot ? game.strategyEvent : run?.strategyEvent)
+          || (run?.pendingStrategyRewards?.length ?? 0)
+        )
       };
     });
   }
@@ -145,31 +148,26 @@ export class SnapshotBuilder {
     const cards = this.game.cardSystems?.[slot] ?? (slot === this.game.localPlayerSlot ? this.game.cardSystem : null);
     const run = this.game.players?.[slot];
     if (!cards || !run) return null;
+    const isLocal = slot === this.game.localPlayerSlot;
+    const strategyEvent = isLocal ? (this.game.strategyEvent ?? run.strategyEvent) : run.strategyEvent;
+    const shopRun = isLocal
+      ? {
+        runShopOpen: this.game.runShopOpen,
+        runShopFreeReward: this.game.runShopFreeReward,
+        runShopActiveCategory: this.game.runShopActiveCategory,
+        runShopChoices: this.game.runShopChoices
+      }
+      : run;
     return {
       tick: this.tick,
       playerSlot: slot,
       energy: cards.energy,
-      hand: cards.handCards.map((card) => ({
-        instanceId: card.instanceId,
-        id: card.id,
-        name: card.name,
-        kind: card.kind,
-        energyCost: card.energyCost,
-        level: card.level ?? 1
-      })),
+      hand: cards.handCards.map((card) => serializeCardSummary(card)),
       drawCount: cards.drawPile.length,
       discardCount: cards.discardPile.length,
-      silver: run.silver,
-      strategyUi: run.strategyEvent
-        ? {
-          type: run.strategyEvent.type,
-          choices: run.strategyEvent.choices?.map((choice) => ({
-            id: choice.id,
-            title: choice.title,
-            description: choice.description
-          })) ?? []
-        }
-        : null
+      silver: isLocal ? this.game.getSilver(slot) : run.silver,
+      strategyUi: serializeStrategyUi(strategyEvent),
+      runShopUi: serializeRunShopUi(shopRun)
     };
   }
 
@@ -186,4 +184,56 @@ export class SnapshotBuilder {
   eventsSince(tick) {
     return this.eventBuffer.filter((event) => event.tick > tick);
   }
+}
+
+function serializeCardSummary(card) {
+  if (!card) return null;
+  return {
+    instanceId: card.instanceId,
+    id: card.id,
+    name: card.name,
+    kind: card.kind,
+    energyCost: card.energyCost,
+    level: card.level ?? 1,
+    summary: card.summary,
+    color: card.color,
+    artKey: card.artKey
+  };
+}
+
+function serializeStrategyUi(event) {
+  if (!event) return null;
+  return {
+    type: event.type,
+    kicker: event.kicker,
+    title: event.title,
+    summary: event.summary,
+    wave: event.wave ? { index: event.wave.index, kind: event.wave.kind } : null,
+    choices: (event.choices ?? []).map((choice, index) => ({
+      index,
+      action: choice.action,
+      actionLabel: choice.actionLabel,
+      title: choice.title,
+      description: choice.description,
+      card: serializeCardSummary(choice.card ?? choice.targetCard ?? choice.temporaryCard)
+    }))
+  };
+}
+
+function serializeRunShopUi(run) {
+  if (!run?.runShopOpen) return null;
+  return {
+    open: true,
+    freeReward: Boolean(run.runShopFreeReward),
+    activeCategory: run.runShopActiveCategory,
+    choices: (run.runShopChoices ?? []).map((choice, index) => ({
+      index,
+      action: choice.action,
+      actionLabel: choice.actionLabel,
+      title: choice.title,
+      description: choice.description,
+      disabled: Boolean(choice.disabled),
+      card: serializeCardSummary(choice.card ?? choice.targetCard ?? choice.temporaryCard)
+    }))
+  };
 }

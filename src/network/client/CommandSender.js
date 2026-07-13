@@ -49,4 +49,36 @@ export class CommandSender {
   discardCard(payload) {
     return this.sendCommand('discard_card', payload);
   }
+
+  strategyChoose(index) {
+    return this.sendCommand('strategy_choose', { index });
+  }
+
+  strategyReroll() {
+    return this.sendCommand('strategy_reroll', {});
+  }
+
+  strategySkip() {
+    return this.sendCommand('strategy_skip', {});
+  }
+
+  shopCategory(category) {
+    return this.sendCommand('shop_category', { category });
+  }
+
+  shopChoice(index) {
+    return this.sendCommand('shop_choice', { index });
+  }
+
+  shopEnergy() {
+    return this.sendCommand('shop_energy', {});
+  }
+
+  shopBack() {
+    return this.sendCommand('shop_back', {});
+  }
+
+  shopClose(options = {}) {
+    return this.sendCommand('shop_close', options);
+  }
 }

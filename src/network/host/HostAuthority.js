@@ -71,7 +71,6 @@ export class HostAuthority {
   }
 
   applyCommand(command) {
-    const game = this.game;
     const slot = command.playerSlot ?? 'p2';
     switch (command.name) {
       case 'select_units':
@@ -88,6 +87,38 @@ export class HostAuthority {
         break;
       case 'discard_card':
         this.applyDiscardCard(slot, command.payload);
+        break;
+      case 'strategy_choose':
+        this.game.applyNetworkStrategyChoice(slot, command.payload?.index);
+        this.flushPrivateStates(true);
+        break;
+      case 'strategy_reroll':
+        this.game.applyNetworkStrategyReroll(slot);
+        this.flushPrivateStates(true);
+        break;
+      case 'strategy_skip':
+        this.game.applyNetworkStrategySkip(slot);
+        this.flushPrivateStates(true);
+        break;
+      case 'shop_category':
+        this.game.applyNetworkShopCategory(slot, command.payload?.category);
+        this.flushPrivateStates(true);
+        break;
+      case 'shop_choice':
+        this.game.applyNetworkShopChoice(slot, command.payload?.index);
+        this.flushPrivateStates(true);
+        break;
+      case 'shop_energy':
+        this.game.applyNetworkShopEnergy(slot);
+        this.flushPrivateStates(true);
+        break;
+      case 'shop_back':
+        this.game.applyNetworkShopBack(slot);
+        this.flushPrivateStates(true);
+        break;
+      case 'shop_close':
+        this.game.applyNetworkShopClose(slot, command.payload ?? {});
+        this.flushPrivateStates(true);
         break;
       default:
         break;

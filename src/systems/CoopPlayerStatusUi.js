@@ -70,8 +70,10 @@ export class CoopPlayerStatusUi {
           discardCount: cards.discardPile?.length ?? 0,
           tempCount: cards.temporaryCards?.length ?? 0,
           connected: true,
-          runShopOpen: Boolean(run?.runShopOpen),
-          strategyPending: run?.pendingStrategyRewards?.length ?? 0
+          runShopOpen: Boolean(game.runShopOpen || run?.runShopOpen),
+          strategyPending: Boolean(game.strategyEvent || run?.strategyEvent)
+            ? 1
+            : (run?.pendingStrategyRewards?.length ?? 0)
         }
         : null;
       return {
@@ -87,7 +89,7 @@ export class CoopPlayerStatusUi {
         tempCount: localDetail?.tempCount ?? publicRow.tempCount ?? 0,
         connected: localDetail?.connected ?? publicRow.connected !== false,
         runShopOpen: localDetail?.runShopOpen ?? publicRow.runShopOpen === true,
-        strategyPending: localDetail?.strategyPending ?? publicRow.strategyPending ?? 0
+        strategyPending: localDetail?.strategyPending ?? (publicRow.strategyPending ? 1 : 0)
       };
     });
   }

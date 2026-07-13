@@ -197,6 +197,7 @@ export function playUnitAnimation(unit, name, duration = getAnimationDuration(un
     time: 0,
     variant: options.variant ?? null
   };
+  unit.game?.networkBridge?.notifyPlayAnim?.(unit.id, name, duration);
 }
 
 export function triggerUnitHitFlash(unit, duration = HIT_FLASH_DURATION) {

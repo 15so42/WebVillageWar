@@ -532,6 +532,9 @@ export class Game {
     this.levelSession = normalizeLevelSession(session);
     this.networkRole = session?.networkRole ?? 'offline';
     this.localPlayerSlot = session?.localPlayerSlot ?? 'p1';
+    this.activeEconomySlot = this.localPlayerSlot;
+    this.coopRewardWaitSlots = null;
+    this.coopRewardKind = null;
     this.networkBridge = networkBridge ?? null;
     this.networkClientMode = this.networkRole === 'client';
     this.coop = isCoopSession(this.levelSession)
@@ -906,7 +909,11 @@ export class Game {
     } else {
       this.updateWavePreview();
       this.awaitingOpeningReward = true;
-      this.openStrategyEvent('opening-unit');
+      if (this.coop?.enabled) {
+        this.openCoopStrategyEventForAll('opening-unit');
+      } else {
+        this.openStrategyEvent('opening-unit');
+      }
     }
 
     window.__VILLAGE_WAR_DEBUG__ = {
@@ -994,6 +1001,8 @@ export class Game {
     const dt = Math.min(rawDt, 0.05) * timeScale;
     this.updateFpsMeter(rawDt);
     if (this.paused) {
+      // 联机暂停（波次奖励/军需铺）时仍要处理远端命令与私有状态推送
+      this.networkBridge?.beforeTick?.(0);
       this.updateCamera(0);
       this.world.update?.(0, this.cameraTarget, this.camera, { forceStaticCulling: true });
       this.updateHud(0);
@@ -1146,12 +1155,20 @@ export class Game {
         return;
       }
       this.pendingWaveAdvance = true;
-      this.openRunShop({ freeReward: true });
+      if (this.coop?.enabled) {
+        this.openCoopRunShopForAll({ freeReward: true });
+      } else {
+        this.openRunShop({ freeReward: true });
+      }
       return;
     }
     this.grantWaveSilver(wave);
     this.pendingWaveAdvance = true;
-    this.openStrategyEvent('wave-reward', { wave });
+    if (this.coop?.enabled) {
+      this.openCoopStrategyEventForAll('wave-reward', { wave });
+    } else {
+      this.openStrategyEvent('wave-reward', { wave });
+    }
   }
 
   updateWavePreview() {
@@ -1233,16 +1250,253 @@ export class Game {
   }
 
   finishStrategyReward() {
+    if (this.coop?.enabled && this.coopRewardWaitSlots?.size) {
+      this.finishCoopStrategyReward(this.activeEconomySlot ?? this.localPlayerSlot);
+      return;
+    }
     const shouldStartFirstWave = this.awaitingOpeningReward;
     this.closeStrategyEvent();
     this.continueAfterStrategyFlow(shouldStartFirstWave);
+  }
+
+  openCoopStrategyEventForAll(type, options = {}) {
+    if (!this.players) {
+      return this.openStrategyEvent(type, options);
+    }
+    this.coopRewardWaitSlots = new Set(this.coopPlayerSlots());
+    this.coopRewardKind = 'strategy';
+    this.coopPlayerSlots().forEach((slot) => {
+      this.withPlayerContext(slot, () => {
+        this.strategyRewardRerollCount = 0;
+        let event = this.createStrategyEvent(type, options);
+        if (!event?.choices?.length && type !== 'card-choice') {
+          event = this.createStrategyEvent('card-choice', {
+            ...options,
+            fallbackFrom: type
+          });
+        }
+        if (!event?.choices?.length) {
+          event = this.createFallbackCardChoiceEvent(options);
+        }
+        this.strategyEvent = event?.choices?.length ? event : null;
+      });
+    });
+    this.showLocalCoopStrategyUi();
+    this.networkBridge?.host?.flushPrivateStates?.(true);
+    return true;
+  }
+
+  showLocalCoopStrategyUi() {
+    const local = this.players?.[this.localPlayerSlot];
+    this.strategyEvent = local?.strategyEvent ?? null;
+    if (!this.strategyEvent) {
+      this.strategyEventUi.root.hidden = true;
+      this.cardSystem?.setHint?.('等待队友选择奖励…', 'coop-wait-reward');
+      return;
+    }
+    this.paused = true;
+    this.cancelCameraDrag();
+    this.cancelSelectionDrag();
+    document.body.classList.add('is-game-paused', 'is-strategy-event-open');
+    this.strategyEventUi.root.hidden = false;
+    this.renderStrategyEvent();
+  }
+
+  finishCoopStrategyReward(slot) {
+    const resolvedSlot = slot ?? this.localPlayerSlot;
+    this.withPlayerContext(resolvedSlot, () => {
+      this.strategyEvent = null;
+    });
+    this.coopRewardWaitSlots?.delete(resolvedSlot);
+    if (resolvedSlot === this.localPlayerSlot) {
+      this.strategyEvent = null;
+      this.strategyEventUi.root.hidden = true;
+      this.strategyEventUi.choices.innerHTML = '';
+      document.body.classList.remove('is-strategy-event-open');
+      if (this.coopRewardWaitSlots?.size) {
+        this.cardSystem?.setHint?.('等待队友选择奖励…', 'coop-wait-reward');
+      }
+    }
+    this.networkBridge?.host?.flushPrivateStates?.(true);
+    if (this.coopRewardWaitSlots?.size) return;
+    this.coopRewardWaitSlots = null;
+    this.coopRewardKind = null;
+    this.cardSystem?.clearHint?.('coop-wait-reward');
+    document.body.classList.remove('is-game-paused', 'is-strategy-event-open');
+    this.paused = false;
+    this.clock.getDelta();
+    const shouldStartFirstWave = this.awaitingOpeningReward;
+    this.continueAfterStrategyFlow(shouldStartFirstWave);
+  }
+
+  openCoopRunShopForAll(options = {}) {
+    if (!this.players) {
+      return this.openRunShop(options);
+    }
+    this.coopRewardWaitSlots = new Set(this.coopPlayerSlots());
+    this.coopRewardKind = 'run-shop';
+    this.coopPlayerSlots().forEach((slot) => {
+      const run = this.players[slot];
+      run.runShopOpen = true;
+      run.runShopFreeReward = options.freeReward === true;
+      run.runShopActiveCategory = null;
+      run.runShopChoices = [];
+      run.runShopPendingOffers = options.freeReward === true ? {} : (run.runShopPendingOffers ?? {});
+    });
+    this.openRunShop(options);
+    this.networkBridge?.host?.flushPrivateStates?.(true);
+    return true;
+  }
+
+  finishCoopRunShop(slot) {
+    const resolvedSlot = slot ?? this.localPlayerSlot;
+    this.withPlayerContext(resolvedSlot, () => {
+      this.runShopOpen = false;
+      this.runShopFreeReward = false;
+      this.runShopActiveCategory = null;
+      this.runShopChoices = [];
+    });
+    this.coopRewardWaitSlots?.delete(resolvedSlot);
+    if (resolvedSlot === this.localPlayerSlot) {
+      if (this.runShopUi?.overlay) {
+        this.runShopUi.overlay.hidden = true;
+        this.runShopUi.overlay.setAttribute('hidden', '');
+      }
+      document.body.classList.remove('is-run-shop-open');
+      this.runShopOpen = false;
+      this.runShopFreeReward = false;
+      if (this.coopRewardWaitSlots?.size) {
+        this.cardSystem?.setHint?.('等待队友完成军需铺…', 'coop-wait-shop');
+      }
+    }
+    this.networkBridge?.host?.flushPrivateStates?.(true);
+    if (this.coopRewardWaitSlots?.size) return;
+    this.coopRewardWaitSlots = null;
+    this.coopRewardKind = null;
+    this.cardSystem?.clearHint?.('coop-wait-shop');
+    document.body.classList.remove('is-game-paused', 'is-run-shop-open');
+    this.paused = false;
+    this.clock.getDelta();
+    this.continueAfterStrategyFlow(false);
+  }
+
+  applyNetworkStrategyChoice(slot, index) {
+    return this.withPlayerContext(slot, () => {
+      const choice = this.strategyEvent?.choices?.[index];
+      if (!choice) return false;
+      if (!this.applyStrategyChoice(choice)) return false;
+      this.finishStrategyReward();
+      return true;
+    });
+  }
+
+  applyNetworkStrategyReroll(slot) {
+    return this.withPlayerContext(slot, () => this.rerollStrategyRewardChoices());
+  }
+
+  applyNetworkStrategySkip(slot) {
+    return this.withPlayerContext(slot, () => this.skipStrategyReward());
+  }
+
+  applyNetworkShopCategory(slot, category) {
+    return this.withPlayerContext(slot, () => {
+      this.selectRunShopCategory(category);
+      return true;
+    });
+  }
+
+  applyNetworkShopChoice(slot, index) {
+    return this.withPlayerContext(slot, () => {
+      const choice = this.runShopChoices?.[index];
+      if (!choice || choice.disabled) return false;
+      return this.completeRunShopPurchase(choice);
+    });
+  }
+
+  applyNetworkShopClose(slot, options = {}) {
+    return this.withPlayerContext(slot, () => {
+      this.closeRunShop(options);
+      return true;
+    });
+  }
+
+  applyNetworkShopEnergy(slot) {
+    return this.withPlayerContext(slot, () => this.purchaseRunShopEnergy());
+  }
+
+  applyNetworkShopBack(slot) {
+    return this.withPlayerContext(slot, () => {
+      this.clearRunShopSelection();
+      return true;
+    });
+  }
+
+  applyNetworkPrivateUi(state) {
+    if (!this.networkClientMode || !state) return;
+    if (state.strategyUi?.choices?.length) {
+      this.strategyEvent = {
+        type: state.strategyUi.type,
+        kicker: state.strategyUi.kicker,
+        title: state.strategyUi.title,
+        summary: state.strategyUi.summary,
+        wave: state.strategyUi.wave,
+        choices: state.strategyUi.choices.map((choice) => ({
+          ...choice,
+          card: choice.card ? { ...choice.card } : null
+        }))
+      };
+      document.body.classList.add('is-strategy-event-open');
+      this.strategyEventUi.root.hidden = false;
+      this.renderStrategyEvent();
+      this.cardSystem?.clearHint?.('coop-wait-reward');
+    } else if (this.strategyEvent && !state.strategyUi) {
+      this.strategyEvent = null;
+      this.strategyEventUi.root.hidden = true;
+      this.strategyEventUi.choices.innerHTML = '';
+      document.body.classList.remove('is-strategy-event-open');
+    }
+
+    if (state.runShopUi?.open) {
+      this.runShopOpen = true;
+      this.runShopFreeReward = Boolean(state.runShopUi.freeReward);
+      this.runShopActiveCategory = state.runShopUi.activeCategory;
+      this.runShopChoices = (state.runShopUi.choices ?? []).map((choice) => ({
+        ...choice,
+        card: choice.card ? { ...choice.card } : null
+      }));
+      this.runShopUi = ensureRunShopUi(this.runShopUi);
+      this.bindRunShopUi();
+      if (this.runShopUi.overlay) {
+        this.runShopUi.overlay.hidden = false;
+        this.runShopUi.overlay.removeAttribute('hidden');
+      }
+      document.body.classList.add('is-run-shop-open');
+      this.renderRunShop();
+      this.cardSystem?.clearHint?.('coop-wait-shop');
+    } else if (this.runShopOpen && !state.runShopUi?.open) {
+      this.runShopOpen = false;
+      this.runShopFreeReward = false;
+      this.runShopActiveCategory = null;
+      this.runShopChoices = [];
+      if (this.runShopUi?.overlay) {
+        this.runShopUi.overlay.hidden = true;
+        this.runShopUi.overlay.setAttribute('hidden', '');
+      }
+      document.body.classList.remove('is-run-shop-open');
+    }
   }
 
   continueAfterStrategyFlow(shouldStartFirstWave = false) {
     if (this.openNextStrategyReward()) return;
     if (shouldStartFirstWave) {
       this.awaitingOpeningReward = false;
-      this.cardSystem?.drawToFullHand?.({ animate: true });
+      if (this.cardSystems) {
+        Object.values(this.cardSystems).forEach((system) => {
+          system.drawToFullHand?.({ animate: system.mountUi !== false });
+        });
+      } else {
+        this.cardSystem?.drawToFullHand?.({ animate: true });
+      }
       this.updateWavePreview();
       this.startNextWave();
       return;
@@ -1346,6 +1600,14 @@ export class Game {
     if (this.runShopFreeReward) {
       this.runShopPendingOffers = {};
     }
+    const run = this.players?.[this.activeEconomySlot ?? this.localPlayerSlot];
+    if (run) {
+      run.runShopOpen = true;
+      run.runShopFreeReward = this.runShopFreeReward;
+      run.runShopActiveCategory = null;
+      run.runShopChoices = [];
+      if (this.runShopFreeReward) run.runShopPendingOffers = {};
+    }
     if (this.runShopUi.overlay) {
       this.runShopUi.overlay.hidden = false;
       this.runShopUi.overlay.removeAttribute('hidden');
@@ -1375,6 +1637,13 @@ export class Game {
   closeRunShop(options = {}) {
     if (this.runShopFreeReward && !options.force && !options.afterFreeReward) {
       return;
+    }
+    if (this.coop?.enabled && this.coopRewardKind === 'run-shop' && this.coopRewardWaitSlots?.size) {
+      const wasFreeReward = this.runShopFreeReward;
+      if (wasFreeReward || options.afterFreeReward || options.force) {
+        this.finishCoopRunShop(this.activeEconomySlot ?? this.localPlayerSlot);
+        return;
+      }
     }
     const wasFreeReward = this.runShopFreeReward;
     const causedPause = this.runShopCausedPause;
@@ -1484,7 +1753,7 @@ export class Game {
   purchaseRunShopEnergy() {
     const isFree = this.runShopFreeReward;
     const price = this.shopPrice('energy');
-    if (!isFree && this.silver + 0.001 < price) return false;
+    if (!isFree && this.getSilver() + 0.001 < price) return false;
     const gained = this.cardSystem?.addEnergy?.(1) ?? 0;
     if (gained <= 0) return false;
     if (!isFree) {
@@ -1557,6 +1826,44 @@ export class Game {
   }
 
   onRunShopClick(event) {
+    if (this.networkClientMode) {
+      if (event.target === this.runShopUi.overlay) {
+        if (!this.runShopFreeReward) {
+          this.networkBridge?.commandSender?.shopClose?.();
+        }
+        return;
+      }
+      const closeButton = event.target.closest('#run-shop-close');
+      if (closeButton) {
+        event.preventDefault();
+        if (!this.runShopFreeReward) this.networkBridge?.commandSender?.shopClose?.();
+        return;
+      }
+      const backButton = event.target.closest('#run-shop-back');
+      if (backButton) {
+        event.preventDefault();
+        this.networkBridge?.commandSender?.shopBack?.();
+        return;
+      }
+      const skipButton = event.target.closest('#run-shop-skip');
+      if (skipButton) {
+        event.preventDefault();
+        if (this.runShopFreeReward) this.networkBridge?.commandSender?.shopClose?.({ force: true });
+        return;
+      }
+      const serviceButton = event.target.closest('[data-run-shop-category]');
+      if (serviceButton && !serviceButton.disabled) {
+        event.preventDefault();
+        this.networkBridge?.commandSender?.shopCategory?.(serviceButton.dataset.runShopCategory);
+        return;
+      }
+      const choiceButton = event.target.closest('[data-run-shop-choice-index]');
+      if (choiceButton && !choiceButton.disabled) {
+        event.preventDefault();
+        this.networkBridge?.commandSender?.shopChoice?.(Number(choiceButton.dataset.runShopChoiceIndex));
+      }
+      return;
+    }
     if (event.target === this.runShopUi.overlay) {
       if (!this.runShopFreeReward) this.closeRunShop();
       return;
@@ -1595,11 +1902,11 @@ export class Game {
     }
   }
 
-  grantSilver(amount, position = null) {
+  grantSilver(amount, position = null, slot = this.activeEconomySlot ?? this.localPlayerSlot) {
     if (amount <= 0.001) return 0;
     const gained = amount * SILVER_GAIN_MULTIPLIER;
     if (gained <= 0.001) return 0;
-    this.addSilver(gained);
+    this.addSilver(gained, slot);
     if (position && this.effects?.spawnEnergyNumber) {
       this.effects.spawnEnergyNumber(position, gained, {
         text: `+${formatSilverAmount(gained)} 银币`,
@@ -1611,7 +1918,9 @@ export class Game {
       });
     }
     this.updateHud(0);
-    if (this.runShopOpen) this.renderRunShop();
+    if (this.runShopOpen && slot === (this.activeEconomySlot ?? this.localPlayerSlot)) {
+      this.renderRunShop();
+    }
     return gained;
   }
 
@@ -1620,20 +1929,28 @@ export class Game {
     const rewards = BALANCE.runCurrency ?? {};
     let amount = Number(rewards.waveNormal) || 3;
     if (wave.kind === 'elite') amount = Number(rewards.waveElite) || 6;
+    if (this.coop?.enabled && this.players) {
+      let total = 0;
+      this.coopPlayerSlots().forEach((slot) => {
+        total += this.grantSilver(amount, this.playerBase?.position, slot);
+      });
+      return total;
+    }
     return this.grantSilver(amount, this.playerBase?.position);
   }
 
-  grantKillSilver(unit) {
+  grantKillSilver(unit, source = null) {
     if (!unit || unit.team !== TEAMS.ENEMY || unit.isSilentRemoval) return 0;
     const rewards = BALANCE.runCurrency?.killRewards ?? {};
     let amount = Number(rewards.normal) || 0.35;
     if (unit.isBoss) amount = Number(rewards.boss) || 3.5;
     else if (unit.isElite) amount = Number(rewards.elite) || 1.1;
     else if (unit.isWildlife) amount = Number(rewards.wildlife) || 0.1;
-    const gained = this.grantSilver(amount, unit.position);
+    const ownerSlot = resolveKillSilverSlot(this, source);
+    const gained = this.grantSilver(amount, unit.position, ownerSlot);
     const pouchStacks = this.abilities?.getStacks?.('lootPouch') ?? 0;
     if (pouchStacks > 0) {
-      this.addSilver(pouchStacks);
+      this.addSilver(pouchStacks, ownerSlot);
       if (unit.position && this.effects?.spawnEnergyNumber) {
         this.effects.spawnEnergyNumber(unit.position, pouchStacks, {
           text: `+${formatSilverAmount(pouchStacks)} 银币`,
@@ -1882,8 +2199,15 @@ export class Game {
 
   selectedCardPool(options = {}) {
     const seen = new Set();
+    const slot = this.activeEconomySlot ?? this.localPlayerSlot;
+    const coopDeck = this.levelSession?.players?.[slot]?.deck;
+    const hasCoopDeck = Array.isArray(coopDeck) && coopDeck.length > 0;
     const hasSessionDeck = Array.isArray(this.levelSession.deck);
-    const sourceDeck = hasSessionDeck ? this.levelSession.deck : CARD_DEFINITIONS;
+    const sourceDeck = hasCoopDeck
+      ? coopDeck
+      : hasSessionDeck
+        ? this.levelSession.deck
+        : CARD_DEFINITIONS;
     const source = sourceDeck
       .filter((card) => !card.lootOnly)
       .filter((card) => !options.kind || card.kind === options.kind)
@@ -1899,7 +2223,7 @@ export class Game {
         instanceId: undefined
       }));
     }
-    if (hasSessionDeck && options.allowAllFallback !== true) return [];
+    if ((hasSessionDeck || hasCoopDeck) && options.allowAllFallback !== true) return [];
     return CARD_DEFINITIONS
       .filter((card) => !card.lootOnly)
       .filter((card) => !options.kind || card.kind === options.kind)
@@ -2330,6 +2654,14 @@ export class Game {
       event.preventDefault();
       event.stopPropagation();
       const action = actionButton.dataset.strategyAction;
+      if (this.networkClientMode) {
+        if (action === 'reroll' && !actionButton.disabled) {
+          this.networkBridge?.commandSender?.strategyReroll?.();
+        } else if (action === 'skip') {
+          this.networkBridge?.commandSender?.strategySkip?.();
+        }
+        return;
+      }
       if (action === 'reroll' && !actionButton.disabled) {
         this.rerollStrategyRewardChoices();
       } else if (action === 'skip') {
@@ -2342,6 +2674,10 @@ export class Game {
     event.preventDefault();
     event.stopPropagation();
     const index = Number(button.dataset.strategyChoiceIndex);
+    if (this.networkClientMode) {
+      this.networkBridge?.commandSender?.strategyChoose?.(index);
+      return;
+    }
     const choice = this.strategyEvent.choices[index];
     if (!choice || button.disabled) return;
     if (!this.applyStrategyChoice(choice)) return;
@@ -2833,12 +3169,12 @@ export class Game {
     this.cardSystem.update(dt);
   }
 
-  getSilver(slot = this.localPlayerSlot) {
+  getSilver(slot = this.activeEconomySlot ?? this.localPlayerSlot) {
     if (this.players?.[slot]) return this.players[slot].silver;
     return this.silver;
   }
 
-  setSilver(value, slot = this.localPlayerSlot) {
+  setSilver(value, slot = this.activeEconomySlot ?? this.localPlayerSlot) {
     const next = Math.max(0, value);
     if (this.players?.[slot]) {
       this.players[slot].silver = next;
@@ -2848,8 +3184,67 @@ export class Game {
     this.silver = next;
   }
 
-  addSilver(amount, slot = this.localPlayerSlot) {
+  addSilver(amount, slot = this.activeEconomySlot ?? this.localPlayerSlot) {
     this.setSilver(this.getSilver(slot) + amount, slot);
+  }
+
+  withPlayerContext(slot, action) {
+    if (!this.players || !slot || !this.players[slot]) {
+      return action();
+    }
+    const run = this.players[slot];
+    const previous = {
+      activeEconomySlot: this.activeEconomySlot,
+      cardSystem: this.cardSystem,
+      strategyEvent: this.strategyEvent,
+      shopPrices: this.shopPrices,
+      strategyRewardRerollCount: this.strategyRewardRerollCount,
+      runShopOpen: this.runShopOpen,
+      runShopFreeReward: this.runShopFreeReward,
+      runShopActiveCategory: this.runShopActiveCategory,
+      runShopChoices: this.runShopChoices,
+      runShopPendingOffers: this.runShopPendingOffers,
+      silver: this.silver
+    };
+    this.activeEconomySlot = slot;
+    if (this.cardSystems?.[slot]) this.cardSystem = this.cardSystems[slot];
+    this.strategyEvent = run.strategyEvent;
+    this.shopPrices = run.shopPrices;
+    this.strategyRewardRerollCount = run.strategyRewardRerollCount;
+    this.runShopOpen = run.runShopOpen;
+    this.runShopFreeReward = run.runShopFreeReward;
+    this.runShopActiveCategory = run.runShopActiveCategory;
+    this.runShopChoices = run.runShopChoices;
+    this.runShopPendingOffers = run.runShopPendingOffers;
+    this.silver = run.silver;
+    try {
+      return action();
+    } finally {
+      run.strategyEvent = this.strategyEvent;
+      run.shopPrices = this.shopPrices;
+      run.strategyRewardRerollCount = this.strategyRewardRerollCount;
+      run.runShopOpen = this.runShopOpen;
+      run.runShopFreeReward = this.runShopFreeReward;
+      run.runShopActiveCategory = this.runShopActiveCategory;
+      run.runShopChoices = this.runShopChoices;
+      run.runShopPendingOffers = this.runShopPendingOffers;
+      run.silver = this.silver;
+      this.activeEconomySlot = previous.activeEconomySlot;
+      this.cardSystem = previous.cardSystem;
+      this.strategyEvent = previous.strategyEvent;
+      this.shopPrices = previous.shopPrices;
+      this.strategyRewardRerollCount = previous.strategyRewardRerollCount;
+      this.runShopOpen = previous.runShopOpen;
+      this.runShopFreeReward = previous.runShopFreeReward;
+      this.runShopActiveCategory = previous.runShopActiveCategory;
+      this.runShopChoices = previous.runShopChoices;
+      this.runShopPendingOffers = previous.runShopPendingOffers;
+      this.silver = previous.silver;
+    }
+  }
+
+  coopPlayerSlots() {
+    return this.players ? ['p1', 'p2'] : [this.localPlayerSlot ?? 'p1'];
   }
 
   updateSilverHud() {
@@ -2879,7 +3274,7 @@ export class Game {
 
     if (unit?.team === TEAMS.ENEMY) {
       this.grantKillEnergy(unit);
-      this.grantKillSilver(unit);
+      this.grantKillSilver(unit, source);
     }
 
     return true;
@@ -5684,6 +6079,16 @@ export class Game {
       return [...pixel];
     });
   }
+}
+
+function resolveKillSilverSlot(game, source) {
+  if (!game?.coop?.enabled || !game.players) {
+    return game?.localPlayerSlot ?? 'p1';
+  }
+  const owner = source?.ownerPlayerId;
+  if (owner && game.players[owner]) return owner;
+  // 基地炮等无归属伤害：双方各拿一半不方便，默认归 p1 避免丢银；也可后续改均分
+  return 'p1';
 }
 
 function normalizeLevelSession(session) {
