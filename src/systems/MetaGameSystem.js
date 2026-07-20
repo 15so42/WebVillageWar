@@ -13,8 +13,16 @@ const STARTING_COINS = 10000;
 const STARTING_COINS_VERSION = 1;
 const MAX_LEVEL_DIFFICULTY = 10;
 const WAVE_DIFFICULTY_GROWTH_PER_SELECTED_DIFFICULTY = 0.16;
-const TEST_VERSION_LABEL = '测试版本 v0.2.45';
+const TEST_VERSION_LABEL = '测试版本 v0.2.46';
 const CHANGELOG_ENTRIES = [
+  {
+    date: '2026-07-19',
+    title: '调整：简化羊皮纸地图与旗帜设计',
+    items: [
+      '重新设计了王国盾徽背后的战旗：使用燕尾旗样式，并增加了前后叠层关系和投射阴影，使其更具层次感。',
+      '大幅降低了背景地图的复杂度：降低透明度，移除大量标注和图案，保留极简风格的中世纪羊皮纸底图，突出主菜单视觉核心。',
+    ]
+  },
   {
     date: '2026-07-19',
     title: '重新设计：纯正中世纪桌游面板',
@@ -1031,40 +1039,41 @@ export class MetaGameSystem {
                 <!-- Vertical Banner Behind Crest -->
                 <!-- Horizontal Banner Behind Crest -->
                 <!-- Horizontal Banner Behind Crest -->
-                <div class="med-menu-horizontal-banner" style="position: absolute; top: 10px; width: 440px; height: 120px; z-index: -1;">
-                    <svg viewBox="0 0 440 120" width="100%" height="100%" style="overflow: visible;">
+                <div class="med-menu-horizontal-banner" style="position: absolute; top: 15px; width: 500px; height: 140px; z-index: -1;">
+                    <svg viewBox="0 0 500 140" width="100%" height="100%" style="overflow: visible;">
                         <defs>
-                            <filter id="fabricNoise" x="-20%" y="-20%" width="140%" height="140%">
-                                <feTurbulence type="fractalNoise" baseFrequency="0.04" numOctaves="4" result="noise" />
-                                <feColorMatrix type="matrix" values="1 0 0 0 0  0 0.9 0 0 0  0 0.8 0 0 0  0 0 0 0.5 0" in="noise" result="coloredNoise" />
+                            <filter id="fabricNoiseBanner" x="-20%" y="-20%" width="140%" height="140%">
+                                <feTurbulence type="fractalNoise" baseFrequency="0.03" numOctaves="5" result="noise" />
+                                <feColorMatrix type="matrix" values="1 0 0 0 0  0 0.85 0 0 0  0 0.75 0 0 0  0 0 0 0.6 0" in="noise" result="coloredNoise" />
                                 <feBlend in="SourceGraphic" in2="coloredNoise" mode="multiply" result="blended" />
                                 <feComposite in="blended" in2="SourceAlpha" operator="in" result="masked" />
-                                <feDropShadow dx="0" dy="8" stdDeviation="6" flood-color="#000" flood-opacity="0.7"/>
+                                <feDropShadow dx="0" dy="12" stdDeviation="10" flood-color="#000" flood-opacity="0.8"/>
                             </filter>
-                            <linearGradient id="bannerShadows" x1="0%" y1="0%" x2="100%" y2="0%">
-                                <stop offset="0%" stop-color="#2a0808"/>
-                                <stop offset="10%" stop-color="#5a1515"/>
-                                <stop offset="30%" stop-color="#7a1c1c"/>
-                                <stop offset="50%" stop-color="#4a0f0f"/> <!-- fold -->
-                                <stop offset="70%" stop-color="#7a1c1c"/>
-                                <stop offset="90%" stop-color="#5a1515"/>
-                                <stop offset="100%" stop-color="#2a0808"/>
+                            <linearGradient id="bannerDrape" x1="0%" y1="0%" x2="100%" y2="0%">
+                                <stop offset="0%" stop-color="#220505"/>
+                                <stop offset="10%" stop-color="#5a1212"/>
+                                <stop offset="25%" stop-color="#801a1a"/>
+                                <stop offset="40%" stop-color="#3a0a0a"/> <!-- fold behind crest -->
+                                <stop offset="50%" stop-color="#110202"/> <!-- center dark behind crest -->
+                                <stop offset="60%" stop-color="#3a0a0a"/> <!-- fold behind crest -->
+                                <stop offset="75%" stop-color="#801a1a"/>
+                                <stop offset="90%" stop-color="#5a1212"/>
+                                <stop offset="100%" stop-color="#220505"/>
                             </linearGradient>
-                            
                         </defs>
-                        <!-- Banner Body -->
-                        <path d="M 20 20 L 420 20 L 400 60 L 420 100 L 20 100 L 40 60 Z" fill="url(#bannerShadows)" filter="url(#fabricNoise)"/>
+                        <!-- Banner Body (Draped with swallowtails) -->
+                        <path d="M 20 30 Q 140 10, 250 25 Q 360 40, 480 30 L 440 70 L 480 110 Q 360 120, 250 105 Q 140 90, 20 110 L 60 70 Z" fill="url(#bannerDrape)" filter="url(#fabricNoiseBanner)"/>
                         
                         <!-- Gold Embroidery / Stitching -->
-                        <path d="M 32 28 L 408 28 L 392 60 L 408 92 L 32 92 L 48 60 Z" fill="none" stroke="#b08d45" stroke-width="2" stroke-dasharray="6 4" opacity="0.8"/>
-                        <path d="M 38 34 L 402 34 L 385 60 L 402 86 L 38 86 L 55 60 Z" fill="none" stroke="#d4af37" stroke-width="1" opacity="0.5"/>
+                        <path d="M 32 38 Q 140 20, 250 35 Q 360 50, 468 38 L 432 70 L 468 102 Q 360 110, 250 95 Q 140 80, 32 102 L 68 70 Z" fill="none" stroke="#b08d45" stroke-width="2.5" stroke-dasharray="6 4" opacity="0.8"/>
+                        <path d="M 38 43 Q 140 26, 250 41 Q 360 56, 462 43 L 428 70 L 462 97 Q 360 104, 250 89 Q 140 74, 38 97 L 72 70 Z" fill="none" stroke="#d4af37" stroke-width="1" opacity="0.4"/>
                         
-                        <!-- Folds and Creases (Shadows/Highlights) -->
-                        <path d="M 120 20 L 110 100 M 130 20 L 120 100" stroke="rgba(0,0,0,0.4)" stroke-width="3" fill="none"/>
-                        <path d="M 320 20 L 330 100 M 310 20 L 320 100" stroke="rgba(0,0,0,0.4)" stroke-width="3" fill="none"/>
+                        <!-- Folds and Creases -->
+                        <path d="M 120 22 Q 130 60, 110 102 M 130 20 Q 140 60, 120 100" stroke="rgba(0,0,0,0.5)" stroke-width="4" fill="none" filter="url(#fabricNoiseBanner)"/>
+                        <path d="M 380 38 Q 370 80, 390 112 M 370 36 Q 360 78, 380 110" stroke="rgba(0,0,0,0.5)" stroke-width="4" fill="none" filter="url(#fabricNoiseBanner)"/>
                         
-                        <!-- Minor tears on edges -->
-                        <path d="M 20 40 L 25 45 L 20 50 M 420 70 L 415 75 L 420 80 M 150 100 L 155 95 L 160 100" fill="none" stroke="#2a0808" stroke-width="1.5"/>
+                        <!-- Simulated Shadow from Crest -->
+                        <ellipse cx="250" cy="70" rx="90" ry="70" fill="rgba(0,0,0,0.6)" style="filter: blur(8px);" pointer-events="none"/>
                     </svg>
                 </div>
                 
