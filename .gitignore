@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.codex-cloudflared/
+.vite/
+.vite-dev*.log
+.vite-preview*.log
+npm-debug.log*

@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#172016" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <link rel="manifest" href="%BASE_URL%manifest.webmanifest" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=MedievalSharp&display=swap" rel="stylesheet">
+    <title>Village War</title>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="game-canvas"></canvas>
+      <div id="world-ui" class="world-ui" aria-hidden="true"></div>
+      <section class="hud hud-primary pc-medieval-hud" aria-label="battle status">
+        <div class="hud-primary-top">
+          <div class="brand">村落战争</div>
+          <div class="hud-toolbar" aria-label="快捷状态">
+            <button id="game-settings-button" class="game-settings-button" type="button" aria-label="设置" title="设置" hidden>
+              ⚙
+            </button>
+            <div id="fps-meter" class="fps-meter" aria-label="frame rate" hidden>FPS --</div>
+          </div>
+        </div>
+        <div class="hud-meters">
+          <div class="meter meter-base">
+            <span>基地</span>
+            <strong id="base-health">100%</strong>
+          </div>
+          <div class="meter meter-wave">
+            <span>波次</span>
+            <strong id="wave-label">准备</strong>
+          </div>
+          <div class="meter meter-time">
+            <span>时间</span>
+            <strong id="battle-time">00:00</strong>
+          </div>
+          <div class="meter meter-silver">
+            <span>银币</span>
+            <strong id="silver-count">0</strong>
+          </div>
+          <div class="meter meter-units">
+            <span>友军</span>
+            <strong id="unit-count">0</strong>
+          </div>
+        </div>
+        <div class="control-hints">
+          <span class="desktop-hint">滚轮缩放</span>
+          <span class="desktop-hint">中键平移</span>
+          <span class="desktop-hint">右键移动</span>
+          <span class="desktop-hint">S停 Z守</span>
+          <span class="desktop-hint">B军需铺</span>
+        </div>
+        <button id="run-shop-toggle" class="run-shop-toggle" type="button" title="军需铺 (B)" hidden>
+          <span class="run-shop-toggle-icon" aria-hidden="true">⛭</span>
+          <span class="run-shop-toggle-label">军需铺</span>
+        </button>
+      </section>
+
+      <div id="run-shop-overlay" class="run-shop-overlay" hidden>
+        <section id="run-shop-panel" class="run-shop-panel" aria-label="军需铺">
+          <header class="run-shop-header">
+            <div class="run-shop-heading">
+              <span class="run-shop-kicker">营地军需 · B</span>
+              <h2 class="run-shop-title">军需铺</h2>
+            </div>
+            <button id="run-shop-close" class="run-shop-close" type="button" aria-label="关闭军需铺">×</button>
+          </header>
+          <p class="run-shop-balance">持有 <strong id="run-shop-silver">0</strong> 银币</p>
+          <div id="run-shop-services" class="run-shop-services"></div>
+          <button id="run-shop-skip" class="run-shop-skip" type="button" hidden>跳过奖励，继续出征</button>
+          <div id="run-shop-choices" class="run-shop-choices" hidden>
+            <button id="run-shop-back" class="run-shop-back" type="button">← 返回服务列表</button>
+            <div id="run-shop-choice-list" class="run-shop-choice-list"></div>
+          </div>
+        </section>
+      </div>
+
+      <section id="wave-preview" class="wave-preview" aria-label="波次预览"></section>
+
+      <section id="selected-panel" class="hud hud-selected" aria-label="selected unit" hidden>
+        <div id="selected-name">未选中</div>
+        <div id="selected-stats">HP - / 武器 -</div>
+        <div id="selected-enchants">附魔 -</div>
+      </section>
+
+      <section id="card-hand" class="card-hand" aria-label="card hand"></section>
+      <div id="game-command-dock" class="game-command-dock" aria-label="单位命令">
+        <button type="button" data-command-action="box-select" aria-label="框选" aria-pressed="false">框</button>
+        <button type="button" data-command-action="stop" aria-label="停止">停</button>
+        <button type="button" data-command-action="guard" aria-label="驻守">守</button>
+      </div>
+      <div id="mobile-action-dock" class="mobile-action-dock" aria-label="移动端工具">
+        <button type="button" data-mobile-action="landscape" aria-label="横屏">横屏</button>
+        <button type="button" data-mobile-action="portrait" aria-label="竖屏">竖屏</button>
+        <button type="button" data-mobile-action="fullscreen" aria-label="全屏">全屏</button>
+        <button type="button" data-mobile-action="ui-scale" aria-label="Ui缩放">Ui缩放</button>
+      </div>
+      <div id="mobile-action-feedback" class="mobile-action-feedback" role="status" aria-live="polite" hidden></div>
+      <div id="mobile-box-select-hint" class="mobile-box-select-hint" hidden aria-hidden="true">
+        <span class="mobile-box-select-hint-label">框选模式 · 拖动选择友军</span>
+      </div>
+      <section id="perf-panel" class="perf-panel" aria-label="performance chart" hidden>
+        <div class="perf-panel-header">
+          <strong>Perf</strong>
+          <span id="perf-panel-status">warming up</span>
+        </div>
+        <canvas id="perf-chart" width="420" height="150"></canvas>
+        <div id="perf-stats" class="perf-stats"></div>
+      </section>
+      <div id="drag-ghost" class="drag-ghost" hidden></div>
+      <section id="pause-overlay" class="pause-overlay" aria-label="暂停菜单" hidden>
+        <div class="pause-panel" role="dialog" aria-modal="true" aria-labelledby="pause-title">
+          <div class="pause-kicker" id="pause-reason">游戏已暂停</div>
+          <h2 id="pause-title">暂停</h2>
+          <div class="pause-settings" aria-label="画质设置">
+            <label class="pause-slider-row">
+              <span>帧率上限 <strong id="fps-limit-value">60</strong></span>
+              <input id="fps-limit-slider" type="range" min="30" max="90" step="5" value="60" />
+            </label>
+            <label class="pause-slider-row">
+              <span>DPR <strong id="dpr-value">1.0</strong></span>
+              <input id="dpr-slider" type="range" min="1" max="2" step="0.1" value="1" />
+            </label>
+          </div>
+          <div class="pause-actions">
+            <button class="pause-primary-button" type="button" data-pause-action="continue">继续</button>
+            <button class="pause-secondary-button" type="button" data-pause-action="copy-error" hidden>复制错误信息</button>
+            <button class="pause-secondary-button" type="button" data-pause-action="fullscreen">全屏</button>
+            <button class="pause-secondary-button" type="button" data-pause-action="restart">重玩</button>
+            <button class="pause-secondary-button" type="button" data-pause-action="menu">回到主菜单</button>
+          </div>
+        </div>
+      </section>
+      <pre id="debug-state" hidden></pre>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

@@ -1,0 +1,19 @@
+{
+  "name": "Village War Prototype",
+  "short_name": "Village War",
+  "description": "A low-poly RTS card battle prototype.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#172016",
+  "theme_color": "#172016",
+  "icons": [
+    {
+      "src": "./pwa-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

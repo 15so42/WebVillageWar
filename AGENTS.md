@@ -1,0 +1,43 @@
+# AGENTS.md
+
+必须使用 UTF-8 编码，否则中文会乱码。
+
+## 值得注意
+
+- 这是 Vite + Three.js 的长期 RTS/卡牌游戏原型，用户希望继续做成真实可玩的项目，不要只做静态演示。
+- 当前场景、单位、武器、卡牌图、特效基本都是代码生成的低多边形风格，不是导入 `.glb/.fbx` 资产。不要默认引入外部美术导入流程。
+- 主要数据入口在 `src/data/gameData.js`：单位、卡牌、附魔、Buff、基础数值都优先从这里扩展。
+- 单位模型在 `src/art/lowpoly.js` 里用 Three.js 几何体拼出来，模型注册和动画姿态在 `src/art/visualRegistry.js`。
+- 卡牌 UI 和卡面图在 `src/systems/CardSystem.js`，新增卡牌时记得配 `artKey`。卡面制作遵循 `docs/CARD_ART_STYLE.md`：使用 ImageGen 生成低面数、块面、透明 PNG 卡面；旧 SVG 只作为 fallback。
+- 属性要走 `AttributeSet` 的加法/乘法修改器模式。元素效果不要硬塞成属性修改器，例如火焰是命中后燃烧，毒是命中后真实伤害 DoT。
+- 现在的持盾单位叫 `knight` / 骑士；无盾拿剑单位才是 `swordsman` / 剑士。
+- 世界血条是 DOM UI 投影，不是 Three.js 模型血条。血条有护盾层、耐久条、黄色扣血延迟条和附魔文字。
+- 当前战斗架构已拆分：`UnitRegistry` 管生命周期，`UnitLogicSystem` 管单位状态机，`TargetingSystem` 管空间索敌，`PathfindingSystem`/`MovementAgent` 管寻路移动，`AttackSystem` 管攻击事件和投射物，`CombatSystem` 只做伤害结算。
+- 普通移动只认导航网格可不可走。基地、敌营、小屋、树、柱子、墙体等阻挡物应写入 world navigation / `NavigationGrid`，不要在移动循环里重新做物理碰撞式推开。
+- 性能排查先看 profiler 行是父级汇总还是子项；必要时先拆标签，再优化。不要用降频掩盖 O(N2)、重复寻路、每帧全局扫描或频繁创建纹理/材质的问题。
+- 右键菜单要在游戏区域禁用；相机支持边缘移动、滚轮缩放、中键拖动。
+- 场景当前方向是雪地 RTS 地图，不要再把地面调成黄草地/沙盘色。地表应以雪白、冷灰、淡冰蓝为主，路面是压实雪路。
+- 场景布局优先做真实地貌骨架：中央谷地/通路、两侧林带、北侧雪山前缘、基地和敌营空地。不要靠全图随机撒树、草、灌木来填满画面。
+- 雪地留白很重要。草和灌木不要稀疏随机铺满雪面，应成簇放在林缘、水洼边、房屋边或岩石附近，并降低饱和度、加雪盖。
+- 场景需要大形体锚点。大石头应作为坡脚、林缘、雪山前缘的地貌块出现，避开主路、基地和战斗核心区域，不要只放小碎石。
+- 低多边形地面不要有过强三角面片感；雪地可用更细网格、顶点平滑着色和很轻的色差，保留形体但不要满屏碎片。
+- 工作区可能有很多用户认可的未提交改动，不要清理、回滚或重排无关文件。
+- 常用验证：`node --check <changed-js-file>`，然后 `npm run build`。WebGL 截图在内置浏览器里可能不稳定，必要时用 DOM/状态检查替代。
+- **双人合作联机**：规则、协议、目录、改造清单与里程碑见 `docs/COOP_MULTIPLAYER.md`。Host 权威 + 中继转发；双经济（各自牌组/能量/银币/军需铺/波次奖励）+ 共享营地；敌军合作缩放 2.5x 血 / 1.3x 攻、数量不变。联机代码放 `src/network/`、`src/coop/`、`server/`，经 `GameNetworkBridge` 接入，不要往 `Game.js` 堆 WebSocket。
+
+## 更新日志（提交与公网部署必做）
+
+正式更新日志只写在游戏主菜单内，入口在 `src/systems/MetaGameSystem.js` 的 `CHANGELOG_ENTRIES`；不要单独维护 `docs/UPDATE_LOG.md` 作为玩家可见版本。
+
+每次 **git 提交** 或 **更新到公网** 前，必须执行：
+
+1. 对比自上次更新日志以来的实际改动：`git diff`、`git status`，必要时回看本次会话修改了哪些玩法、UI、数值与 bug 修复。
+2. 与 `CHANGELOG_ENTRIES` 最新一条（`[0]`）逐项核对：已记录的跳过，未记录的新增内容必须补进更新日志。
+3. 在 `CHANGELOG_ENTRIES` **顶部**新增一条（或合并进当天条目，但避免重复堆砌）：
+   - `date`：当天日期（`YYYY-MM-DD`）
+   - `title`：简短版本主题
+   - `items`：玩家可读的变更要点，写清楚「改了什么、体感如何」，不要堆文件名
+4. 若本次为对外发布，同步更新 `TEST_VERSION_LABEL`（如 `测试版本 v0.1.4`）。
+5. 完成 `node --check` / `npm run build` 后再提交或部署公网。
+
+公网部署流程（`--base=/web-village-war/` 构建 → scp 到 `deploy@47.100.215.224:/var/www/web-village-war/` → 目录 `755`、文件 `644`）前，确认更新日志已写入且构建产物包含最新 `MetaGameSystem.js`。
