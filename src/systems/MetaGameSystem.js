@@ -13,7 +13,7 @@ const STARTING_COINS = 10000;
 const STARTING_COINS_VERSION = 1;
 const MAX_LEVEL_DIFFICULTY = 10;
 const WAVE_DIFFICULTY_GROWTH_PER_SELECTED_DIFFICULTY = 0.16;
-const TEST_VERSION_LABEL = '测试版本 v0.2.44';
+const TEST_VERSION_LABEL = '测试版本 v0.2.45';
 const CHANGELOG_ENTRIES = [
   {
     date: '2026-07-19',
@@ -25,7 +25,9 @@ const CHANGELOG_ENTRIES = [
       '重做主菜单系统：将主菜单替换为中世纪羊皮纸画卷风格。',
       '将主界面的整体背景修改为羊皮纸质感的手绘世界地图，并铺满整个屏幕以适应横屏布局；移除了原先的简易手绘插画底纹以保持界面整洁。',
       '深度增强了全屏地图背景的信息密度：添加了带有低对比度的手绘山脉、河流、森林、道路、探险路线以及城堡与村庄的位置标记，同时加入了古老的王国边界线与探险指南针等丰富细节。',
-      '彻底重新设计了中世纪王国徽章与战旗：制作了一面具有极高厚重感的深色锻造铁质盾徽，边缘采用旧化金属包边，并带有逼真的磨损、划痕与氧化痕迹；徽章背后悬挂了一面带有金色刺绣与自然布料褶皱的深红色旧式战旗，两者共同构成了一个极具历史年代感的王国标志。',]
+      '彻底重新设计了中世纪王国徽章与战旗：制作了一面具有极高厚重感的深色锻造铁质盾徽，边缘采用旧化金属包边，并带有逼真的磨损、划痕与氧化痕迹；徽章背后悬挂了一面带有金色刺绣与自然布料褶皱的深红色旧式战旗，两者共同构成了一个极具历史年代感的王国标志。',
+      '修复了战旗和徽章SVG材质因为Alpha通道混合导致的方形模糊白边问题。',
+      '将测试版本标识移动到了屏幕最底部水平居中位置，避免和右侧其他元素冲突。',]
   },
 
   {
@@ -1032,10 +1034,12 @@ export class MetaGameSystem {
                 <div class="med-menu-horizontal-banner" style="position: absolute; top: 10px; width: 440px; height: 120px; z-index: -1;">
                     <svg viewBox="0 0 440 120" width="100%" height="100%" style="overflow: visible;">
                         <defs>
-                            <filter id="fabricNoise">
+                            <filter id="fabricNoise" x="-20%" y="-20%" width="140%" height="140%">
                                 <feTurbulence type="fractalNoise" baseFrequency="0.04" numOctaves="4" result="noise" />
                                 <feColorMatrix type="matrix" values="1 0 0 0 0  0 0.9 0 0 0  0 0.8 0 0 0  0 0 0 0.5 0" in="noise" result="coloredNoise" />
-                                <feBlend in="SourceGraphic" in2="coloredNoise" mode="multiply" />
+                                <feBlend in="SourceGraphic" in2="coloredNoise" mode="multiply" result="blended" />
+                                <feComposite in="blended" in2="SourceAlpha" operator="in" result="masked" />
+                                <feDropShadow dx="0" dy="8" stdDeviation="6" flood-color="#000" flood-opacity="0.7"/>
                             </filter>
                             <linearGradient id="bannerShadows" x1="0%" y1="0%" x2="100%" y2="0%">
                                 <stop offset="0%" stop-color="#2a0808"/>
@@ -1046,20 +1050,18 @@ export class MetaGameSystem {
                                 <stop offset="90%" stop-color="#5a1515"/>
                                 <stop offset="100%" stop-color="#2a0808"/>
                             </linearGradient>
-                            <filter id="bannerDropShadow">
-                                <feDropShadow dx="0" dy="8" stdDeviation="6" flood-color="#000" flood-opacity="0.7"/>
-                            </filter>
+                            
                         </defs>
                         <!-- Banner Body -->
-                        <path d="M 20 20 L 420 20 L 400 60 L 420 100 L 20 100 L 40 60 Z" fill="url(#bannerShadows)" filter="url(#fabricNoise) url(#bannerDropShadow)"/>
+                        <path d="M 20 20 L 420 20 L 400 60 L 420 100 L 20 100 L 40 60 Z" fill="url(#bannerShadows)" filter="url(#fabricNoise)"/>
                         
                         <!-- Gold Embroidery / Stitching -->
                         <path d="M 32 28 L 408 28 L 392 60 L 408 92 L 32 92 L 48 60 Z" fill="none" stroke="#b08d45" stroke-width="2" stroke-dasharray="6 4" opacity="0.8"/>
                         <path d="M 38 34 L 402 34 L 385 60 L 402 86 L 38 86 L 55 60 Z" fill="none" stroke="#d4af37" stroke-width="1" opacity="0.5"/>
                         
                         <!-- Folds and Creases (Shadows/Highlights) -->
-                        <path d="M 120 20 L 110 100 M 130 20 L 120 100" stroke="rgba(0,0,0,0.4)" stroke-width="3" fill="none" filter="url(#fabricNoise)"/>
-                        <path d="M 320 20 L 330 100 M 310 20 L 320 100" stroke="rgba(0,0,0,0.4)" stroke-width="3" fill="none" filter="url(#fabricNoise)"/>
+                        <path d="M 120 20 L 110 100 M 130 20 L 120 100" stroke="rgba(0,0,0,0.4)" stroke-width="3" fill="none"/>
+                        <path d="M 320 20 L 330 100 M 310 20 L 320 100" stroke="rgba(0,0,0,0.4)" stroke-width="3" fill="none"/>
                         
                         <!-- Minor tears on edges -->
                         <path d="M 20 40 L 25 45 L 20 50 M 420 70 L 415 75 L 420 80 M 150 100 L 155 95 L 160 100" fill="none" stroke="#2a0808" stroke-width="1.5"/>
@@ -1076,6 +1078,7 @@ export class MetaGameSystem {
                             <feTurbulence type="fractalNoise" baseFrequency="0.05" numOctaves="4" result="noise"/>
                             <feColorMatrix type="matrix" values="0.2 0 0 0 0  0 0.2 0 0 0  0 0.2 0 0 0  0 0 0 1 0" in="noise" result="coloredNoise"/>
                             <feBlend in="SourceGraphic" in2="coloredNoise" mode="multiply" result="textured"/>
+                            <feComposite in="textured" in2="SourceAlpha" operator="in" result="masked" />
                             <feDropShadow dx="0" dy="6" stdDeviation="4" flood-color="#000" flood-opacity="0.8"/>
                          </filter>
                          

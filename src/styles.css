@@ -6700,13 +6700,16 @@ button:active, .btn:active, .run-shop-toggle:active {
   justify-content: center;
 }
 
-.med-version-mark {
-  position: absolute;
+\.med-version-mark {
+  position: fixed;
   bottom: 10px;
-  right: 15px;
+  left: 50%;
+  transform: translateX(-50%);
   font-family: var(--font-body);
-  font-size: 10px;
-  color: #888;
+  font-size: 11px;
+  color: rgba(90, 50, 20, 0.6);
+  z-index: 10;
+  text-shadow: 1px 1px 0 rgba(255,255,255,0.4);
 }
 
 /* Level Selector */
@@ -7591,10 +7594,7 @@ button:active, .btn:active, .run-shop-toggle:active {
 .med-menu-title-container,
 .med-menu-divider-epic,
 .med-menu-nav,
-.med-version-mark {
-    position: relative;
-    z-index: 1;
-}
+
 
 /* Epic Title Styling */
 .med-menu-title-epic {
