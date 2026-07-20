@@ -16,6 +16,15 @@ const WAVE_DIFFICULTY_GROWTH_PER_SELECTED_DIFFICULTY = 0.16;
 const TEST_VERSION_LABEL = '测试版本 v0.2.46';
 const CHANGELOG_ENTRIES = [
   {
+    date: '2026-07-20',
+    title: '重制：王国主菜单视觉与操作布局',
+    items: [
+      '主菜单重构为更清晰的中世纪战略桌游界面：羊皮纸世界地图、王国盾徽、战旗和木制操作面板形成统一的全局世界观视觉。',
+      '重新整理了征途、联机、工坊、战术典籍、图鉴与王国纪要的层级和按钮样式，使主要入口更醒目、次要入口更易辨认。',
+      '清档入口调整为明确的底部操作按钮，并保留键盘焦点提示与清晰的功能说明，减少误触风险。',
+    ]
+  },
+  {
     date: '2026-07-19',
     title: '调整：简化羊皮纸地图与旗帜设计',
     items: [
@@ -1021,59 +1030,106 @@ export class MetaGameSystem {
 
   renderMainMenu() {
     return `
-      <main class="med-meta-menu">
-        <!-- Corner Delete Button -->
-        <button class="med-btn-epic-danger-corner" type="button" data-action="clear-save" title="焚毁盟约 (清档)">
-          <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-             <path d="M 3 6 L 21 6 M 8 6 L 8 4 Q 8 3 9 3 L 15 3 Q 16 3 16 4 L 16 6 M 10 11 L 10 17 M 14 11 L 14 17 M 5 6 L 19 6 L 18 20 Q 18 21 17 21 L 7 21 Q 6 21 6 20 Z" />
-          </svg>
-        </button>
-
-        <div class="med-menu-board-wrapper">
-          <div class="med-menu-board">
+      <main class="med-meta-menu mw-main-menu">
+        <div class="med-menu-board-wrapper mw-menu-stage">
+          <div class="med-menu-board mw-menu-panel">
             
             <!-- Background Illustration (Opacity 8%) -->
             
 
-            <div class="med-menu-crest-group" style="position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                <!-- Vertical Banner Behind Crest -->
-                <!-- Horizontal Banner Behind Crest -->
-                <!-- Horizontal Banner Behind Crest -->
-                <div class="med-menu-horizontal-banner" style="position: absolute; top: 15px; width: 500px; height: 140px; z-index: -1;">
-                    <svg viewBox="0 0 500 140" width="100%" height="100%" style="overflow: visible;">
+            <div class="med-menu-crest-group mw-menu-crest">
+                <!-- Straight two-layer ribbon behind the crest -->
+                <div class="med-menu-horizontal-banner mw-menu-ribbon">
+                    <svg class="mw-menu-ribbon-drawn" viewBox="0 0 500 150" role="presentation" aria-hidden="true">
                         <defs>
-                            <filter id="fabricNoiseBanner" x="-20%" y="-20%" width="140%" height="140%">
-                                <feTurbulence type="fractalNoise" baseFrequency="0.03" numOctaves="5" result="noise" />
-                                <feColorMatrix type="matrix" values="1 0 0 0 0  0 0.85 0 0 0  0 0.75 0 0 0  0 0 0 0.6 0" in="noise" result="coloredNoise" />
-                                <feBlend in="SourceGraphic" in2="coloredNoise" mode="multiply" result="blended" />
-                                <feComposite in="blended" in2="SourceAlpha" operator="in" result="masked" />
-                                <feDropShadow dx="0" dy="12" stdDeviation="10" flood-color="#000" flood-opacity="0.8"/>
+                            <filter id="mwCleanRibbonShadow" x="-20%" y="-30%" width="140%" height="170%">
+                                <feDropShadow dx="0" dy="5" stdDeviation="3" flood-color="#170604" flood-opacity="0.7"/>
                             </filter>
-                            <linearGradient id="bannerDrape" x1="0%" y1="0%" x2="100%" y2="0%">
-                                <stop offset="0%" stop-color="#220505"/>
-                                <stop offset="10%" stop-color="#5a1212"/>
-                                <stop offset="25%" stop-color="#801a1a"/>
-                                <stop offset="40%" stop-color="#3a0a0a"/> <!-- fold behind crest -->
-                                <stop offset="50%" stop-color="#110202"/> <!-- center dark behind crest -->
-                                <stop offset="60%" stop-color="#3a0a0a"/> <!-- fold behind crest -->
-                                <stop offset="75%" stop-color="#801a1a"/>
-                                <stop offset="90%" stop-color="#5a1212"/>
-                                <stop offset="100%" stop-color="#220505"/>
+                            <linearGradient id="mwCleanRibbonRear" x1="0%" y1="0%" x2="100%" y2="0%">
+                                <stop offset="0%" stop-color="#250405"/>
+                                <stop offset="32%" stop-color="#671015"/>
+                                <stop offset="68%" stop-color="#4a090d"/>
+                                <stop offset="100%" stop-color="#1e0304"/>
+                            </linearGradient>
+                            <linearGradient id="mwCleanRibbonFront" x1="0%" y1="0%" x2="0%" y2="100%">
+                                <stop offset="0%" stop-color="#8b2324"/>
+                                <stop offset="20%" stop-color="#661116"/>
+                                <stop offset="60%" stop-color="#4c090e"/>
+                                <stop offset="100%" stop-color="#280405"/>
+                            </linearGradient>
+                            <linearGradient id="mwCleanRibbonTrim" x1="0%" y1="0%" x2="100%" y2="0%">
+                                <stop offset="0%" stop-color="#5f3a16"/>
+                                <stop offset="22%" stop-color="#b58135"/>
+                                <stop offset="50%" stop-color="#d2a650"/>
+                                <stop offset="78%" stop-color="#a26b28"/>
+                                <stop offset="100%" stop-color="#5f3a16"/>
                             </linearGradient>
                         </defs>
-                        <!-- Banner Body (Draped with swallowtails) -->
-                        <path d="M 20 30 Q 140 10, 250 25 Q 360 40, 480 30 L 440 70 L 480 110 Q 360 120, 250 105 Q 140 90, 20 110 L 60 70 Z" fill="url(#bannerDrape)" filter="url(#fabricNoiseBanner)"/>
-                        
-                        <!-- Gold Embroidery / Stitching -->
-                        <path d="M 32 38 Q 140 20, 250 35 Q 360 50, 468 38 L 432 70 L 468 102 Q 360 110, 250 95 Q 140 80, 32 102 L 68 70 Z" fill="none" stroke="#b08d45" stroke-width="2.5" stroke-dasharray="6 4" opacity="0.8"/>
-                        <path d="M 38 43 Q 140 26, 250 41 Q 360 56, 462 43 L 428 70 L 462 97 Q 360 104, 250 89 Q 140 74, 38 97 L 72 70 Z" fill="none" stroke="#d4af37" stroke-width="1" opacity="0.4"/>
-                        
-                        <!-- Folds and Creases -->
-                        <path d="M 120 22 Q 130 60, 110 102 M 130 20 Q 140 60, 120 100" stroke="rgba(0,0,0,0.5)" stroke-width="4" fill="none" filter="url(#fabricNoiseBanner)"/>
-                        <path d="M 380 38 Q 370 80, 390 112 M 370 36 Q 360 78, 380 110" stroke="rgba(0,0,0,0.5)" stroke-width="4" fill="none" filter="url(#fabricNoiseBanner)"/>
-                        
-                        <!-- Simulated Shadow from Crest -->
-                        <ellipse cx="250" cy="70" rx="90" ry="70" fill="rgba(0,0,0,0.6)" style="filter: blur(8px);" pointer-events="none"/>
+                        <g filter="url(#mwCleanRibbonShadow)">
+                            <!-- Rear swallowtails never extend beneath the main cloth edge. -->
+                            <path d="M12 55 H106 V78 H12 L30 66 Z" fill="url(#mwCleanRibbonRear)" stroke="#200304" stroke-width="1.5"/>
+                            <path d="M488 55 H394 V78 H488 L470 66 Z" fill="url(#mwCleanRibbonRear)" stroke="#200304" stroke-width="1.5"/>
+                            <path d="M20 60 H100 M20 74 H100 M480 60 H400 M480 74 H400" fill="none" stroke="#a06a29" stroke-width="1.05" opacity="0.62"/>
+
+                            <!-- Main cloth: one continuous, slightly tensioned band with soft edge piping. -->
+                            <path d="M76 43 C160 36 340 36 424 43 L422 82 C340 89 160 89 78 82 Z" fill="url(#mwCleanRibbonFront)" stroke="#230304" stroke-width="1.4"/>
+                            <path d="M79 44 C163 39 337 39 421 44" fill="none" stroke="url(#mwCleanRibbonTrim)" stroke-width="1.45" opacity="0.87"/>
+                            <path d="M80 81 C163 87 337 87 420 81" fill="none" stroke="url(#mwCleanRibbonTrim)" stroke-width="1.2" opacity="0.6"/>
+                            <path d="M84 53 C166 47 334 47 416 53" fill="none" stroke="#c24640" stroke-width="1.35" opacity="0.2"/>
+                            <path d="M82 71 C167 77 333 77 418 71" fill="none" stroke="#160203" stroke-width="1.7" opacity="0.38"/>
+                        </g>
+                    </svg>
+                    <img class="mw-menu-ribbon-art" src="/assets/generated/main-menu-banner-cloth.png" alt="" aria-hidden="true">
+                    <svg viewBox="0 0 500 150" width="100%" height="100%" style="display: none; overflow: visible;">
+                        <defs>
+                            <filter id="bannerShadow" x="-20%" y="-30%" width="140%" height="170%">
+                                <feDropShadow dx="0" dy="5" stdDeviation="3" flood-color="#120503" flood-opacity="0.66"/>
+                            </filter>
+                            <linearGradient id="bannerRear" x1="0%" y1="0%" x2="100%" y2="0%">
+                                <stop offset="0%" stop-color="#210506"/>
+                                <stop offset="18%" stop-color="#4c0c0e"/>
+                                <stop offset="50%" stop-color="#651213"/>
+                                <stop offset="82%" stop-color="#4c0c0e"/>
+                                <stop offset="100%" stop-color="#210506"/>
+                            </linearGradient>
+                            <linearGradient id="bannerFrontDark" x1="0%" y1="0%" x2="0%" y2="100%">
+                                <stop offset="0%" stop-color="#3e0709"/>
+                                <stop offset="14%" stop-color="#7a171a"/>
+                                <stop offset="38%" stop-color="#5c0e12"/>
+                                <stop offset="68%" stop-color="#46090d"/>
+                                <stop offset="88%" stop-color="#2d0508"/>
+                                <stop offset="100%" stop-color="#190204"/>
+                            </linearGradient>
+                            <linearGradient id="bannerGoldEdge" x1="0%" y1="0%" x2="100%" y2="0%">
+                                <stop offset="0%" stop-color="#72501d"/>
+                                <stop offset="50%" stop-color="#c09242"/>
+                                <stop offset="100%" stop-color="#72501d"/>
+                            </linearGradient>
+                        </defs>
+                        <g filter="url(#bannerShadow)">
+                            <!-- Opaque fishtail ends form the rear cloth layer. -->
+                            <path d="M18 52 C42 48 68 48 94 52 L92 93 C67 90 42 91 18 96 L36 72 Z" fill="url(#bannerRear)" stroke="#250406" stroke-width="1.2"/>
+                            <path d="M482 52 C458 48 432 48 406 52 L408 93 C433 90 458 91 482 96 L464 72 Z" fill="url(#bannerRear)" stroke="#250406" stroke-width="1.2"/>
+                            <path d="M24 54 C45 51 68 51 89 54 M23 91 C46 87 68 87 90 89 M476 54 C455 51 432 51 411 54 M477 91 C454 87 432 87 410 89" fill="none" stroke="#9b6b2c" stroke-width="1" opacity="0.5"/>
+
+                            <!-- Soft red folds connect the rear tails to the raised front cloth. -->
+                            <path d="M68 40 L94 52 L92 93 L72 85 Z" fill="#280407" stroke="#160204" stroke-width="1.2"/>
+                            <path d="M432 40 L406 52 L408 93 L428 85 Z" fill="#280407" stroke="#160204" stroke-width="1.2"/>
+                            <path d="M73 46 L89 54 L88 84 L74 79 Z M427 46 L411 54 L412 84 L426 79 Z" fill="#641015" opacity="0.58"/>
+
+                            <!-- Broad, opaque front cloth with restrained tension and no rigid inner frame. -->
+                            <path d="M68 39 C154 33 346 33 432 39 L430 84 C342 90 158 90 70 84 Z" fill="url(#bannerFrontDark)" stroke="#210306" stroke-width="1.3"/>
+                            <path d="M71 40 C157 35 343 35 429 40" fill="none" stroke="url(#bannerGoldEdge)" stroke-width="1.35" opacity="0.82"/>
+                            <path d="M72 83 C160 88 340 88 428 83" fill="none" stroke="url(#bannerGoldEdge)" stroke-width="1.15" opacity="0.62"/>
+                            <path d="M77 48 C161 43 339 43 423 48" fill="none" stroke="#b83a3d" stroke-width="1.5" opacity="0.24"/>
+                            <path d="M75 73 C166 78 334 78 425 73" fill="none" stroke="#180205" stroke-width="2" opacity="0.34"/>
+                            <path d="M79 80 C168 84 332 84 421 80" fill="none" stroke="#100103" stroke-width="1" opacity="0.48"/>
+
+                            <!-- Wrinkles gather near the shield and folded ends, leaving the centre full-bodied. -->
+                            <path d="M82 43 C92 53 93 68 82 82 M105 40 C113 52 113 71 104 85 M132 38 C138 50 138 72 131 86 M418 43 C408 53 407 68 418 82 M395 40 C387 52 387 71 396 85 M368 38 C362 50 362 72 369 86" fill="none" stroke="#180205" stroke-width="1.7" opacity="0.28"/>
+                            <path d="M88 45 C95 55 95 66 88 78 M126 42 C131 54 131 69 126 81 M412 45 C405 55 405 66 412 78 M374 42 C369 54 369 69 374 81" fill="none" stroke="#bd3639" stroke-width="1" opacity="0.18"/>
+                        </g>
+                        <ellipse cx="250" cy="66" rx="68" ry="49" fill="#0e0202" opacity="0.34" pointer-events="none"/>
                     </svg>
                 </div>
                 
@@ -1136,17 +1192,15 @@ export class MetaGameSystem {
                           <path d="M 30 40 L 50 20 M 110 40 L 90 20 M 50 100 L 70 120 M 90 100 L 70 120" stroke="rgba(0,0,0,0.5)" stroke-width="1.5" fill="none"/>
                           <path d="M 32 42 L 52 22 M 108 38 L 88 18 M 52 102 L 72 122 M 88 98 L 68 118" stroke="rgba(255,255,255,0.05)" stroke-width="1" fill="none"/>
 
-                          <!-- Kingdom Symbol (Castle / Crown) -->
-                          <path d="M 40 90 L 40 50 L 52 50 L 52 60 L 64 60 L 64 45 L 76 45 L 76 60 L 88 60 L 88 50 L 100 50 L 100 90 Z" fill="url(#goldGrad)" filter="url(#goldBevel)"/>
-                          
-                          <!-- Castle Details (Windows/Gate) -->
-                          <path d="M 65 90 L 65 75 C 65 70, 75 70, 75 75 L 75 90 Z" fill="#111" filter="url(#ironBevel)"/>
-                          <rect x="44" y="65" width="4" height="8" fill="#111" rx="2"/>
-                          <rect x="92" y="65" width="4" height="8" fill="#111" rx="2"/>
-                          
-                          <!-- Sword crossing behind castle but inside shield -->
-                          <path d="M 50 105 L 90 35 M 90 105 L 50 35" stroke="rgba(0,0,0,0.6)" stroke-width="4"/>
-                          <path d="M 50 105 L 90 35 M 90 105 L 50 35" stroke="#777" stroke-width="2"/>
+                          <!-- Red enamel field behind the royal crown -->
+                          <rect x="35" y="35" width="70" height="57" rx="4" fill="#56110f" stroke="#2a0706" stroke-width="4" filter="url(#ironBevel)"/>
+                          <path d="M39 40 H101 L94 86 H46 Z" fill="#7b1b17" opacity="0.72"/>
+                          <path d="M40 41 H100" stroke="#ca9a49" stroke-width="2" opacity="0.62"/>
+
+                          <!-- Raised gold crown emblem -->
+                          <path d="M45 73 L45 53 L56 53 L56 63 L65 63 L70 47 L75 63 L84 63 L84 53 L95 53 L95 73 Z" fill="url(#goldGrad)" filter="url(#goldBevel)"/>
+                          <path d="M45 73 H95 L88 84 H52 Z" fill="url(#goldGrad)" filter="url(#goldBevel)"/>
+                          <path d="M52 76 H88" stroke="#f0cf7b" stroke-width="1.5" opacity="0.7"/>
                       </g>
                    </svg>
                 </div>
@@ -1154,8 +1208,8 @@ export class MetaGameSystem {
                 
             </div>
             
-            <div class="med-menu-title-container">
-                <h1 class="med-menu-title-epic">VILLAGE WAR</h1>
+            <div class="med-menu-title-container mw-menu-title-lockup">
+                <h1 class="med-menu-title-epic"><span>VILLAGE</span><span>WAR</span></h1>
                 <h2 class="med-menu-subtitle-epic">凛 冬 之 战</h2>
             </div>
             <div class="med-menu-divider-epic">
@@ -1168,9 +1222,9 @@ export class MetaGameSystem {
                 </svg>
             </div>
             
-            <nav class="med-menu-nav" aria-label="主菜单">
+            <nav class="med-menu-nav mw-menu-actions" aria-label="主菜单">
               <!-- Embark as the only primary button -->
-              <button class="med-btn-epic-primary" type="button" data-action="levels">
+              <button class="med-btn-epic-primary mw-menu-button mw-menu-button-primary" type="button" data-action="levels">
                   <!-- Metal Corners & Engraving -->
                   <svg class="btn-metal-corners" viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute; inset:0; width:100%; height:100%; pointer-events:none; border-radius: 4px;">
                       <!-- Golden Corners -->
@@ -1181,23 +1235,27 @@ export class MetaGameSystem {
                   <span class="btn-text-main">踏上征途</span> 
                   <span class="btn-text-sub">Embark</span>
               </button>
-              <button class="med-btn-epic" type="button" data-action="coop">双人联机 <span>Co-op</span></button>
-              <button class="med-btn-epic" type="button" data-action="shop">炼金工坊 <span>Workshop</span></button>
-              <div class="med-menu-row">
-                  <button class="med-btn-epic-small" type="button" data-action="guide">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px; opacity: 0.7;"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg> 战术典籍
+              <button class="med-btn-epic mw-menu-button mw-menu-button-secondary" type="button" data-action="coop"><span class="mw-button-label">双人联机</span><span class="mw-button-caption">Co-op</span></button>
+              <button class="med-btn-epic mw-menu-button mw-menu-button-secondary" type="button" data-action="shop"><span class="mw-button-label">炼金工坊</span><span class="mw-button-caption">Workshop</span></button>
+              <div class="med-menu-row mw-menu-utility-row">
+                  <button class="med-btn-epic-small mw-menu-button mw-menu-button-utility" type="button" data-action="guide">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg><span>战术<br>典籍</span>
                   </button>
-                  <button class="med-btn-epic-small" type="button" data-action="encyclopedia">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px; opacity: 0.7;"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> 附魔图鉴
+                  <button class="med-btn-epic-small mw-menu-button mw-menu-button-utility" type="button" data-action="encyclopedia">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M19.1 4.9l-2.8 2.8M7.7 16.3l-2.8 2.8"/></svg><span>附魔<br>图鉴</span>
                   </button>
-                  <button class="med-btn-epic-small" type="button" data-action="changelog">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px; opacity: 0.7;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg> 王国纪要
+                  <button class="med-btn-epic-small mw-menu-button mw-menu-button-utility" type="button" data-action="changelog">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h14v16H5z"/><path d="M9 2v4M15 2v4M8 10h8M8 14h8"/></svg><span>王国<br>纪要</span>
                   </button>
               </div>
+              <button class="mw-menu-button mw-menu-button-clear" type="button" data-action="clear-save" title="清除全部本地存档">
+                  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13.7 2.2c.5 2.8-.7 4.2-2 5.4-1.2 1.2-2.3 2.3-1.7 4.4.5-1.1 1.3-1.8 2.2-2.5-.1 2.1 1.2 3.2 2.2 4.2.8.8 1.5 1.5 1.5 2.8a4 4 0 0 1-8 0c0-1.8.8-3.1 2-4.5-3 .9-5 3.5-5 6.4A6.1 6.1 0 0 0 11 24a6.6 6.6 0 0 0 6.8-6.6c0-3.9-2.7-5.8-4.1-8.1-.9-1.5-1.2-3.5 0-7.1z"/></svg>
+                  <span>焚毁盟约（清档）</span>
+              </button>
             </nav>
-            <div class="med-version-mark">${TEST_VERSION_LABEL}</div>
           </div>
         </div>
+        <div class="med-version-mark mw-menu-version">${TEST_VERSION_LABEL}</div>
       </main>
     `;
   }
