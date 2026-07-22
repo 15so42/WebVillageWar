@@ -7521,6 +7521,400 @@ button:active, .btn:active, .run-shop-toggle:active {
 /* Override the old med-menu-board since we moved the parchment to the wrapper */
 .med-meta-menu .med-menu-board { background: transparent !important; border: none !important; box-shadow: none !important; padding: 0 !important; }
 
+/* ============================================================
+   BATTLE HUD LAYOUT CORRECTION
+   Keep the medieval materials, but restore clear screen regions.
+   ============================================================ */
+@media (min-width: 901px) {
+  body.is-game-active .pc-medieval-hud .hud-meters {
+    top: 0;
+    min-height: 88px;
+    box-sizing: border-box;
+    padding: 14px 34px 10px !important;
+    gap: 22px !important;
+    align-items: center !important;
+  }
+
+  body.is-game-active .pc-medieval-hud .meter::before {
+    font-size: 18px;
+  }
+
+  body.is-game-active .pc-medieval-hud .meter strong {
+    margin-top: 0 !important;
+    font-size: 20px !important;
+    line-height: 1 !important;
+  }
+
+  body.is-game-active .pc-medieval-hud .hud-meters::before,
+  body.is-game-active .pc-medieval-hud .hud-meters::after {
+    bottom: 9px;
+    width: 10px;
+    height: 10px;
+  }
+
+  body.is-game-active .pc-medieval-hud .brand {
+    top: 18px;
+    left: 18px;
+    padding: 7px 11px;
+    border: 1px solid rgba(210, 160, 80, 0.4);
+    border-radius: 4px;
+    color: #d9b778;
+    background: rgba(35, 25, 18, 0.78);
+    font-size: 16px;
+    line-height: 1;
+  }
+
+  body.is-game-active .pc-medieval-hud .control-hints {
+    position: absolute;
+    top: 58px;
+    left: 18px;
+    width: auto;
+    max-width: 330px;
+    gap: 3px;
+  }
+
+  body.is-game-active .pc-medieval-hud .control-hints span {
+    padding: 2px 5px;
+    border-color: rgba(210, 160, 80, 0.18);
+    background: rgba(24, 20, 16, 0.56);
+  }
+
+  body.is-game-active .hud-toolbar {
+    top: 18px;
+    right: 18px;
+    gap: 8px;
+  }
+
+  body.is-game-active .card-hand {
+    bottom: 18px !important;
+    gap: 10px !important;
+  }
+
+  body.is-game-active .card,
+  body.is-game-active .card-empty-slot,
+  body.is-game-active .temporary-card-empty-slot {
+    width: 132px !important;
+    height: 208px !important;
+    flex: 0 0 132px;
+  }
+
+  body.is-game-active .card:hover {
+    transform: translateY(-14px) scale(1.035) !important;
+  }
+
+  body.is-game-active .energy-panel {
+    position: fixed !important;
+    left: 18px !important;
+    bottom: 18px !important;
+    width: 260px !important;
+    min-height: 94px;
+    box-sizing: border-box;
+    display: grid !important;
+    grid-template-columns: 64px minmax(0, 1fr);
+    grid-template-areas:
+      "value cells"
+      "value toolbar";
+    align-items: center !important;
+    column-gap: 14px !important;
+    row-gap: 6px !important;
+    padding: 10px 14px !important;
+    transform: none !important;
+  }
+
+  body.is-game-active .energy-title {
+    grid-area: value;
+    width: 60px !important;
+    height: 60px !important;
+    border-width: 3px !important;
+  }
+
+  body.is-game-active .energy-title .energy-value {
+    font-size: 17px !important;
+  }
+
+  body.is-game-active .energy-cells {
+    grid-area: cells;
+    width: auto;
+    display: grid !important;
+    grid-template-columns: repeat(6, 11px);
+    justify-content: center;
+    gap: 7px !important;
+  }
+
+  body.is-game-active .energy-cell {
+    width: 11px !important;
+    height: 11px !important;
+    border-width: 1px !important;
+  }
+
+  body.is-game-active .energy-panel-toolbar {
+    grid-area: toolbar;
+    min-width: 0;
+    min-height: 26px;
+    margin: 0;
+  }
+
+  body.is-game-active .pc-medieval-hud .run-shop-toggle {
+    position: absolute !important;
+    left: auto !important;
+    right: 18px !important;
+    bottom: 18px !important;
+    width: auto !important;
+    min-width: 126px !important;
+    min-height: 44px !important;
+    margin: 0 !important;
+    padding: 9px 16px !important;
+    justify-content: center;
+  }
+
+  body.is-game-active .pile-button.is-draw {
+    left: 18px;
+    bottom: 126px;
+  }
+
+  body.is-game-active .pile-button.is-discard {
+    right: 18px;
+    bottom: 80px;
+  }
+
+  body.is-game-active .hud-selected {
+    top: 72px !important;
+    right: 18px !important;
+  }
+}
+
+@media (min-width: 901px) and (max-width: 1100px) {
+  body.is-game-active .card,
+  body.is-game-active .card-empty-slot,
+  body.is-game-active .temporary-card-empty-slot {
+    width: 110px !important;
+    height: 174px !important;
+    flex-basis: 110px;
+  }
+
+  body.is-game-active .med-card-face {
+    padding: 20px 6px 6px;
+  }
+
+  body.is-game-active .med-card-bottom {
+    height: 48px;
+    margin-top: 5px;
+  }
+
+  body.is-game-active .med-card-name {
+    font-size: 11px;
+  }
+
+  body.is-game-active .med-card-desc {
+    font-size: 8px;
+  }
+
+  body.is-game-active .energy-panel {
+    width: 208px !important;
+    grid-template-columns: 54px minmax(0, 1fr);
+    column-gap: 10px !important;
+    padding: 9px 11px !important;
+  }
+
+  body.is-game-active .energy-title {
+    width: 50px !important;
+    height: 50px !important;
+  }
+
+  body.is-game-active .energy-cells {
+    grid-template-columns: repeat(6, 9px);
+    gap: 5px !important;
+  }
+
+  body.is-game-active .energy-cell {
+    width: 9px !important;
+    height: 9px !important;
+  }
+}
+
+@media (max-width: 900px) {
+  body.is-game-active .pc-medieval-hud .brand,
+  body.is-game-active .pc-medieval-hud .control-hints,
+  body.is-game-active .pc-medieval-hud .meter-base,
+  body.is-game-active .pc-medieval-hud .meter-units {
+    display: none !important;
+  }
+
+  body.is-game-active .pc-medieval-hud .hud-meters {
+    top: 0;
+    left: 50%;
+    width: min(310px, calc(100vw - 132px));
+    min-height: 62px;
+    box-sizing: border-box;
+    justify-content: space-around;
+    padding: 9px 16px 7px !important;
+    gap: 12px !important;
+    border-width: 3px;
+  }
+
+  body.is-game-active .pc-medieval-hud .meter::before {
+    font-size: 14px;
+  }
+
+  body.is-game-active .pc-medieval-hud .meter strong {
+    margin-top: 0 !important;
+    font-size: 15px !important;
+    line-height: 1 !important;
+  }
+
+  body.is-game-active .pc-medieval-hud .hud-meters::before,
+  body.is-game-active .pc-medieval-hud .hud-meters::after {
+    display: none;
+  }
+
+  body.is-game-active .hud-toolbar {
+    top: 8px;
+    right: 8px;
+    gap: 5px;
+  }
+
+  body.is-game-active .game-settings-button {
+    width: 34px !important;
+    height: 34px !important;
+    font-size: 16px !important;
+  }
+
+  body.is-game-active .fps-meter {
+    min-width: 54px;
+    height: 34px;
+  }
+
+  body.is-game-active .card-hand {
+    bottom: 8px !important;
+    max-width: calc(100vw - 220px);
+    gap: 6px !important;
+  }
+
+  body.is-game-active .card,
+  body.is-game-active .card-empty-slot,
+  body.is-game-active .temporary-card-empty-slot {
+    width: 100px !important;
+    height: 158px !important;
+    flex: 0 0 100px !important;
+  }
+
+  body.is-game-active .med-card-face {
+    padding: 18px 6px 5px;
+  }
+
+  body.is-game-active .med-card-cost {
+    top: -10px;
+    width: 30px;
+    height: 30px;
+  }
+
+  body.is-game-active .med-card-cost span {
+    font-size: 14px;
+  }
+
+  body.is-game-active .med-card-bottom {
+    height: 42px;
+    margin-top: 4px;
+  }
+
+  body.is-game-active .med-card-name {
+    font-size: 10px;
+  }
+
+  body.is-game-active .med-card-desc {
+    font-size: 7px;
+  }
+
+  body.is-game-active .energy-panel {
+    position: fixed !important;
+    left: 50% !important;
+    bottom: 174px !important;
+    width: 250px !important;
+    min-height: 54px;
+    box-sizing: border-box;
+    display: grid !important;
+    grid-template-columns: 48px minmax(0, 1fr);
+    grid-template-areas:
+      "value cells"
+      "toolbar toolbar";
+    align-items: center !important;
+    gap: 5px 10px !important;
+    padding: 6px 10px !important;
+    border-width: 3px !important;
+    transform: translateX(-50%) !important;
+  }
+
+  body.is-game-active .energy-title {
+    grid-area: value;
+    width: 44px !important;
+    height: 44px !important;
+    border-width: 2px !important;
+  }
+
+  body.is-game-active .energy-title .energy-value {
+    font-size: 13px !important;
+  }
+
+  body.is-game-active .energy-cells {
+    grid-area: cells;
+    width: auto;
+    display: grid !important;
+    grid-template-columns: repeat(12, 8px);
+    justify-content: center;
+    gap: 4px !important;
+  }
+
+  body.is-game-active .energy-cell {
+    width: 8px !important;
+    height: 8px !important;
+    border-width: 1px !important;
+  }
+
+  body.is-game-active .energy-panel-toolbar {
+    grid-area: toolbar;
+    min-height: 0;
+    margin: 0;
+  }
+
+  body.is-game-active .pc-medieval-hud .run-shop-toggle {
+    position: absolute !important;
+    left: auto !important;
+    right: 8px !important;
+    bottom: 8px !important;
+    width: 84px !important;
+    min-width: 84px !important;
+    min-height: 40px !important;
+    margin: 0 !important;
+    padding: 7px 9px !important;
+    justify-content: center;
+  }
+
+  body.is-game-active .run-shop-toggle-label {
+    display: none;
+  }
+
+  body.is-game-active .pile-button {
+    bottom: 8px;
+    width: 44px;
+    height: 48px;
+  }
+
+  body.is-game-active .pile-button.is-draw {
+    left: 8px;
+  }
+
+  body.is-game-active .pile-button.is-discard {
+    right: auto;
+    left: 58px;
+  }
+
+  body.is-game-active .hud-selected {
+    top: 68px !important;
+    right: 8px !important;
+    width: min(230px, calc(100vw - 16px)) !important;
+  }
+}
+
 .med-menu-crest-new { display: flex; justify-content: center; margin-bottom: 10px; }
 .med-menu-crest-new svg {
   animation: crest-float 4s ease-in-out infinite;

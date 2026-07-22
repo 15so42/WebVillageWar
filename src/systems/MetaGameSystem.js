@@ -23,7 +23,8 @@ const CHANGELOG_ENTRIES = [
       '单位移动改为 20Hz Host 位置流与客户端受限短时外推，移除路径同步；击退期间直接跟随权威位置，并限制逐帧修正速度以减少瞬移和抖动。',
       '补齐单位、投射物、区域效果、附魔与战斗表现的联机镜像，私有手牌、能量、银币及卡牌书按本地玩家隔离显示。',
       '战斗左上角玩家面板优先显示本机玩家，避免把 Host 的公开栏误认为自己的资源与牌组。',
-      'Client 自身断线后会先检测房间存在且 Host 在线，满足条件才显示回连确认，并由 Host 当前完整状态恢复；Host 一旦离线，Client 立即终止对局并只保留退出操作。'
+      'Client 自身断线后会先检测房间存在且 Host 在线，满足条件才显示回连确认，并由 Host 当前完整状态恢复；Host 一旦离线，Client 立即终止对局并只保留退出操作。',
+      '重新整理战斗 HUD：顶部战况、左下能量、底部手牌、两侧牌堆与右下军需铺各自占据独立区域，并补齐窄屏布局；修复选关页“开始战役”按钮无响应。'
     ]
   },
   {
@@ -1350,7 +1351,7 @@ export class MetaGameSystem {
                 </div>
              </div>
 
-             <button class="med-war-start-btn" type="button" data-action="start">
+             <button class="med-war-start-btn" type="button" data-action="start-level">
                 <span class="btn-inner-text">吹响号角 / 开始战役</span>
              </button>
           </div>
