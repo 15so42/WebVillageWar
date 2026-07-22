@@ -1935,16 +1935,9 @@ export function cardThemeColor(cardOrKind) {
   return CARD_KIND_COLORS[kind] ?? CARD_KIND_COLORS.enchant;
 }
 
-const BITMAP_CARD_ART = {
-  raider: 'card-art/raider-imagegen-lowpoly-v3.png',
-  archer: 'card-art/archer-imagegen-lowpoly-v3.png',
-  swordsman: 'card-art/swordsman-imagegen-lowpoly-v3.png',
-  crossbowman: 'card-art/crossbowman-imagegen-lowpoly-v3.png',
-  waterMage: 'card-art/waterMage-imagegen-lowpoly-v3.png',
-  rogue: 'card-art/rogue-imagegen-lowpoly-v3.png',
-  knight: 'card-art/knight-imagegen-lowpoly-v3.png',
-  berserker: 'card-art/berserker-imagegen-lowpoly-v3.png'
-};
+// The generated PNG set is currently unavailable, so keep card faces readable by
+// falling through to the built-in low-poly SVG renderers below.
+const BITMAP_CARD_ART = {};
 
 function resolveCardArtAsset(path) {
   const base = import.meta.env.BASE_URL || '/';

@@ -459,33 +459,37 @@ const RENDER_TONE_MAPPING_LABELS = {
 };
 const SNOW_VALLEY_HEAD_RENDER_TUNING = Object.freeze({
   toneMapping: 'aces',
-  exposure: 1,
+  exposure: 1.05,
   brightness: 1.15,
-  contrast: 1.06,
-  saturation: 0.95,
+  contrast: 1.1,
+  saturation: 1.12,
   hue: 0,
-  warmth: 0,
-  sunColor: '#fead5d',
-  sunIntensity: 3.58,
-  sunX: -65,
-  sunY: 30,
-  sunZ: -59,
-  shadowIntensity: 0.8,
-  hemiIntensity: 0.96,
-  hemiSky: '#8ea9c6',
-  hemiGround: '#96a5af',
-  ambientColor: '#8fafd0',
-  ambientIntensity: 0,
-  background: '#b4c8d2',
-  fogColor: '#b0ccdb',
-  fogNear: 20,
-  fogFar: 215,
+  warmth: 0.02,
+  sunColor: '#fff1d6',
+  sunIntensity: 1.49,
+  sunX: -116,
+  sunY: 37,
+  sunZ: 39,
+  shadowIntensity: 1,
+  hemiIntensity: 0.61,
+  hemiSky: '#e5f1f4',
+  hemiGround: '#b8c8c8',
+  ambientColor: '#d5e1e3',
+  ambientIntensity: 0.62,
+  background: '#dce9e9',
+  fogColor: '#c9d8d8',
+  fogNear: 42,
+  fogFar: 255,
   aoIntensity: 0.01,
-  aoScale: 2.5,
-  aoKernelRadius: 32,
-  aoBias: 0.08,
-  bloomStrength: 0,
-  outlineThickness: 0.7,
+  aoScale: 3.2,
+  aoKernelRadius: 10,
+  aoBias: 0.24,
+  bloomStrength: 0.1,
+  vignetteStrength: 0,
+  snowColor: '#ffffff',
+  rockColor: '#878787',
+  treeColor: '#4c705a',
+  outlineThickness: 0,
   outlineColor: '#fea97c',
   outlineThreshold: 0.26
 });
@@ -603,6 +607,35 @@ const OutlineShader = {
   `
 };
 
+const StorybookVignetteShader = {
+  name: 'StorybookVignetteShader',
+  uniforms: {
+    tDiffuse: { value: null },
+    strength: { value: 0 }
+  },
+  vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    uniform sampler2D tDiffuse;
+    uniform float strength;
+    varying vec2 vUv;
+
+    void main() {
+      vec4 color = texture2D(tDiffuse, vUv);
+      float edgeDistance = distance(vUv, vec2(0.5));
+      float vignette = smoothstep(0.38, 0.76, edgeDistance) * strength;
+      vec3 edgeTint = vec3(0.86, 0.91, 0.92);
+      color.rgb = mix(color.rgb, color.rgb * edgeTint, vignette);
+      gl_FragColor = color;
+    }
+  `
+};
+
 export class Game {
   constructor({
     canvas,
@@ -711,6 +744,9 @@ export class Game {
 
     this.outlinePass = new ShaderPass(OutlineShader);
     this.composer.addPass(this.outlinePass);
+
+    this.vignettePass = new ShaderPass(StorybookVignetteShader);
+    this.composer.addPass(this.vignettePass);
 
     const overlayPass = new RenderPass(this.scene, this.camera);
     overlayPass.clear = false;
@@ -3206,7 +3242,7 @@ export class Game {
   }
 
   async copyRenderTuningParameters() {
-    const text = renderTuningExportText(this.renderTuning, this.worldConfig);
+    const text = renderTuningExportText(this.renderTuning, this.worldConfig, this.camera);
     try {
       if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
       await navigator.clipboard.writeText(text);
@@ -3254,6 +3290,14 @@ export class Game {
     if (this.bloomPass && settings.bloomStrength !== undefined) {
       this.bloomPass.strength = settings.bloomStrength;
     }
+    if (this.vignettePass) {
+      this.vignettePass.uniforms.strength.value = settings.vignetteStrength;
+    }
+    this.world?.setMaterialColors?.({
+      snow: settings.snowColor,
+      rock: settings.rockColor,
+      tree: settings.treeColor
+    });
     const hemisphere = this.world?.lights?.hemisphere;
     if (hemisphere) {
       hemisphere.color.set(settings.hemiSky);
@@ -3290,6 +3334,7 @@ export class Game {
         sun: settings.sunColor,
         sunIntensity: settings.sunIntensity,
         sunPosition: { x: settings.sunX, y: settings.sunY, z: settings.sunZ },
+        shadowIntensity: settings.shadowIntensity,
         hemiSky: settings.hemiSky,
         hemiGround: settings.hemiGround,
         hemiIntensity: settings.hemiIntensity,
@@ -3326,18 +3371,13 @@ export class Game {
     Object.entries(ui.controls).forEach(([key, input]) => {
       if (!input) return;
       input.value = String(settings[key]);
-      if (key === 'shadowIntensity') {
-        const isSnowValley = this.worldConfig?.sceneKey === 'snow-valley' || this.world?.config?.sceneKey === 'snow-valley';
-        input.disabled = isSnowValley;
-        input.title = isSnowValley ? '第一关阴影强度固定为0.8' : '';
-      }
     });
     Object.entries(ui.values).forEach(([key, value]) => {
       if (!value) return;
       value.textContent = formatRenderTuningValue(key, settings[key]);
     });
     if (ui.exportText) {
-      ui.exportText.textContent = renderTuningExportText(settings, this.worldConfig);
+      ui.exportText.textContent = renderTuningExportText(settings, this.worldConfig, this.camera);
     }
   }
 
@@ -3422,6 +3462,20 @@ export class Game {
     }
     if (Number.isFinite(config.maxDistance)) {
       this.cameraMaxDistance = config.maxDistance;
+    }
+    const initialPosition = config.initialPosition;
+    if (
+      Number.isFinite(initialPosition?.x)
+      && Number.isFinite(initialPosition?.y)
+      && Number.isFinite(initialPosition?.z)
+    ) {
+      this.camera.position.set(initialPosition.x, initialPosition.y, initialPosition.z);
+      this.cameraOffsetDirection.copy(this.camera.position).sub(this.cameraTarget);
+      const initialDistance = this.cameraOffsetDirection.length();
+      if (initialDistance > 0.001) {
+        this.cameraOffsetDirection.multiplyScalar(1 / initialDistance);
+        this.cameraDistance = initialDistance;
+      }
     }
     this.updateCamera(0);
   }
@@ -6320,7 +6374,11 @@ export class Game {
     this.dom.battleTime.textContent = formatBattleTime(this.elapsedTime);
     this.dom.unitCount.textContent = String(this.friendlyUnits.length);
     if (this.selectedUnits.length > 1) {
-      if (this.dom.selectedPanel) this.dom.selectedPanel.hidden = false;
+      if (this.dom.selectedPanel) {
+        this.dom.selectedPanel.hidden = false;
+        this.dom.selectedPanel.dataset.selection = 'group';
+        this.dom.selectedPanel.dataset.team = 'player';
+      }
       const totalHealth = Math.round(
         this.selectedUnits.reduce((sum, unit) => sum + unit.health, 0)
       );
@@ -6335,7 +6393,11 @@ export class Game {
       this.dom.selectedStats.textContent = `总 HP ${totalHealth} / 总耐久 ${totalDurability}/${totalMaxDurability} / ${formatCounts(types)}`;
       this.dom.selectedEnchants.textContent = '右键地面移动，遇敌自动战斗';
     } else if (this.selectedUnit) {
-      if (this.dom.selectedPanel) this.dom.selectedPanel.hidden = false;
+      if (this.dom.selectedPanel) {
+        this.dom.selectedPanel.hidden = false;
+        this.dom.selectedPanel.dataset.selection = 'unit';
+        this.dom.selectedPanel.dataset.team = this.selectedUnit.team === TEAMS.PLAYER ? 'player' : 'enemy';
+      }
       const unit = this.selectedUnit;
       const hp = Math.round(unit.health);
       const shield = Math.round(unit.shield);
@@ -6354,7 +6416,11 @@ export class Game {
       this.dom.selectedEnchants.textContent =
         `${attackDamageTypeLabel(unit.definition.attackDamageType)}攻 ${attack} / 护甲 ${armor} / 魔抗 ${magicResistance} / 闪避 ${dodgeChance}% / 抗击退 ${knockbackResistance}% / 附魔 ${enchantments || '-'}`;
     } else {
-      if (this.dom.selectedPanel) this.dom.selectedPanel.hidden = true;
+      if (this.dom.selectedPanel) {
+        this.dom.selectedPanel.hidden = true;
+        delete this.dom.selectedPanel.dataset.selection;
+        delete this.dom.selectedPanel.dataset.team;
+      }
       this.dom.selectedName.textContent = '未选中';
       this.dom.selectedStats.textContent = 'HP - / 武器 -';
       this.dom.selectedEnchants.textContent = '附魔 -';
@@ -8240,6 +8306,12 @@ function createRenderTuningPanel() {
         ${renderColorControl('background', '背景色')}
       </fieldset>
       <fieldset>
+        <legend>场景材质</legend>
+        ${renderColorControl('snowColor', '雪')}
+        ${renderColorControl('rockColor', '岩石')}
+        ${renderColorControl('treeColor', '树木')}
+      </fieldset>
+      <fieldset>
         <legend>雾</legend>
         ${renderColorControl('fogColor', '颜色')}
         ${renderSliderControl('fogNear', '近端', 20, 220, 1)}
@@ -8394,6 +8466,10 @@ function defaultRenderTuningForWorld(worldConfig = BALANCE.world) {
     ambientColor: colorToHex(headDefaults?.ambientColor ?? sky.ambientColor, '#8FAFD0'),
     ambientIntensity: finiteNumber(headDefaults?.ambientIntensity ?? sky.ambientIntensity, 0.4),
     bloomStrength: finiteNumber(headDefaults?.bloomStrength ?? sky.bloomStrength, 0.15),
+    vignetteStrength: finiteNumber(headDefaults?.vignetteStrength, 0),
+    snowColor: colorToHex(headDefaults?.snowColor ?? worldConfig.materials?.snow, '#eee8d8'),
+    rockColor: colorToHex(headDefaults?.rockColor ?? worldConfig.materials?.rock, '#969487'),
+    treeColor: colorToHex(headDefaults?.treeColor ?? worldConfig.materials?.tree, '#356747'),
     hemiSky: colorToHex(headDefaults?.hemiSky ?? sky.hemiSky, '#e8f4ff'),
     hemiGround: colorToHex(headDefaults?.hemiGround ?? sky.hemiGround, '#bebbc5'),
     background: colorToHex(headDefaults?.background ?? sky.skyGradient?.middle ?? sky.background, '#f0f8fc'),
@@ -8441,11 +8517,15 @@ function normalizeRenderTuning(settings = {}, worldConfig = BALANCE.world) {
     sunX: clamp(finiteNumber(settings.sunX, defaults.sunX), -140, 140),
     sunY: clamp(finiteNumber(settings.sunY, defaults.sunY), 8, 140),
     sunZ: clamp(finiteNumber(settings.sunZ, defaults.sunZ), -140, 140),
-    shadowIntensity: worldConfig.sceneKey === 'snow-valley' ? 0.8 : clamp(finiteNumber(settings.shadowIntensity, defaults.shadowIntensity ?? 0.8), 0, 1),
+    shadowIntensity: clamp(finiteNumber(settings.shadowIntensity, defaults.shadowIntensity ?? 0.8), 0, 1),
     hemiIntensity: clamp(finiteNumber(settings.hemiIntensity, defaults.hemiIntensity), 0, 3.2),
     ambientColor: colorToHex(settings.ambientColor, defaults.ambientColor),
     ambientIntensity: clamp(finiteNumber(settings.ambientIntensity, defaults.ambientIntensity), 0, 2),
     bloomStrength: clamp(finiteNumber(settings.bloomStrength, defaults.bloomStrength), 0, 2),
+    vignetteStrength: clamp(finiteNumber(settings.vignetteStrength, defaults.vignetteStrength), 0, 0.4),
+    snowColor: colorToHex(settings.snowColor, defaults.snowColor),
+    rockColor: colorToHex(settings.rockColor, defaults.rockColor),
+    treeColor: colorToHex(settings.treeColor, defaults.treeColor),
     hemiSky: colorToHex(settings.hemiSky, defaults.hemiSky),
     hemiGround: colorToHex(settings.hemiGround, defaults.hemiGround),
     background: colorToHex(settings.background, defaults.background),
@@ -8462,8 +8542,9 @@ function normalizeRenderTuning(settings = {}, worldConfig = BALANCE.world) {
   };
 }
 
-function renderTuningExportText(settings, worldConfig = BALANCE.world) {
+function renderTuningExportText(settings, worldConfig = BALANCE.world, camera = null) {
   const normalized = normalizeRenderTuning(settings, worldConfig);
+  const cameraPosition = camera?.position;
   return JSON.stringify({
     toneMapping: normalized.toneMapping,
     exposure: normalized.exposure,
@@ -8505,7 +8586,19 @@ function renderTuningExportText(settings, worldConfig = BALANCE.world) {
       color: normalized.outlineColor,
       threshold: normalized.outlineThreshold
     },
-    background: normalized.background
+    materials: {
+      snow: normalized.snowColor,
+      rock: normalized.rockColor,
+      tree: normalized.treeColor
+    },
+    background: normalized.background,
+    camera: {
+      initialPosition: {
+        x: Number((cameraPosition?.x ?? 0).toFixed(3)),
+        y: Number((cameraPosition?.y ?? 0).toFixed(3)),
+        z: Number((cameraPosition?.z ?? 0).toFixed(3))
+      }
+    }
   }, null, 2);
 }
 

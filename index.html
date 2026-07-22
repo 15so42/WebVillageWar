@@ -86,9 +86,14 @@
       <section id="wave-preview" class="wave-preview" aria-label="波次预览"></section>
 
       <section id="selected-panel" class="hud hud-selected" aria-label="selected unit" hidden>
-        <div id="selected-name">未选中</div>
-        <div id="selected-stats">HP - / 武器 -</div>
-        <div id="selected-enchants">附魔 -</div>
+        <div class="selected-portrait" aria-hidden="true">
+          <span class="selected-portrait-figure"></span>
+        </div>
+        <div class="selected-tactical-copy">
+          <div id="selected-name">未选中</div>
+          <div id="selected-stats">HP - / 武器 -</div>
+          <div id="selected-enchants">附魔 -</div>
+        </div>
       </section>
 
       <section id="card-hand" class="card-hand" aria-label="card hand"></section>

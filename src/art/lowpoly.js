@@ -5299,6 +5299,113 @@ export function createCottageModel(options = {}) {
   return enableShadows(group);
 }
 
+export function createBannerTotemModel(options = {}) {
+  const group = new THREE.Group();
+  const stone = mat(options.stoneColor ?? '#777d79', { roughness: 0.96, metalness: 0 });
+  const snow = mat(options.snowColor ?? '#edf1e8', { roughness: 0.96, metalness: 0 });
+  const wood = mat(options.woodColor ?? '#604638', { roughness: 0.94, metalness: 0 });
+  const darkWood = mat(options.darkWoodColor ?? '#3d3029', { roughness: 0.96, metalness: 0 });
+  const carving = mat(options.carvingColor ?? '#78a6a0', { roughness: 0.88, metalness: 0 });
+  const cloth = mat(options.bannerColor ?? '#a84635', {
+    roughness: 0.94,
+    metalness: 0,
+    side: THREE.DoubleSide
+  });
+
+  const base = mesh(
+    new THREE.CylinderGeometry(0.72, 0.9, 0.34, 7),
+    stone,
+    new THREE.Vector3(0, 0.17, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const snowCap = mesh(
+    new THREE.CylinderGeometry(0.64, 0.74, 0.13, 7),
+    snow,
+    new THREE.Vector3(0, 0.405, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const mast = mesh(
+    new THREE.CylinderGeometry(0.12, 0.18, 3.25, 7),
+    wood,
+    new THREE.Vector3(0, 1.98, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const lowerBand = mesh(
+    new THREE.CylinderGeometry(0.2, 0.2, 0.2, 7),
+    darkWood,
+    new THREE.Vector3(0, 1.0, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const crossbar = mesh(
+    new THREE.BoxGeometry(1.3, 0.16, 0.17),
+    darkWood,
+    new THREE.Vector3(0.48, 3.03, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const carvedHead = mesh(
+    new THREE.OctahedronGeometry(0.34, 0),
+    carving,
+    new THREE.Vector3(0, 2.28, 0),
+    new THREE.Vector3(0.82, 1.2, 0.82)
+  );
+  carvedHead.rotation.y = Math.PI / 4;
+  const sideCharmLeft = mesh(
+    new THREE.ConeGeometry(0.13, 0.48, 5),
+    carving,
+    new THREE.Vector3(-0.42, 1.66, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  sideCharmLeft.rotation.z = -0.5;
+  const sideCharmRight = sideCharmLeft.clone();
+  sideCharmRight.position.x = 0.42;
+  sideCharmRight.rotation.z = 0.5;
+  const finial = mesh(
+    new THREE.ConeGeometry(0.18, 0.5, 6),
+    darkWood,
+    new THREE.Vector3(0, 3.82, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+
+  const bannerWidth = 1.28;
+  const bannerGeometry = new THREE.PlaneGeometry(bannerWidth, 0.82, 5, 2);
+  bannerGeometry.translate(bannerWidth * 0.5, 0, 0);
+  const banner = new THREE.Mesh(bannerGeometry, cloth);
+  banner.position.set(0.08, 2.58, 0);
+  banner.castShadow = true;
+  banner.receiveShadow = true;
+  const bannerPositions = bannerGeometry.attributes.position;
+  const bannerRestPositions = new Float32Array(bannerPositions.array);
+
+  group.userData.updateWorldDecoration = (elapsed = 0) => {
+    for (let index = 0; index < bannerPositions.count; index += 1) {
+      const offset = index * 3;
+      const x = bannerRestPositions[offset];
+      const y = bannerRestPositions[offset + 1];
+      const tether = THREE.MathUtils.clamp(x / bannerWidth, 0, 1);
+      const broadWave = Math.sin(elapsed * 2.35 - tether * 4.2 + y * 0.9) * 0.115;
+      const edgeFlutter = Math.sin(elapsed * 4.8 - tether * 7.4) * 0.035;
+      bannerPositions.setZ(index, (broadWave + edgeFlutter) * tether);
+    }
+    bannerPositions.needsUpdate = true;
+    bannerGeometry.computeVertexNormals();
+  };
+  group.userData.banner = banner;
+
+  group.add(
+    base,
+    snowCap,
+    mast,
+    lowerBand,
+    crossbar,
+    carvedHead,
+    sideCharmLeft,
+    sideCharmRight,
+    finial,
+    banner
+  );
+  return enableShadows(group);
+}
+
 export function createBush(size = 1, options = {}) {
   const group = new THREE.Group();
   const leaf = mat(options.leafColor ?? '#397c45');
@@ -5355,9 +5462,12 @@ export function createGrassTuft(size = 1, color = '#6fb34f') {
   return enableShadows(group);
 }
 
-function applyTreeShader(material) {
+function applyTreeShader(material, options = {}) {
   if (material.userData.isTreeShaderApplied) return material;
   material.userData.isTreeShaderApplied = true;
+  const bottomBrightness = options.bottomBrightness ?? 0.78;
+  const topBrightness = options.topBrightness ?? 1.15;
+  const grayMixMax = options.grayMixMax ?? 0.25;
 
   material.onBeforeCompile = (shader) => {
     shader.vertexShader = `
@@ -5383,9 +5493,9 @@ function applyTreeShader(material) {
       float luma = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
       
       // Top: slightly brighter, slightly gray (desaturated). Bottom: slightly darker.
-      float grayMix = mix(0.0, 0.25, vGradientT);
+      float grayMix = mix(0.0, ${grayMixMax.toFixed(3)}, vGradientT);
       vec3 grayerColor = mix(diffuseColor.rgb, vec3(luma), grayMix);
-      float brightness = mix(0.78, 1.15, vGradientT);
+      float brightness = mix(${bottomBrightness.toFixed(3)}, ${topBrightness.toFixed(3)}, vGradientT);
       
       // Safeguard: Keep snow-covered white parts white/unmodified
       float maxVal = max(diffuseColor.r, max(diffuseColor.g, diffuseColor.b));
@@ -5422,33 +5532,40 @@ export function createTree(height = 1, options = {}) {
   return enableShadows(group);
 }
 
-export function createSnowPine(height = 1) {
+export function createSnowPine(height = 1, options = {}) {
   const group = new THREE.Group();
+  const leafMaterialOptions = options.treeShader
+    ? { roughness: options.leafRoughness ?? 0.92, metalness: 0 }
+    : {};
   const trunk = mesh(
     new THREE.CylinderGeometry(0.14, 0.21, 1.05 * height, 5),
     mat('#7a5a44'),
     new THREE.Vector3(0, 0.52 * height, 0),
     new THREE.Vector3(1, 1, 1)
   );
-  const lowerMat = mat('#5f7672');
-  applyTreeShader(lowerMat);
+  const lowerMat = mat(options.leafColor ?? '#5f7672', leafMaterialOptions);
+  lowerMat.userData.worldMaterialKind = 'tree';
+  applyTreeShader(lowerMat, options.treeShader);
   const lower = mesh(
     new THREE.ConeGeometry(0.88 * height, 1.22 * height, 7),
     lowerMat,
     new THREE.Vector3(0, 1.22 * height, 0),
     new THREE.Vector3(1, 1, 1)
   );
-  const upperMat = mat('#66807b');
-  applyTreeShader(upperMat);
+  const upperMat = mat(options.leafColor ?? '#66807b', leafMaterialOptions);
+  upperMat.userData.worldMaterialKind = 'tree';
+  applyTreeShader(upperMat, options.treeShader);
   const upper = mesh(
     new THREE.ConeGeometry(0.58 * height, 1.05 * height, 7),
     upperMat,
     new THREE.Vector3(0, 1.9 * height, 0),
     new THREE.Vector3(1, 1, 1)
   );
+  const snowMat = mat(options.snowColor ?? '#c2d9e8', { roughness: options.snowRoughness ?? 0.9, metalness: 0 });
+  snowMat.userData.worldMaterialKind = 'snow';
   const snowCap = mesh(
     new THREE.ConeGeometry(0.5 * height, 0.28 * height, 7),
-    mat('#c2d9e8', { roughness: 0.9 }),
+    snowMat,
     new THREE.Vector3(0, 2.34 * height, 0),
     new THREE.Vector3(1, 1, 1)
   );

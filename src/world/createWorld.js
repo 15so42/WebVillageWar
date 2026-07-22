@@ -2,7 +2,17 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 
-function applyGroundShader(material) {
+function applyGroundShader(material, { storybookSnow = false } = {}) {
+  const colorVariationChunk = storybookSnow
+    ? `
+      vec3 coolSnowTint = vec3(0.96, 0.99, 1.02);
+      vec3 warmSnowTint = vec3(1.04, 1.02, 0.97);
+      diffuseColor.rgb *= mix(coolSnowTint, warmSnowTint, noiseColor * 0.5 + 0.5);
+      `
+    : 'diffuseColor.rgb *= 1.0 + noiseColor * 0.025;';
+  const roughnessVariationChunk = storybookSnow
+    ? 'roughnessFactor = mix(0.86, 0.98, noiseColor * 0.5 + 0.5);'
+    : 'roughnessFactor = mix(0.7, 1.0, noiseColor * 0.5 + 0.5);';
   material.onBeforeCompile = (shader) => {
     shader.vertexShader = `
       varying vec3 vWorldPos;
@@ -126,13 +136,13 @@ function applyGroundShader(material) {
       `
       #include <color_fragment>
       float noiseColor = snoise(vWorldPos * 0.08);
-      diffuseColor.rgb *= 1.0 + noiseColor * 0.025; // Color variation <= 3%
+      ${colorVariationChunk}
       `
     ).replace(
       '#include <roughnessmap_fragment>',
       `
       #include <roughnessmap_fragment>
-      roughnessFactor = mix(0.7, 1.0, noiseColor * 0.5 + 0.5);
+      ${roughnessVariationChunk}
       `
     );
   };
@@ -239,6 +249,7 @@ import { BALANCE } from '../data/gameData.js';
 import {
   basicMat,
   createBaseModel,
+  createBannerTotemModel,
   createBush,
   createCloudModel,
   createCottageModel,
@@ -370,6 +381,7 @@ const STATIC_BATCH_CENTER = new THREE.Vector3();
 let activeBakedShadowBatch = null;
 let activeStaticCullables = null;
 let activeStaticDecorationBatch = null;
+let activeAnimatedDecorations = null;
 
 const DEFAULT_TERRAIN_PROFILE = {
   baseHeight: 0.25,
@@ -403,49 +415,54 @@ const WORLD_PRESETS = {
     sceneKey: 'snow-valley',
     seed: 42,
     camera: {
-      // 原镜头实际偏移约为 y=23.4 / z=29.0；后拉 5 米并抬高 20%。
-      offsetDirection: { x: 0, y: 28.1, z: 34.04 },
-      distance: 44.13,
+      initialPosition: { x: -0.026, y: 33.602, z: 61.932 },
       minDistance: 12,
       maxDistance: 78
     },
     sky: {
       toneMapping: 'aces',
-      exposure: 1,
-      background: '#b4c8d2',
+      exposure: 1.1,
+      background: '#dce9e9',
       skyGradient: {
         top: '#648cb3',
         middle: '#b4c8d2',
         horizon: '#ffd3a6'
       },
-      fog: '#b0ccdb',
-      fogNear: 20,
-      fogFar: 215,
-      sun: '#fead5d',
-      sunIntensity: 3.58,
-      shadowIntensity: 0.8,
-      sunPosition: { x: -65, y: 30, z: -59 },
+      fog: '#c9d8d8',
+      fogNear: 90,
+      fogFar: 480,
+      sun: '#fff0d2',
+      sunIntensity: 1.05,
+      shadowIntensity: 0.46,
+      sunPosition: { x: -35, y: 40, z: 79 },
       sunTarget: { x: 0, y: 0, z: 0 },
-      hemiSky: '#8ea9c6',
-      hemiGround: '#96a5af',
-      hemiIntensity: 0.96,
-      shadowMapSize: 2048,
-      shadowRadius: 5,
+      hemiSky: '#e5f1f4',
+      hemiGround: '#b8c8c8',
+      hemiIntensity: 1,
+      ambientColor: '#d5e1e3',
+      ambientIntensity: 0.62,
+      shadowMapSize: 4096,
+      shadowRadius: 8,
       shadowBias: -0.0005,
       shadowNormalBias: 0.02,
       realtimeShadows: true,
       bakedShadows: false
     },
     palette: {
-      base: '#f0e6dd',
-      side: '#b8cdd6',
-      north: '#d5e1e8',
-      valley: '#e5ddd5',
-      forest: '#a8bbbf',
-      high: '#f5efe8',
-      snow: '#fcf8f2',
-      path: '#dcd1c7',
+      base: '#eee8d8',
+      side: '#bcc9ca',
+      north: '#d3dcdc',
+      valley: '#f0e6d1',
+      forest: '#d9e0d5',
+      high: '#f4edd9',
+      snow: '#eee8d8',
+      path: '#dbd0bb',
       puddle: '#b0ccdb'
+    },
+    materials: {
+      snow: '#eee8d8',
+      rock: '#969487',
+      tree: '#356747'
     },
     ground: {
       width: 344,
@@ -586,8 +603,8 @@ const WORLD_PRESETS = {
     landmass: {
       waterHeight: -1.28,
       oceanColor: '#4e9fb4',
-      cliffColor: '#b6c0ba',
-      cliffDarkColor: '#849490',
+      cliffColor: '#969487',
+      cliffDarkColor: '#7f8580',
       cliffSkirt: {
         segments: 136,
         threshold: 0.82,
@@ -1216,10 +1233,19 @@ let activeWorldConfig = resolveWorldConfig();
 export function createWorld(scene, worldOptions = {}) {
   activeWorldConfig = resolveWorldConfig(worldOptions);
   const config = activeWorldConfig;
+  const initialMaterialColors = { ...(config.materials ?? {}) };
+  const initialSnowPalette = { ...(config.palette ?? {}) };
+  const initialLandmassColors = config.landmass
+    ? {
+        cliffColor: config.landmass.cliffColor,
+        cliffDarkColor: config.landmass.cliffDarkColor
+      }
+    : null;
   updateBakedShadowLightRay(config);
   config.navigationBlockers = [];
   activeStaticCullables = [];
   activeStaticDecorationBatch = createStaticDecorationBatch();
+  activeAnimatedDecorations = [];
   scene.background = new THREE.Color(config.sky.skyGradient?.middle ?? config.sky.background);
   scene.fog = new THREE.Fog(config.sky.fog, config.sky.fogNear, config.sky.fogFar);
 
@@ -1230,9 +1256,7 @@ export function createWorld(scene, worldOptions = {}) {
   sun.target.position.set(sunTarget.x, sunTarget.y, sunTarget.z);
   sun.castShadow = config.sky.realtimeShadows !== false;
   if (sun.castShadow) {
-    if (config.sceneKey === 'snow-valley') {
-      sun.shadow.intensity = 0.8;
-    } else if (config.sky.shadowIntensity !== undefined) {
+    if (config.sky.shadowIntensity !== undefined) {
       sun.shadow.intensity = config.sky.shadowIntensity;
     }
     const shadowMapSize = config.sky.shadowMapSize ?? 1024;
@@ -1308,9 +1332,51 @@ export function createWorld(scene, worldOptions = {}) {
   const staticDecorationResult = flushStaticDecorationBatch(scene);
   const bakedShadowResult = flushBakedGroundShadows(ground);
   const staticCullables = activeStaticCullables;
+  const animatedDecorations = activeAnimatedDecorations;
   activeStaticCullables = null;
+  activeAnimatedDecorations = null;
   const staticCulling = createStaticWorldCulling(staticCullables);
   const navGrid = createNavigationGrid();
+  let decorationElapsed = 0;
+  const setMaterialColors = (colors = {}) => {
+    let recolorGround = false;
+    ['snow', 'rock', 'tree'].forEach((kind) => {
+      if (typeof colors[kind] !== 'string' || !colors[kind]) return;
+      if (!initialMaterialColors[kind]) return;
+      const nextHex = `#${new THREE.Color(colors[kind]).getHexString()}`;
+      config.materials[kind] = nextHex;
+      updateTaggedWorldMaterials(scene, kind, nextHex);
+
+      if (kind === 'snow') {
+        ['base', 'side', 'north', 'valley', 'forest', 'high', 'snow', 'path'].forEach((key) => {
+          if (!initialSnowPalette[key]) return;
+          config.palette[key] = relativeMaterialHex(
+            initialSnowPalette[key],
+            initialMaterialColors.snow,
+            nextHex
+          );
+        });
+        recolorGround = true;
+      }
+      if (kind === 'rock' && config.landmass && initialLandmassColors) {
+        config.landmass.cliffColor = relativeMaterialHex(
+          initialLandmassColors.cliffColor,
+          initialMaterialColors.rock,
+          nextHex
+        );
+        config.landmass.cliffDarkColor = relativeMaterialHex(
+          initialLandmassColors.cliffDarkColor,
+          initialMaterialColors.rock,
+          nextHex
+        );
+        recolorGround = true;
+      }
+    });
+    if (recolorGround) {
+      colorGroundGeometry(ground.geometry);
+      ground.geometry.attributes.color.needsUpdate = true;
+    }
+  };
 
   return {
     config,
@@ -1341,6 +1407,7 @@ export function createWorld(scene, worldOptions = {}) {
       hemisphere,
       ambient
     },
+    setMaterialColors,
     staticCullables,
     staticCulling,
     staticDecorationMeshes: staticDecorationResult.meshes,
@@ -1348,6 +1415,12 @@ export function createWorld(scene, worldOptions = {}) {
       updateSkyGradientPosition(skyGradient, camera);
       snowfall.update(dt, cameraTarget);
       staticCulling.update(dt, camera, options);
+      decorationElapsed += Math.max(0, dt);
+      animatedDecorations.forEach((decoration) => {
+        if (decoration.visible !== false) {
+          decoration.userData.updateWorldDecoration?.(decorationElapsed);
+        }
+      });
     },
     findPath: (start, end, options = {}) => navGrid?.findPath(start, end, options) ?? [],
     hasNavigationLine: (start, end) => navGrid?.hasLine(start, end) ?? true,
@@ -1397,6 +1470,10 @@ function mergeWorldPreset(preset, worldOptions) {
       ...(preset.palette ?? {}),
       ...(worldOptions.palette ?? {})
     },
+    materials: {
+      ...(preset.materials ?? {}),
+      ...(worldOptions.materials ?? {})
+    },
     terrain: {
       ...DEFAULT_TERRAIN_PROFILE,
       ...(preset.terrain ?? {}),
@@ -1426,6 +1503,81 @@ function mergeWorldPreset(preset, worldOptions) {
 
 function worldConfig() {
   return activeWorldConfig;
+}
+
+function worldMaterialColor(name, fallback) {
+  return worldConfig().materials?.[name] ?? fallback;
+}
+
+function worldMaterialSurfaceOptions(kind) {
+  if (worldConfig().sceneKey !== 'snow-valley') {
+    return kind === 'rock'
+      ? { roughness: 0.95, metalness: 0, emissive: '#14181a' }
+      : { roughness: 1, metalness: 0, emissive: '#0a0b0c' };
+  }
+  return kind === 'rock'
+    ? { roughness: 0.96, metalness: 0 }
+    : { roughness: 0.95, metalness: 0 };
+}
+
+function markWorldMaterial(material, kind) {
+  if (!material?.isMaterial || !material.color || !kind) return material;
+  material.userData.worldMaterialKind = kind;
+  if (!material.userData.worldMaterialOriginalColor) {
+    material.userData.worldMaterialOriginalColor = material.color.clone();
+    material.userData.worldMaterialReferenceColor = new THREE.Color(worldMaterialColor(kind, '#ffffff'));
+  }
+  return material;
+}
+
+function relativeMaterialColor(originalValue, referenceValue, nextValue) {
+  const original = originalValue?.isColor ? originalValue : new THREE.Color(originalValue);
+  const reference = referenceValue?.isColor ? referenceValue : new THREE.Color(referenceValue);
+  const next = nextValue?.isColor ? nextValue : new THREE.Color(nextValue);
+  return new THREE.Color().setRGB(
+    clamp(original.r * next.r / Math.max(0.001, reference.r), 0, 1),
+    clamp(original.g * next.g / Math.max(0.001, reference.g), 0, 1),
+    clamp(original.b * next.b / Math.max(0.001, reference.b), 0, 1)
+  );
+}
+
+function relativeMaterialHex(originalValue, referenceValue, nextValue) {
+  return `#${relativeMaterialColor(originalValue, referenceValue, nextValue).getHexString()}`;
+}
+
+function updateTaggedWorldMaterials(scene, kind, colorValue) {
+  const updated = new Set();
+  const next = new THREE.Color(colorValue);
+  scene.traverse((node) => {
+    const materials = Array.isArray(node.material) ? node.material : [node.material];
+    materials.forEach((material) => {
+      if (!material?.isMaterial || updated.has(material)) return;
+      if (material.userData?.worldMaterialKind !== kind) return;
+      const original = material.userData.worldMaterialOriginalColor;
+      const reference = material.userData.worldMaterialReferenceColor;
+      if (!original?.isColor || !reference?.isColor || !material.color) return;
+      material.color.copy(relativeMaterialColor(original, reference, next));
+      updated.add(material);
+    });
+  });
+}
+
+function createWorldSnowPine(height) {
+  const storybookSnow = worldConfig().sceneKey === 'snow-valley';
+  const tree = createSnowPine(height, {
+    leafColor: worldConfig().materials?.tree,
+    snowColor: worldConfig().materials?.snow,
+    snowRoughness: storybookSnow ? 0.95 : undefined,
+    leafRoughness: storybookSnow ? 0.92 : undefined,
+    treeShader: storybookSnow
+      ? { bottomBrightness: 0.9, topBrightness: 1.1, grayMixMax: 0 }
+      : undefined
+  });
+  tree.traverse((node) => {
+    const kind = node.material?.userData?.worldMaterialKind;
+    if (kind) markWorldMaterial(node.material, kind);
+  });
+  return tree;
 }
 
 function rawPathPoints() {
@@ -1627,12 +1779,13 @@ function setRibbonUvFromWorldXZ(geometry, width, depth) {
 }
 
 function createGroundMaterial() {
+  const storybookSnow = worldConfig().sceneKey === 'snow-valley';
   return applyGroundShader(new THREE.MeshStandardMaterial({
     vertexColors: true,
-    roughness: 0.9,
+    roughness: storybookSnow ? 0.95 : 0.9,
     metalness: 0.0,
     flatShading: false
-  }));
+  }), { storybookSnow });
 }
 
 function colorGroundGeometry(geometry) {
@@ -2388,7 +2541,7 @@ function createPath(scene, points) {
     const size = 0.42 + (i % 2) * 0.16;
     const marker = (theme === 'snow')
       ? createLowpolySnowRock(size, random, {
-          color: '#687378',
+          color: worldMaterialColor('rock', '#687378'),
           snowCap: true
         })
       : createRock(size, {
@@ -2618,14 +2771,14 @@ function createPuddles(scene) {
 function createShoreIceFloes(scene) {
   const floes = worldConfig().iceFloes ?? [];
   if (!floes.length) return;
-  const material = overlayMat(worldConfig().palette.snow, {
+  const material = markWorldMaterial(overlayMat(worldConfig().palette.snow, {
     roughness: 0.86,
     metalness: 0.02,
     transparent: true,
     opacity: 0.86,
     depthWrite: false,
     side: THREE.DoubleSide
-  });
+  }), 'snow');
   floes.forEach((floe, index) => {
     const mesh = createTerrainEllipseMesh(floe, material, 0.09, 16);
     mesh.renderOrder = 3 + index * 0.01;
@@ -3025,9 +3178,9 @@ function createSnowBackdropRocks(scene) {
   (worldConfig().backdropRocks ?? []).forEach((item) => {
     const size = item.size ?? 3.6;
     const rock = createLowpolySnowRock(size, random, {
-      color: item.color ?? '#687378',
+      color: worldMaterialColor('rock', item.color ?? '#687378'),
       snowCap: true,
-      snowColor: item.snowColor ?? '#e4e9ed'
+      snowColor: worldMaterialColor('snow', item.snowColor ?? '#e4e9ed')
     });
     rock.scale.set(item.sx ?? 1, item.sy ?? 1, item.sz ?? 1);
     rock.rotation.y = item.rot ?? 0;
@@ -3119,11 +3272,10 @@ function createCliffPillar(a, b, index) {
   const tangentOffset = (hash2(index * 0.77, 5.9) - 0.5) * span * 0.22;
   const normalOffset = 0.22 + primaryNoise * 0.24 + stagger * (0.1 + hash2(index * 0.43, 8.2) * 0.12);
   const group = new THREE.Group();
-  const pillarMat = mat(cliffRockHex('#666d6b', shade - 0.24, primaryNoise, -0.09), {
-    roughness: 0.9,
-    metalness: 0.02,
+  const pillarMat = markWorldMaterial(mat(cliffRockHex(worldMaterialColor('rock', '#666d6b'), shade - 0.24, primaryNoise, -0.09), {
+    ...worldMaterialSurfaceOptions('rock'),
     flatShading: true
-  });
+  }), 'rock');
   applyCliffShader(pillarMat);
   const rock = new THREE.Mesh(
     new THREE.CylinderGeometry(1, 1.06 + primaryNoise * 0.12, 1, radialSegments, 4, false),
@@ -3143,11 +3295,10 @@ function createCliffPillar(a, b, index) {
 
   const cap = new THREE.Mesh(
     new THREE.CylinderGeometry(1, 1, 1, radialSegments, 2, false),
-    mat(cliffRockHex('#fffef9', shade - 0.02, primaryNoise, 0.02), {
-      roughness: 0.92,
-      metalness: 0.01,
+    markWorldMaterial(mat(cliffRockHex(worldMaterialColor('snow', '#fffef9'), shade - 0.02, primaryNoise, 0.02), {
+      ...worldMaterialSurfaceOptions('snow'),
       flatShading: true
-    })
+    }), 'snow')
   );
   cap.name = 'SnowCliffCap';
   cap.position.set(
@@ -3172,8 +3323,9 @@ function cliffLightAt(normalX, normalZ, noise) {
 
 function cliffRockHex(hex, shade, variation, lift = 0) {
   const color = new THREE.Color(hex);
-  const shadow = new THREE.Color('#61768a');
-  const snowLight = new THREE.Color('#ffd1a3');
+  const storybookSnow = worldConfig().sceneKey === 'snow-valley';
+  const shadow = new THREE.Color(storybookSnow ? '#7f8580' : '#61768a');
+  const snowLight = new THREE.Color(storybookSnow ? '#f3ead7' : '#ffd1a3');
   const shadeDelta = shade - 1;
   if (shadeDelta < 0) {
     color.lerp(shadow, Math.min(0.7, -shadeDelta * 0.95));
@@ -3223,7 +3375,11 @@ function coastBoundaryPointAt(angle, threshold, minRadius, maxRadius) {
 function decorate(scene, pathPoints) {
   const random = seededRandom(worldConfig().seed ?? 42);
   placeCottages(scene);
-  placeBadNorthDecor(scene);
+  if (worldConfig().sceneKey === 'snow-valley') {
+    placePathTotems(scene);
+  } else {
+    placeLegacyPathDecor(scene);
+  }
   placeForests(scene, pathPoints, random);
   placeRocks(scene, pathPoints, random);
   placeBoulderClusters(scene, pathPoints, random);
@@ -4078,7 +4234,7 @@ function placeForests(scene, pathPoints, random) {
       const height = zone.tone === 'snow'
         ? 0.76 + random() * 0.9
         : 0.78 + random() * 1.65;
-      const tree = createSnowPine(height);
+      const tree = createWorldSnowPine(height);
       placeOnTerrain(tree, x, z);
       tree.rotation.y = random() * Math.PI * 2;
       addStaticCulledObject(scene, tree);
@@ -4253,10 +4409,10 @@ function createLowpolySnowRock(size = 1, random, options = {}) {
     return geo;
   };
 
-  const rockColor = options.color ?? (random() > 0.45 ? '#687378' : '#748083');
+  const rockColor = options.color ?? worldMaterialColor('rock', random() > 0.45 ? '#687378' : '#748083');
   let rockGeo = new THREE.CylinderGeometry(midR, botR, rockH, numSides, 1);
   rockGeo = deformGeo(rockGeo, false);
-  const rockMat = mat(rockColor, { roughness: 0.95, metalness: 0.0, emissive: '#14181a' });
+  const rockMat = markWorldMaterial(mat(rockColor, worldMaterialSurfaceOptions('rock')), 'rock');
   applyCliffShader(rockMat);
   const rockMesh = new THREE.Mesh(rockGeo, rockMat);
   rockMesh.position.y = rockH * 0.5;
@@ -4267,8 +4423,8 @@ function createLowpolySnowRock(size = 1, random, options = {}) {
   if (options.snowCap) {
     let snowGeo = new THREE.CylinderGeometry(topR, midR, snowH, numSides, 1);
     snowGeo = deformGeo(snowGeo, true);
-    const snowColor = options.snowColor ?? '#e4e9ed';
-    const snowMesh = new THREE.Mesh(snowGeo, mat(snowColor, { roughness: 1.0, metalness: 0.0, emissive: '#0a0b0c' }));
+    const snowColor = options.snowColor ?? worldMaterialColor('snow', '#e4e9ed');
+    const snowMesh = new THREE.Mesh(snowGeo, markWorldMaterial(mat(snowColor, worldMaterialSurfaceOptions('snow')), 'snow'));
     snowMesh.position.y = rockH + snowH * 0.5;
     snowMesh.castShadow = true;
     snowMesh.receiveShadow = true;
@@ -4302,7 +4458,7 @@ function placeRocks(scene, pathPoints, random) {
     
     const rock = (theme === 'snow')
       ? createLowpolySnowRock(size, random, {
-          color: random() > 0.45 ? '#687378' : '#748083',
+          color: worldMaterialColor('rock', random() > 0.45 ? '#687378' : '#748083'),
           snowCap: random() > 0.35
         })
       : createRock(size, {
@@ -4334,7 +4490,7 @@ function placeBoulderClusters(scene, pathPoints, random) {
       
       const rock = (theme === 'snow')
         ? createLowpolySnowRock(size, random, {
-            color: random() > 0.5 ? '#687378' : '#748083',
+            color: worldMaterialColor('rock', random() > 0.5 ? '#687378' : '#748083'),
             snowCap: true
           })
         : createRock(size, {
@@ -4369,7 +4525,7 @@ function placeLandmarkBoulders(scene, pathPoints) {
     
     const rock = (theme === 'snow')
       ? createLowpolySnowRock(item.size, random, {
-          color: '#687378',
+          color: worldMaterialColor('rock', '#687378'),
           snowCap: true
         })
       : createRock(item.size, {
@@ -4535,9 +4691,28 @@ function isSnowDeadGrassClear(x, z, pathPoints, clearance) {
 }
 
 
-function placeBadNorthDecor(scene) {
+function placePathTotems(scene) {
   const points = [
-    { x: -5, z: 28, rot: 0.5, type: 'cottage', scale: 1.1, roof: '#d84b33' }, // Bright red roof
+    { x: -10.5, z: 26, rot: 0.38, scale: 1.08, bannerColor: '#a84635' },
+    { x: -6, z: 7, rot: 0.2, scale: 0.98, bannerColor: '#9f4938' },
+    { x: -4, z: -31, rot: 0.9, scale: 1.12, bannerColor: '#934332' }
+  ];
+
+  points.forEach((item) => {
+    const totem = createBannerTotemModel(item);
+    placeOnTerrain(totem, item.x, item.z);
+    totem.rotation.y = item.rot;
+    totem.scale.setScalar(item.scale);
+    totem.userData.skipStaticBatch = true;
+    addStaticCulledObject(scene, totem);
+    activeAnimatedDecorations?.push(totem);
+    registerWorldNavigationBlocker(item.x, item.z, 0.85 * item.scale, 'banner-totem');
+  });
+}
+
+function placeLegacyPathDecor(scene) {
+  const points = [
+    { x: -5, z: 28, rot: 0.5, type: 'cottage', scale: 1.1, roof: '#d84b33' },
     { x: 8, z: 22, rot: -0.6, type: 'flag' },
     { x: -6, z: 7, rot: 0.2, type: 'cottage', scale: 0.9, roof: '#cc5030' },
     { x: 6, z: -15, rot: -0.8, type: 'flag' },
@@ -4545,7 +4720,7 @@ function placeBadNorthDecor(scene) {
     { x: 5, z: -30, rot: -0.4, type: 'flag' }
   ];
 
-  points.forEach(item => {
+  points.forEach((item) => {
     if (item.type === 'cottage') {
       const cottage = createCottageModel({ ...item, wall: '#baa58b' });
       placeOnTerrain(cottage, item.x, item.z);
@@ -4553,13 +4728,14 @@ function placeBadNorthDecor(scene) {
       cottage.scale.setScalar(item.scale);
       addStaticCulledObject(scene, cottage);
       registerWorldNavigationBlocker(item.x, item.z, 2.0 * item.scale, 'cottage');
-    } else if (item.type === 'flag') {
-      const flag = createGuardFlag();
-      placeOnTerrain(flag, item.x, item.z);
-      flag.rotation.y = item.rot;
-      flag.scale.setScalar(1.5);
-      addStaticCulledObject(scene, flag);
+      return;
     }
+
+    const flag = createGuardFlag();
+    placeOnTerrain(flag, item.x, item.z);
+    flag.rotation.y = item.rot;
+    flag.scale.setScalar(1.5);
+    addStaticCulledObject(scene, flag);
   });
 }
 
@@ -5999,9 +6175,13 @@ function createIslandCliffs(scene) {
 
         geo.clearGroups();
 
-        const cTop = new THREE.Color('#d8e2e8');
-        const cMid = new THREE.Color('#6b7a88');
-        const cDark = new THREE.Color('#4a5560');
+        const cMid = new THREE.Color(worldMaterialColor('rock', '#6b7a88'));
+        const cTop = worldConfig().sceneKey === 'snow-valley'
+          ? new THREE.Color('#aaa697')
+          : cMid.clone().offsetHSL(0, -0.04, 0.16);
+        const cDark = worldConfig().sceneKey === 'snow-valley'
+          ? new THREE.Color('#7f8580')
+          : cMid.clone().offsetHSL(0, 0.02, -0.13);
         
         const sunDir = new THREE.Vector3(-1.0, 0.0, 0.7).normalize();
         
@@ -6052,12 +6232,10 @@ function createIslandCliffs(scene) {
       applyCliffColors(rockGeo, random);
       const cliffMats = [];
       for (let i = 0; i < 5; i++) {
-        const m = mat(0xffffff, { 
+        const m = markWorldMaterial(mat(0xffffff, {
+          ...worldMaterialSurfaceOptions('rock'),
           vertexColors: true, 
-          roughness: 0.85, 
-          metalness: 0.0, 
-          emissive: '#14181a' 
-        });
+        }), 'rock');
         applyCliffShader(m);
         cliffMats.push(m);
       }
@@ -6070,7 +6248,7 @@ function createIslandCliffs(scene) {
       let snowGeo = new THREE.CylinderGeometry(topR, midR, snowH, numSides, 2);
       snowGeo = deformGeo(snowGeo, true);
       
-      const snow = new THREE.Mesh(snowGeo, mat('#e4e9ed', { roughness: 1.0, metalness: 0.0, emissive: '#0a0b0c' }));
+      const snow = new THREE.Mesh(snowGeo, markWorldMaterial(mat(worldMaterialColor('snow', '#e4e9ed'), worldMaterialSurfaceOptions('snow')), 'snow'));
       snow.scale.set(cw, 1, cd);
       snow.castShadow = true;
       snow.receiveShadow = true;
@@ -6105,7 +6283,7 @@ function createIslandCliffs(scene) {
       if (random() < 0.6) {
           const brSize = cw * (0.15 + random() * 0.2);
           const baseRock = createLowpolySnowRock(brSize, random, {
-            color: '#687378',
+            color: worldMaterialColor('rock', '#687378'),
             snowCap: random() > 0.4
           });
           baseRock.position.set(
@@ -6218,7 +6396,7 @@ function createIslandCliffs(scene) {
             if (distanceToPath(tx, tz, points) < 8) continue;
             
             const treeHeight = 0.45 + random() * 0.45; // slightly smaller top trees
-            const tree = createSnowPine(treeHeight);
+            const tree = createWorldSnowPine(treeHeight);
             
             // Sat on tilted surface precisely + 0.05 safety margin
             const topY = getTopY(tx, tz) + 0.05;
@@ -6237,7 +6415,7 @@ function createIslandCliffs(scene) {
            for (let tr = 0; tr < numTopRocks; tr++) {
              const trSize = 0.4 + random() * 0.5;
              const topRock = createLowpolySnowRock(trSize, random, {
-               color: '#687378',
+               color: worldMaterialColor('rock', '#687378'),
                snowCap: random() > 0.4
              });
              
@@ -6315,7 +6493,7 @@ function createCentralDecorations(scene) {
     if (isSnow) {
       const s = 0.42 + random() * 0.96; 
       const rock = createLowpolySnowRock(s, random, {
-        color: random() > 0.45 ? '#687378' : '#748083',
+        color: worldMaterialColor('rock', random() > 0.45 ? '#687378' : '#748083'),
         snowCap: random() > 0.35
       });
       placeOnTerrain(rock, x, z, -0.05 * s);
