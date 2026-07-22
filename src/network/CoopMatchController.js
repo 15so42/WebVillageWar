@@ -260,6 +260,7 @@ export class CoopMatchController {
       return;
     }
     if (state.event === MSG.ROOM_CLOSED) {
+      this.activeBridge?.handleRoomClosed?.(state.reason);
       this.onNotice?.(state.reason === 'host_lease_expired' ? '房主断线超过 60 秒，房间已释放' : '房间已关闭');
       return;
     }

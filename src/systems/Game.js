@@ -639,6 +639,8 @@ export class Game {
     this.elapsedTime = 0;
     this.levelFinished = false;
     this.paused = false;
+    this.networkTerminated = false;
+    this.networkTerminatedOverlay = null;
     this.destroyed = false;
     this.runtimeError = null;
     this.currentFrameStep = null;
@@ -1127,6 +1129,8 @@ export class Game {
     this.strategyEventUi?.root?.remove();
     this.runShopUi?.overlay?.remove();
     this.runShopUi?.toggle?.remove();
+    this.networkTerminatedOverlay?.remove();
+    this.networkTerminatedOverlay = null;
     document.body.classList.remove('is-game-active', 'is-game-paused', 'is-strategy-event-open', 'is-run-shop-open');
     if (this.dom.settingsButton) this.dom.settingsButton.hidden = true;
     if (this.runShopUi?.toggle) this.runShopUi.toggle.hidden = true;
@@ -5087,6 +5091,7 @@ export class Game {
 
   setPaused(paused, reason = '设置') {
     if (this.destroyed || this.levelFinished) return;
+    if (this.networkTerminated && !paused) return;
     this.paused = Boolean(paused);
     document.body.classList.toggle('is-game-paused', this.paused);
     if (this.paused) {
@@ -5237,6 +5242,44 @@ export class Game {
     this.sendNetworkSelectionState();
   }
 
+  showNetworkTerminatedDialog() {
+    if (this.destroyed || this.networkTerminated) return;
+    this.networkTerminated = true;
+    this.paused = true;
+    document.body.classList.add('is-game-paused');
+    this.cancelCameraDrag();
+    this.cancelSelectionDrag();
+    this.cardSystem?.cancelActiveDrag?.();
+    if (this.dom.pauseOverlay) this.dom.pauseOverlay.hidden = true;
+    if (this.strategyEventUi?.root) this.strategyEventUi.root.hidden = true;
+    if (this.runShopUi?.overlay) this.runShopUi.overlay.hidden = true;
+    document.body.classList.remove('is-strategy-event-open', 'is-run-shop-open');
+
+    const overlay = document.createElement('section');
+    overlay.className = 'network-terminated-overlay';
+    overlay.setAttribute('role', 'alertdialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-labelledby', 'network-terminated-title');
+    overlay.innerHTML = `
+      <div class="network-terminated-panel">
+        <div class="network-terminated-kicker">联机中断</div>
+        <h2 id="network-terminated-title">对局已终止</h2>
+        <p>Host 连接已经中断，权威战斗状态无法继续。本局不能回连。</p>
+        <button type="button" class="network-terminated-exit">退出对局</button>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    this.networkTerminatedOverlay = overlay;
+    const exitButton = overlay.querySelector('.network-terminated-exit');
+    exitButton?.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      this.onExitToMenu?.();
+    }, { signal: this.eventController.signal });
+    exitButton?.focus();
+    this.clock.getDelta();
+  }
+
   sendNetworkSelectionState() {
     if (!this.networkBridge?.shouldRouteLocalCommands?.()) return false;
     return Boolean(this.networkBridge.commandSender?.selectionSet?.([...this.selectedUnitIds]));
@@ -5332,6 +5375,10 @@ export class Game {
 
   onKeyDown(event) {
     if (event.repeat || isTextInputTarget(event.target)) return;
+    if (this.networkTerminated) {
+      event.preventDefault();
+      return;
+    }
     const key = event.key.toLowerCase();
     if (key === 'f2') {
       event.preventDefault();

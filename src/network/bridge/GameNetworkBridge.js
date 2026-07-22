@@ -38,8 +38,6 @@ export class GameNetworkBridge {
     this.closeUnsubscribe = null;
     this.restoreEffectsRelay = null;
     this.coopStatusUi = null;
-    this.hostWaitApplied = false;
-    this.pauseBeforeHostWait = false;
     this.nextTimeSyncAt = 0;
   }
 
@@ -230,7 +228,7 @@ export class GameNetworkBridge {
         this.mirror?.applyCommandRejected(payload);
         break;
       case MSG.HOST_WAITING:
-        this.game?.setPaused?.(Boolean(payload.waiting), payload.waiting ? '主机断线，等待重连…' : '');
+        if (payload.waiting) this.terminateClientMatch('host_disconnected');
         break;
       default:
         break;
@@ -279,17 +277,17 @@ export class GameNetworkBridge {
 
   handleRelayRoomState(room) {
     if (this.role !== 'client' || !this.game) return;
-    const waiting = Boolean(room?.hostDisconnectedAt);
-    if (waiting && !this.hostWaitApplied) {
-      this.pauseBeforeHostWait = Boolean(this.game.paused);
-      this.hostWaitApplied = true;
-      this.game.paused = true;
-      this.game.cardSystem?.setHint?.('Host 连接中断，房间保留 60 秒…', 'host-reconnect');
-    } else if (!waiting && this.hostWaitApplied) {
-      this.hostWaitApplied = false;
-      this.game.paused = this.pauseBeforeHostWait;
-      this.game.cardSystem?.clearHint?.('host-reconnect');
-    }
+    if (room?.hostDisconnectedAt) this.terminateClientMatch('host_disconnected');
+  }
+
+  handleRoomClosed(reason = 'room_closed') {
+    if (this.role !== 'client') return;
+    this.terminateClientMatch(reason);
+  }
+
+  terminateClientMatch(reason = 'host_disconnected') {
+    if (this.role !== 'client' || !this.game) return;
+    this.game.showNetworkTerminatedDialog?.({ reason });
   }
 
   get commandSender() {

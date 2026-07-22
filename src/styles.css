@@ -3198,6 +3198,68 @@ body.is-run-shop-open .card-pile-dock {
   display: none;
 }
 
+.network-terminated-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 96;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: #f4ead2;
+  background: rgba(10, 9, 8, 0.76);
+  backdrop-filter: blur(7px);
+  pointer-events: auto;
+}
+
+.network-terminated-panel {
+  width: min(460px, calc(100vw - 32px));
+  padding: 28px 30px 26px;
+  border: 1px solid rgba(198, 160, 104, 0.55);
+  border-radius: 8px;
+  text-align: center;
+  background: linear-gradient(180deg, #33271e, #1d1713);
+  box-shadow: 0 26px 80px rgba(0, 0, 0, 0.58);
+}
+
+.network-terminated-kicker {
+  margin-bottom: 8px;
+  color: #c9a36e;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+}
+
+.network-terminated-panel h2 {
+  margin: 0;
+  color: #f6e6be;
+  font-size: clamp(28px, 5vw, 38px);
+}
+
+.network-terminated-panel p {
+  margin: 16px 0 24px;
+  color: rgba(244, 234, 210, 0.78);
+  line-height: 1.7;
+}
+
+.network-terminated-exit {
+  min-width: 180px;
+  padding: 12px 24px;
+  border: 1px solid #b98b50;
+  border-radius: 5px;
+  color: #fff4d5;
+  font: inherit;
+  font-weight: 800;
+  background: #6d3d2b;
+  cursor: pointer;
+}
+
+.network-terminated-exit:hover,
+.network-terminated-exit:focus-visible {
+  background: #814a32;
+  outline: 2px solid rgba(236, 194, 126, 0.58);
+  outline-offset: 3px;
+}
+
 .strategy-event-overlay {
   position: fixed;
   inset: 0;
