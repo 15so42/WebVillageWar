@@ -41,7 +41,6 @@ import { CombatSystem } from './CombatSystem.js';
 import { AttackSystem } from './AttackSystem.js';
 import { EffectsSystem } from './EffectsSystem.js';
 import { AltarSystem } from './AltarSystem.js';
-import { EnemyCommanderSystem } from './EnemyCommanderSystem.js';
 import { EnemyEnchantmentSystem } from './EnemyEnchantmentSystem.js';
 import { LevelMechanicSystem } from './LevelMechanicSystem.js';
 import { LootDropSystem } from './LootDropSystem.js';
@@ -381,6 +380,7 @@ const MOBILE_PINCH_MIN_DISTANCE = 24;
 const STRUCTURE_HEALTH_LAG_DELAY = 0.4;
 const STRUCTURE_HEALTH_LAG_RAPID_DELAY = 0.08;
 const STRUCTURE_HEALTH_LAG_RAPID_WINDOW = 0.18;
+const PLAYER_VISUAL_COLORS = ['#62d56f', '#f2c94c', '#a970ff', '#55a7ff'];
 const PERF_HISTORY_LIMIT = 120;
 const PERF_CHART_UPDATE_INTERVAL = 0.25;
 const PERF_TOP_SECTION_LIMIT = 9;
@@ -394,7 +394,6 @@ const PERF_LABELS = {
   card: '卡牌',
   combat: '战斗',
   effects: '特效',
-  enemyCommander: '敌方指挥',
   enemyEnchantment: '敌方附魔',
   frame: '整帧',
   guardVisuals: '驻守标记',
@@ -616,12 +615,14 @@ export class Game {
     this.canvas = canvas;
     this.levelSession = normalizeLevelSession(session);
     this.networkRole = session?.networkRole ?? 'offline';
-    this.localPlayerSlot = session?.localPlayerSlot ?? 'p1';
+    this.localPlayerId = session?.localPlayerId ?? session?.localPlayerSlot ?? 'local-player';
+    this.localPlayerSlot = this.localPlayerId;
     this.activeEconomySlot = this.localPlayerSlot;
     this.coopRewardWaitSlots = null;
     this.coopRewardKind = null;
     this.networkBridge = networkBridge ?? null;
     this.networkClientMode = this.networkRole === 'client';
+    this.networkStrategySelectionRequired = false;
     this.coop = isCoopSession(this.levelSession)
       ? {
         enabled: true,
@@ -792,7 +793,6 @@ export class Game {
     this.selectedUnits = [];
     this.selectedUnitIds = new Set();
     this.selectionMode = 'none';
-    this.selectionRings = [];
     this.guardVisuals = new Map();
     this.selectionDrag = null;
     const playerBasePosition = this.worldConfig.playerBasePosition ?? BALANCE.playerBase.position;
@@ -913,31 +913,23 @@ export class Game {
           mountUi: true
         });
       } else {
-        this.cardSystems = {
-          p1: new CardSystem(this, {
-            deck: coopPlayers.p1?.deck ?? [],
-            playerSlot: 'p1',
-            mountUi: this.localPlayerSlot === 'p1',
-            startWithEmptyDrawPile: true
-          }),
-          p2: new CardSystem(this, {
-            deck: coopPlayers.p2?.deck ?? [],
-            playerSlot: 'p2',
-            mountUi: this.localPlayerSlot === 'p2',
+        this.cardSystems = Object.fromEntries(Object.entries(coopPlayers).map(([playerId, player]) => [
+          playerId,
+          new CardSystem(this, {
+            deck: player?.deck ?? [],
+            playerSlot: playerId,
+            mountUi: this.localPlayerSlot === playerId,
             startWithEmptyDrawPile: true
           })
-        };
+        ]));
         this.cardSystem = this.cardSystems[this.localPlayerSlot];
-        this.abilitySystems = {
-          p1: new AbilitySystem(this, {
-            playerSlot: 'p1',
-            mountUi: this.localPlayerSlot === 'p1'
-          }),
-          p2: new AbilitySystem(this, {
-            playerSlot: 'p2',
-            mountUi: this.localPlayerSlot === 'p2'
+        this.abilitySystems = Object.fromEntries(Object.keys(coopPlayers).map((playerId) => [
+          playerId,
+          new AbilitySystem(this, {
+            playerSlot: playerId,
+            mountUi: this.localPlayerSlot === playerId
           })
-        };
+        ]));
         this.abilities = this.abilitySystems[this.localPlayerSlot];
       }
     } else {
@@ -952,7 +944,6 @@ export class Game {
     this.lootDrops = new LootDropSystem(this);
     this.altars = new AltarSystem(this, this.world.config?.altars ?? this.worldConfig.altars);
     this.spawnWildlife();
-    this.enemyCommander = new EnemyCommanderSystem(this);
     this.enemyEnchantment = new EnemyEnchantmentSystem(this);
     this.levelMechanics = new LevelMechanicSystem(this);
     this.selectionBox = createSelectionBoxElement();
@@ -1063,7 +1054,11 @@ export class Game {
       this.summonUnits('archer', 1, this.playerBase.position.clone().add(new THREE.Vector3(1.4, 0, -2.2)), 0.7, {
         select: false
       });
-      this.spawnEnemyWave(1, { orders: 'guard' });
+      this.spawnEnemyWave(1);
+    } else if (this.networkClientMode) {
+      // Remote clients wait for Host ui_state/full_snapshot and never generate authority state.
+      this.updateWavePreview();
+      this.awaitingOpeningReward = false;
     } else {
       this.updateWavePreview();
       this.awaitingOpeningReward = true;
@@ -1116,7 +1111,6 @@ export class Game {
     this.cardSystem?.destroy?.();
     this.buildings?.destroy?.();
     this.lootDrops?.destroy?.();
-    this.enemyCommander?.destroy?.();
     this.enemyEnchantment?.destroy?.();
     this.areaEffects?.destroy?.();
     this.levelMechanics?.destroy?.();
@@ -1169,10 +1163,12 @@ export class Game {
     }
     if (this.networkClientMode) {
       this.networkBridge?.updateClientFrame(dt);
+      this.cardSystem?.update?.(dt);
       this.updateCamera(dt);
       this.world.update?.(dt, this.cameraTarget, this.camera);
       this.effects.update(dt);
-      this.updateUnitVisuals(dt);
+      this.updateSelection();
+      this.updateGuardVisuals(dt);
       this.updateHud(dt);
       this.renderScene();
       return;
@@ -1192,7 +1188,6 @@ export class Game {
       runPerfStep('abilities', () => this.updateAbilitySystems(dt));
       runPerfStep('playerBaseAttack', () => this.updatePlayerBaseAttack(dt));
       runPerfStep('enemyCampAttack', () => this.updateEnemyCampAttack(dt));
-      runPerfStep('enemyCommander', () => this.enemyCommander.update(dt));
       runPerfStep('spiders', () => this.updateSpiderLifecycle(dt));
       runPerfStep('combat', () => this.unitLogic.update(dt));
       runPerfStep('buildings', () => this.buildings.update(dt));
@@ -1220,7 +1215,6 @@ export class Game {
       runStep('abilities', () => this.updateAbilitySystems(dt));
       runStep('playerBaseAttack', () => this.updatePlayerBaseAttack(dt));
       runStep('enemyCampAttack', () => this.updateEnemyCampAttack(dt));
-      runStep('enemyCommander', () => this.enemyCommander.update(dt));
       runStep('spiders', () => this.updateSpiderLifecycle(dt));
       runStep('combat', () => this.unitLogic.update(dt));
       runStep('buildings', () => this.buildings.update(dt));
@@ -1246,7 +1240,7 @@ export class Game {
   updateWaveFlow() {
     if (this.levelSession.debug || this.levelFinished || this.strategyEvent) return;
     if (!this.currentWave) {
-      if (this.pendingWaveAdvance && !this.runShopOpen) {
+      if (this.pendingWaveAdvance && !this.runShopFreeReward) {
         this.continueAfterStrategyFlow(false);
       }
       return;
@@ -1291,10 +1285,7 @@ export class Game {
     this.waveIndex += 1;
     this.wave = wave.index;
     this.enemyDirector.threatTier = wave.index;
-    this.spawnEnemyWave(wave.index, {
-      orders: 'attack',
-      waveConfig: wave
-    });
+    this.spawnEnemyWave(wave.index, { waveConfig: wave });
     this.updateWavePreview();
     this.updateHud(0);
   }
@@ -1390,8 +1381,7 @@ export class Game {
 
   spawnEnemyForce(force) {
     if (!force) return;
-    const orders = force.kind === 'normal-squad' ? 'mixed' : 'attack';
-    this.spawnEnemyWave(force.threatTier, { orders, waveConfig: force });
+    this.spawnEnemyWave(force.threatTier, { waveConfig: force });
   }
 
   queueStrategyReward(type, options = {}) {
@@ -1440,7 +1430,7 @@ export class Game {
       });
     });
     this.showLocalCoopStrategyUi();
-    this.networkBridge?.host?.flushPrivateStates?.(true);
+    this.networkBridge?.markPrivateStateDirty?.();
     return true;
   }
 
@@ -1448,42 +1438,115 @@ export class Game {
     const local = this.players?.[this.localPlayerSlot];
     this.strategyEvent = local?.strategyEvent ?? null;
     if (!this.strategyEvent) {
-      this.strategyEventUi.root.hidden = true;
-      this.cardSystem?.setHint?.('等待队友选择奖励…', 'coop-wait-reward');
+      this.showCoopRewardWaitingUi();
       return;
     }
+    this.syncNetworkStrategyEventUi();
+  }
+
+  showCoopRewardWaitingUi() {
+    this.paused = true;
+    this.cancelCameraDrag();
+    this.cancelSelectionDrag();
+    document.body.classList.add('is-game-paused', 'is-strategy-event-open');
+    this.strategyEventUi.root.hidden = false;
+    this.strategyEventUi.root.dataset.eventType = 'waiting';
+    this.strategyEventUi.root.setAttribute('aria-label', '等待其他玩家');
+    this.strategyEventUi.kicker.textContent = '联机奖励';
+    this.strategyEventUi.kicker.hidden = false;
+    this.strategyEventUi.title.textContent = '等待其他玩家';
+    this.strategyEventUi.summary.textContent = '你的奖励已经选择完成，所有玩家完成选择后将继续游戏。';
+    this.strategyEventUi.summary.hidden = false;
+    this.strategyEventUi.choices.innerHTML = '';
+    this.strategyEventUi.actions.hidden = true;
+    this.strategyEventUi.actions.innerHTML = '';
+    this.cardSystem?.setHint?.('等待其他玩家选择奖励…', 'coop-wait-reward');
+  }
+
+  hideCoopRewardWaitingUi() {
+    this.strategyEventUi.root.hidden = true;
+    this.strategyEventUi.choices.innerHTML = '';
+    this.strategyEventUi.actions.hidden = true;
+    this.strategyEventUi.actions.innerHTML = '';
+    delete this.strategyEventUi.root.dataset.eventType;
+    document.body.classList.remove('is-strategy-event-open');
+    this.cardSystem?.clearHint?.('coop-wait-reward');
+  }
+
+  syncNetworkStrategyEventUi() {
+    const waitingForNetwork = Boolean(
+      this.networkBridge
+      && !this.networkBridge.canShowStrategyInteraction?.()
+    );
+    if (!this.strategyEvent || waitingForNetwork) {
+      this.paused = true;
+      this.strategyEventUi.root.hidden = true;
+      document.body.classList.add('is-game-paused');
+      document.body.classList.remove('is-strategy-event-open');
+      if (waitingForNetwork) {
+        this.cardSystem?.setHint?.('等待所有玩家载入…', 'coop-loading');
+      }
+      return false;
+    }
+    this.cardSystem?.clearHint?.('coop-loading');
     this.paused = true;
     this.cancelCameraDrag();
     this.cancelSelectionDrag();
     document.body.classList.add('is-game-paused', 'is-strategy-event-open');
     this.strategyEventUi.root.hidden = false;
     this.renderStrategyEvent();
+    return true;
+  }
+
+  onNetworkMatchPhaseChanged(phase) {
+    if (this.strategyEvent) {
+      this.syncNetworkStrategyEventUi();
+      return;
+    }
+    if (phase === 'RUNNING' && !this.runShopFreeReward) {
+      this.paused = false;
+      this.hudUpdateTimer = 0;
+      document.body.classList.remove('is-game-paused', 'is-strategy-event-open');
+      this.cardSystem?.clearHint?.('coop-loading');
+      this.cardSystem?.clearHint?.('coop-wait-reward');
+      this.clock.getDelta();
+      this.updateHud(0);
+    }
   }
 
   finishCoopStrategyReward(slot) {
     const resolvedSlot = slot ?? this.localPlayerSlot;
-    this.withPlayerContext(resolvedSlot, () => {
+    if (this.activeEconomySlot === resolvedSlot) {
       this.strategyEvent = null;
-    });
+    } else {
+      this.withPlayerContext(resolvedSlot, () => {
+        this.strategyEvent = null;
+      });
+    }
     this.coopRewardWaitSlots?.delete(resolvedSlot);
     if (resolvedSlot === this.localPlayerSlot) {
       this.strategyEvent = null;
-      this.strategyEventUi.root.hidden = true;
-      this.strategyEventUi.choices.innerHTML = '';
-      document.body.classList.remove('is-strategy-event-open');
       if (this.coopRewardWaitSlots?.size) {
-        this.cardSystem?.setHint?.('等待队友选择奖励…', 'coop-wait-reward');
+        this.showCoopRewardWaitingUi();
+      } else {
+        this.hideCoopRewardWaitingUi();
       }
     }
-    this.networkBridge?.host?.flushPrivateStates?.(true);
+    this.networkBridge?.markPrivateStateDirty?.();
     if (this.coopRewardWaitSlots?.size) return;
     this.coopRewardWaitSlots = null;
     this.coopRewardKind = null;
-    this.cardSystem?.clearHint?.('coop-wait-reward');
-    document.body.classList.remove('is-game-paused', 'is-strategy-event-open');
+    // The final choice may come from a remote player. In that case the Host's
+    // local waiting dialog is still open and must be closed here as part of
+    // the shared completion path, not only in the local-player branch above.
+    this.hideCoopRewardWaitingUi();
+    document.body.classList.remove('is-game-paused');
     this.paused = false;
     this.clock.getDelta();
     const shouldStartFirstWave = this.awaitingOpeningReward;
+    if (shouldStartFirstWave) {
+      this.networkBridge?.notifyOpeningSelectionComplete?.();
+    }
     this.continueAfterStrategyFlow(shouldStartFirstWave);
   }
 
@@ -1495,25 +1558,25 @@ export class Game {
     this.coopRewardKind = 'run-shop';
     this.coopPlayerSlots().forEach((slot) => {
       const run = this.players[slot];
-      run.runShopOpen = true;
       run.runShopFreeReward = options.freeReward === true;
       run.runShopActiveCategory = null;
       run.runShopChoices = [];
       run.runShopPendingOffers = options.freeReward === true ? {} : (run.runShopPendingOffers ?? {});
     });
     this.openRunShop(options);
-    this.networkBridge?.host?.flushPrivateStates?.(true);
+    this.networkBridge?.markPrivateStateDirty?.();
     return true;
   }
 
   finishCoopRunShop(slot) {
     const resolvedSlot = slot ?? this.localPlayerSlot;
-    this.withPlayerContext(resolvedSlot, () => {
-      this.runShopOpen = false;
+    const closeShopState = () => {
       this.runShopFreeReward = false;
       this.runShopActiveCategory = null;
       this.runShopChoices = [];
-    });
+    };
+    if (this.activeEconomySlot === resolvedSlot) closeShopState();
+    else this.withPlayerContext(resolvedSlot, closeShopState);
     this.coopRewardWaitSlots?.delete(resolvedSlot);
     if (resolvedSlot === this.localPlayerSlot) {
       if (this.runShopUi?.overlay) {
@@ -1527,7 +1590,7 @@ export class Game {
         this.cardSystem?.setHint?.('等待队友完成军需铺…', 'coop-wait-shop');
       }
     }
-    this.networkBridge?.host?.flushPrivateStates?.(true);
+    this.networkBridge?.markPrivateStateDirty?.();
     if (this.coopRewardWaitSlots?.size) return;
     this.coopRewardWaitSlots = null;
     this.coopRewardKind = null;
@@ -1539,13 +1602,15 @@ export class Game {
   }
 
   applyNetworkStrategyChoice(slot, index) {
-    return this.withPlayerContext(slot, () => {
+    const applied = this.withPlayerContext(slot, () => {
       const choice = this.strategyEvent?.choices?.[index];
       if (!choice) return false;
       if (!this.applyStrategyChoice(choice)) return false;
-      this.finishStrategyReward();
       return true;
     });
+    if (!applied) return false;
+    this.finishCoopStrategyReward(slot);
+    return true;
   }
 
   applyNetworkStrategyReroll(slot) {
@@ -1553,7 +1618,10 @@ export class Game {
   }
 
   applyNetworkStrategySkip(slot) {
-    return this.withPlayerContext(slot, () => this.skipStrategyReward());
+    const canSkip = this.withPlayerContext(slot, () => Boolean(this.strategyEvent));
+    if (!canSkip) return false;
+    this.finishCoopStrategyReward(slot);
+    return true;
   }
 
   applyNetworkShopCategory(slot, category) {
@@ -1564,22 +1632,32 @@ export class Game {
   }
 
   applyNetworkShopChoice(slot, index) {
-    return this.withPlayerContext(slot, () => {
+    let completedFreeReward = false;
+    const applied = this.withPlayerContext(slot, () => {
       const choice = this.runShopChoices?.[index];
       if (!choice || choice.disabled) return false;
-      return this.completeRunShopPurchase(choice);
+      completedFreeReward = this.runShopFreeReward;
+      return this.completeRunShopPurchase(choice, { deferFreeRewardClose: true });
     });
+    if (applied && completedFreeReward) this.finishCoopRunShop(slot);
+    return applied;
   }
 
-  applyNetworkShopClose(slot, options = {}) {
-    return this.withPlayerContext(slot, () => {
-      this.closeRunShop(options);
-      return true;
-    });
+  applyNetworkShopRewardSkip(slot) {
+    const canSkip = this.withPlayerContext(slot, () => Boolean(this.runShopFreeReward));
+    if (!canSkip) return false;
+    this.finishCoopRunShop(slot);
+    return true;
   }
 
   applyNetworkShopEnergy(slot) {
-    return this.withPlayerContext(slot, () => this.purchaseRunShopEnergy());
+    let completedFreeReward = false;
+    const applied = this.withPlayerContext(slot, () => {
+      completedFreeReward = this.runShopFreeReward;
+      return this.purchaseRunShopEnergy({ deferFreeRewardClose: true });
+    });
+    if (applied && completedFreeReward) this.finishCoopRunShop(slot);
+    return applied;
   }
 
   applyNetworkShopBack(slot) {
@@ -1591,56 +1669,65 @@ export class Game {
 
   applyNetworkPrivateUi(state) {
     if (!this.networkClientMode || !state) return;
-    if (state.strategyUi?.choices?.length) {
-      this.strategyEvent = {
-        type: state.strategyUi.type,
-        kicker: state.strategyUi.kicker,
-        title: state.strategyUi.title,
-        summary: state.strategyUi.summary,
-        wave: state.strategyUi.wave,
-        choices: state.strategyUi.choices.map((choice) => ({
-          ...choice,
-          card: choice.card ? { ...choice.card } : null
-        }))
-      };
-      document.body.classList.add('is-strategy-event-open');
-      this.strategyEventUi.root.hidden = false;
-      this.renderStrategyEvent();
-      this.cardSystem?.clearHint?.('coop-wait-reward');
-    } else if (this.strategyEvent && !state.strategyUi) {
+    if ('strategySelectionRequired' in state) {
+      this.networkStrategySelectionRequired = Boolean(state.strategySelectionRequired);
+    }
+    if (state.strategyWaiting) {
       this.strategyEvent = null;
-      this.strategyEventUi.root.hidden = true;
-      this.strategyEventUi.choices.innerHTML = '';
-      document.body.classList.remove('is-strategy-event-open');
+      this.showCoopRewardWaitingUi();
+    } else if (
+      'strategyWaiting' in state
+      && !state.strategyUi
+      && !this.strategyEvent
+      && this.strategyEventUi.root.dataset.eventType === 'waiting'
+    ) {
+      this.hideCoopRewardWaitingUi();
+      this.onNetworkMatchPhaseChanged(this.networkBridge?.phase);
+    }
+    if ('strategyUi' in state) {
+      if (state.strategyUi?.choices?.length) {
+        this.strategyEvent = {
+          networkInteractionId: state.strategyUi.rewardId,
+          networkRevision: state.strategyUi.revision,
+          type: state.strategyUi.type,
+          kicker: state.strategyUi.kicker,
+          title: state.strategyUi.title,
+          summary: state.strategyUi.summary,
+          wave: state.strategyUi.wave,
+          choices: state.strategyUi.choices.map((choice) => ({
+            ...choice,
+            card: choice.card ? { ...choice.card } : null
+          }))
+        };
+        this.syncNetworkStrategyEventUi();
+        this.cardSystem?.clearHint?.('coop-wait-reward');
+      } else if (!state.strategyWaiting && (this.strategyEvent || !this.strategyEventUi.root.hidden)) {
+        this.strategyEvent = null;
+        this.strategyEventUi.root.hidden = true;
+        this.strategyEventUi.choices.innerHTML = '';
+        document.body.classList.remove('is-strategy-event-open');
+        this.onNetworkMatchPhaseChanged(this.networkBridge?.phase);
+      }
     }
 
-    if (state.runShopUi?.open) {
-      this.runShopOpen = true;
-      this.runShopFreeReward = Boolean(state.runShopUi.freeReward);
-      this.runShopActiveCategory = state.runShopUi.activeCategory;
-      this.runShopChoices = (state.runShopUi.choices ?? []).map((choice) => ({
+    if ('runShopState' in state || 'runShopUi' in state) {
+      const shopState = state.runShopState ?? state.runShopUi ?? {};
+      const wasFreeReward = this.runShopFreeReward;
+      this.runShopFreeReward = Boolean(shopState.freeReward);
+      this.runShopActiveCategory = shopState.activeCategory ?? null;
+      this.runShopChoices = (shopState.choices ?? []).map((choice) => ({
         ...choice,
         card: choice.card ? { ...choice.card } : null
       }));
-      this.runShopUi = ensureRunShopUi(this.runShopUi);
-      this.bindRunShopUi();
-      if (this.runShopUi.overlay) {
-        this.runShopUi.overlay.hidden = false;
-        this.runShopUi.overlay.removeAttribute('hidden');
+      this.runShopNetworkOfferId = shopState.offerId ?? null;
+      this.runShopNetworkRevision = shopState.revision ?? null;
+      if (this.runShopFreeReward && !this.runShopOpen) {
+        this.openRunShop({ freeReward: true, preserveState: true });
+      } else if (wasFreeReward && !this.runShopFreeReward && this.runShopOpen) {
+        this.closeRunShop({ localUiOnly: true });
+      } else if (this.runShopOpen) {
+        this.renderRunShop();
       }
-      document.body.classList.add('is-run-shop-open');
-      this.renderRunShop();
-      this.cardSystem?.clearHint?.('coop-wait-shop');
-    } else if (this.runShopOpen && !state.runShopUi?.open) {
-      this.runShopOpen = false;
-      this.runShopFreeReward = false;
-      this.runShopActiveCategory = null;
-      this.runShopChoices = [];
-      if (this.runShopUi?.overlay) {
-        this.runShopUi.overlay.hidden = true;
-        this.runShopUi.overlay.setAttribute('hidden', '');
-      }
-      document.body.classList.remove('is-run-shop-open');
     }
   }
 
@@ -1711,6 +1798,10 @@ export class Game {
     return { ok: true, reason: '' };
   }
 
+  isLocalEconomyContext() {
+    return (this.activeEconomySlot ?? this.localPlayerSlot) === this.localPlayerSlot;
+  }
+
   bindRunShopUi() {
     const ui = this.runShopUi;
     if (!ui?.overlay) return;
@@ -1718,11 +1809,8 @@ export class Game {
     this.runShopUiBoundOverlay = ui.overlay;
     const signal = this.eventController.signal;
     ui.overlay.addEventListener('click', (event) => this.onRunShopClick(event), { signal });
-    ui.root?.addEventListener('click', (event) => this.onRunShopClick(event), { signal });
     ui.overlay.addEventListener('pointerdown', stopUiPropagation, { signal });
-    ui.root?.addEventListener('pointerdown', stopUiPropagation, { signal });
     ui.overlay.addEventListener('contextmenu', stopUiEvent, { signal });
-    ui.root?.addEventListener('contextmenu', stopUiEvent, { signal });
     ui.toggle?.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -1735,7 +1823,13 @@ export class Game {
     if (this.levelFinished || this.levelSession.debug) return;
     if (this.strategyEvent) return;
     if (this.runShopFreeReward) {
-      if (this.runShopOpen) this.closeRunShop({ force: true });
+      if (this.runShopOpen) {
+        if (this.networkBridge?.shouldRouteLocalCommands?.()) {
+          this.networkBridge.commandSender?.shopRewardSkip?.();
+        } else {
+          this.closeRunShop({ force: true });
+        }
+      }
       return;
     }
     if (this.runShopOpen) {
@@ -1752,19 +1846,20 @@ export class Game {
       this.strategyEventUi.root.hidden = true;
     }
     this.runShopOpen = true;
-    this.runShopFreeReward = options.freeReward === true;
-    this.runShopActiveCategory = null;
-    this.runShopChoices = [];
-    if (this.runShopFreeReward) {
+    if (!options.preserveState) {
+      this.runShopFreeReward = options.freeReward === true;
+    }
+    if (options.freeReward === true && !options.preserveState) {
+      this.runShopActiveCategory = null;
+      this.runShopChoices = [];
       this.runShopPendingOffers = {};
     }
     const run = this.players?.[this.activeEconomySlot ?? this.localPlayerSlot];
-    if (run) {
-      run.runShopOpen = true;
+    if (run && options.freeReward === true && !options.preserveState) {
       run.runShopFreeReward = this.runShopFreeReward;
       run.runShopActiveCategory = null;
       run.runShopChoices = [];
-      if (this.runShopFreeReward) run.runShopPendingOffers = {};
+      run.runShopPendingOffers = {};
     }
     if (this.runShopUi.overlay) {
       this.runShopUi.overlay.hidden = false;
@@ -1773,7 +1868,7 @@ export class Game {
     this.runShopUi.toggle?.classList.add('is-active');
     this.runShopUi.root?.classList.toggle('is-free-reward', this.runShopFreeReward);
     document.body.classList.add('is-run-shop-open');
-    if (!this.paused) {
+    if (this.runShopFreeReward && !this.paused) {
       this.runShopCausedPause = true;
       this.paused = true;
       this.cancelCameraDrag();
@@ -1796,7 +1891,7 @@ export class Game {
     if (this.runShopFreeReward && !options.force && !options.afterFreeReward) {
       return;
     }
-    if (this.coop?.enabled && this.coopRewardKind === 'run-shop' && this.coopRewardWaitSlots?.size) {
+    if (!options.localUiOnly && this.coop?.enabled && this.coopRewardKind === 'run-shop' && this.coopRewardWaitSlots?.size) {
       const wasFreeReward = this.runShopFreeReward;
       if (wasFreeReward || options.afterFreeReward || options.force) {
         this.finishCoopRunShop(this.activeEconomySlot ?? this.localPlayerSlot);
@@ -1806,9 +1901,11 @@ export class Game {
     const wasFreeReward = this.runShopFreeReward;
     const causedPause = this.runShopCausedPause;
     this.runShopOpen = false;
-    this.runShopFreeReward = false;
-    this.runShopActiveCategory = null;
-    this.runShopChoices = [];
+    if (wasFreeReward && !options.localUiOnly) {
+      this.runShopFreeReward = false;
+      this.runShopActiveCategory = null;
+      this.runShopChoices = [];
+    }
     if (this.runShopUi?.overlay) {
       this.runShopUi.overlay.hidden = true;
       this.runShopUi.overlay.setAttribute('hidden', '');
@@ -1818,13 +1915,15 @@ export class Game {
     this.runShopUi?.toggle?.classList.remove('is-active');
     document.body.classList.remove('is-run-shop-open');
     this.runShopCausedPause = false;
-    if (causedPause || (this.paused && !this.strategyEvent && this.dom.pauseOverlay?.hidden !== false)) {
+    this.cardSystem?.clearHint?.('run-shop');
+    this.cardSystem?.clearHint?.('boss-shop');
+    if (causedPause) {
       this.paused = false;
       document.body.classList.remove('is-game-paused');
       if (this.dom.pauseOverlay) this.dom.pauseOverlay.hidden = true;
       this.clock.getDelta();
     }
-    if (wasFreeReward || options.afterFreeReward) {
+    if (!options.localUiOnly && (wasFreeReward || options.afterFreeReward)) {
       if (this.paused) {
         this.paused = false;
         document.body.classList.remove('is-game-paused');
@@ -1837,7 +1936,7 @@ export class Game {
   clearRunShopSelection() {
     this.runShopActiveCategory = null;
     this.runShopChoices = [];
-    if (this.runShopUi?.choices) this.runShopUi.choices.hidden = true;
+    if (this.isLocalEconomyContext() && this.runShopUi?.choices) this.runShopUi.choices.hidden = true;
     this.renderRunShop();
   }
 
@@ -1866,11 +1965,11 @@ export class Game {
     }
     this.runShopActiveCategory = category;
     this.runShopChoices = choices;
-    if (this.runShopUi?.choices) this.runShopUi.choices.hidden = false;
+    if (this.isLocalEconomyContext() && this.runShopUi?.choices) this.runShopUi.choices.hidden = false;
     this.renderRunShop();
   }
 
-  completeRunShopPurchase(choice) {
+  completeRunShopPurchase(choice, options = {}) {
     const category = this.runShopActiveCategory;
     if (!category || !choice) return false;
     const isFree = this.runShopFreeReward;
@@ -1898,17 +1997,17 @@ export class Game {
     );
     this.runShopActiveCategory = null;
     this.runShopChoices = [];
-    if (this.runShopUi?.choices) this.runShopUi.choices.hidden = true;
+    if (this.isLocalEconomyContext() && this.runShopUi?.choices) this.runShopUi.choices.hidden = true;
     this.updateHud(0);
     if (isFree) {
-      this.closeRunShop({ afterFreeReward: true });
+      if (!options.deferFreeRewardClose) this.closeRunShop({ afterFreeReward: true });
       return true;
     }
     this.renderRunShop();
     return true;
   }
 
-  purchaseRunShopEnergy() {
+  purchaseRunShopEnergy(options = {}) {
     const isFree = this.runShopFreeReward;
     const price = this.shopPrice('energy');
     if (!isFree && this.getSilver() + 0.001 < price) return false;
@@ -1916,7 +2015,7 @@ export class Game {
     if (gained <= 0) return false;
     if (!isFree) {
       this.setSilver(this.getSilver() - price);
-    } else {
+    } else if (!options.deferFreeRewardClose) {
       this.closeRunShop({ afterFreeReward: true });
     }
     this.updateHud(0);
@@ -1925,7 +2024,7 @@ export class Game {
   }
 
   renderRunShop() {
-    if (!this.runShopOpen || !this.runShopUi?.root) return;
+    if (!this.isLocalEconomyContext() || !this.runShopOpen || !this.runShopUi?.root) return;
     if (this.runShopUi.silver) {
       this.runShopUi.silver.textContent = formatSilverAmount(this.getSilver());
     }
@@ -1984,17 +2083,15 @@ export class Game {
   }
 
   onRunShopClick(event) {
-    if (this.networkClientMode) {
+    if (this.networkBridge?.shouldRouteLocalCommands?.()) {
       if (event.target === this.runShopUi.overlay) {
-        if (!this.runShopFreeReward) {
-          this.networkBridge?.commandSender?.shopClose?.();
-        }
+        if (!this.runShopFreeReward) this.closeRunShop();
         return;
       }
       const closeButton = event.target.closest('#run-shop-close');
       if (closeButton) {
         event.preventDefault();
-        if (!this.runShopFreeReward) this.networkBridge?.commandSender?.shopClose?.();
+        if (!this.runShopFreeReward) this.closeRunShop();
         return;
       }
       const backButton = event.target.closest('#run-shop-back');
@@ -2006,7 +2103,7 @@ export class Game {
       const skipButton = event.target.closest('#run-shop-skip');
       if (skipButton) {
         event.preventDefault();
-        if (this.runShopFreeReward) this.networkBridge?.commandSender?.shopClose?.({ force: true });
+        if (this.runShopFreeReward) this.networkBridge?.commandSender?.shopRewardSkip?.();
         return;
       }
       const serviceButton = event.target.closest('[data-run-shop-category]');
@@ -2105,22 +2202,33 @@ export class Game {
     else if (unit.isElite) amount = Number(rewards.elite) || 1.1;
     else if (unit.isWildlife) amount = Number(rewards.wildlife) || 0.1;
 
-    const ownerSlot = resolveKillOwnerSlot(this, source);
-    if (this.coop?.enabled && this.players && ownerSlot == null) {
-      // 基地等无归属击杀：双方各拿足额银币
+    if (this.coop?.enabled && this.players) {
+      // PvE 击杀是全队事件：每位玩家的独立经济各自获得同额基础奖励。
       let total = 0;
       this.coopPlayerSlots().forEach((slot) => {
-        total += this.grantSilver(amount, unit.position, slot);
+        const showLocalFx = slot === this.localPlayerSlot;
+        total += this.grantSilver(amount, showLocalFx ? unit.position : null, slot);
         const pouchStacks = this.abilitiesFor(slot)?.getStacks?.('lootPouch') ?? 0;
         if (pouchStacks > 0) {
           this.addSilver(pouchStacks, slot);
           total += pouchStacks;
+          if (showLocalFx && unit.position && this.effects?.spawnEnergyNumber) {
+            this.effects.spawnEnergyNumber(unit.position, pouchStacks, {
+              text: `+${formatSilverAmount(pouchStacks)} 银币`,
+              color: '#f6e7a8',
+              stroke: '#4a3818',
+              height: 2.2,
+              duration: 0.82,
+              fontSize: 76
+            });
+          }
         }
       });
       this.updateHud(0);
       return total;
     }
 
+    const ownerSlot = resolveKillOwnerSlot(this, source);
     const slot = ownerSlot ?? this.localPlayerSlot;
     const gained = this.grantSilver(amount, unit.position, slot);
     const pouchStacks = this.abilitiesFor(slot)?.getStacks?.('lootPouch') ?? 0;
@@ -2143,13 +2251,13 @@ export class Game {
     return gained;
   }
 
-  getSpellAreaRadiusBonus() {
-    const stacks = this.getAbilityStacks('tacticalMaster', this.activeEconomySlot ?? this.localPlayerSlot);
+  getSpellAreaRadiusBonus(slot = this.activeEconomySlot ?? this.localPlayerSlot) {
+    const stacks = this.getAbilityStacks('tacticalMaster', slot);
     return 1 + 0.5 * Math.max(0, stacks);
   }
 
-  scaleSpellAreaRadius(radius) {
-    return Math.max(0.5, radius * this.getSpellAreaRadiusBonus());
+  scaleSpellAreaRadius(radius, slot = this.activeEconomySlot ?? this.localPlayerSlot) {
+    return Math.max(0.5, radius * this.getSpellAreaRadiusBonus(slot));
   }
 
   createShopChoicesForCategory(category, wave = null) {
@@ -2504,7 +2612,9 @@ export class Game {
       if (card?.unitType) types.add(card.unitType);
     });
     this.friendlyUnits?.forEach((unit) => {
-      if (unit?.alive && !unit.isWildlife && unit.type) types.add(unit.type);
+      if (unit?.alive && !unit.isWildlife && unit.type && this.unitBelongsToPlayer(unit)) {
+        types.add(unit.type);
+      }
     });
     return types;
   }
@@ -2513,7 +2623,7 @@ export class Game {
     const stacks = this.teamGenericUpgradeCounts.get(upgrade.id) ?? 0;
     return {
       action: 'apply-team-upgrade',
-      actionLabel: '全队强化',
+      actionLabel: '己方强化',
       title: upgrade.name,
       description: upgrade.summary,
       upgrade,
@@ -2524,8 +2634,8 @@ export class Game {
         label: '队',
         artKey: 'tacticUpgrade',
         summary: stacks > 0
-          ? `${upgrade.summary}（已叠加 ${stacks} 次，立即对全队生效）`
-          : `${upgrade.summary}（立即对全队与后续单位生效）`,
+          ? `${upgrade.summary}（已叠加 ${stacks} 次，立即对己方部队生效）`
+          : `${upgrade.summary}（立即对己方现有与后续单位生效）`,
         energyCost: 0,
         color: '#9eeedb',
         level: stacks + 1
@@ -2548,7 +2658,7 @@ export class Game {
         kind: 'ability',
         label: '专',
         artKey: unitType,
-        summary: `所有${unitName}获得：${upgrade.summary}`,
+        summary: `己方所有${unitName}获得：${upgrade.summary}`,
         energyCost: 0,
         color: '#ffd166',
         level: 1
@@ -2563,7 +2673,7 @@ export class Game {
     const slot = this.activeEconomySlot ?? this.localPlayerSlot;
     this.friendlyUnits.forEach((unit) => {
       if (!unit.alive || unit.isWildlife) return;
-      if (this.coop?.enabled && unit.ownerPlayerId && unit.ownerPlayerId !== slot) return;
+      if (!this.unitBelongsToPlayer(unit, slot)) return;
       this.applyTeamGenericUpgradeLayerToUnit(unit, upgrade, nextIndex);
     });
     return true;
@@ -2578,20 +2688,12 @@ export class Game {
     if (owned.has(upgrade.id)) return false;
     owned.add(upgrade.id);
     const slot = this.activeEconomySlot ?? this.localPlayerSlot;
-    if (upgrade.supportModifiers && !this.teamSupportModifiersApplied.has(upgrade.id)) {
-      const sample = this.friendlyUnits.find((unit) => (
-        unit.type === unitType &&
-        unit.alive &&
-        (!this.coop?.enabled || !unit.ownerPlayerId || unit.ownerPlayerId === slot)
-      ));
-      if (sample) applySupportUpgrade(sample, upgrade.supportModifiers);
-      this.teamSupportModifiersApplied.add(upgrade.id);
-    }
     this.friendlyUnits.forEach((unit) => {
       if (!unit.alive || unit.isWildlife || unit.type !== unitType) return;
-      if (this.coop?.enabled && unit.ownerPlayerId && unit.ownerPlayerId !== slot) return;
+      if (!this.unitBelongsToPlayer(unit, slot)) return;
       this.applyTeamSpecialUpgradeToUnit(unit, upgrade);
     });
+    if (upgrade.supportModifiers) this.teamSupportModifiersApplied.add(upgrade.id);
     return true;
   }
 
@@ -2613,6 +2715,7 @@ export class Game {
     if (unit.runtimeUpgradeIds.has(upgrade.id)) return;
     unit.runtimeUpgradeIds.add(upgrade.id);
     if (upgrade.trait) unit.runtimeTraits.add(upgrade.trait);
+    if (upgrade.supportModifiers) applySupportUpgrade(unit, upgrade.supportModifiers);
     if (upgrade.modifiers?.length) {
       const previousMaxHealth = unit.maxHealth;
       unit.attributes.addModifiers(upgrade.modifiers, `team:${upgrade.id}`);
@@ -2626,6 +2729,8 @@ export class Game {
 
   applyTeamUpgradesToUnit(unit) {
     if (!unit || unit.isWildlife) return;
+    const slot = this.activeEconomySlot ?? this.localPlayerSlot;
+    if (!this.unitBelongsToPlayer(unit, slot)) return;
     unit.runtimeUpgradeIds = new Set();
     unit.runtimeTraits = new Set();
     this.teamGenericUpgradeCounts.forEach((count, upgradeId) => {
@@ -2837,7 +2942,7 @@ export class Game {
       event.preventDefault();
       event.stopPropagation();
       const action = actionButton.dataset.strategyAction;
-      if (this.networkClientMode) {
+      if (this.networkBridge?.shouldRouteLocalCommands?.()) {
         if (action === 'reroll' && !actionButton.disabled) {
           this.networkBridge?.commandSender?.strategyReroll?.();
         } else if (action === 'skip') {
@@ -2857,7 +2962,7 @@ export class Game {
     event.preventDefault();
     event.stopPropagation();
     const index = Number(button.dataset.strategyChoiceIndex);
-    if (this.networkClientMode) {
+    if (this.networkBridge?.shouldRouteLocalCommands?.()) {
       this.networkBridge?.commandSender?.strategyChoose?.(index);
       return;
     }
@@ -3377,12 +3482,43 @@ export class Game {
     event.stopPropagation();
   }
 
-  registerUnit(unit) {
+  registerUnit(unit, options = {}) {
     unit.game = this;
     if (this.coop?.enabled && unit.team === TEAMS.PLAYER && !unit.ownerPlayerId) {
       unit.ownerPlayerId = this.localPlayerSlot;
     }
-    return this.unitRegistry.register(unit);
+    if (unit.team === TEAMS.PLAYER && !unit.controllerPlayerId) {
+      unit.controllerPlayerId = unit.ownerPlayerId ?? this.localPlayerSlot;
+    }
+    this.applyUnitPlayerColor(unit);
+    return this.unitRegistry.register(unit, options);
+  }
+
+  applyUnitPlayerColor(unit, explicitIndex = null) {
+    if (!unit?.statusElement || unit.team !== TEAMS.PLAYER) return;
+    const playerId = unit.controllerPlayerId ?? unit.ownerPlayerId;
+    const colorIndex = this.playerColorIndexFor(playerId, explicitIndex);
+    unit.playerColorIndex = colorIndex;
+    unit.statusElement.dataset.playerColorIndex = String(colorIndex);
+  }
+
+  playerColorIndexFor(playerId, explicitIndex = null) {
+    if (Number.isInteger(explicitIndex)) return Math.max(0, Math.min(3, explicitIndex));
+    const descriptors = this.levelSession?.matchRules?.players ?? [];
+    const descriptorOrder = descriptors.find((player) => player.playerId === playerId)?.order;
+    const fallbackOrder = Object.keys(this.players ?? {}).indexOf(playerId);
+    const rawIndex = Number.isInteger(descriptorOrder) ? descriptorOrder : fallbackOrder;
+    const order = rawIndex < 0 ? 0 : rawIndex;
+    return order <= 0 ? 0 : 1 + ((order - 1) % 3);
+  }
+
+  playerVisualColor(playerOrUnit = this.localPlayerSlot) {
+    const isUnit = typeof playerOrUnit === 'object' && playerOrUnit !== null;
+    const playerId = isUnit
+      ? (playerOrUnit.controllerPlayerId ?? playerOrUnit.ownerPlayerId)
+      : playerOrUnit;
+    const explicitIndex = isUnit ? playerOrUnit.playerColorIndex : null;
+    return PLAYER_VISUAL_COLORS[this.playerColorIndexFor(playerId, explicitIndex)] ?? PLAYER_VISUAL_COLORS[0];
   }
 
   updateCardSystems(dt) {
@@ -3409,11 +3545,18 @@ export class Game {
   setSilver(value, slot = this.activeEconomySlot ?? this.localPlayerSlot) {
     const next = Math.max(0, value);
     if (this.players?.[slot]) {
+      if (this.players[slot].silver === next) {
+        if (slot === this.localPlayerSlot) this.silver = next;
+        return;
+      }
       this.players[slot].silver = next;
       if (slot === this.localPlayerSlot) this.silver = next;
+      this.networkBridge?.markPrivateStateDirty?.(slot);
       return;
     }
+    if (this.silver === next) return;
     this.silver = next;
+    this.networkBridge?.markPrivateStateDirty?.(slot);
   }
 
   addSilver(amount, slot = this.activeEconomySlot ?? this.localPlayerSlot) {
@@ -3432,12 +3575,12 @@ export class Game {
       strategyEvent: this.strategyEvent,
       shopPrices: this.shopPrices,
       strategyRewardRerollCount: this.strategyRewardRerollCount,
-      runShopOpen: this.runShopOpen,
       runShopFreeReward: this.runShopFreeReward,
       runShopActiveCategory: this.runShopActiveCategory,
       runShopChoices: this.runShopChoices,
       runShopPendingOffers: this.runShopPendingOffers,
       silver: this.silver,
+      runCardsPlayedCount: this.runCardsPlayedCount,
       teamGenericUpgradeCounts: this.teamGenericUpgradeCounts,
       teamSpecialUpgrades: this.teamSpecialUpgrades,
       teamSupportModifiersApplied: this.teamSupportModifiersApplied
@@ -3448,12 +3591,12 @@ export class Game {
     this.strategyEvent = run.strategyEvent;
     this.shopPrices = run.shopPrices;
     this.strategyRewardRerollCount = run.strategyRewardRerollCount;
-    this.runShopOpen = run.runShopOpen;
     this.runShopFreeReward = run.runShopFreeReward;
     this.runShopActiveCategory = run.runShopActiveCategory;
     this.runShopChoices = run.runShopChoices;
     this.runShopPendingOffers = run.runShopPendingOffers;
     this.silver = run.silver;
+    this.runCardsPlayedCount = run.runCardsPlayedCount ?? 0;
     this.teamGenericUpgradeCounts = run.teamGenericUpgradeCounts;
     this.teamSpecialUpgrades = run.teamSpecialUpgrades;
     this.teamSupportModifiersApplied = run.teamSupportModifiersApplied;
@@ -3463,12 +3606,12 @@ export class Game {
       run.strategyEvent = this.strategyEvent;
       run.shopPrices = this.shopPrices;
       run.strategyRewardRerollCount = this.strategyRewardRerollCount;
-      run.runShopOpen = this.runShopOpen;
       run.runShopFreeReward = this.runShopFreeReward;
       run.runShopActiveCategory = this.runShopActiveCategory;
       run.runShopChoices = this.runShopChoices;
       run.runShopPendingOffers = this.runShopPendingOffers;
       run.silver = this.silver;
+      run.runCardsPlayedCount = this.runCardsPlayedCount;
       run.teamGenericUpgradeCounts = this.teamGenericUpgradeCounts;
       run.teamSpecialUpgrades = this.teamSpecialUpgrades;
       run.teamSupportModifiersApplied = this.teamSupportModifiersApplied;
@@ -3478,20 +3621,28 @@ export class Game {
       this.strategyEvent = previous.strategyEvent;
       this.shopPrices = previous.shopPrices;
       this.strategyRewardRerollCount = previous.strategyRewardRerollCount;
-      this.runShopOpen = previous.runShopOpen;
       this.runShopFreeReward = previous.runShopFreeReward;
       this.runShopActiveCategory = previous.runShopActiveCategory;
       this.runShopChoices = previous.runShopChoices;
       this.runShopPendingOffers = previous.runShopPendingOffers;
       this.silver = previous.silver;
+      this.runCardsPlayedCount = previous.runCardsPlayedCount;
       this.teamGenericUpgradeCounts = previous.teamGenericUpgradeCounts;
       this.teamSpecialUpgrades = previous.teamSpecialUpgrades;
       this.teamSupportModifiersApplied = previous.teamSupportModifiersApplied;
+      if (slot === this.localPlayerSlot) {
+        this.shopPrices = run.shopPrices;
+        this.runShopFreeReward = run.runShopFreeReward;
+        this.runShopActiveCategory = run.runShopActiveCategory;
+        this.runShopChoices = run.runShopChoices;
+        this.runShopPendingOffers = run.runShopPendingOffers;
+        this.silver = run.silver;
+      }
     }
   }
 
   coopPlayerSlots() {
-    return this.players ? ['p1', 'p2'] : [this.localPlayerSlot ?? 'p1'];
+    return this.players ? Object.keys(this.players) : [this.localPlayerSlot];
   }
 
   abilitiesFor(slotOrUnit = null) {
@@ -3499,7 +3650,7 @@ export class Game {
     if (typeof slotOrUnit === 'string') {
       return this.abilitySystems[slotOrUnit] ?? this.abilities;
     }
-    const owner = slotOrUnit?.ownerPlayerId;
+    const owner = slotOrUnit?.controllerPlayerId ?? slotOrUnit?.ownerPlayerId;
     if (owner && this.abilitySystems[owner]) return this.abilitySystems[owner];
     const slot = this.activeEconomySlot ?? this.localPlayerSlot;
     return this.abilitySystems[slot] ?? this.abilities;
@@ -3512,14 +3663,18 @@ export class Game {
     if (typeof slotOrUnit === 'string') {
       return this.abilitySystems[slotOrUnit]?.getStacks?.(abilityId) ?? 0;
     }
-    if (slotOrUnit?.ownerPlayerId) {
-      return this.abilitySystems[slotOrUnit.ownerPlayerId]?.getStacks?.(abilityId) ?? 0;
+    const owner = slotOrUnit?.controllerPlayerId ?? slotOrUnit?.ownerPlayerId;
+    if (owner) {
+      return this.abilitySystems[owner]?.getStacks?.(abilityId) ?? 0;
     }
-    // 无归属来源（基地等共享效果）：双方叠层相加
-    return this.coopPlayerSlots().reduce(
-      (sum, slot) => sum + (this.abilitySystems[slot]?.getStacks?.(abilityId) ?? 0),
-      0
-    );
+    const slot = this.activeEconomySlot ?? this.localPlayerSlot;
+    return this.abilitySystems[slot]?.getStacks?.(abilityId) ?? 0;
+  }
+
+  unitBelongsToPlayer(unit, slot = this.activeEconomySlot ?? this.localPlayerSlot) {
+    if (!unit) return false;
+    if (!this.coop?.enabled) return unit.team === TEAMS.PLAYER;
+    return (unit.controllerPlayerId ?? unit.ownerPlayerId) === slot;
   }
 
   updateSilverHud() {
@@ -3534,7 +3689,8 @@ export class Game {
   canControlUnit(unit) {
     if (!unit?.alive) return false;
     if (!this.coop?.enabled) return unit.team === TEAMS.PLAYER;
-    return unit.team === TEAMS.PLAYER && unit.ownerPlayerId === this.localPlayerSlot;
+    return unit.team === TEAMS.PLAYER
+      && (unit.controllerPlayerId ?? unit.ownerPlayerId) === this.localPlayerSlot;
   }
 
   commandSelectedUnitsToPoint(point) {
@@ -3598,21 +3754,6 @@ export class Game {
 
   grantKillEnergy(unit, source = null) {
     if (!unit || unit.team !== TEAMS.ENEMY || unit.isSilentRemoval) return;
-    const ownerSlot = resolveKillOwnerSlot(this, source);
-
-    if (this.coop?.enabled && this.players && ownerSlot == null) {
-      // 基地等无归属击杀：双方各得 1 能量，并触发各自击杀能力
-      this.coopPlayerSlots().forEach((slot) => {
-        const cards = this.cardSystems?.[slot] ?? (slot === this.localPlayerSlot ? this.cardSystem : null);
-        const gained = cards?.addEnergy?.(1) ?? 0;
-        if (gained > 0 && unit.position && slot === this.localPlayerSlot) {
-          this.effects.spawnEnergyNumber(unit.position, gained, { height: 2.55 });
-        }
-        this.abilitiesFor(slot)?.onEnemyKilled?.(unit, unit.position);
-      });
-      return;
-    }
-
     const rewards = BALANCE.playerEnergy?.killRewards ?? {};
     let amount = Number(rewards.normal) || 1;
     if (unit.isBoss) amount = Number(rewards.boss) || 6;
@@ -3620,6 +3761,21 @@ export class Game {
     else if (unit.isWildlife) amount = Number(rewards.wildlife) || 1;
     else if (unit.isBuilding) amount = Number(rewards.structure) || 1;
 
+    if (this.coop?.enabled && this.players) {
+      let localGained = 0;
+      this.coopPlayerSlots().forEach((slot) => {
+        const cards = this.cardSystems?.[slot] ?? (slot === this.localPlayerSlot ? this.cardSystem : null);
+        const gained = cards?.addEnergy?.(amount) ?? 0;
+        if (slot === this.localPlayerSlot) localGained = gained;
+        this.abilitiesFor(slot)?.onEnemyKilled?.(unit, unit.position);
+      });
+      if (localGained > 0 && unit.position) {
+        this.effects.spawnEnergyNumber(unit.position, localGained, { height: 2.55 });
+      }
+      return;
+    }
+
+    const ownerSlot = resolveKillOwnerSlot(this, source);
     const slot = ownerSlot ?? this.localPlayerSlot;
     const cards = this.cardSystems?.[slot] ?? (slot === this.localPlayerSlot ? this.cardSystem : null);
     const gained = cards?.addEnergy?.(amount) ?? 0;
@@ -3671,6 +3827,10 @@ export class Game {
     const altarId = event.altar?.id;
     if (!altarId || this.rewardedAltarIds.has(altarId)) return;
     this.rewardedAltarIds.add(altarId);
+    if (this.coop?.enabled && this.players) {
+      this.openCoopStrategyEventForAll('altar-reward', { altar: event.altar });
+      return;
+    }
     this.queueStrategyReward('altar-reward', { altar: event.altar });
   }
 
@@ -3686,6 +3846,7 @@ export class Game {
         position
       });
       unit.ownerPlayerId = options.ownerPlayerId ?? this.cardSystem?.playerSlot ?? this.localPlayerSlot;
+      unit.controllerPlayerId = unit.ownerPlayerId;
       this.applySummonCardLevel(unit, options.sourceCard);
       this.attachUnitStatus(unit);
       this.registerUnit(unit);
@@ -3706,6 +3867,7 @@ export class Game {
       position
     });
     unit.ownerPlayerId = options.ownerPlayerId ?? this.cardSystem?.playerSlot ?? this.localPlayerSlot;
+    unit.controllerPlayerId = unit.ownerPlayerId;
     this.applySummonCardLevel(unit, options.sourceCard);
     this.abilitiesFor(unit)?.applyNewBuildingDurability(unit);
     this.attachUnitStatus(unit);
@@ -3716,9 +3878,9 @@ export class Game {
     return unit;
   }
 
-  canDeploySummonAt(point) {
+  canDeploySummonAt(point, slot = this.activeEconomySlot ?? this.localPlayerSlot) {
     if (!point) return false;
-    return this.getSummonDeploymentAnchors().some((anchor) => (
+    return this.getSummonDeploymentAnchors(slot).some((anchor) => (
       Math.hypot(point.x - anchor.position.x, point.z - anchor.position.z) <= anchor.radius
     ));
   }
@@ -3733,7 +3895,7 @@ export class Game {
     );
   }
 
-  getSummonDeploymentAnchors() {
+  getSummonDeploymentAnchors(slot = this.activeEconomySlot ?? this.localPlayerSlot) {
     const anchors = [];
     if (this.playerBase?.alive !== false) {
       anchors.push({
@@ -3744,6 +3906,7 @@ export class Game {
     this.friendlyUnits.forEach((unit) => {
       if (!unit.alive || unit.underConstruction) return;
       if (unit.definition?.deploymentBeacon !== true) return;
+      if (!this.unitBelongsToPlayer(unit, slot)) return;
       anchors.push({
         position: unit.position,
         radius: unit.definition.deploymentRadius ?? SUMMON_DEPLOY_RADIUS
@@ -3782,6 +3945,7 @@ export class Game {
     });
     turret.ownerUnitId = owner.id;
     turret.ownerPlayerId = owner.ownerPlayerId ?? this.activeEconomySlot ?? this.localPlayerSlot;
+    turret.controllerPlayerId = owner.controllerPlayerId ?? turret.ownerPlayerId;
     turret.controlMode = owner.controlMode;
     turret.guardPoint = owner.guardPoint?.clone?.() ?? owner.position.clone();
     turret.guardRadius = Math.max(6.5, owner.guardRadius ?? 6.5);
@@ -3918,7 +4082,7 @@ export class Game {
     }
   }
 
-  spawnEnemyWave(waveNumber, { orders = 'attack', waveConfig = null } = {}) {
+  spawnEnemyWave(waveNumber, { waveConfig = null } = {}) {
     const waveIndex = waveConfig?.index ?? waveNumber;
     const difficulty = waveConfig?.effectiveDifficulty ?? this.effectiveDifficultyForWave(waveIndex);
     const count = waveConfig?.count ?? Math.min(
@@ -3947,11 +4111,8 @@ export class Game {
       this.attachUnitStatus(unit);
       this.registerUnit(unit);
       spawnedUnits.push(unit);
-      if (orders === 'attack' && !this.enemyCommander) {
-        this.orderEnemyAttack(unit, i, count);
-      }
+      this.orderEnemyAttack(unit, i, count);
     }
-    this.enemyCommander?.registerWave(spawnedUnits, waveIndex, orders, waveConfig);
     this.enemyEnchantment?.enchantSpawnWave?.(spawnedUnits, waveConfig);
   }
 
@@ -4833,8 +4994,19 @@ export class Game {
       return;
     }
     const previousHealth = this.playerBase.health;
+    const previousDurability = this.playerBase.structureDurability ?? 0;
     this.playerBase.health = Math.max(0, this.playerBase.health - amount);
     this.spendStructureDurability(this.playerBase, 1);
+    this.networkBridge?.notifyCombatResult?.({
+      kind: 'damage_applied',
+      targetId: 'player-base',
+      damageType: 'structure',
+      requestedAmount: amount,
+      healthBefore: previousHealth,
+      healthAfter: this.playerBase.health,
+      durabilityBefore: previousDurability,
+      durabilityAfter: this.playerBase.structureDurability ?? 0
+    }, { kind: 'structure_attack' });
     registerStructureHealthLoss(this.playerBase, previousHealth, this.elapsedTime);
     this.playerBase.alive = this.playerBase.health > 0;
     this.updateStructureStatusElement(this.playerBase, 0);
@@ -4852,8 +5024,19 @@ export class Game {
   damageEnemyCamp(amount) {
     if (!this.enemyCamp.alive) return;
     const previousHealth = this.enemyCamp.health;
+    const previousDurability = this.enemyCamp.structureDurability ?? 0;
     this.enemyCamp.health = Math.max(0, this.enemyCamp.health - amount);
     this.spendStructureDurability(this.enemyCamp, 1);
+    this.networkBridge?.notifyCombatResult?.({
+      kind: 'damage_applied',
+      targetId: 'enemy-camp',
+      damageType: 'structure',
+      requestedAmount: amount,
+      healthBefore: previousHealth,
+      healthAfter: this.enemyCamp.health,
+      durabilityBefore: previousDurability,
+      durabilityAfter: this.enemyCamp.structureDurability ?? 0
+    }, { kind: 'structure_attack' });
     registerStructureHealthLoss(this.enemyCamp, previousHealth, this.elapsedTime);
     this.enemyCamp.alive = this.enemyCamp.health > 0;
     this.updateStructureStatusElement(this.enemyCamp, 0);
@@ -5021,8 +5204,14 @@ export class Game {
   }
 
   selectUnits(units, { mode = 'direct' } = {}) {
+    if (this.networkApplyingCommand
+      && this.activeEconomySlot
+      && this.activeEconomySlot !== this.localPlayerSlot) {
+      return;
+    }
+    const previousSelection = [...this.selectedUnits];
     const unique = new Set();
-    this.selectedUnits.forEach((unit) => {
+    previousSelection.forEach((unit) => {
       unit.statusUiDirty = true;
     });
     const filtered = units.filter((unit) => {
@@ -5037,16 +5226,38 @@ export class Game {
     });
     this.selectedUnit = this.selectedUnits[0] ?? null;
     this.selectionMode = this.selectedUnits.length ? mode : 'none';
-    const run = this.players?.[this.localPlayerSlot];
-    if (run) {
-      run.selectedUnits = this.selectedUnits.slice();
-      run.selectedUnitIds = new Set(this.selectedUnitIds);
-      run.selectedUnit = this.selectedUnit;
-      run.selectionMode = this.selectionMode;
+    previousSelection.forEach((unit) => {
+      if (!this.selectedUnitIds.has(unit.id) && unit.selectedByPlayerId === this.localPlayerSlot) {
+        this.applyUnitSelectionState(unit, false, null);
+      }
+    });
+    this.selectedUnits.forEach((unit) => {
+      this.applyUnitSelectionState(unit, true, this.localPlayerSlot);
+    });
+    this.sendNetworkSelectionState();
+  }
+
+  sendNetworkSelectionState() {
+    if (!this.networkBridge?.shouldRouteLocalCommands?.()) return false;
+    return Boolean(this.networkBridge.commandSender?.selectionSet?.([...this.selectedUnitIds]));
+  }
+
+  applyUnitSelectionState(unit, selected, selectedByPlayerId = null) {
+    if (!unit) return;
+    const nextSelected = Boolean(selected && selectedByPlayerId);
+    unit.selected = nextSelected;
+    unit.selectedByPlayerId = nextSelected ? selectedByPlayerId : null;
+    let ring = unit.networkSelectionRing;
+    if (nextSelected && !ring) {
+      ring = createSelectionRing(this.playerVisualColor(selectedByPlayerId));
+      ring.traverse((child) => child.layers.set(1));
+      ring.position.set(0, 0.05, 0);
+      unit.mesh.add(ring);
+      unit.networkSelectionRing = ring;
     }
-    if (this.networkClientMode) {
-      this.networkBridge?.commandSender?.selectUnits([...this.selectedUnitIds], this.selectionMode);
-    }
+    if (!ring) return;
+    ring.visible = nextSelected;
+    if (nextSelected) applyPlayerMarkerColor(ring, this.playerVisualColor(selectedByPlayerId));
   }
 
   onCanvasPointerDown(event) {
@@ -5142,9 +5353,17 @@ export class Game {
       event.preventDefault();
       if (this.runShopOpen) {
         if (this.runShopActiveCategory) {
-          this.clearRunShopSelection();
+          if (this.networkBridge?.shouldRouteLocalCommands?.()) {
+            this.networkBridge.commandSender?.shopBack?.();
+          } else {
+            this.clearRunShopSelection();
+          }
         } else if (this.runShopFreeReward) {
-          this.closeRunShop({ force: true });
+          if (this.networkBridge?.shouldRouteLocalCommands?.()) {
+            this.networkBridge.commandSender?.shopRewardSkip?.();
+          } else {
+            this.closeRunShop({ force: true });
+          }
         } else {
           this.closeRunShop();
         }
@@ -5613,8 +5832,8 @@ export class Game {
   issueMoveCommand(event) {
     const point = this.groundPointFromClient(event.clientX, event.clientY);
     if (!point || !this.selectedUnits.length) return false;
-    if (this.networkClientMode) {
-      return Boolean(this.networkBridge?.commandSender?.issueMove(point));
+    if (this.networkBridge?.shouldRouteLocalCommands?.()) {
+      return Boolean(this.networkBridge?.commandSender?.issueMove([...this.selectedUnitIds], point));
     }
     return this.commandSelectedUnits(point);
   }
@@ -5650,11 +5869,16 @@ export class Game {
       unit.controlMode = 'normal';
       unit.guardPoint = null;
       unit.guardRadius = null;
+      this.applyUnitGuardVisualState(unit, false);
       if (forceMove) forceMoveUnits.push(unit);
     });
     if (!commanded) return false;
     this.attacks.cancelPendingAttacksFor(forceMoveUnits);
-    this.effects.spawnMoveDestination(commandCenter, formationRadius);
+    this.effects.spawnMoveDestination(
+      commandCenter,
+      formationRadius,
+      this.playerVisualColor(units[0] ?? this.localPlayerSlot)
+    );
     return true;
   }
 
@@ -5681,6 +5905,10 @@ export class Game {
   }
 
   stopSelectedUnits() {
+    if (this.networkBridge?.shouldRouteLocalCommands?.()) {
+      this.networkBridge.commandSender?.issueStop?.([...this.selectedUnitIds]);
+      return;
+    }
     const units = this.selectedUnits.filter((unit) => unit.alive && unit.team === TEAMS.PLAYER);
     if (!units.length) return;
     units.forEach((unit) => {
@@ -5695,12 +5923,17 @@ export class Game {
       this.clearUnitRoute(unit);
       unit.guardPoint = null;
       unit.guardRadius = null;
+      this.applyUnitGuardVisualState(unit, false);
       unit.knockbackVelocity.set(0, 0, 0);
     });
     this.attacks.cancelPendingAttacksFor(units);
   }
 
   guardSelectedUnits() {
+    if (this.networkBridge?.shouldRouteLocalCommands?.()) {
+      this.networkBridge.commandSender?.issueGuard?.([...this.selectedUnitIds]);
+      return;
+    }
     const units = this.selectedUnits.filter((unit) => unit.alive && unit.team === TEAMS.PLAYER);
     if (!units.length) return;
     units.forEach((unit) => {
@@ -5716,9 +5949,10 @@ export class Game {
       unit.attackRangeHoldTargetId = null;
       unit.target = null;
       this.clearUnitRoute(unit);
+      this.applyUnitGuardVisualState(unit, true);
     });
     this.attacks.cancelPendingAttacksFor(units);
-    this.effects.spawnRing(units[0].position, '#78e3ff', 0.8, 0.52);
+    this.effects.spawnRing(units[0].position, this.playerVisualColor(units[0]), 0.8, 0.52);
   }
 
   gameGuardRadiusFor(unit) {
@@ -5757,65 +5991,56 @@ export class Game {
     this.selectedUnits = this.selectedUnits.filter((unit) => unit.alive);
     if (this.selectedUnits.length !== previousCount) {
       this.selectedUnitIds = new Set(this.selectedUnits.map((unit) => unit.id));
+      this.sendNetworkSelectionState();
     }
     this.selectedUnit = this.selectedUnits[0] ?? null;
-    this.ensureSelectionRingCount(this.selectedUnits.length);
-
-    this.selectionRings.forEach((ring, index) => {
-      const unit = this.selectedUnits[index];
-      ring.visible = Boolean(unit);
-      if (!unit) return;
-      ring.position.x = unit.position.x;
-      ring.position.y = unit.position.y + 0.05;
-      ring.position.z = unit.position.z;
-      ring.rotation.set(0, 0, 0);
-      ring.userData.ring.rotation.z += 0.035;
-      ring.userData.glow.rotation.z -= 0.018;
-    });
-  }
-
-  ensureSelectionRingCount(count) {
-    while (this.selectionRings.length < count) {
-      const ring = createSelectionRing();
-      ring.traverse((child) => {
-        child.layers.set(1);
-      });
-      this.selectionRings.push(ring);
-      this.scene.add(ring);
-    }
   }
 
   updateGuardVisuals(dt) {
-    const guardUnits = new Set(
-      this.friendlyUnits.filter((unit) => unit.alive && unit.controlMode === 'guard')
-    );
     [...this.guardVisuals.entries()].forEach(([unit, visuals]) => {
-      if (guardUnits.has(unit)) return;
-      this.scene.remove(visuals.flag, visuals.rangeRing);
-      this.guardVisuals.delete(unit);
-    });
-
-    guardUnits.forEach((unit) => {
-      const visuals = this.guardVisuals.get(unit) ?? this.createGuardVisuals(unit);
+      if (!unit.alive || unit.controlMode !== 'guard') {
+        this.applyUnitGuardVisualState(unit, false);
+        return;
+      }
+      const playerColor = this.playerVisualColor(unit);
+      applyPlayerMarkerColor(visuals.flag, playerColor);
+      applyPlayerMarkerColor(visuals.rangeRing, playerColor);
       const height = unitStatusHeight(unit) + 0.24;
       visuals.flag.visible = true;
       visuals.flag.position.set(unit.position.x, unit.position.y + height, unit.position.z);
       visuals.flag.rotation.y += dt * 2.7;
 
-      const attackRange = this.modifiers.getAttackRange(unit);
       const center = unit.guardPoint ?? unit.position;
+      const guardRadius = Number.isFinite(unit.guardRadius)
+        ? unit.guardRadius
+        : this.gameGuardRadiusFor(unit);
       visuals.rangeRing.visible = true;
       visuals.rangeRing.position.set(center.x, this.groundHeightAt(center) + 0.085, center.z);
-      visuals.rangeRing.scale.setScalar(attackRange);
+      visuals.rangeRing.scale.setScalar(guardRadius);
       visuals.rangeRing.userData.ring.rotation.z += dt * 0.42;
       visuals.rangeRing.userData.glow.rotation.z -= dt * 0.18;
     });
   }
 
+  applyUnitGuardVisualState(unit, isGuarding) {
+    if (!unit) return;
+    const guarding = Boolean(isGuarding);
+    if (!guarding) {
+      const visuals = this.guardVisuals.get(unit);
+      if (visuals) {
+        this.scene.remove(visuals.flag, visuals.rangeRing);
+        this.guardVisuals.delete(unit);
+      }
+      return;
+    }
+    if (!this.guardVisuals.has(unit)) this.createGuardVisuals(unit);
+  }
+
   createGuardVisuals(unit) {
+    const color = this.playerVisualColor(unit);
     const visuals = {
-      flag: createGuardFlag(),
-      rangeRing: createAttackRangeRing()
+      flag: createGuardFlag(color),
+      rangeRing: createAttackRangeRing(color)
     };
     visuals.rangeRing.traverse((child) => {
       child.layers.set(1);
@@ -6272,7 +6497,6 @@ export class Game {
       selectedCount: this.selectedUnits.length,
       selectedIds: this.selectedUnits.map((unit) => unit.id),
       altars: this.altars.snapshot(),
-      enemyCommander: this.enemyCommander?.snapshot?.() ?? null,
       camera: {
         targetX: Number(this.cameraTarget.x.toFixed(2)),
         targetZ: Number(this.cameraTarget.z.toFixed(2)),
@@ -6387,7 +6611,7 @@ export class Game {
 
 function resolveKillOwnerSlot(game, source) {
   if (!game?.coop?.enabled || !game.players) {
-    return game?.localPlayerSlot ?? 'p1';
+    return game?.localPlayerSlot ?? 'local-player';
   }
   const owner = source?.ownerPlayerId;
   if (owner && game.players[owner]) return owner;
@@ -6418,10 +6642,14 @@ function normalizeLevelSession(session) {
     debug: session?.debug === true,
     startedAt: session?.startedAt ?? Date.now()
   };
-  if (session?.mode === 'coop') {
-    normalized.mode = 'coop';
+  if (session?.mode === 'coop' || session?.mode === 'multiplayer') {
+    normalized.mode = 'multiplayer';
     normalized.networkRole = session.networkRole ?? 'offline';
-    normalized.localPlayerSlot = session.localPlayerSlot ?? 'p1';
+    normalized.localPlayerId = session.localPlayerId ?? session.localPlayerSlot;
+    normalized.localPlayerSlot = normalized.localPlayerId;
+    normalized.hostPlayerId = session.hostPlayerId ?? session.matchRules?.hostPlayerId ?? null;
+    normalized.matchId = session.matchId ?? null;
+    normalized.matchRules = session.matchRules ?? null;
     normalized.roomId = session.roomId ?? null;
     normalized.matchSeed = session.matchSeed ?? Date.now();
     normalized.coop = session.coop ?? null;
@@ -8901,6 +9129,14 @@ function unitStatusHeight(unit) {
   if (unit.type === 'bear') return 1.9;
   if (unit.type === 'wolf') return 1.25;
   return 2.25;
+}
+
+function applyPlayerMarkerColor(marker, color) {
+  if (!marker || marker.userData.playerMarkerColor === color) return;
+  (marker.userData.colorMeshes ?? []).forEach((mesh) => {
+    mesh.material?.color?.set?.(color);
+  });
+  marker.userData.playerMarkerColor = color;
 }
 
 function createStructureState({ id, position, projectileHitHeight, attributes, maxStructureDurability = 49 }) {

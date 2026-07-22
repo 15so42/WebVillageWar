@@ -403,7 +403,9 @@ const WORLD_PRESETS = {
     sceneKey: 'snow-valley',
     seed: 42,
     camera: {
-      distance: 37.31, // 28.7 * 1.3
+      // 原镜头实际偏移约为 y=23.4 / z=29.0；后拉 5 米并抬高 20%。
+      offsetDirection: { x: 0, y: 28.1, z: 34.04 },
+      distance: 44.13,
       minDistance: 12,
       maxDistance: 78
     },

@@ -162,7 +162,16 @@ export class MovementAgent {
       unit.knockbackVelocity.set(0, 0, 0);
       return;
     }
-    if (unit.knockbackVelocity.lengthSq() <= KNOCKBACK_EPSILON_SQ) {
+
+    const finishKnockback = () => {
+      this.game.combat?.onKnockbackEnded?.(unit, unit.knockbackSessionDistance ?? 0);
+      unit.knockbackSessionDistance = 0;
+      unit.knockbackVelocity.set(0, 0, 0);
+      this.game.clearUnitRoute?.(unit);
+    };
+    const knockbackSpeedSq = unit.knockbackVelocity.lengthSq();
+    if (knockbackSpeedSq <= KNOCKBACK_EPSILON_SQ) {
+      if (knockbackSpeedSq > 0) finishKnockback();
       return;
     }
 
@@ -173,13 +182,6 @@ export class MovementAgent {
     unit.knockbackVelocity.multiplyScalar(Math.pow(0.08, dt));
     unit.knockbackSessionDistance = (unit.knockbackSessionDistance ?? 0)
       + Math.hypot(unit.position.x - previousX, unit.position.z - previousZ);
-
-    const finishKnockback = () => {
-      this.game.combat?.onKnockbackEnded?.(unit, unit.knockbackSessionDistance ?? 0);
-      unit.knockbackSessionDistance = 0;
-      unit.knockbackVelocity.set(0, 0, 0);
-      this.game.clearUnitRoute?.(unit);
-    };
 
     this.clampToBattlefield();
     if (!this.game.isPointWalkable(unit.position)) {

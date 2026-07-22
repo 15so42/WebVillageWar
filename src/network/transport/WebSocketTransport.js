@@ -1,4 +1,4 @@
-import { MSG } from '../protocol/messages.js';
+import { MSG, RELAY_VERSION } from '../protocol/messages.js';
 
 export class WebSocketTransport {
   constructor(url) {
@@ -7,7 +7,7 @@ export class WebSocketTransport {
     this.handlers = new Set();
     this.openHandlers = new Set();
     this.closeHandlers = new Set();
-    this.reconnectToken = null;
+    this.reconnectSession = null;
     this.manualClose = false;
     this.connectPromise = null;
   }
@@ -56,7 +56,11 @@ export class WebSocketTransport {
         } catch {
           return;
         }
-        this.handlers.forEach((handler) => handler(payload));
+        // Dispatch against a snapshot. A reconnect handler may construct the
+        // in-match bridge and subscribe while RECONNECT_OK is being handled;
+        // iterating the live Set would deliver that same message to the new
+        // subscriber and trigger a second full resync.
+        [...this.handlers].forEach((handler) => handler(payload));
       });
 
       socket.addEventListener('close', () => {
@@ -93,7 +97,7 @@ export class WebSocketTransport {
 
   send(payload) {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return false;
-    this.socket.send(JSON.stringify(payload));
+    this.socket.send(JSON.stringify({ relayVersion: RELAY_VERSION, ...payload }));
     return true;
   }
 
@@ -109,27 +113,35 @@ export class WebSocketTransport {
   }
 
   saveSession(record) {
-    this.reconnectToken = record;
+    this.reconnectSession = record;
     try {
-      sessionStorage.setItem('village-war-coop-session', JSON.stringify(record));
+      sessionStorage.setItem('village-war-multiplayer-session', JSON.stringify(record));
     } catch {
       // ignore
     }
   }
 
   loadSession() {
-    if (this.reconnectToken) return this.reconnectToken;
+    if (this.reconnectSession) return this.reconnectSession;
     try {
-      const raw = sessionStorage.getItem('village-war-coop-session');
+      const raw = sessionStorage.getItem('village-war-multiplayer-session')
+        ?? sessionStorage.getItem('village-war-coop-session');
       return raw ? JSON.parse(raw) : null;
     } catch {
       return null;
     }
   }
 
+  hasReconnectSession() {
+    const saved = this.loadSession();
+    if (!saved?.roomId || !saved?.reconnectToken) return false;
+    return !Number.isFinite(Number(saved.expiresAt)) || Number(saved.expiresAt) > Date.now();
+  }
+
   clearSession() {
-    this.reconnectToken = null;
+    this.reconnectSession = null;
     try {
+      sessionStorage.removeItem('village-war-multiplayer-session');
       sessionStorage.removeItem('village-war-coop-session');
     } catch {
       // ignore

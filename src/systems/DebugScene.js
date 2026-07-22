@@ -188,9 +188,9 @@ export class DebugScene extends Game {
       this.initializeSpiderLifecycle(unit);
       this.attachUnitStatus(unit);
       this.registerUnit(unit);
+      this.orderEnemyAttack(unit, i, spawnCount);
       spawnedUnits.push(unit);
     }
-    this.enemyCommander?.registerWave?.(spawnedUnits, this.wave, 'attack');
     this.updateDebugPanelStatus(`生成 ${spawnCount} 个敌方 ${definition.name ?? unitType}`);
     return spawnedUnits;
   }

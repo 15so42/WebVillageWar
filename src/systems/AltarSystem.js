@@ -130,7 +130,12 @@ export class AltarSystem {
       altar.captureTeam = null;
       altar.progress = 1;
       this.setAltarOwner(altar, team, 'captured');
-      this.game.effects.spawnRing(altar.position, teamColor(team), altar.captureRadius, 0.8);
+      this.game.effects.spawnRing(
+        altar.position,
+        teamColor(team),
+        Math.min(3.2, altar.captureRadius * 0.72),
+        0.58
+      );
     }
   }
 
@@ -142,7 +147,7 @@ export class AltarSystem {
     if (owner === TEAMS.PLAYER && reason === 'captured') {
       const grant = altar.definition?.captureEnergyGrant;
       if (grant > 0) {
-        const gained = this.game.cardSystem?.addEnergy?.(grant) ?? 0;
+        const gained = this.grantPlayerEnergy(grant);
         if (gained > 0) {
           this.game.effects.spawnEnergyNumber(altar.position, gained, {
             height: 2.35
@@ -187,7 +192,7 @@ export class AltarSystem {
     if (effect.op === 'restoreEnergy') {
       if (altar.owner !== TEAMS.PLAYER) return;
       const amount = effect.amount ?? (effect.amountPerSecond ?? 0) * dt;
-      const gained = this.game.cardSystem.addEnergy(amount);
+      const gained = this.grantPlayerEnergy(amount);
       if (gained > 0) {
         this.game.effects.spawnEnergyNumber(altar.position, gained, {
           height: 2.35
@@ -216,6 +221,40 @@ export class AltarSystem {
     });
   }
 
+  applyNetworkSnapshot(rows = []) {
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    this.altars.forEach((altar) => {
+      const state = byId.get(altar.id);
+      if (!state) return;
+      altar.owner = state.owner && state.owner !== 'neutral' ? state.owner : null;
+      altar.captureTeam = state.captureTeam ?? null;
+      altar.progress = clamp(Number(state.progress) || 0, 0, 1);
+      altar.contested = Boolean(state.contested);
+      this.updateVisual(altar, 0);
+    });
+  }
+
+  updateNetworkVisuals(dt) {
+    this.altars.forEach((altar) => {
+      altar.age += Math.max(0, dt);
+      this.updateVisual(altar, dt);
+    });
+  }
+
+  grantPlayerEnergy(amount) {
+    if (!this.game.coop?.enabled || !this.game.players) {
+      return this.game.cardSystem?.addEnergy?.(amount) ?? 0;
+    }
+    let localGained = 0;
+    this.game.coopPlayerSlots().forEach((slot) => {
+      const cards = this.game.cardSystems?.[slot]
+        ?? (slot === this.game.localPlayerSlot ? this.game.cardSystem : null);
+      const gained = cards?.addEnergy?.(amount) ?? 0;
+      if (slot === this.game.localPlayerSlot) localGained = gained;
+    });
+    return localGained;
+  }
+
   isEffectReady(altar, effect, dt, index) {
     const interval = effect.intervalSeconds ?? effect.tickSeconds ?? 0;
     if (interval <= 0) return true;
@@ -232,9 +271,10 @@ export class AltarSystem {
   spawnActivePulse(altar, dt) {
     altar.effectPulseTimer -= dt;
     if (altar.effectPulseTimer > 0) return;
-    altar.effectPulseTimer = altar.effectRadius > 0 ? 0.9 : 1.4;
-    const radius = altar.effectRadius > 0 ? altar.effectRadius : 1.6;
-    this.game.effects.spawnRing(altar.position, altar.definition.color, radius, 0.72);
+    altar.effectPulseTimer = altar.effectRadius > 0 ? 1.65 : 2.1;
+    const sourceRadius = altar.effectRadius > 0 ? altar.effectRadius : altar.captureRadius;
+    const radius = clamp(sourceRadius * 0.42, 1.45, 2.8);
+    this.game.effects.spawnRing(altar.position, altar.definition.color, radius, 0.48);
   }
 
   updateVisual(altar, dt) {

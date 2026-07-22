@@ -190,7 +190,7 @@ export const UNIT_SPECIAL_UPGRADES = {
       id: 'rogue-backstab',
       kind: 'unit-special',
       name: '背刺',
-      summary: '攻击正在被其他友军缠住的目标时伤害 +35%。',
+      summary: '目标在 3 秒内被其他单位伤害过时，本次攻击伤害 +50%。',
       trait: 'backstab'
     },
     {

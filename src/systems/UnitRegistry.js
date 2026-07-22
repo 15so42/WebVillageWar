@@ -9,7 +9,7 @@ export class UnitRegistry {
     this.byId = new Map();
   }
 
-  register(unit) {
+  register(unit, options = {}) {
     if (!unit || this.byId.has(unit.id)) return unit;
     this.byId.set(unit.id, unit);
     this.allUnits.push(unit);
@@ -18,9 +18,10 @@ export class UnitRegistry {
     unit.registry = this;
     unit.game = this.game;
     unit.deathHandled = false;
-    this.game.movement?.attach?.(unit);
+    unit.networkMirror = options.networkMirror === true;
+    if (!unit.networkMirror) this.game.movement?.attach?.(unit);
     this.game.scene.add(unit.mesh);
-    this.game.targeting?.register?.(unit);
+    if (!unit.networkMirror) this.game.targeting?.register?.(unit);
     return unit;
   }
 
@@ -30,8 +31,10 @@ export class UnitRegistry {
     removeItem(this.allUnits, unit);
     removeItem(this.friendlyUnits, unit);
     removeItem(this.enemyUnits, unit);
-    this.game.targeting?.unregister?.(unit);
-    this.game.attacks?.cancelPendingAttacksFor?.([unit]);
+    if (!unit.networkMirror) {
+      this.game.targeting?.unregister?.(unit);
+      this.game.attacks?.cancelPendingAttacksFor?.([unit]);
+    }
     if (!options.keepSceneObject) {
       this.game.scene.remove(unit.mesh);
       unit.statusElement?.remove();

@@ -58,6 +58,19 @@ export class BuildingSystem {
     this.buildings.forEach((unit) => this.destroyIfDurabilitySpent(unit));
   }
 
+  applyNetworkConstructionState(unit, underConstruction, progress = 0) {
+    if (!unit?.isBuilding) return;
+    const normalized = Math.max(0, Math.min(1, Number(progress) || 0));
+    if (underConstruction) {
+      if (!unit.constructionMeshes) this.prepareConstructionVisual(unit);
+      this.updateConstructionVisual(unit, normalized);
+      return;
+    }
+    if (unit.constructionMeshes || unit.constructionScaffold) {
+      this.finishConstructionVisual(unit);
+    }
+  }
+
   destroy() {
     this.constructing.forEach((unit) => this.finishConstructionVisual(unit, { removeOnly: true }));
     this.constructing.clear();

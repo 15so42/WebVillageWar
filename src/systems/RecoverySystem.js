@@ -47,7 +47,8 @@ export class RecoverySystem {
       const healAmount = stacks;
       this.game.friendlyUnits.forEach((unit) => {
         if (!unit.alive || unit.underConstruction) return;
-        if (this.game.coop?.enabled && unit.ownerPlayerId && unit.ownerPlayerId !== slot) return;
+        if (this.game.coop?.enabled
+          && (unit.controllerPlayerId ?? unit.ownerPlayerId) !== slot) return;
         if (this.game.modifiers.getArmor(unit) <= 7) return;
         if (unit.health >= unit.maxHealth - 0.01) return;
         const healed = unit.restoreHealth(healAmount);

@@ -50,6 +50,8 @@ export class CardSystem {
     this.runtimeCardLevelBonuses = new Map();
     this.runtimeCardUpgrades = new Map();
     this.cardCooldownUntil = new Map();
+    this.cooldownClock = 0;
+    this.lastNetworkPlayRejectionReason = null;
     this.pendingDrawAnimations = new Set();
     this.drag = null;
     this.raycaster = new THREE.Raycaster();
@@ -72,15 +74,15 @@ export class CardSystem {
     if (!this.mountUi) {
       this.hand.hidden = true;
     }
-    this.energyPanel = createEnergyPanel(this.hand);
-    this.temporarySlot = createTemporaryCardSlot(this.energyPanel);
+    this.energyPanel = createEnergyPanel(this.hand, this.mountUi);
+    this.temporarySlot = createTemporaryCardSlot(this.energyPanel, this.mountUi);
     this.energyParts = collectEnergyPanel(this.energyPanel);
     this.abilityIcons = this.energyParts.abilities;
     this.coreIcons = this.energyParts.cores;
-    this.hintPanel = createGameHintPanel(this.energyPanel);
+    this.hintPanel = createGameHintPanel(this.energyPanel, this.mountUi);
     this.hintOwner = null;
     this.activePileViewer = null;
-    this.pileUi = createPileUi();
+    this.pileUi = createPileUi(this.mountUi);
     this.bindPileUi();
     if (!options.startWithEmptyDrawPile) {
       this.drawToFullHand();
@@ -109,12 +111,17 @@ export class CardSystem {
   }
 
   update(dt) {
+    this.cooldownClock += Math.max(0, Number(dt) || 0);
     const previousEnergy = this.energy;
     this.updateEnergyUi();
     if (previousEnergy !== this.energy) {
       this.updateCardAffordability();
     }
     this.updateCardCooldownUi();
+  }
+
+  markNetworkStateDirty() {
+    this.game.networkBridge?.markPrivateStateDirty?.(this.playerSlot);
   }
 
   renderHand() {
@@ -135,6 +142,7 @@ export class CardSystem {
     }
     this.pendingDrawAnimations.clear();
     this.updateCardAffordability();
+    this.markNetworkStateDirty();
   }
 
   renderTemporaryCards() {
@@ -150,6 +158,7 @@ export class CardSystem {
       this.temporarySlot.classList.remove('has-temporary-card');
     }
     this.updateCardAffordability();
+    this.markNetworkStateDirty();
   }
 
   createCardElement(card, index, { isDrawn = false, location = 'hand' } = {}) {
@@ -289,6 +298,7 @@ export class CardSystem {
     if (renderViewer && this.activePileViewer) {
       this.renderPileViewer(this.activePileViewer);
     }
+    this.markNetworkStateDirty();
   }
 
   startDrag(event, card) {
@@ -473,7 +483,10 @@ export class CardSystem {
   }
 
   pickFriendlyUnit() {
-    const objects = this.game.friendlyUnits.flatMap((unit) => unit.mesh.children);
+    const ownedUnits = this.game.friendlyUnits.filter((unit) => (
+      this.game.unitBelongsToPlayer?.(unit, this.playerSlot) ?? true
+    ));
+    const objects = ownedUnits.flatMap((unit) => unit.mesh.children);
     const hits = this.raycaster.intersectObjects(objects, true);
     const hit = hits.find((entry) => {
       const entity = entry.object.userData.entity;
@@ -485,7 +498,7 @@ export class CardSystem {
 
     let best = null;
     let bestDistance = 58;
-    this.game.friendlyUnits.forEach((unit) => {
+    ownedUnits.forEach((unit) => {
       if (!unit.alive || unit.canReceiveBuffs === false) return;
       const screen = this.game.worldToScreen(unit.position);
       const distance = Math.hypot(screen.x - this.drag.screen.x, screen.y - this.drag.screen.y);
@@ -599,7 +612,7 @@ export class CardSystem {
 
   deploymentAnchorsForCard(card) {
     if (card.kind === 'summon') {
-      return (this.game.getSummonDeploymentAnchors?.() ?? []).map((anchor) => ({
+      return (this.game.getSummonDeploymentAnchors?.(this.playerSlot) ?? []).map((anchor) => ({
         ...anchor,
         kind: 'summon',
         color: '#6adbb8',
@@ -777,7 +790,7 @@ export class CardSystem {
   }
 
   playDraggedCard(drag) {
-    if (this.game.networkClientMode) {
+    if (this.game.networkBridge?.shouldRouteLocalCommands?.()) {
       return this.sendPlayCardCommand(drag);
     }
     if (this.isCardOnCooldown(drag.card)) return false;
@@ -801,7 +814,7 @@ export class CardSystem {
   }
 
   discardDraggedCard(drag) {
-    if (this.game.networkClientMode) {
+    if (this.game.networkBridge?.shouldRouteLocalCommands?.()) {
       return this.sendDiscardCardCommand(drag);
     }
     const cost = discardEnergyCost(drag.card);
@@ -1506,6 +1519,7 @@ export class CardSystem {
     this.energy -= cost;
     this.updateEnergyUi(true);
     this.updateCardAffordability();
+    this.markNetworkStateDirty();
     return true;
   }
 
@@ -1516,6 +1530,7 @@ export class CardSystem {
     this.updateEnergyUi();
     if (previousEnergy !== this.energy) {
       this.updateCardAffordability();
+      this.markNetworkStateDirty();
     }
     return this.energy - previousEnergy;
   }
@@ -1525,7 +1540,7 @@ export class CardSystem {
   }
 
   updateCardAffordability() {
-    document.querySelectorAll('#card-hand .card, #temporary-card-slot .card').forEach((element) => {
+    this.cardUiElements().forEach((element) => {
       const card = element.dataset.cardLocation === 'temporary'
         ? this.temporaryCards[Number(element.dataset.temporaryIndex)]
         : this.handCards[Number(element.dataset.handIndex)];
@@ -1543,25 +1558,63 @@ export class CardSystem {
   isCardOnCooldown(card) {
     if (!isTerrainCard(card)) return false;
     const until = this.cardCooldownUntil.get(card.instanceId);
-    return Number.isFinite(until) && (this.game.elapsedTime ?? 0) < until;
+    return Number.isFinite(until) && this.cooldownClock < until;
   }
 
   getCardCooldownRemaining(card) {
     if (!isTerrainCard(card)) return 0;
     const until = this.cardCooldownUntil.get(card.instanceId);
     if (!Number.isFinite(until)) return 0;
-    return Math.max(0, until - (this.game.elapsedTime ?? 0));
+    return Math.max(0, until - this.cooldownClock);
   }
 
   startCardCooldown(card) {
     if (!isTerrainCard(card)) return;
     const duration = Math.max(0, Number(card.cooldown ?? TERRAIN_CARD_COOLDOWN_SECONDS));
-    this.cardCooldownUntil.set(card.instanceId, (this.game.elapsedTime ?? 0) + duration);
+    this.cardCooldownUntil.set(card.instanceId, this.cooldownClock + duration);
+    this.markNetworkStateDirty();
+  }
+
+  serializeCooldowns() {
+    const elapsed = this.cooldownClock;
+    return [...this.cardCooldownUntil.entries()]
+      .map(([cardInstanceId, until]) => ({
+        cardInstanceId,
+        remaining: Math.max(0, Number(until) - elapsed)
+      }))
+      .filter((entry) => entry.remaining > 0)
+      .map((entry) => ({
+        cardInstanceId: entry.cardInstanceId,
+        remaining: Number(entry.remaining.toFixed(2))
+      }));
+  }
+
+  applyCooldownSnapshot(rows = []) {
+    const elapsed = this.cooldownClock;
+    const nextCooldowns = new Map();
+    rows.forEach((entry) => {
+      const remaining = Number(entry?.remaining);
+      if (typeof entry?.cardInstanceId !== 'string' || !Number.isFinite(remaining) || remaining <= 0) return;
+      const existingUntil = this.cardCooldownUntil.get(entry.cardInstanceId);
+      const existingRemaining = Number.isFinite(existingUntil) ? Math.max(0, existingUntil - elapsed) : null;
+      const keepLocalClock = existingRemaining != null && Math.abs(existingRemaining - remaining) <= 0.75;
+      nextCooldowns.set(entry.cardInstanceId, keepLocalClock ? existingUntil : elapsed + remaining);
+    });
+    this.cardCooldownUntil = nextCooldowns;
+    this.updateCardCooldownUi();
+    this.updateCardAffordability();
+  }
+
+  cardUiElements() {
+    return [
+      ...this.hand.querySelectorAll('.card'),
+      ...this.temporarySlot.querySelectorAll('.card')
+    ];
   }
 
   updateCardCooldownUi() {
     let needsRefresh = false;
-    document.querySelectorAll('#card-hand .card, #temporary-card-slot .card').forEach((element) => {
+    this.cardUiElements().forEach((element) => {
       const card = element.dataset.cardLocation === 'temporary'
         ? this.temporaryCards[Number(element.dataset.temporaryIndex)]
         : this.handCards[Number(element.dataset.handIndex)];
@@ -1589,7 +1642,7 @@ export class CardSystem {
       return;
     }
     const hasActiveCooldown = [...this.cardCooldownUntil.entries()].some(([, until]) => (
-      Number.isFinite(until) && (this.game.elapsedTime ?? 0) < until
+      Number.isFinite(until) && this.cooldownClock < until
     ));
     if (!hasActiveCooldown && this.cardCooldownUntil.size > 0) {
       this.cardCooldownUntil.clear();
@@ -1709,11 +1762,30 @@ export class CardSystem {
   }
 
   playFromNetworkPayload(payload) {
+    this.lastNetworkPlayRejectionReason = null;
     const card = this.findCardByInstanceId(payload.cardInstanceId);
-    if (!card) return false;
-    return this.game.withPlayerContext(this.playerSlot, () => (
-      this.playDraggedCard(this.buildDragFromNetworkPayload(card, payload))
-    ));
+    if (!card) {
+      this.lastNetworkPlayRejectionReason = 'card_not_owned_or_not_available';
+      return false;
+    }
+    if (this.isCardOnCooldown(card)) {
+      this.lastNetworkPlayRejectionReason = 'card_cooldown';
+      return false;
+    }
+    if (!this.canSpend(cardEnergyCost(card))) {
+      this.lastNetworkPlayRejectionReason = 'insufficient_energy';
+      return false;
+    }
+    const drag = this.buildDragFromNetworkPayload(card, payload);
+    if (card.target === 'ground' && !drag.point) {
+      this.lastNetworkPlayRejectionReason = 'invalid_target_point';
+      return false;
+    }
+    const applied = this.game.withPlayerContext(this.playerSlot, () => this.playDraggedCard(drag));
+    if (!applied && !this.lastNetworkPlayRejectionReason) {
+      this.lastNetworkPlayRejectionReason = 'card_effect_rejected';
+    }
+    return applied;
   }
 
   discardFromNetworkPayload(payload) {
@@ -2772,8 +2844,8 @@ function shuffleCards(cards) {
   return cards;
 }
 
-function createEnergyPanel(hand) {
-  const existing = document.querySelector('#energy-panel');
+function createEnergyPanel(hand, mountUi = true) {
+  const existing = mountUi ? document.querySelector('#energy-panel') : null;
   if (existing) return existing;
   const panel = document.createElement('section');
   panel.id = 'energy-panel';
@@ -2783,8 +2855,8 @@ function createEnergyPanel(hand) {
   return panel;
 }
 
-function createTemporaryCardSlot(anchor) {
-  const existing = document.querySelector('#temporary-card-slot');
+function createTemporaryCardSlot(anchor, mountUi = true) {
+  const existing = mountUi ? document.querySelector('#temporary-card-slot') : null;
   if (existing) return existing;
   const slot = document.createElement('section');
   slot.id = 'temporary-card-slot';
@@ -2842,8 +2914,8 @@ function collectEnergyPanel(panel) {
   };
 }
 
-function createGameHintPanel(anchor) {
-  const existing = document.querySelector('#game-hint-panel');
+function createGameHintPanel(anchor, mountUi = true) {
+  const existing = mountUi ? document.querySelector('#game-hint-panel') : null;
   if (existing) return existing;
   const panel = document.createElement('div');
   panel.id = 'game-hint-panel';
@@ -2923,9 +2995,9 @@ function createDeploymentDimPlane() {
   return plane;
 }
 
-function createPileUi() {
-  const existingRoot = document.querySelector('#card-pile-dock');
-  const existingViewer = document.querySelector('#pile-viewer');
+function createPileUi(mountUi = true) {
+  const existingRoot = mountUi ? document.querySelector('#card-pile-dock') : null;
+  const existingViewer = mountUi ? document.querySelector('#pile-viewer') : null;
   if (existingRoot && existingViewer) {
     return collectPileUi(existingRoot, existingViewer);
   }
@@ -2964,7 +3036,7 @@ function createPileUi() {
     </div>
   `;
 
-  document.body.append(root, viewer);
+  if (mountUi) document.body.append(root, viewer);
   return collectPileUi(root, viewer);
 }
 

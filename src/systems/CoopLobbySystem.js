@@ -1,4 +1,5 @@
 import { LEVEL_DEFINITIONS } from '../data/gameData.js';
+import { GAME_VERSION } from '../version.js';
 
 const DECK_SIZE = 36;
 
@@ -18,7 +19,9 @@ export class CoopLobbySystem {
       this.root.className = 'coop-lobby-root';
       document.querySelector('#app')?.appendChild(this.root);
     }
-    this.unsubscribe = controller.roomClient.onUpdate((state) => this.render(state));
+    // The controller is the single source of truth for lobby phase/ready state.
+    // Subscribing to raw relay room snapshots here would overwrite newer Host revisions.
+    this.unsubscribe = null;
     this.root.addEventListener('click', (event) => this.onClick(event));
     this.root.addEventListener('input', (event) => this.onInput(event));
   }
@@ -29,16 +32,17 @@ export class CoopLobbySystem {
   }
 
   show(notice = '') {
+    this.controller.prepareReconnectPrompt?.();
     if (notice) this.notice = notice;
     this.root.hidden = false;
     document.body.classList.add('is-coop-lobby-open');
-    this.render({ room: this.controller.roomClient.room });
+    this.render(this.controller.viewState?.() ?? { room: this.controller.roomClient.room });
   }
 
   setNotice(notice = '') {
     this.notice = notice;
     if (!this.root.hidden) {
-      this.render({ room: this.controller.roomClient.room });
+      this.render(this.controller.viewState?.() ?? { room: this.controller.roomClient.room });
     }
   }
 
@@ -76,30 +80,48 @@ export class CoopLobbySystem {
       return;
     }
     if (action === 'ready') {
-      const slot = this.controller.roomClient.playerSlot;
-      const currentlyReady = Boolean(this.controller.roomClient.room?.players?.[slot]?.ready);
+      const slot = this.controller.roomClient.playerId;
+      const currentlyReady = Boolean(this.controller.lobbyPlayers?.get?.(slot)?.ready);
       this.controller.toggleReady(!currentlyReady);
+      return;
+    }
+    if (action === 'reconnect-confirm') {
+      this.controller.confirmReconnect?.();
+      return;
+    }
+    if (action === 'reconnect-decline') {
+      this.controller.declineReconnect?.();
     }
   }
 
   render(state = {}) {
     const room = state.room ?? this.controller.roomClient.room;
-    const slot = this.controller.roomClient.playerSlot;
-    const isHost = slot === 'p1';
+    const slot = this.controller.roomClient.playerId;
+    const isHost = this.controller.roomClient.isHost;
     const level = this.selectedLevel?.() ?? LEVEL_DEFINITIONS[0];
     const difficulty = this.getSelectedDifficulty?.() ?? 1;
     const players = room?.players ?? {};
-    const p1 = players.p1;
-    const p2 = players.p2;
+    const playerRows = (room?.playerOrder ?? Object.keys(players))
+      .map((playerId) => players[playerId])
+      .filter(Boolean);
     const selfReady = Boolean(players?.[slot]?.ready);
-    const bothReady = Boolean(p1?.ready && p2?.ready && p2?.connected !== false);
+    const selfVersionVerified = players?.[slot]?.versionVerified === true;
+    const allReady = playerRows.length >= 2 && playerRows.every((player) => (
+      player.ready
+      && player.connected !== false
+      && player.versionVerified === true
+    ));
+    const reconnect = state.reconnect ?? (this.controller.pendingReconnectSession ? {
+      roomId: this.controller.pendingReconnectSession.roomId,
+      savedVersion: this.controller.pendingReconnectSession.gameVersion ?? null
+    } : null);
     this.root.innerHTML = `
       <main class="coop-lobby">
         <header class="coop-lobby-header">
           <button type="button" class="coop-lobby-back" data-coop-action="back">← 返回</button>
           <div>
             <h1>合作联机</h1>
-            <p>2 人共享营地 · 各自牌组/能量/银币 · 敌军 2.5x 血 / 1.3x 攻</p>
+            <p>多人 PvE · 共享营地 · 各自牌组/能量/银币 · Host 权威</p>
           </div>
         </header>
         ${this.notice ? `<p class="coop-lobby-notice">${escapeHtml(this.notice)}</p>` : ''}
@@ -112,16 +134,17 @@ export class CoopLobbySystem {
             <div class="coop-room-meta">
               <span>关卡 ${escapeHtml(level?.name ?? '')}</span>
               <span>难度 ${difficulty}</span>
+              <span>人数 ${playerRows.length}</span>
               <span>身份 ${isHost ? '房主 (Host)' : '队友'}</span>
             </div>
             <ul class="coop-player-list">
-              <li>${escapeHtml(p1?.name ?? '玩家 1')} · ${p1?.ready ? '已准备' : '未准备'} · ${p1?.connected === false ? '断线' : '在线'}</li>
-              <li>${p2 ? `${escapeHtml(p2.name)} · ${p2.ready ? '已准备' : '未准备'} · ${p2.connected === false ? '断线' : '在线'}` : '等待玩家 2 加入…'}</li>
+              ${playerRows.map((player) => `<li>${escapeHtml(player.name ?? '玩家')} · ${player.playerId === room.hostPlayerId ? 'Host · ' : ''}${player.ready ? '已准备' : '未准备'} · ${player.connected === false ? '断线' : '在线'} · ${player.versionVerified ? `v${escapeHtml(player.gameVersion)}` : '版本校验中'}</li>`).join('')}
+              ${playerRows.length < 2 ? '<li>等待其他玩家加入…</li>' : ''}
             </ul>
             <div class="coop-room-actions">
-              <button type="button" class="meta-menu-button" data-coop-action="ready">${selfReady ? '取消准备' : '准备'}</button>
+              <button type="button" class="meta-menu-button" data-coop-action="ready" ${selfVersionVerified ? '' : 'disabled'}>${selfReady ? '取消准备' : '准备'}</button>
             </div>
-            <p class="coop-lobby-hint">${bothReady ? '双方已准备，正在进入对局…' : '双方都点准备后将自动开始'}</p>
+            <p class="coop-lobby-hint">${!selfVersionVerified ? '正在与主机校验游戏版本…' : (allReady ? '全员已准备，Host 正在创建权威对局…' : `至少 2 人且全员准备后开始 · 当前阶段 ${escapeHtml(room.phase ?? 'LOBBY_EDITING')}`)}</p>
           </section>
         ` : `
           <section class="coop-lobby-entry">
@@ -135,8 +158,21 @@ export class CoopLobbySystem {
             <button type="button" class="meta-menu-button" data-coop-action="join">加入房间</button>
           </section>
         `}
-        <p class="coop-lobby-hint">需先选满 ${DECK_SIZE} 张出战牌。中继默认 ws://127.0.0.1:8787</p>
+        <p class="coop-lobby-hint">当前游戏版本 v${escapeHtml(GAME_VERSION)} · 需先选满 ${DECK_SIZE} 张出战牌。中继默认 ws://127.0.0.1:8787</p>
       </main>
+      ${reconnect ? `
+        <section class="coop-reconnect-backdrop" role="presentation">
+          <div class="coop-reconnect-dialog" role="dialog" aria-modal="true" aria-labelledby="coop-reconnect-title">
+            <h2 id="coop-reconnect-title">是否回连原房间？</h2>
+            <p>房间 <strong>${escapeHtml(reconnect.roomId)}</strong> 仍存在且 Host 在线。确认后会向 Host 请求当前场上状态。</p>
+            ${reconnect.savedVersion ? `<p class="coop-reconnect-version">断线版本 v${escapeHtml(reconnect.savedVersion)}</p>` : ''}
+            <div class="coop-reconnect-actions">
+              <button type="button" class="meta-menu-button" data-coop-action="reconnect-confirm">回连房间</button>
+              <button type="button" class="coop-reconnect-cancel" data-coop-action="reconnect-decline">不回连</button>
+            </div>
+          </div>
+        </section>
+      ` : ''}
     `;
   }
 }

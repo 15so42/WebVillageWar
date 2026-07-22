@@ -31,6 +31,7 @@ export class AttackSystem {
     this.pendingAttacks = [];
     this.activeAttackBySourceId = new Map();
     this.projectilePools = new Map();
+    this.nextProjectileNetworkId = 1;
     this.profile = null;
   }
 
@@ -524,10 +525,12 @@ export class AttackSystem {
 
     const pierce = override.projectilePierce ?? source.definition.projectilePierce;
     const projectile = {
+      networkId: `projectile:${this.nextProjectileNetworkId++}`,
       object: projectileObject,
       source,
       target,
       type: projectileType,
+      color: projectileColor,
       speed: override.projectileSpeed ?? this.game.modifiers.getProjectileSpeed(source),
       damage: (override.damage ?? this.game.modifiers.getAttackDamage(source)) * (isGreatWaterOrb ? 1.55 : 1),
       attackDamageType: override.attackDamageType ?? source.definition.attackDamageType,
@@ -560,6 +563,7 @@ export class AttackSystem {
     }
 
     this.projectiles.push(projectile);
+    this.game.networkBridge?.notifyProjectileSpawn?.(projectile);
     if (isGreatWaterOrb) {
       this.game.effects.spawnDamageNumber(source.position, 1, {
         text: '大水弹',
@@ -674,6 +678,7 @@ export class AttackSystem {
   removeProjectileAt(index) {
     const projectile = this.projectiles[index];
     if (!projectile) return;
+    this.game.networkBridge?.notifyProjectileDespawn?.(projectile.networkId);
     this.releaseProjectileObject(projectile.object);
     this.projectiles.splice(index, 1);
   }

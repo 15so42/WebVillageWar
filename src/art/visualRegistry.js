@@ -195,7 +195,8 @@ export function playUnitAnimation(unit, name, duration = getAnimationDuration(un
     name,
     duration,
     time: 0,
-    variant: options.variant ?? null
+    variant: options.variant ?? null,
+    networkStartTick: unit.game?.networkBridge?.authoritativeTick?.() ?? 0
   };
   unit.game?.networkBridge?.notifyPlayAnim?.(unit.id, name, duration);
 }

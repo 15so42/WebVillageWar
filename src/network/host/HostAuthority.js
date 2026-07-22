@@ -1,194 +1,332 @@
 import * as THREE from 'three';
-import { MSG } from '../protocol/messages.js';
-import { SYNC } from '../protocol/syncConfig.js';
+import { COMMAND, GAME_PROTOCOL_VERSION, MSG } from '../protocol/messages.js';
+import { CommandValidator } from './CommandValidator.js';
 import { SnapshotBuilder } from './SnapshotBuilder.js';
 
+const PRIVATE_STATE_COMMANDS = new Set([
+  COMMAND.PLAY_CARD,
+  COMMAND.DISCARD_CARD,
+  COMMAND.REWARD_CHOOSE,
+  COMMAND.REWARD_REROLL,
+  COMMAND.REWARD_SKIP,
+  COMMAND.SHOP_CATEGORY,
+  COMMAND.SHOP_CHOOSE,
+  COMMAND.SHOP_ENERGY,
+  COMMAND.SHOP_BACK,
+  COMMAND.SHOP_REWARD_SKIP
+]);
+
 export class HostAuthority {
-  constructor(game, { sendToSlot, sendToAll }) {
+  constructor(game, {
+    localPlayerId,
+    matchId,
+    phaseRevision = 0,
+    sendToPlayer
+  }) {
     this.game = game;
-    this.sendToSlot = sendToSlot;
-    this.sendToAll = sendToAll;
-    this.builder = new SnapshotBuilder(game);
+    this.localPlayerId = localPlayerId;
+    this.matchId = matchId;
+    this.phaseRevision = phaseRevision;
+    this.sendToPlayer = sendToPlayer;
+    this.builder = new SnapshotBuilder(game, { matchId });
+    this.validator = new CommandValidator(game, {
+      matchId,
+      getPhaseRevision: () => this.phaseRevision
+    });
     this.commandQueue = [];
-    this.privateTimer = 0;
     this.hostFrozen = false;
-    this.lastPrivateBySlot = new Map();
+    this.serverSeqByPlayer = new Map();
+    this.lastPrivateByPlayer = new Map();
+    this.dirtyPrivatePlayers = new Set();
+    this.commandResults = new Map();
+    this.transactionSeq = 1;
+    const localPrivateState = this.builder.buildPrivateState(this.localPlayerId);
+    if (localPrivateState) this.lastPrivateByPlayer.set(this.localPlayerId, localPrivateState);
   }
 
-  ingestCommand(command) {
-    this.commandQueue.push(command);
+  ingestCommand(command, sourcePlayerId) {
+    this.commandQueue.push({ command, sourcePlayerId });
+  }
+
+  setPhaseRevision(revision) {
+    if (Number.isFinite(Number(revision))) this.phaseRevision = Number(revision);
   }
 
   freezeHost(waiting) {
     this.hostFrozen = waiting;
-    this.sendToAll?.({
-      type: MSG.HOST_WAITING,
-      waiting
-    });
+    this.broadcast({ type: MSG.HOST_WAITING, waiting: Boolean(waiting) });
   }
 
   update(dt) {
     if (this.hostFrozen) return;
     while (this.commandQueue.length) {
-      const command = this.commandQueue.shift();
-      this.applyCommand(command);
+      const entry = this.commandQueue.shift();
+      this.applyCommand(entry.command, entry.sourcePlayerId);
     }
-    const outputs = this.builder.update(dt);
-    outputs.forEach((entry) => {
-      this.sendToAll?.({ type: entry.type, ...entry.payload });
+    this.builder.update(dt).forEach((entry) => {
+      if (entry.type === MSG.STATE_PATCH && entry.payload?.entityType === 'players_public') {
+        this.game.networkBridge?.updatePlayersPublic?.(entry.payload.changes?.players ?? []);
+      }
+      this.broadcast({
+        type: entry.type,
+        ...entry.payload
+      });
     });
-    this.privateTimer += dt;
-    if (this.privateTimer >= 1 / SYNC.privateHz) {
-      this.privateTimer = 0;
-      this.flushPrivateStates();
+    this.flushDirtyPrivateStates();
+  }
+
+  flushPrivateStates(force = false, onlyPlayerId = null) {
+    const playerIds = onlyPlayerId ? [onlyPlayerId] : this.playerIds();
+    playerIds.forEach((playerId) => {
+      const state = this.builder.buildPrivateState(playerId);
+      if (!state) return;
+      const previous = this.lastPrivateByPlayer.get(playerId);
+      const changes = force || !previous ? state : diffPrivateState(previous, state);
+      this.lastPrivateByPlayer.set(playerId, state);
+      this.dirtyPrivatePlayers.delete(playerId);
+      if (!force && previous && Object.keys(changes).length === 0) return;
+      this.send(playerId, {
+        type: MSG.UI_STATE,
+        state: force || !previous ? state : { playerId, ...changes }
+      });
+    });
+  }
+
+  markPrivateStateDirty(playerId = null) {
+    const playerIds = playerId ? [playerId] : this.playerIds();
+    playerIds.forEach((id) => this.dirtyPrivatePlayers.add(id));
+  }
+
+  flushDirtyPrivateStates() {
+    [...this.dirtyPrivatePlayers].forEach((playerId) => {
+      this.flushPrivateStates(false, playerId);
+    });
+  }
+
+  sendFullSnapshot(playerId) {
+    const nextSeq = (this.serverSeqByPlayer.get(playerId) ?? 0) + 1;
+    const snapshot = this.builder.buildFullSnapshot(playerId);
+    if (snapshot.privateState) {
+      snapshot.privateState.nextClientSeq = (this.validator.lastSeqByPlayer.get(playerId) ?? 0) + 1;
+    }
+    this.send(playerId, {
+      type: MSG.FULL_SNAPSHOT,
+      baseServerSeq: nextSeq,
+      ...snapshot
+    });
+    this.lastPrivateByPlayer.set(playerId, snapshot.privateState);
+    this.dirtyPrivatePlayers.delete(playerId);
+  }
+
+  emitEvent(event, { toPlayerId = null } = {}) {
+    const payload = {
+      type: MSG.EVENT,
+      eventId: `${this.matchId}:event:${this.transactionSeq++}`,
+      ...event
+    };
+    if (toPlayerId) this.send(toPlayerId, payload);
+    else this.broadcast(payload);
+  }
+
+  emitCombatTransaction(result, cause = {}) {
+    this.broadcast({
+      type: MSG.TRANSACTION,
+      transactionId: `${this.matchId}:combat:${this.transactionSeq++}`,
+      cause,
+      results: [result]
+    });
+  }
+
+  applyCommand(command, sourcePlayerId) {
+    const cacheKey = `${sourcePlayerId}:${command?.commandId}`;
+    const cached = this.commandResults.get(cacheKey);
+    if (cached) {
+      this.send(sourcePlayerId, cached);
+      return;
+    }
+    const validation = this.validator.validate(command, sourcePlayerId);
+    if (!validation.ok) {
+      const rejection = {
+        type: MSG.COMMAND_REJECTED,
+        commandId: command?.commandId,
+        reasonCode: validation.reasonCode,
+        authoritativeRevision: this.phaseRevision
+      };
+      this.commandResults.set(cacheKey, rejection);
+      this.send(sourcePlayerId, rejection);
+      if (sourcePlayerId === this.localPlayerId) {
+        this.game.cardSystem?.setHint?.(`操作未执行：${validation.reasonCode}`, 'network-command');
+      }
+      return;
+    }
+    const normalized = { ...command, payload: validation.payload };
+    let applied = false;
+    this.game.networkApplyingCommand = true;
+    try {
+      applied = this.executeCommand(normalized, sourcePlayerId) !== false;
+    } finally {
+      this.game.networkApplyingCommand = false;
+    }
+    if (!applied) {
+      const rejection = {
+        type: MSG.COMMAND_REJECTED,
+        commandId: command.commandId,
+        reasonCode: this.commandRejectionReason(command, sourcePlayerId),
+        authoritativeRevision: this.phaseRevision
+      };
+      this.commandResults.set(cacheKey, rejection);
+      this.send(sourcePlayerId, rejection);
+      return;
+    }
+    const transaction = {
+      type: MSG.TRANSACTION,
+      transactionId: `${this.matchId}:command:${this.transactionSeq++}`,
+      commandId: command.commandId,
+      cause: { kind: 'command', name: command.name, playerId: sourcePlayerId },
+      results: [{ kind: 'command_applied', name: command.name, playerId: sourcePlayerId }]
+    };
+    this.commandResults.set(cacheKey, transaction);
+    this.broadcast(transaction);
+    if (PRIVATE_STATE_COMMANDS.has(command.name)) {
+      this.markPrivateStateDirty(sourcePlayerId);
+      this.flushDirtyPrivateStates();
     }
   }
 
-  flushPrivateStates(force = false) {
-    ['p1', 'p2'].forEach((slot) => {
-      const payload = this.builder.buildPrivateState(slot);
-      if (!payload) return;
-      const signature = JSON.stringify(payload);
-      if (!force && this.lastPrivateBySlot.get(slot) === signature) return;
-      this.lastPrivateBySlot.set(slot, signature);
-      this.sendToSlot?.(slot, { type: MSG.PRIVATE_STATE, ...payload });
-    });
-  }
-
-  sendFullSnapshot(slot, sinceTick = 0) {
-    const full = this.builder.buildFullSnapshot();
-    this.sendToSlot?.(slot, { type: MSG.FULL_SNAPSHOT, ...full });
-    this.sendToSlot?.(slot, {
-      type: MSG.EVENT_CATCHUP,
-      events: this.builder.eventsSince(sinceTick)
-    });
-    this.flushPrivateStates(true);
-  }
-
-  emitEvent(event) {
-    const entry = this.builder.pushEvent(event);
-    this.sendToAll?.({ type: MSG.EVENT, ...entry });
-  }
-
-  applyCommand(command) {
-    const slot = command.playerSlot ?? 'p2';
+  executeCommand(command, playerId) {
+    const payload = command.payload ?? {};
     switch (command.name) {
-      case 'select_units':
-        this.applySelectUnits(slot, command.payload);
-        break;
-      case 'issue_move':
-        this.applyIssueMove(slot, command.payload);
-        break;
-      case 'issue_stop':
-        this.applyIssueStop(slot);
-        break;
-      case 'play_card':
-        this.applyPlayCard(slot, command.payload);
-        break;
-      case 'discard_card':
-        this.applyDiscardCard(slot, command.payload);
-        break;
-      case 'strategy_choose':
-        this.game.applyNetworkStrategyChoice(slot, command.payload?.index);
-        this.flushPrivateStates(true);
-        break;
-      case 'strategy_reroll':
-        this.game.applyNetworkStrategyReroll(slot);
-        this.flushPrivateStates(true);
-        break;
-      case 'strategy_skip':
-        this.game.applyNetworkStrategySkip(slot);
-        this.flushPrivateStates(true);
-        break;
-      case 'shop_category':
-        this.game.applyNetworkShopCategory(slot, command.payload?.category);
-        this.flushPrivateStates(true);
-        break;
-      case 'shop_choice':
-        this.game.applyNetworkShopChoice(slot, command.payload?.index);
-        this.flushPrivateStates(true);
-        break;
-      case 'shop_energy':
-        this.game.applyNetworkShopEnergy(slot);
-        this.flushPrivateStates(true);
-        break;
-      case 'shop_back':
-        this.game.applyNetworkShopBack(slot);
-        this.flushPrivateStates(true);
-        break;
-      case 'shop_close':
-        this.game.applyNetworkShopClose(slot, command.payload ?? {});
-        this.flushPrivateStates(true);
-        break;
+      case COMMAND.ISSUE_MOVE:
+        return this.applyIssueMove(playerId, payload);
+      case COMMAND.ISSUE_STOP:
+        return this.withCommandUnits(playerId, payload.unitIds, () => this.game.stopSelectedUnits());
+      case COMMAND.ISSUE_GUARD:
+        return this.withCommandUnits(playerId, payload.unitIds, () => this.game.guardSelectedUnits());
+      case COMMAND.SELECTION_SET:
+        return this.applySelectionSet(playerId, payload);
+      case COMMAND.PLAY_CARD:
+        return this.applyPlayCard(playerId, payload);
+      case COMMAND.DISCARD_CARD:
+        return this.applyDiscardCard(playerId, payload);
+      case COMMAND.REWARD_CHOOSE:
+        return this.game.applyNetworkStrategyChoice(playerId, payload.choiceIndex);
+      case COMMAND.REWARD_REROLL:
+        return this.game.applyNetworkStrategyReroll(playerId);
+      case COMMAND.REWARD_SKIP:
+        return this.game.applyNetworkStrategySkip(playerId);
+      case COMMAND.SHOP_CATEGORY:
+        return this.game.applyNetworkShopCategory(playerId, payload.category);
+      case COMMAND.SHOP_CHOOSE:
+        return this.game.applyNetworkShopChoice(playerId, payload.choiceIndex);
+      case COMMAND.SHOP_ENERGY:
+        return this.game.applyNetworkShopEnergy(playerId);
+      case COMMAND.SHOP_BACK:
+        return this.game.applyNetworkShopBack(playerId);
+      case COMMAND.SHOP_REWARD_SKIP:
+        return this.game.applyNetworkShopRewardSkip(playerId);
       default:
-        break;
+        return false;
     }
   }
 
-  applySelectUnits(slot, payload) {
-    const game = this.game;
-    const run = game.players?.[slot];
-    if (!run) return;
-    const ids = new Set(payload?.unitIds ?? []);
-    const units = game.friendlyUnits.filter((unit) => (
-      unit.alive &&
-      unit.ownerPlayerId === slot &&
-      ids.has(unit.id)
-    ));
-    run.selectedUnits = units;
-    run.selectedUnitIds = new Set(units.map((unit) => unit.id));
-    run.selectedUnit = units[0] ?? null;
-    run.selectionMode = units.length ? (payload?.mode ?? 'direct') : 'none';
-    if (slot !== game.localPlayerSlot) return;
-    game.selectedUnits = units;
-    game.selectedUnitIds = new Set(run.selectedUnitIds);
-    game.selectedUnit = run.selectedUnit;
-    game.selectionMode = run.selectionMode;
-    units.forEach((unit) => {
-      unit.statusUiDirty = true;
+  applyIssueMove(playerId, payload) {
+    return this.withCommandUnits(playerId, payload.unitIds, () => {
+      const point = new THREE.Vector3(payload.point[0], payload.point[1] ?? 0, payload.point[2]);
+      return this.game.commandSelectedUnitsToPoint(point);
     });
   }
 
-  applyIssueMove(slot, payload) {
-    const game = this.game;
-    const run = game.players?.[slot];
-    if (!run || !payload?.point) return;
-    const previousSelection = game.selectedUnits;
-    game.selectUnits(run.selectedUnits, { mode: run.selectionMode });
-    const target = new THREE.Vector3(payload.point[0], 0, payload.point[2]);
-    const moved = game.commandSelectedUnitsToPoint(target);
-    if (slot !== game.localPlayerSlot) {
-      game.selectUnits(previousSelection, { mode: game.selectionMode });
+  applySelectionSet(playerId, payload) {
+    const selectedUnitIds = new Set(payload.unitIds ?? []);
+    this.game.friendlyUnits.forEach((unit) => {
+      if ((unit.controllerPlayerId ?? unit.ownerPlayerId) !== playerId) return;
+      this.game.applyUnitSelectionState?.(
+        unit,
+        selectedUnitIds.has(unit.id),
+        selectedUnitIds.has(unit.id) ? playerId : null
+      );
+    });
+    return true;
+  }
+
+  withCommandUnits(playerId, unitIds, callback) {
+    const requested = new Set(unitIds ?? []);
+    const units = this.game.friendlyUnits.filter((unit) => (
+      unit?.alive
+      && requested.has(unit.id)
+      && (unit.controllerPlayerId ?? unit.ownerPlayerId) === playerId
+    ));
+    if (!units.length || units.length !== requested.size) return false;
+    const previous = {
+      units: this.game.selectedUnits,
+      ids: this.game.selectedUnitIds,
+      unit: this.game.selectedUnit,
+      mode: this.game.selectionMode
+    };
+    this.game.selectedUnits = units;
+    this.game.selectedUnitIds = new Set(units.map((unit) => unit.id));
+    this.game.selectedUnit = units[0] ?? null;
+    this.game.selectionMode = units.length > 1 ? 'box' : 'direct';
+    try {
+      const result = callback();
+      return result !== false;
+    } finally {
+      this.game.selectedUnits = previous.units;
+      this.game.selectedUnitIds = previous.ids;
+      this.game.selectedUnit = previous.unit;
+      this.game.selectionMode = previous.mode;
     }
   }
 
-  applyIssueStop(slot) {
-    const game = this.game;
-    const run = game.players?.[slot];
-    if (!run) return;
-    const previousSelection = game.selectedUnits;
-    game.selectUnits(run.selectedUnits, { mode: run.selectionMode });
-    game.stopSelectedUnits();
-    if (slot !== game.localPlayerSlot) {
-      game.selectUnits(previousSelection, { mode: game.selectionMode });
-    }
+  applyPlayCard(playerId, payload) {
+    const cards = this.game.cardSystems?.[playerId]
+      ?? (playerId === this.localPlayerId ? this.game.cardSystem : null);
+    return Boolean(cards?.playFromNetworkPayload?.(payload));
   }
 
-  applyPlayCard(slot, payload) {
-    const cards = this.game.cardSystems?.[slot];
-    if (!cards || !payload?.cardInstanceId) return;
-    const played = cards.playFromNetworkPayload(payload);
-    if (played) {
-      this.flushPrivateStates(true);
-    }
+  applyDiscardCard(playerId, payload) {
+    const cards = this.game.cardSystems?.[playerId]
+      ?? (playerId === this.localPlayerId ? this.game.cardSystem : null);
+    return Boolean(cards?.discardFromNetworkPayload?.(payload));
   }
 
-  applyDiscardCard(slot, payload) {
-    const cards = this.game.cardSystems?.[slot];
-    if (!cards || !payload?.cardInstanceId) return;
-    const discarded = cards.discardFromNetworkPayload(payload);
-    if (discarded) {
-      this.flushPrivateStates(true);
-    }
+  commandRejectionReason(command, playerId) {
+    if (command?.name !== COMMAND.PLAY_CARD) return 'game_rule_rejected';
+    const cards = this.game.cardSystems?.[playerId]
+      ?? (playerId === this.localPlayerId ? this.game.cardSystem : null);
+    return cards?.lastNetworkPlayRejectionReason ?? 'game_rule_rejected';
   }
+
+  send(playerId, payload) {
+    if (!playerId) return false;
+    const serverSeq = (this.serverSeqByPlayer.get(playerId) ?? 0) + 1;
+    this.serverSeqByPlayer.set(playerId, serverSeq);
+    const message = {
+      ...payload,
+      gameProtocolVersion: GAME_PROTOCOL_VERSION,
+      matchId: this.matchId,
+      serverSeq,
+      serverTick: this.builder.tick
+    };
+    if (playerId === this.localPlayerId) return true;
+    return this.sendToPlayer?.(playerId, message) ?? false;
+  }
+
+  broadcast(payload) {
+    this.playerIds().forEach((playerId) => this.send(playerId, payload));
+  }
+
+  playerIds() {
+    return Object.keys(this.game.players ?? {});
+  }
+}
+
+function diffPrivateState(previous, current) {
+  const changes = {};
+  Object.keys(current).forEach((key) => {
+    if (key === 'playerId') return;
+    if (JSON.stringify(previous?.[key]) === JSON.stringify(current[key])) return;
+    changes[key] = current[key];
+  });
+  return changes;
 }

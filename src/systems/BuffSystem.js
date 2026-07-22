@@ -21,7 +21,7 @@ export class BuffSystem {
       ...overrides,
       source
     });
-    if (buff && (buffId === 'swarmPack' || buffId === 'wolfInstinct')) {
+    if (buff && buffId === 'swarmPack') {
       this.refreshDynamicAttackBuff(target, buff);
     }
     return buff;
@@ -731,20 +731,12 @@ export class BuffSystem {
       return;
     }
 
-    if (effect.op === 'refreshForceAdvantageAttack') {
-      if (!context.target?.alive || !context.buff) return;
-      this.refreshDynamicAttackBuff(context.target, context.buff, effect);
-    }
   }
 
   refreshDynamicAttackBuff(unit, buff, effectOverride = null) {
     if (!unit?.alive || !buff) return;
     if (buff.id === 'swarmPack') {
       this.refreshSwarmPackAttack(unit, buff, effectOverride);
-      return;
-    }
-    if (buff.id === 'wolfInstinct') {
-      this.refreshWolfInstinctAttack(unit, buff, effectOverride);
     }
   }
 
@@ -773,34 +765,6 @@ export class BuffSystem {
     }
     buff.nearbyAllyCount = nearbyCount;
     buff.nearbyAttackBonus = bonus;
-    unit.statusUiDirty = true;
-  }
-
-  refreshWolfInstinctAttack(unit, buff, effectOverride = null) {
-    if (!unit?.alive || !buff || buff.id !== 'wolfInstinct') return;
-    const effect = effectOverride ?? findBuffEffect(buff, 'refreshForceAdvantageAttack');
-    if (!effect) return;
-    const level = Math.max(1, Math.floor(buff.level ?? 1));
-    const amountPerAdvantagePerLevel = Math.max(
-      0,
-      resolveEffectNumber(effect, 'amountPerAdvantagePerLevel', { buff }, effect.amountPerAdvantagePerLevel ?? 1)
-    );
-    const { friendlyCount, enemyCount } = countFieldCombatUnits(this.game);
-    const advantage = Math.max(0, friendlyCount - enemyCount);
-    const bonus = advantage * amountPerAdvantagePerLevel * level;
-    const source = `${buffModifierSource(buff.id)}:advantage`;
-    unit.attributes.removeModifiersBySource(source);
-    if (bonus > 0) {
-      unit.attributes.addModifiers([
-        {
-          stat: 'attackDamage',
-          type: 'add',
-          amount: bonus
-        }
-      ], source, { level, buff, owner: unit });
-    }
-    buff.forceAdvantage = advantage;
-    buff.forceAttackBonus = bonus;
     unit.statusUiDirty = true;
   }
 
@@ -960,22 +924,4 @@ function findSwarmPackEffect(buff) {
 
 function findBuffEffect(buff, op) {
   return (buff?.effects ?? []).find((effect) => effect.op === op) ?? null;
-}
-
-function countFieldCombatUnits(game) {
-  let friendlyCount = 0;
-  let enemyCount = 0;
-  const friendlies = game?.friendlyUnits ?? [];
-  for (let i = 0; i < friendlies.length; i += 1) {
-    const unit = friendlies[i];
-    if (!unit?.alive || unit.underConstruction) continue;
-    friendlyCount += 1;
-  }
-  const enemies = game?.enemyUnits ?? [];
-  for (let i = 0; i < enemies.length; i += 1) {
-    const unit = enemies[i];
-    if (!unit?.alive || unit.underConstruction) continue;
-    enemyCount += 1;
-  }
-  return { friendlyCount, enemyCount };
 }

@@ -28,7 +28,7 @@ export function applyNetworkFx(game, event) {
       );
       break;
     case 'fx_move':
-      effects.spawnMoveDestination(vecFrom(event), event.radius ?? 1.2);
+      effects.spawnMoveDestination(vecFrom(event), event.radius ?? 1.2, event.color ?? '#62d56f');
       break;
     case 'fx_hit':
       effects.spawnHit(vecFrom(event), event.color ?? '#f6e7a0');
@@ -38,7 +38,13 @@ export function applyNetworkFx(game, event) {
         damageType: event.damageType,
         text: event.text,
         color: event.color,
-        height: event.height
+        stroke: event.stroke,
+        height: event.height,
+        duration: event.duration,
+        fontSize: event.fontSize,
+        strokeWidth: event.strokeWidth,
+        baseHeight: event.baseHeight,
+        fadeStart: event.fadeStart
       });
       break;
     case 'fx_heal':
@@ -71,14 +77,16 @@ export function applyNetworkFx(game, event) {
       effects.spawnEnemyCampBlast(vecFrom(event.start), vecFrom(event.end), event.options ?? {});
       break;
     case 'fx_meteor':
-      effects.spawnMeteor(vecFrom(event), event.radius ?? 2.4, () => {
-        effects.spawnCrater(vecFrom(event), event.radius ?? 2.4);
-      });
+      effects.spawnMeteor(vecFrom(event), event.radius ?? 2.4, () => {});
       break;
     case 'fx_falling_star':
-      effects.spawnFallingStar(vecFrom(event), event.radius ?? 2.1, () => {
-        effects.spawnCrater(vecFrom(event), event.radius ?? 1.8);
-      });
+      effects.spawnFallingStar(vecFrom(event), event.radius ?? 2.1, () => {});
+      break;
+    case 'fx_crater':
+      effects.spawnCrater(vecFrom(event), event.radius ?? 2.4);
+      break;
+    case 'fx_area_effect':
+      effects.spawnNetworkAreaEffect(event);
       break;
   }
 }
@@ -98,10 +106,11 @@ const EFFECT_RELAY_SPECS = [
   {
     method: 'spawnMoveDestination',
     name: 'fx_move',
-    serialize: ([position, radius]) => ({
+    serialize: ([position, radius, color]) => ({
       name: 'fx_move',
       ...vec3(position),
-      radius
+      radius,
+      color
     })
   },
   {
@@ -123,18 +132,13 @@ const EFFECT_RELAY_SPECS = [
       damageType: options.damageType,
       text: options.text,
       color: options.color,
-      height: options.height
-    })
-  },
-  {
-    method: 'spawnHealNumber',
-    name: 'fx_heal',
-    serialize: ([position, amount, options = {}]) => ({
-      name: 'fx_heal',
-      ...vec3(position),
-      amount,
-      color: options.color,
-      text: options.text
+      stroke: options.stroke,
+      height: options.height,
+      duration: options.duration,
+      fontSize: options.fontSize,
+      strokeWidth: options.strokeWidth,
+      baseHeight: options.baseHeight,
+      fadeStart: options.fadeStart
     })
   },
   {
@@ -154,16 +158,6 @@ const EFFECT_RELAY_SPECS = [
       start: vec3(start),
       end: vec3(end),
       color,
-      options
-    })
-  },
-  {
-    method: 'spawnEnergyNumber',
-    name: 'fx_energy',
-    serialize: ([position, amount, options = {}]) => ({
-      name: 'fx_energy',
-      ...vec3(position),
-      amount,
       options
     })
   },
@@ -210,6 +204,15 @@ const EFFECT_RELAY_SPECS = [
     name: 'fx_falling_star',
     serialize: ([position, radius]) => ({
       name: 'fx_falling_star',
+      ...vec3(position),
+      radius
+    })
+  },
+  {
+    method: 'spawnCrater',
+    name: 'fx_crater',
+    serialize: ([position, radius]) => ({
+      name: 'fx_crater',
       ...vec3(position),
       radius
     })

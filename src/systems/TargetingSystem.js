@@ -76,12 +76,6 @@ export class TargetingSystem {
   }
 
   targetForUnit(unit, dt, profile = null) {
-    if (unit.team === TEAMS.ENEMY && unit.commanderMarching && unit.moveGoal) {
-      if (distance2D(unit.position, unit.moveGoal) > 2.4) {
-        return null;
-      }
-      unit.commanderMarching = false;
-    }
     unit.targetSearchTimer = Math.max(0, (unit.targetSearchTimer ?? targetSearchDelay(unit, 0, TARGET_RESCAN_JITTER)) - dt);
     let current = unit.target?.alive !== false ? unit.target : null;
     if (current && !this.isCurrentTargetValid(unit, current)) {
@@ -317,9 +311,6 @@ function targetPriorityScore(source, candidate, distance) {
   const healthRatio = candidate.health / Math.max(1, candidate.maxHealth);
   if (healthRatio <= (priority.woundedHealthRatio ?? 0)) {
     score += priority.woundedWeight ?? 0;
-  }
-  if (source?.enemySquadFocusId && String(candidate.id) === String(source.enemySquadFocusId)) {
-    score += 3.6;
   }
   return score;
 }

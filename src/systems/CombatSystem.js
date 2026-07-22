@@ -10,6 +10,8 @@ import {
 
 const scratch = new THREE.Vector3();
 const NAV_DISTANCE_CACHE_LIMIT = 2048;
+const BACKSTAB_WINDOW_SECONDS = 3;
+const BACKSTAB_DAMAGE_MULTIPLIER = 1.5;
 
 export class CombatSystem {
   constructor(game) {
@@ -90,8 +92,24 @@ export class CombatSystem {
     const finalDamage = Math.max(0, damageContext.damage);
     const isTrueDamage = damageContext.damageTypes.has('true');
     const isDirectHealthDamage = damageContext.damageTypes.has('directHealth');
+    const healthBefore = target.health;
+    const shieldBefore = target.shield ?? 0;
     target.takeRawDamage(finalDamage, {
       bypassShield: isTrueDamage || isDirectHealthDamage
+    });
+    this.game.networkBridge?.notifyCombatResult?.({
+      kind: 'damage_applied',
+      targetId: target.id,
+      damageType: damageNumberType(damageContext, isTrueDamage),
+      requestedAmount: amount,
+      healthBefore,
+      healthAfter: target.health,
+      shieldBefore,
+      shieldAfter: target.shield ?? 0,
+      targetRevisionAfter: (this.game.networkBridge?.host?.builder?.entityRevisions?.get?.(target.id) ?? 0) + 1
+    }, {
+      kind: damageContext.isAttack ? 'attack' : 'effect',
+      sourceUnitId: source?.id ?? null
     });
     this.game.effects.spawnDamageNumber(target.position, finalDamage, {
       damageType: damageNumberType(damageContext, isTrueDamage),
@@ -107,7 +125,7 @@ export class CombatSystem {
     if (source && finalKnockback > 0 && !isStaticUnit(target)) {
       if (source.team === TEAMS.PLAYER && target.team === TEAMS.ENEMY) {
         target.recentPlayerKnockback = true;
-        target.recentPlayerKnockbackOwner = source.ownerPlayerId ?? null;
+        target.recentPlayerKnockbackOwner = source.controllerPlayerId ?? source.ownerPlayerId ?? null;
         target.knockbackSessionDistance = 0;
       }
       const dir = direction2D(source.position, target.position);
@@ -140,6 +158,7 @@ export class CombatSystem {
     ) {
       target.lastAttacker = source;
       target.lastAttackerTime = this.game.elapsedTime ?? 0;
+      recordRecentDamageSource(target, source, this.game.elapsedTime ?? 0);
     }
     if (target.alive === false) {
       this.game.handleUnitDeath?.(target, source);
@@ -219,8 +238,12 @@ export class CombatSystem {
       )).length;
       context.damage += Math.min(4, count);
     }
-    if (hasRuntimeTrait(source, 'backstab') && isTargetEngagedByOtherAlly(this.game, source, target)) {
-      context.damage *= 1.35;
+    if (hasRuntimeTrait(source, 'backstab') && wasRecentlyDamagedByOtherUnit(
+      target,
+      source,
+      this.game.elapsedTime ?? 0
+    )) {
+      context.damage *= BACKSTAB_DAMAGE_MULTIPLIER;
     }
   }
 
@@ -286,6 +309,7 @@ export class CombatSystem {
           damageNumberDuration: 0.66
         });
       });
+      this.game.effects.spawnRing(point, '#ffe08a', radius, 0.58);
     });
   }
 
@@ -392,12 +416,30 @@ function hasRuntimeTrait(unit, trait) {
   return unit?.runtimeTraits?.has?.(trait) === true;
 }
 
-function isTargetEngagedByOtherAlly(game, source, target) {
-  const allies = source.team === 'player' ? game.friendlyUnits : game.enemyUnits;
-  return allies.some((unit) => (
-    unit.alive &&
-    unit !== source &&
-    unit.target === target &&
-    distance2D(unit.position, target.position) <= 2.2
-  ));
+function recordRecentDamageSource(target, source, now) {
+  if (!target || !source) return;
+  const sourceKey = source.id ?? source;
+  const recentSources = target.recentDamageSourceTimes instanceof Map
+    ? target.recentDamageSourceTimes
+    : new Map();
+  recentSources.forEach((damagedAt, key) => {
+    if (now - damagedAt > BACKSTAB_WINDOW_SECONDS) recentSources.delete(key);
+  });
+  recentSources.set(sourceKey, now);
+  target.recentDamageSourceTimes = recentSources;
+}
+
+function wasRecentlyDamagedByOtherUnit(target, source, now) {
+  const recentSources = target?.recentDamageSourceTimes;
+  if (!(recentSources instanceof Map)) return false;
+  const sourceKey = source?.id ?? source;
+  let foundOtherSource = false;
+  recentSources.forEach((damagedAt, key) => {
+    if (now - damagedAt > BACKSTAB_WINDOW_SECONDS) {
+      recentSources.delete(key);
+      return;
+    }
+    if (key !== sourceKey) foundOtherSource = true;
+  });
+  return foundOtherSource;
 }

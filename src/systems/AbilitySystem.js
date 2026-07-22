@@ -37,7 +37,7 @@ export class AbilitySystem {
       if (!unit?.alive || unit.team !== TEAMS.PLAYER) return false;
       if (!includeBuildings && unit.isBuilding) return false;
       if (!this.game.coop?.enabled) return true;
-      return !unit.ownerPlayerId || unit.ownerPlayerId === this.playerSlot;
+      return (unit.controllerPlayerId ?? unit.ownerPlayerId) === this.playerSlot;
     });
   }
 
@@ -77,6 +77,7 @@ export class AbilitySystem {
       });
     }
     this.updateUi();
+    this.game.networkBridge?.markPrivateStateDirty?.(this.playerSlot);
     return true;
   }
 
@@ -103,7 +104,8 @@ export class AbilitySystem {
 
   onFriendlyUnitSummoned(unit, sourceCard = null) {
     void sourceCard;
-    if (this.game.coop?.enabled && unit?.ownerPlayerId && unit.ownerPlayerId !== this.playerSlot) {
+    if (this.game.coop?.enabled
+      && (unit?.controllerPlayerId ?? unit?.ownerPlayerId) !== this.playerSlot) {
       return;
     }
     this.applySummonEndurance(unit);
@@ -127,7 +129,8 @@ export class AbilitySystem {
 
   onFriendlyUnitDeath(unit) {
     if (!unit?.position || unit.isBuilding) return;
-    if (this.game.coop?.enabled && unit.ownerPlayerId && unit.ownerPlayerId !== this.playerSlot) {
+    if (this.game.coop?.enabled
+      && (unit.controllerPlayerId ?? unit.ownerPlayerId) !== this.playerSlot) {
       return;
     }
     const stacks = this.getStacks('martyrdomLine');
@@ -393,6 +396,7 @@ export class AbilitySystem {
     });
     if (changed) {
       this.updateUi();
+      this.game.networkBridge?.markPrivateStateDirty?.(this.playerSlot);
     }
   }
 }

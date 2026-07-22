@@ -4,44 +4,41 @@ const DEFAULT_SHOP_CATEGORIES = ['upgrade', 'enchant', 'tactic', 'building', 'en
 
 function createInitialShopPrices() {
   const basePrice = Number(BALANCE.runCurrency?.shop?.basePrice ?? 8);
-  const prices = {};
-  DEFAULT_SHOP_CATEGORIES.forEach((key) => {
-    prices[key] = basePrice;
-  });
-  return prices;
+  return Object.fromEntries(DEFAULT_SHOP_CATEGORIES.map((key) => [key, basePrice]));
 }
 
-export function createPlayerRunState(slot, deck = []) {
+export function createPlayerRunState(playerId, deck = [], descriptor = {}) {
   return {
-    slot,
+    playerId,
+    // Compatibility alias for gameplay systems; the value is still a stable playerId.
+    slot: playerId,
+    factionId: descriptor.factionId ?? `faction:${playerId}`,
+    teamId: descriptor.teamId ?? 'players',
+    connected: descriptor.connected !== false,
+    flowState: descriptor.flowState ?? 'playing',
+    runCardsPlayedCount: 0,
     deck: Array.isArray(deck) ? deck : [],
     silver: Math.max(0, Number(BALANCE.runCurrency?.starting ?? 0)),
+    pendingRewards: new Map(),
     pendingStrategyRewards: [],
     strategyRewardRerollCount: 0,
     teamGenericUpgradeCounts: new Map(),
     teamSpecialUpgrades: new Map(),
     teamSupportModifiersApplied: new Set(),
-    runShopOpen: false,
-    runShopCausedPause: false,
     runShopPendingOffers: {},
     runShopActiveCategory: null,
     runShopChoices: [],
     runShopFreeReward: false,
     shopPrices: createInitialShopPrices(),
-    strategyEvent: null,
-    selectedUnits: [],
-    selectedUnitIds: new Set(),
-    selectedUnit: null,
-    selectionMode: 'none',
-    connected: true
+    shopState: null,
+    strategyEvent: null
   };
 }
 
-export function getPlayerRunState(game, slot) {
-  return game?.players?.[slot] ?? null;
+export function getPlayerRunState(game, playerId) {
+  return game?.players?.[playerId] ?? null;
 }
 
 export function localPlayerRunState(game) {
-  const slot = game?.localPlayerSlot ?? 'p1';
-  return getPlayerRunState(game, slot);
+  return getPlayerRunState(game, game?.localPlayerId ?? game?.localPlayerSlot);
 }

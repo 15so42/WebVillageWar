@@ -6198,11 +6198,11 @@ export function createAltarModel(definition = {}) {
   return enableShadows(group);
 }
 
-export function createSelectionRing() {
+export function createSelectionRing(color = '#62d56f') {
   const group = new THREE.Group();
   const glow = new THREE.Mesh(
     new THREE.RingGeometry(0.5, 0.92, 48),
-    basicMat('#6ef0c4', {
+    basicMat(color, {
       transparent: true,
       opacity: 0.24,
       side: THREE.DoubleSide,
@@ -6212,7 +6212,7 @@ export function createSelectionRing() {
   );
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(0.66, 0.78, 48),
-    basicMat('#fff2a8', {
+    basicMat(color, {
       transparent: true,
       opacity: 0.96,
       side: THREE.DoubleSide,
@@ -6229,10 +6229,11 @@ export function createSelectionRing() {
   group.visible = false;
   group.userData.glow = glow;
   group.userData.ring = ring;
+  group.userData.colorMeshes = [glow, ring];
   return group;
 }
 
-export function createGuardFlag() {
+export function createGuardFlag(color = '#62d56f') {
   const group = new THREE.Group();
   const pole = new THREE.Mesh(
     new THREE.CylinderGeometry(0.018, 0.018, 0.58, 6),
@@ -6256,7 +6257,7 @@ export function createGuardFlag() {
   flagGeometry.computeVertexNormals();
   const flag = new THREE.Mesh(
     flagGeometry,
-    basicMat('#78e3ff', {
+    basicMat(color, {
       transparent: true,
       opacity: 0.92,
       side: THREE.DoubleSide,
@@ -6267,14 +6268,15 @@ export function createGuardFlag() {
   flag.renderOrder = 2101;
   group.add(pole, flag);
   group.visible = false;
+  group.userData.colorMeshes = [flag];
   return group;
 }
 
-export function createAttackRangeRing() {
+export function createAttackRangeRing(color = '#62d56f') {
   const group = new THREE.Group();
   const glow = new THREE.Mesh(
     new THREE.RingGeometry(0.96, 1, 80),
-    basicMat('#78e3ff', {
+    basicMat(color, {
       transparent: true,
       opacity: 0.2,
       side: THREE.DoubleSide,
@@ -6284,7 +6286,7 @@ export function createAttackRangeRing() {
   );
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(0.985, 1, 80),
-    basicMat('#fff2a8', {
+    basicMat(color, {
       transparent: true,
       opacity: 0.74,
       side: THREE.DoubleSide,
@@ -6300,6 +6302,7 @@ export function createAttackRangeRing() {
   group.visible = false;
   group.userData.glow = glow;
   group.userData.ring = ring;
+  group.userData.colorMeshes = [glow, ring];
   return group;
 }
 

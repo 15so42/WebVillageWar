@@ -1,20 +1,27 @@
-/** 联机同步频率与量化精度（位置/旋转故意偏低以省带宽） */
+/** Multiplayer stream rates and quantization. Persistent state is change-driven. */
 
 export const SYNC = {
-  /** 世界状态（血量、波次、基地） */
-  worldHz: 10,
-  /** 位置 / 朝向 / 动画态 */
-  transformHz: 5,
-  /** 私有状态（手牌等）按需发送 */
-  privateHz: 8,
+  transformHz: 20,
   heartbeatSec: 12,
-  reconnectGraceSec: 90,
-  clientInterpBufferMs: 120,
-  /** 位置量化：0.25m 一格 */
-  posStep: 0.25,
-  /** 朝向量化：约 8° 一步 */
-  yawStep: 0.14,
-  commandThrottleMs: 70
+  clientReconnectGraceSec: 90,
+  hostLeaseSec: 60,
+  clientProjectileLead: 0.7,
+  timeSyncIntervalMs: 2_000,
+  maxPositionLeadMs: 120,
+  maxPositionLeadDistance: 0.75,
+  positionCorrectionRate: 24,
+  knockbackCorrectionRate: 30,
+  maxPositionCorrectionSpeed: 18,
+  maxKnockbackCorrectionSpeed: 16,
+  maxStopCorrectionSpeed: 20,
+  rotationCorrectionRate: 22,
+  stopCorrectionRate: 28,
+  snapDistance: 1.6,
+  posStep: 0.02,
+  yawStep: 0.035,
+  commandThrottleMs: 55,
+  positionEpsilon: 0.015,
+  yawEpsilon: 0.02
 };
 
 export const VISUAL_STATE_CODES = {
@@ -38,11 +45,6 @@ export function quantizeYaw(value, step = SYNC.yawStep) {
   while (yaw > Math.PI) yaw -= Math.PI * 2;
   while (yaw < -Math.PI) yaw += Math.PI * 2;
   return Math.round(yaw / step) * step;
-}
-
-export function encodeAnimPhase(unit) {
-  const t = (performance.now() * 0.001) % 1;
-  return Math.max(0, Math.min(255, Math.floor(t * 255)));
 }
 
 export function visualStateCode(state) {

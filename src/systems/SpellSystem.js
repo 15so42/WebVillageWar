@@ -19,11 +19,12 @@ export class SpellSystem {
     return true;
   }
 
-  castMeteor({ point, card }) {
+  castMeteor({ point, card, playerId = null }) {
     const level = Math.max(1, Math.floor(card?.level ?? 1));
     const bonusLevel = Math.max(0, level - 1);
     const radius = this.game.scaleSpellAreaRadius(
-      Math.max(0.5, (card?.radius ?? 3.25) * (1 + 0.06 * bonusLevel))
+      Math.max(0.5, (card?.radius ?? 3.25) * (1 + 0.06 * bonusLevel)),
+      playerId
     );
     const damage = Math.max(0, (card?.damage ?? 0) * (1 + 0.18 * bonusLevel));
     const knockback = Math.max(0, (card?.knockback ?? 0) * (1 + 0.08 * bonusLevel));
@@ -56,10 +57,12 @@ export class SpellSystem {
           this.game.pathfinding?.clear?.(unit);
         }
       });
+      this.game.effects.spawnRing(point, '#ff9a47', radius, 0.72);
+      this.game.effects.spawnCrater(point, radius);
     });
   }
 
-  castMeteorBarrage({ point, card, count = 1 }) {
+  castMeteorBarrage({ point, card, playerId = null, count = 1 }) {
     const strikes = Math.max(1, Math.floor(count));
     const staggerSeconds = 0.32;
     for (let index = 0; index < strikes; index += 1) {
@@ -68,7 +71,7 @@ export class SpellSystem {
         const strikePoint = point.clone();
         strikePoint.x += (Math.random() - 0.5) * 1.4;
         strikePoint.z += (Math.random() - 0.5) * 1.4;
-        this.castMeteor({ point: strikePoint, card });
+        this.castMeteor({ point: strikePoint, card, playerId });
       }, index * staggerSeconds * 1000);
     }
   }

@@ -5058,19 +5058,6 @@ export const LEVEL_DEFINITIONS = [
     bossPool: [
       { type: 'frostTrollBoss', weight: 1, minThreat: 4.8, minDifficulty: 1 }
     ],
-    enemyStrategy: {
-      profile: 'snow-control',
-      squadSize: 3,
-      thinkInterval: 3.4,
-      captureWeight: 1.45,
-      rallyWeight: 0.95,
-      holdWeight: 0.55,
-      attackWeight: 0.86,
-      minAttackSquads: 2,
-      rallyPathIndices: [2, 4, 6],
-      chokePathIndices: [3, 5, 7],
-      openingOrders: ['capture', 'rally', 'attack']
-    },
     enemyDirector: {
       baseEnergyPerSecond: 0.56,
       threatPerSecond: 0.018,
@@ -5105,19 +5092,6 @@ export const LEVEL_DEFINITIONS = [
     bossPool: [
       { type: 'boneVoicePriest', weight: 1, minThreat: 5.6, minDifficulty: 2 }
     ],
-    enemyStrategy: {
-      profile: 'dungeon-choke',
-      squadSize: 4,
-      thinkInterval: 3,
-      captureWeight: 0.85,
-      rallyWeight: 1.15,
-      holdWeight: 1.65,
-      attackWeight: 0.72,
-      minAttackSquads: 2,
-      rallyPathIndices: [2, 5, 7],
-      chokePathIndices: [2, 4, 6, 8],
-      openingOrders: ['hold', 'rally', 'capture']
-    },
     enemyDirector: {
       baseEnergyPerSecond: 0.62,
       threatPerSecond: 0.02,
@@ -5154,20 +5128,6 @@ export const LEVEL_DEFINITIONS = [
     bossPool: [
       { type: 'yellowSandOgre', weight: 1, minThreat: 6.2, minDifficulty: 3 }
     ],
-    enemyStrategy: {
-      profile: 'desert-pressure',
-      squadSize: 3,
-      thinkInterval: 2.8,
-      captureWeight: 0.65,
-      rallyWeight: 1.1,
-      holdWeight: 0.5,
-      attackWeight: 1.35,
-      minAttackSquads: 1,
-      rallyPathIndices: [2, 4, 6],
-      flankPathIndices: [1, 5],
-      chokePathIndices: [3, 5],
-      openingOrders: ['rally', 'attack', 'capture']
-    },
     enemyDirector: {
       baseEnergyPerSecond: 0.68,
       threatPerSecond: 0.022,
@@ -5343,9 +5303,11 @@ export const BALANCE = {
   }
 };
 
-export const COOP_ENEMY_SCALING = {
-  healthMult: 2.5,
-  damageMult: 1.3
+export const PVE_ENEMY_SCALING_BY_PLAYER_COUNT = {
+  2: { healthMult: 2.5, damageMult: 1.3 },
+  3: { healthMult: 3.4, damageMult: 1.5 },
+  4: { healthMult: 4.2, damageMult: 1.7 }
 };
 
-export const COOP_PLAYER_SLOTS = ['p1', 'p2'];
+// Compatibility export for the current two-player product preset.
+export const COOP_ENEMY_SCALING = PVE_ENEMY_SCALING_BY_PLAYER_COUNT[2];

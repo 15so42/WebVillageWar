@@ -67,6 +67,9 @@ export class UnitEntity {
     this.controlMode = 'normal';
     this.guardPoint = null;
     this.guardRadius = null;
+    this.selected = false;
+    this.selectedByPlayerId = null;
+    this.networkSelectionRing = null;
     this.supportCooldowns = new Map();
     this.target = null;
     this.alive = true;
@@ -256,6 +259,17 @@ export class UnitEntity {
       updateUnitAnimation(this, dt);
     }
     this.enchantHalo.rotation.y += 0.035;
+    this.enchantHalo.visible = this.enchantments.size > 0;
+    this.groundShadow.visible = this.alive;
+  }
+
+  updateNetworkVisual(dt) {
+    if (!this.underConstruction) {
+      // The Host chooses visualState/one-shot animations. The mirror only advances
+      // that received pose for rendering and never derives movement or combat state.
+      updateUnitAnimation(this, dt);
+    }
+    this.enchantHalo.rotation.y += Math.max(0, dt) * 2.1;
     this.enchantHalo.visible = this.enchantments.size > 0;
     this.groundShadow.visible = this.alive;
   }

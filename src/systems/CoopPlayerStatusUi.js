@@ -4,7 +4,7 @@ export class CoopPlayerStatusUi {
   constructor(game) {
     this.game = game;
     this.playersPublic = [];
-    this.expandedSlot = null;
+    this.expandedPlayerId = null;
     this.root = document.querySelector('#coop-player-status');
     if (!this.root) {
       this.root = document.createElement('section');
@@ -25,13 +25,13 @@ export class CoopPlayerStatusUi {
     const chip = event.target.closest('[data-coop-player-slot]');
     if (!chip) {
       if (event.target.closest('[data-coop-close-detail]')) {
-        this.expandedSlot = null;
+        this.expandedPlayerId = null;
         this.render();
       }
       return;
     }
-    const slot = chip.dataset.coopPlayerSlot;
-    this.expandedSlot = this.expandedSlot === slot ? null : slot;
+    const playerId = chip.dataset.coopPlayerSlot;
+    this.expandedPlayerId = this.expandedPlayerId === playerId ? null : playerId;
     this.render();
   }
 
@@ -49,38 +49,45 @@ export class CoopPlayerStatusUi {
       <div class="coop-player-status-row">
         ${rows.map((row) => this.renderChip(row)).join('')}
       </div>
-      ${this.expandedSlot ? this.renderDetail(rows.find((row) => row.slot === this.expandedSlot)) : ''}
+      ${this.expandedPlayerId ? this.renderDetail(rows.find((row) => row.playerId === this.expandedPlayerId)) : ''}
     `;
   }
 
   buildRows() {
     const game = this.game;
     const sessionPlayers = game?.levelSession?.players ?? {};
-    return ['p1', 'p2'].map((slot) => {
-      const isLocal = slot === game.localPlayerSlot;
-      const publicRow = this.playersPublic.find((row) => row.slot === slot) ?? {};
-      const run = game.players?.[slot];
-      const cards = game.cardSystems?.[slot] ?? (isLocal ? game.cardSystem : null);
+    const localPlayerId = game.localPlayerId ?? game.localPlayerSlot;
+    const playerIds = Object.keys(sessionPlayers).sort((a, b) => {
+      if (a === localPlayerId) return -1;
+      if (b === localPlayerId) return 1;
+      return (sessionPlayers[a]?.order ?? Number.MAX_SAFE_INTEGER)
+        - (sessionPlayers[b]?.order ?? Number.MAX_SAFE_INTEGER);
+    });
+    return playerIds.map((playerId) => {
+      const isLocal = playerId === localPlayerId;
+      const publicRow = this.playersPublic.find((row) => (row.playerId ?? row.slot) === playerId) ?? {};
+      const run = game.players?.[playerId];
+      const cards = game.cardSystems?.[playerId] ?? (isLocal ? game.cardSystem : null);
       const localDetail = isLocal && cards
         ? {
           energy: cards.energy ?? 0,
-          silver: game.getSilver?.(slot) ?? run?.silver ?? 0,
+          silver: game.getSilver?.(playerId) ?? run?.silver ?? 0,
           handCount: cards.handCards?.length ?? 0,
           drawCount: cards.drawPile?.length ?? 0,
           discardCount: cards.discardPile?.length ?? 0,
           tempCount: cards.temporaryCards?.length ?? 0,
           connected: true,
-          runShopOpen: Boolean(game.runShopOpen || run?.runShopOpen),
           strategyPending: Boolean(game.strategyEvent || run?.strategyEvent)
             ? 1
             : (run?.pendingStrategyRewards?.length ?? 0)
         }
         : null;
       return {
-        slot,
-        name: sessionPlayers[slot]?.name ?? (slot === 'p1' ? '玩家 1' : '玩家 2'),
+        playerId,
+        slot: playerId,
+        name: sessionPlayers[playerId]?.name ?? '玩家',
         isLocal,
-        isHost: slot === 'p1',
+        isHost: playerId === game.levelSession?.matchRules?.hostPlayerId,
         energy: localDetail?.energy ?? publicRow.energy ?? 0,
         silver: localDetail?.silver ?? publicRow.silver ?? 0,
         handCount: localDetail?.handCount ?? publicRow.handCount ?? 0,
@@ -88,7 +95,6 @@ export class CoopPlayerStatusUi {
         discardCount: localDetail?.discardCount ?? publicRow.discardCount ?? 0,
         tempCount: localDetail?.tempCount ?? publicRow.tempCount ?? 0,
         connected: localDetail?.connected ?? publicRow.connected !== false,
-        runShopOpen: localDetail?.runShopOpen ?? publicRow.runShopOpen === true,
         strategyPending: localDetail?.strategyPending ?? (publicRow.strategyPending ? 1 : 0)
       };
     });
@@ -101,8 +107,8 @@ export class CoopPlayerStatusUi {
     return `
       <button
         type="button"
-        class="coop-player-chip ${row.isLocal ? 'is-local' : ''} ${this.expandedSlot === row.slot ? 'is-expanded' : ''}"
-        data-coop-player-slot="${row.slot}"
+        class="coop-player-chip ${row.isLocal ? 'is-local' : ''} ${this.expandedPlayerId === row.playerId ? 'is-expanded' : ''}"
+        data-coop-player-slot="${row.playerId}"
       >
         <span class="coop-player-chip-title">${escapeHtml(row.name)}（${role}${hostMark}${offline}）</span>
         <span class="coop-player-chip-stats">
@@ -129,7 +135,6 @@ export class CoopPlayerStatusUi {
           <div><dt>抽牌堆</dt><dd>${row.drawCount}</dd></div>
           <div><dt>弃牌堆</dt><dd>${row.discardCount}</dd></div>
           <div><dt>临时牌</dt><dd>${row.tempCount}</dd></div>
-          <div><dt>军需铺</dt><dd>${row.runShopOpen ? '打开中' : '关闭'}</dd></div>
           <div><dt>待选奖励</dt><dd>${row.strategyPending}</dd></div>
           <div><dt>连接</dt><dd>${row.connected ? '在线' : '断线'}</dd></div>
         </dl>

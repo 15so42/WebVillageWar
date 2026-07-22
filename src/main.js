@@ -211,7 +211,15 @@ try {
             meta.setNotice(message);
             coopLobby?.setNotice?.(message);
           },
-          onLobbyVisible: (state) => coopLobby?.render(state)
+          onLobbyVisible: (state) => coopLobby?.render(state),
+          onConnectionLost: ({ reconnectChecking = false } = {}) => {
+            activeGame?.destroy?.();
+            activeGame = null;
+            meta.hide();
+            coopLobby?.show(reconnectChecking
+              ? '连接已中断，正在检测原房间与 Host 是否在线…'
+              : '连接已中断，当前会话已无法回连');
+          }
         });
       }
       if (!coopLobby) {
@@ -223,8 +231,7 @@ try {
           onBack: () => meta.show('menu')
         });
       }
-      // 避免旧会话卡死创房；进入大厅时清掉过期重连凭证
-      coopController.roomClient?.transport?.clearSession?.();
+      coopController.restoreSession?.();
       coopLobby.show(meta.notice ?? '');
     }
   });

@@ -241,7 +241,7 @@ export class EnemyEnchantmentSystem {
   hasEnchantIntent() {
     const minCost = this.enchantCostForUnit({ isElite: false, isBoss: false }, 1);
     if (this.game.enemyEnergyAvailableForEnchant() < minCost) return false;
-    const intel = this.game.enemyCommander?.getPlayerIntel?.();
+    const intel = this.getPlayerIntel();
     return (this.game.enemyUnits ?? []).some((unit) => (
       this.isEnchantCandidate(unit) &&
       this.fieldEnchantScore(unit, intel) >= 2.8 &&
@@ -277,7 +277,7 @@ export class EnemyEnchantmentSystem {
   }
 
   tryEnchantField() {
-    const intel = this.game.enemyCommander?.getPlayerIntel?.();
+    const intel = this.getPlayerIntel();
     const candidates = (this.game.enemyUnits ?? [])
       .filter((unit) => this.isEnchantCandidate(unit))
       .map((unit) => ({
@@ -312,8 +312,6 @@ export class EnemyEnchantmentSystem {
 
   fieldEnchantScore(unit, intel) {
     let score = 0;
-    if (unit.enemyCommanderRole === 'attack') score += 2.4;
-    if (unit.enemyCommanderRole === 'flank') score += 1.8;
     if (unit.isElite) score += 2.2;
     if (unit.isBoss) score += 3.5;
     if (unit.enchantments.size === 0) score += 1.5;
@@ -379,7 +377,7 @@ export class EnemyEnchantmentSystem {
   }
 
   counterEnchantPool() {
-    const intel = this.game.enemyCommander?.getPlayerIntel?.();
+    const intel = this.getPlayerIntel();
     if (!intel) return [];
     const pool = [];
     if ((intel.buildingCount ?? 0) >= 1) pool.push(...PLAYER_COUNTER_ENCHANTS.buildings);
@@ -389,6 +387,17 @@ export class EnemyEnchantmentSystem {
     if (rangedCount >= meleeCount && rangedCount >= 3) pool.push(...PLAYER_COUNTER_ENCHANTS.ranged);
     if (meleeCount >= rangedCount + 2) pool.push(...PLAYER_COUNTER_ENCHANTS.melee);
     return pool;
+  }
+
+  getPlayerIntel() {
+    const units = (this.game.friendlyUnits ?? [])
+      .filter((unit) => unit?.alive && !unit.isBuilding)
+      .map((unit) => ({ role: unit.definition?.role ?? 'melee' }));
+    return {
+      units,
+      buildingCount: (this.game.friendlyUnits ?? []).filter((unit) => unit?.alive && unit.isBuilding).length,
+      supportCount: units.filter((unit) => unit.role === 'support').length
+    };
   }
 
   applyEnchant(unit, buffId, level, waveConfig, costOverride = null) {

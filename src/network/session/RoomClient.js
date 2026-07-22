@@ -1,12 +1,14 @@
-import { MSG } from '../protocol/messages.js';
+import { MSG, relayEnvelope, RELAY_VERSION } from '../protocol/messages.js';
+import { SYNC } from '../protocol/syncConfig.js';
 import { WebSocketTransport, defaultCoopWsUrl } from '../transport/WebSocketTransport.js';
 
 export class RoomClient {
   constructor(url = defaultCoopWsUrl()) {
     this.transport = new WebSocketTransport(url);
     this.room = null;
-    this.playerSlot = null;
-    this.playerToken = null;
+    this.playerId = null;
+    this.connectionId = null;
+    this.reconnectToken = null;
     this.handlers = new Set();
     this.heartbeatTimer = null;
     this.messageBound = false;
@@ -19,101 +21,88 @@ export class RoomClient {
 
   emit(patch) {
     this.room = patch.room ?? this.room;
-    this.playerSlot = patch.playerSlot ?? this.playerSlot;
-    this.playerToken = patch.playerToken ?? this.playerToken;
+    this.playerId = patch.playerId ?? this.playerId;
+    this.connectionId = patch.connectionId ?? this.connectionId;
+    this.reconnectToken = patch.reconnectToken ?? this.reconnectToken;
     this.handlers.forEach((handler) => handler({
       room: this.room,
-      playerSlot: this.playerSlot,
-      playerToken: this.playerToken,
+      playerId: this.playerId,
+      // Temporary compatibility alias; its value is the stable playerId.
+      playerSlot: this.playerId,
+      connectionId: this.connectionId,
+      reconnectToken: this.reconnectToken,
       ...patch
     }));
   }
 
-  async ensureConnected({ allowReconnect = false } = {}) {
+  async ensureConnected() {
     await this.transport.connect();
     if (!this.messageBound) {
       this.messageBound = true;
       this.transport.onMessage((message) => this.handleServerMessage(message));
-      this.transport.onClose(() => this.stopHeartbeat());
-    }
-    if (!allowReconnect) return;
-    const saved = this.transport.loadSession();
-    if (saved?.roomId && saved?.playerToken) {
-      this.transport.send({
-        type: MSG.RECONNECT,
-        roomId: saved.roomId,
-        playerToken: saved.playerToken,
-        lastAckTick: 0,
-        lastAckSeq: 0
+      this.transport.onClose((manual) => {
+        this.stopHeartbeat();
+        if (!manual) {
+          const saved = this.transport.loadSession();
+          if (saved?.playerId && saved.playerId !== saved.hostPlayerId) {
+            this.transport.saveSession({
+              ...saved,
+              expiresAt: Date.now() + SYNC.clientReconnectGraceSec * 1_000
+            });
+          }
+          this.emit({
+            event: MSG.CONNECTION_LOST,
+            reconnectAvailable: this.transport.hasReconnectSession()
+          });
+        }
       });
     }
   }
 
-  /** @deprecated use ensureConnected */
   async connect() {
-    await this.ensureConnected({ allowReconnect: true });
+    await this.ensureConnected();
   }
 
   startHeartbeat() {
     this.stopHeartbeat();
     this.heartbeatTimer = window.setInterval(() => {
       this.transport.sendHeartbeat();
-    }, 12_000);
+    }, SYNC.heartbeatSec * 1000);
   }
 
   stopHeartbeat() {
-    if (this.heartbeatTimer) {
-      clearInterval(this.heartbeatTimer);
-      this.heartbeatTimer = null;
-    }
+    if (!this.heartbeatTimer) return;
+    clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = null;
   }
 
-  resetLocalRoom() {
-    if (this.room && this.transport.connected) {
+  resetLocalRoom({ notify = true } = {}) {
+    if (notify && this.room && this.transport.connected) {
       this.transport.send({ type: MSG.ROOM_LEAVE });
     }
     this.room = null;
-    this.playerSlot = null;
-    this.playerToken = null;
+    this.playerId = null;
+    this.connectionId = null;
+    this.reconnectToken = null;
     this.transport.clearSession();
     this.stopHeartbeat();
   }
 
-  async createRoom(name, deckSize) {
+  async createRoom(name) {
     this.resetLocalRoom();
-    await this.ensureConnected({ allowReconnect: false });
-    const sent = this.transport.send({ type: MSG.ROOM_CREATE, name, deckSize });
-    if (!sent) {
+    await this.ensureConnected();
+    if (!this.transport.send({ type: MSG.ROOM_CREATE, name })) {
       throw new Error('无法创建房间：中继未连接，请先运行 npm run server:coop');
     }
   }
 
-  async joinRoom(roomId, name, deckSize) {
+  async joinRoom(roomId, name) {
     const normalizedId = String(roomId || '').trim().toUpperCase();
-    if (!normalizedId) {
-      throw new Error('请输入房间号');
-    }
+    if (!normalizedId) throw new Error('请输入房间号');
     this.resetLocalRoom();
-    await this.ensureConnected({ allowReconnect: false });
-    const sent = this.transport.send({
-      type: MSG.ROOM_JOIN,
-      roomId: normalizedId,
-      name,
-      deckSize
-    });
-    if (!sent) {
+    await this.ensureConnected();
+    if (!this.transport.send({ type: MSG.ROOM_JOIN, roomId: normalizedId, name })) {
       throw new Error('无法加入房间：中继未连接，请先运行 npm run server:coop');
-    }
-  }
-
-  setReady(ready, deck = []) {
-    const sent = this.transport.send({
-      type: MSG.ROOM_READY,
-      ready: Boolean(ready),
-      deck: Array.isArray(deck) ? deck : []
-    });
-    if (!sent) {
-      this.emit({ event: MSG.ERROR, message: '未连接中继，无法准备' });
     }
   }
 
@@ -121,62 +110,92 @@ export class RoomClient {
     this.resetLocalRoom();
   }
 
-  startMatch({ levelId, difficulty, matchSeed, players }) {
-    const sent = this.transport.send({
-      type: MSG.ROOM_START,
-      levelId,
-      difficulty,
-      matchSeed,
-      players
-    });
-    if (!sent) {
-      this.emit({ event: MSG.ERROR, message: '未连接中继，无法开始' });
-    }
+  forward(payload, to = 'broadcast') {
+    if (!this.room?.id) return false;
+    return this.transport.send(relayEnvelope(this.room.id, to, payload));
   }
 
-  forward(payload, to = 'all') {
+  async reconnect(saved = this.transport.loadSession()) {
+    if (!saved?.roomId || !saved?.reconnectToken) return false;
+    await this.ensureConnected();
     return this.transport.send({
-      type: MSG.NET_FORWARD,
-      roomId: this.room?.id,
-      to,
-      payload
-    });
-  }
-
-  async reconnect(saved, lastAckTick = 0, lastAckSeq = 0) {
-    await this.ensureConnected({ allowReconnect: false });
-    this.transport.send({
       type: MSG.RECONNECT,
       roomId: saved.roomId,
-      playerToken: saved.playerToken,
-      lastAckTick,
-      lastAckSeq
+      reconnectToken: saved.reconnectToken
+    });
+  }
+
+  async probeReconnect(saved = this.transport.loadSession()) {
+    if (!saved?.roomId || !saved?.reconnectToken) return false;
+    await this.ensureConnected();
+    return this.transport.send({
+      type: MSG.RECONNECT_PROBE,
+      roomId: saved.roomId,
+      reconnectToken: saved.reconnectToken
     });
   }
 
   handleServerMessage(message) {
+    if (message?.relayVersion !== RELAY_VERSION) {
+      this.resetLocalRoom({ notify: false });
+      this.emit({
+        event: MSG.ERROR,
+        message: '联机中继版本过旧，请停止旧进程后重新运行 npm run server:coop'
+      });
+      return;
+    }
     switch (message.type) {
       case MSG.ROOM_CREATE:
       case MSG.ROOM_JOIN:
-      case MSG.RECONNECT_OK:
-        this.transport.saveSession({
+      case MSG.RECONNECT_OK: {
+        const previous = this.transport.loadSession() ?? {};
+        const record = {
+          ...previous,
           roomId: message.roomId,
-          playerToken: message.playerToken,
-          playerSlot: message.playerSlot
-        });
+          playerId: message.playerId,
+          hostPlayerId: message.room?.hostPlayerId ?? previous.hostPlayerId,
+          reconnectToken: message.reconnectToken ?? this.reconnectToken,
+          expiresAt: message.expiresAt
+        };
+        this.transport.saveSession(record);
         this.emit({
           event: message.type,
           room: message.room,
-          playerSlot: message.playerSlot,
-          playerToken: message.playerToken
+          playerId: message.playerId,
+          connectionId: message.connectionId,
+          reconnectToken: record.reconnectToken
         });
         this.startHeartbeat();
         break;
+      }
       case MSG.ROOM_STATE:
         this.emit({ event: MSG.ROOM_STATE, room: message.room });
         break;
+      case MSG.HEARTBEAT: {
+        const saved = this.transport.loadSession();
+        if (saved?.playerId && saved.playerId !== saved.hostPlayerId) {
+          this.transport.saveSession({
+            ...saved,
+            expiresAt: Date.now() + SYNC.clientReconnectGraceSec * 1_000
+          });
+        }
+        break;
+      }
+      case MSG.RECONNECT_STATUS:
+        this.emit({
+          event: MSG.RECONNECT_STATUS,
+          roomId: message.roomId,
+          reconnectAvailable: message.available === true,
+          hostOnline: message.hostOnline === true,
+          reconnectReason: message.reason ?? null
+        });
+        break;
       case MSG.NET_FORWARD:
         this.emit({ event: MSG.NET_FORWARD, forward: message });
+        break;
+      case MSG.ROOM_CLOSED:
+        this.emit({ event: MSG.ROOM_CLOSED, reason: message.reason });
+        this.resetLocalRoom({ notify: false });
         break;
       case MSG.ERROR:
         this.emit({ event: MSG.ERROR, message: message.message });
@@ -187,6 +206,10 @@ export class RoomClient {
   }
 
   get isHost() {
-    return this.playerSlot === 'p1';
+    return Boolean(this.playerId && this.playerId === this.room?.hostPlayerId);
+  }
+
+  get hostPlayerId() {
+    return this.room?.hostPlayerId ?? null;
   }
 }

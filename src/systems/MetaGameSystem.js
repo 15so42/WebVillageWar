@@ -6,6 +6,7 @@ import {
   STARTER_CARD_IDS
 } from '../data/gameData.js';
 import { buildEnchantmentEncyclopediaSections } from '../data/enchantmentEncyclopedia.js';
+import { TEST_VERSION_LABEL } from '../version.js';
 import { cardEnergyCost, cardThemeColor, cardUseBarMarkup, createCardArtMarkup } from './CardSystem.js';
 
 const STORAGE_KEY = 'village-war-meta-v1';
@@ -13,8 +14,18 @@ const STARTING_COINS = 10000;
 const STARTING_COINS_VERSION = 1;
 const MAX_LEVEL_DIFFICULTY = 10;
 const WAVE_DIFFICULTY_GROWTH_PER_SELECTED_DIFFICULTY = 0.16;
-const TEST_VERSION_LABEL = '测试版本 v0.2.46';
 const CHANGELOG_ENTRIES = [
+  {
+    date: '2026-07-22',
+    title: '联机网络同步基本可用',
+    items: [
+      '联机战斗统一由 Host 处理命令、伤害、资源、卡牌与持续交互状态，Client 以当前权威快照和变化消息重建自己的可见状态。',
+      '单位移动改为 20Hz Host 位置流与客户端受限短时外推，移除路径同步；击退期间直接跟随权威位置，并限制逐帧修正速度以减少瞬移和抖动。',
+      '补齐单位、投射物、区域效果、附魔与战斗表现的联机镜像，私有手牌、能量、银币及卡牌书按本地玩家隔离显示。',
+      '战斗左上角玩家面板优先显示本机玩家，避免把 Host 的公开栏误认为自己的资源与牌组。',
+      'Client 断线后会先检测房间存在且 Host 在线，满足条件才显示回连确认，并由 Host 当前完整状态恢复；Host 断线不提供无效回连。'
+    ]
+  },
   {
     date: '2026-07-20',
     title: '重制：王国主菜单视觉与操作布局',

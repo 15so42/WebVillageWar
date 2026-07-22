@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { basicMat, mat } from '../art/lowpoly.js';
+import { createAreaEffectVisual, updateAreaEffectVisual } from '../art/areaEffectVisual.js';
 import { createSpellModel } from '../art/visualRegistry.js';
 import { disposeObject3D } from '../utils/dispose.js';
 import { clamp, lerp } from '../utils/math.js';
@@ -32,9 +33,11 @@ export class EffectsSystem {
     while (this.effects.length >= MAX_ACTIVE_EFFECTS) {
       this.removeEffectAt(0);
     }
-    object.traverse((child) => {
-      child.layers.set(1);
-    });
+    if (!object.userData?.preserveRenderLayers) {
+      object.traverse((child) => {
+        child.layers.set(1);
+      });
+    }
     this.scene.add(object);
     this.effects.push({
       object,
@@ -129,13 +132,49 @@ export class EffectsSystem {
     }, () => this.releasePooledEffect(poolKey, ring));
   }
 
-  spawnMoveDestination(position, radius = 1) {
+  spawnNetworkAreaEffect(state) {
+    if (!state?.id || !Array.isArray(state.position)) return false;
+    if (this.effects.some((effect) => effect.networkAreaEffectId === state.id)) return true;
+    const radius = Math.max(0.1, Number(state.radius) || 1);
+    const duration = Math.max(0.01, Number(state.remaining) || 0.01);
+    const kind = state.kind ?? 'fog';
+    const object = createAreaEffectVisual({
+      radius,
+      kind,
+      color: state.color ?? '#ffffff',
+      accent: state.accent ?? '#ffffff'
+    });
+    object.position.set(
+      Number(state.position[0]) || 0,
+      Number(state.position[1]) || 0,
+      Number(state.position[2]) || 0
+    );
+    this.addEffect(object, duration, (dt, progress) => {
+      updateAreaEffectVisual(object, {
+        age: progress * duration,
+        duration,
+        radius,
+        kind
+      }, dt);
+    });
+    this.effects[this.effects.length - 1].networkAreaEffectId = state.id;
+    return true;
+  }
+
+  replaceNetworkAreaEffects(states = []) {
+    for (let i = this.effects.length - 1; i >= 0; i -= 1) {
+      if (this.effects[i].networkAreaEffectId) this.removeEffectAt(i);
+    }
+    states.forEach((state) => this.spawnNetworkAreaEffect(state));
+  }
+
+  spawnMoveDestination(position, radius = 1, color = '#62d56f') {
     const group = new THREE.Group();
     group.position.set(position.x, (position.y ?? 0) + 0.09, position.z);
 
     const disc = new THREE.Mesh(
       new THREE.CircleGeometry(0.74, 42),
-      basicMat('#78e3ff', {
+      basicMat(color, {
         transparent: true,
         opacity: 0.18,
         side: THREE.DoubleSide,
@@ -145,7 +184,7 @@ export class EffectsSystem {
     );
     const ring = new THREE.Mesh(
       new THREE.RingGeometry(0.78, 1, 48),
-      basicMat('#fff2a8', {
+      basicMat(color, {
         transparent: true,
         opacity: 0.95,
         side: THREE.DoubleSide,
@@ -155,7 +194,7 @@ export class EffectsSystem {
     );
     const inner = new THREE.Mesh(
       new THREE.RingGeometry(0.28, 0.34, 32),
-      basicMat('#6ef0c4', {
+      basicMat(color, {
         transparent: true,
         opacity: 0.8,
         side: THREE.DoubleSide,
@@ -165,7 +204,7 @@ export class EffectsSystem {
     );
     const beam = new THREE.Mesh(
       new THREE.CylinderGeometry(0.035, 0.11, 1.35, 8),
-      basicMat('#9dd8ff', {
+      basicMat(color, {
         transparent: true,
         opacity: 0.38,
         depthWrite: false,
@@ -1036,29 +1075,176 @@ export class EffectsSystem {
       if (!impacted && t > 0.8) {
         impacted = true;
         onImpact?.();
-        this.spawnRing(position, '#ffe08a', radius, 0.58);
       }
     });
   }
 
   spawnMeteor(position, radius, onImpact) {
+    const group = new THREE.Group();
     const meteor = createSpellModel('meteor');
-    meteor.position.set(position.x - 2.8, 13, position.z - 2.8);
+    const meteorScale = clamp(0.95 + radius * 0.1, 1.05, 1.42);
+    meteor.scale.setScalar(meteorScale);
     meteor.rotation.set(0.8, 0.2, 0.5);
+    group.add(meteor);
+
+    const haloMaterial = basicMat('#ff6b25', {
+      transparent: true,
+      opacity: 0.26,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    }).clone();
+    const halo = new THREE.Mesh(new THREE.SphereGeometry(0.92, 12, 8), haloMaterial);
+    group.add(halo);
+
+    const trailMaterial = basicMat('#ff9a3d', {
+      transparent: true,
+      opacity: 0.72,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    }).clone();
+    const trail = [];
+    for (let index = 0; index < 9; index += 1) {
+      const ember = new THREE.Mesh(
+        new THREE.TetrahedronGeometry(0.11 + index * 0.018, 0),
+        trailMaterial
+      );
+      ember.userData.phase = Math.random() * Math.PI * 2;
+      ember.userData.side = (Math.random() - 0.5) * (0.16 + index * 0.035);
+      trail.push(ember);
+      group.add(ember);
+    }
+
+    const shadowMaterial = basicMat('#2b1712', {
+      transparent: true,
+      opacity: 0.12,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    }).clone();
+    const shadow = new THREE.Mesh(new THREE.CircleGeometry(1, 30), shadowMaterial);
+    shadow.rotation.x = -Math.PI / 2;
+    shadow.position.set(position.x, (position.y ?? 0) + 0.055, position.z);
+    group.add(shadow);
+
+    const start = new THREE.Vector3(position.x - 4.6, 15.5, position.z - 4.1);
+    const end = new THREE.Vector3(position.x, (position.y ?? 0) + 0.82, position.z);
+    const trailDirection = start.clone().sub(end).normalize();
     let impacted = false;
-    this.addEffect(meteor, 1.18, (_, t) => {
-      const ease = t * t;
-      meteor.position.x = lerp(position.x - 2.8, position.x, ease);
-      meteor.position.y = lerp(13, 0.82, ease);
-      meteor.position.z = lerp(position.z - 2.8, position.z, ease);
-      meteor.rotation.x += 0.14;
-      meteor.rotation.y += 0.09;
-      if (!impacted && t > 0.82) {
+    this.addEffect(group, 1.08, (dt, t) => {
+      const ease = t * t * (3 - 2 * t);
+      meteor.position.lerpVectors(start, end, ease);
+      meteor.rotation.x += dt * 8.4;
+      meteor.rotation.y += dt * 6.1;
+      halo.position.copy(meteor.position);
+      const flicker = 1 + Math.sin(t * 56) * 0.09;
+      halo.scale.setScalar(meteorScale * (1.16 + (1 - t) * 0.22) * flicker);
+      haloMaterial.opacity = 0.2 + (1 - t) * 0.16;
+
+      trail.forEach((ember, index) => {
+        const distance = 0.42 + index * 0.34;
+        ember.position.copy(meteor.position).addScaledVector(trailDirection, distance);
+        const side = ember.userData.side * (0.45 + t);
+        ember.position.x += Math.sin(ember.userData.phase + t * 24) * side;
+        ember.position.z += Math.cos(ember.userData.phase + t * 21) * side;
+        const taper = 1 - index / (trail.length + 2);
+        ember.scale.setScalar(taper * (0.72 + Math.sin(ember.userData.phase + t * 40) * 0.18));
+        ember.rotation.x += dt * (4 + index * 0.35);
+        ember.rotation.y -= dt * (3 + index * 0.28);
+      });
+      trailMaterial.opacity = 0.42 + (1 - t) * 0.38;
+      shadow.scale.setScalar(radius * lerp(0.22, 0.72, ease));
+      shadowMaterial.opacity = lerp(0.08, 0.34, ease);
+
+      if (!impacted && t > 0.86) {
         impacted = true;
-        onImpact();
-        this.spawnRing(position, '#ff9a47', radius, 0.72);
-        this.spawnCrater(position, radius);
+        this.spawnMeteorImpact(position, radius);
+        onImpact?.();
       }
+    });
+  }
+
+  spawnMeteorImpact(position, radius) {
+    const group = new THREE.Group();
+    group.position.set(position.x, (position.y ?? 0) + 0.12, position.z);
+
+    const flashMaterial = basicMat('#ffd27a', {
+      transparent: true,
+      opacity: 0.88,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    }).clone();
+    const flash = new THREE.Mesh(new THREE.SphereGeometry(0.58, 14, 8), flashMaterial);
+    flash.scale.set(1, 0.55, 1);
+    group.add(flash);
+
+    const dustMaterial = basicMat('#c65c2f', {
+      transparent: true,
+      opacity: 0.58,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    }).clone();
+    const dustRing = new THREE.Mesh(new THREE.RingGeometry(0.62, 0.92, 36), dustMaterial);
+    dustRing.rotation.x = -Math.PI / 2;
+    group.add(dustRing);
+
+    const fragmentMaterial = mat('#5a4034', {
+      emissive: '#7c2d16',
+      emissiveIntensity: 0.46,
+      roughness: 0.86
+    }).clone();
+    const fragments = [];
+    for (let index = 0; index < 12; index += 1) {
+      const angle = (index / 12) * Math.PI * 2 + Math.random() * 0.28;
+      const fragment = new THREE.Mesh(
+        new THREE.TetrahedronGeometry(0.1 + Math.random() * 0.13, 0),
+        fragmentMaterial
+      );
+      fragment.userData.velocity = new THREE.Vector3(
+        Math.cos(angle) * (2.2 + Math.random() * 2.4),
+        1.4 + Math.random() * 2.8,
+        Math.sin(angle) * (2.2 + Math.random() * 2.4)
+      );
+      fragments.push(fragment);
+      group.add(fragment);
+    }
+
+    const emberMaterial = basicMat('#ffb24f', {
+      transparent: true,
+      opacity: 0.9,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    }).clone();
+    const embers = [];
+    for (let index = 0; index < 10; index += 1) {
+      const angle = Math.random() * Math.PI * 2;
+      const ember = new THREE.Mesh(new THREE.OctahedronGeometry(0.055, 0), emberMaterial);
+      ember.userData.velocity = new THREE.Vector3(
+        Math.cos(angle) * (1.5 + Math.random() * 3),
+        2.2 + Math.random() * 3.6,
+        Math.sin(angle) * (1.5 + Math.random() * 3)
+      );
+      embers.push(ember);
+      group.add(ember);
+    }
+
+    this.addEffect(group, 0.78, (dt, t) => {
+      const expansion = radius * (0.42 + t * 0.88);
+      flash.scale.set(expansion, expansion * (0.42 + t * 0.3), expansion);
+      flashMaterial.opacity = 0.88 * (1 - t) ** 2;
+      dustRing.scale.setScalar(radius * (0.72 + t * 0.7));
+      dustMaterial.opacity = 0.58 * (1 - t);
+      fragments.forEach((fragment) => {
+        fragment.position.addScaledVector(fragment.userData.velocity, dt);
+        fragment.userData.velocity.y -= 7.5 * dt;
+        fragment.rotation.x += dt * 8;
+        fragment.rotation.z += dt * 6;
+        fragment.scale.setScalar(1 - t * 0.45);
+      });
+      embers.forEach((ember) => {
+        ember.position.addScaledVector(ember.userData.velocity, dt);
+        ember.userData.velocity.y -= 4.6 * dt;
+        ember.scale.setScalar(1 - t * 0.72);
+      });
+      emberMaterial.opacity = 0.9 * (1 - t);
     });
   }
 

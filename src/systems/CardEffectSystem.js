@@ -34,6 +34,9 @@ export class CardEffectSystem {
     const resolved = handler({
       card,
       effect,
+      playerId: this.game.activeEconomySlot
+        ?? this.game.cardSystem?.playerSlot
+        ?? this.game.localPlayerSlot,
       point: drag.point?.clone(),
       targetUnit: drag.targetUnit,
       targetCard: drag.targetCard
@@ -71,27 +74,28 @@ export class CardEffectSystem {
     return true;
   }
 
-  createAreaEffect({ card, effect, point }) {
+  createAreaEffect({ card, effect, playerId, point }) {
     if (!point) return false;
-    this.game.areaEffects.create(effect.areaEffect ?? effect, point, card);
-    return true;
+    return Boolean(this.game.areaEffects.create(effect.areaEffect ?? effect, point, card, { playerId }));
   }
 
-  castSpell({ card, effect, point }) {
+  castSpell({ card, effect, playerId, point }) {
     return this.game.spells.cast(effect.spellId, {
       card,
       effect,
+      playerId,
       point
     });
   }
 
-  castMeteorBarrage({ card, effect, point }) {
+  castMeteorBarrage({ card, effect, playerId, point }) {
     if (!point) return false;
     const strikeCount = Math.max(0, Math.floor(this.game.runCardsPlayedCount ?? 0) + 1);
     if (strikeCount <= 0) return false;
     return this.game.spells.cast('meteor-barrage', {
       card,
       effect,
+      playerId,
       point,
       count: strikeCount
     });
@@ -190,11 +194,12 @@ export class CardEffectSystem {
     return true;
   }
 
-  gainEnergyFromUnits({ card, effect }) {
+  gainEnergyFromUnits({ card, effect, playerId }) {
     const perUnit = resolveCardEffectNumber(card, effect, 'amountPerUnit', 1);
     const friendlyCount = this.game.friendlyUnits.filter((unit) => (
       unit.alive &&
       unit.team === TEAMS.PLAYER &&
+      (this.game.unitBelongsToPlayer?.(unit, playerId) ?? true) &&
       !unit.underConstruction
     )).length;
     const amount = friendlyCount * perUnit;
