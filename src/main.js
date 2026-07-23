@@ -1,6 +1,7 @@
 import './styles.css';
 import './mainMenu.css';
 import './battleHud.css';
+import './metaHud.css';
 import { AnimationPreviewScene } from './systems/AnimationPreviewScene.js';
 import { DebugScene, createDebugSession } from './systems/DebugScene.js';
 import { Game } from './systems/Game.js';

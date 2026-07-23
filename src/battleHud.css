@@ -839,8 +839,10 @@ body.is-game-active .med-card-wrapper::after {
   z-index: 3;
   inset: 5px;
   border: 1px solid rgba(190, 183, 169, 0.17);
+  border-top: 4px solid color-mix(in srgb, var(--card-color) 88%, #d4cbbb);
   clip-path: polygon(5px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 5px), calc(100% - 5px) 100%, 5px 100%, 0 calc(100% - 5px), 0 5px);
   box-shadow:
+    0 -1px 0 color-mix(in srgb, var(--card-color) 52%, rgba(255, 255, 255, 0.28)),
     inset 0 1px 0 rgba(255, 255, 255, 0.05),
     inset 0 -5px 0 rgba(8, 10, 9, 0.16);
   pointer-events: none;
@@ -873,6 +875,47 @@ body.is-game-active .card[data-cost] .med-card-bg {
 body.is-game-active .med-card-face {
   z-index: 2;
   color: #ded6c8 !important;
+}
+
+body.is-game-active .card .med-card-kind,
+body.is-game-active .card .med-card-level {
+  position: absolute;
+  z-index: 4;
+  top: 8px;
+  min-width: 30px;
+  height: 17px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 5px 2px;
+  border: 1px solid #5d625e;
+  clip-path: polygon(3px 0, 100% 0, 100% calc(100% - 3px), calc(100% - 3px) 100%, 0 100%, 0 3px);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.065), transparent 42%),
+    linear-gradient(180deg, #303432, #202422);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.045),
+    0 2px 0 #141716,
+    0 4px 5px rgba(0, 0, 0, 0.28);
+  font-family: var(--font-body);
+  font-size: 8px;
+  font-weight: 850;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.72);
+  pointer-events: none;
+}
+
+body.is-game-active .card .med-card-kind {
+  left: 8px;
+  border-color: color-mix(in srgb, var(--card-color) 50%, #5d625e);
+  color: color-mix(in srgb, var(--card-color) 58%, #e6ded0);
+}
+
+body.is-game-active .card .med-card-level {
+  right: 8px;
+  color: #cfc7b9;
 }
 
 body.is-game-active .med-card-art-container {
@@ -1121,6 +1164,104 @@ body.is-game-active .pc-medieval-hud .run-shop-toggle {
     inset 0 1px 0 rgba(255, 255, 255, 0.07),
     0 4px 0 #171919,
     0 9px 14px rgba(0, 0, 0, 0.38) !important;
+}
+
+@media (pointer: coarse) {
+  body.is-game-active .mobile-action-dock {
+    gap: 5px;
+    padding: 5px;
+    border: 1px solid #676a64;
+    clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
+    background:
+      linear-gradient(135deg, rgba(255, 255, 255, 0.045), transparent 38%),
+      linear-gradient(180deg, #303432, #1e2220);
+    box-shadow:
+      inset 0 0 0 1px #141716,
+      inset 0 1px 0 rgba(255, 255, 255, 0.055),
+      0 4px 0 #121514,
+      0 10px 15px rgba(0, 0, 0, 0.34);
+  }
+
+  body.is-game-active .mobile-action-dock button,
+  body.is-game-active .game-command-dock button {
+    border-radius: 0 !important;
+    clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px);
+    color: #d5d0c6 !important;
+    backdrop-filter: none !important;
+  }
+
+  body.is-game-active .mobile-action-dock button:active,
+  body.is-game-active .mobile-action-dock button.is-active,
+  body.is-game-active .game-command-dock button:active,
+  body.is-game-active .game-command-dock button.is-active {
+    border-color: #6f9188 !important;
+    color: #d5ebe5 !important;
+    background:
+      linear-gradient(135deg, rgba(255, 255, 255, 0.055), transparent 42%),
+      linear-gradient(180deg, #3b554e, #293d37) !important;
+    box-shadow:
+      inset 0 0 0 1px #18211e,
+      inset 0 1px 0 rgba(255, 255, 255, 0.065),
+      0 2px 0 #111714,
+      0 5px 8px rgba(0, 0, 0, 0.34) !important;
+  }
+
+  body.is-game-active .mobile-action-feedback {
+    padding: 7px 10px 8px;
+    border: 1px solid #666962;
+    border-radius: 0;
+    clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
+    color: #d9d2c6;
+    background:
+      linear-gradient(135deg, rgba(255, 255, 255, 0.04), transparent 40%),
+      linear-gradient(180deg, #303432, #1f2321);
+    box-shadow:
+      inset 0 0 0 1px #141716,
+      inset 0 1px 0 rgba(255, 255, 255, 0.045),
+      0 4px 0 #121514,
+      0 9px 14px rgba(0, 0, 0, 0.34);
+    backdrop-filter: none;
+  }
+
+  body.is-game-active .mobile-box-select-hint {
+    box-shadow:
+      inset 0 0 0 2px rgba(111, 145, 136, 0.72),
+      inset 0 0 42px rgba(77, 116, 106, 0.11);
+  }
+
+  body.is-game-active .mobile-box-select-hint-label {
+    padding: 6px 11px 7px;
+    border: 1px solid #6f9188;
+    border-radius: 0;
+    clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
+    color: #d5ebe5;
+    background:
+      linear-gradient(135deg, rgba(255, 255, 255, 0.05), transparent 40%),
+      linear-gradient(180deg, #344a44, #222f2b);
+    box-shadow:
+      inset 0 0 0 1px #17201d,
+      inset 0 1px 0 rgba(255, 255, 255, 0.055),
+      0 4px 0 #111714,
+      0 10px 15px rgba(0, 0, 0, 0.34);
+    backdrop-filter: none;
+  }
+
+  body.is-game-active .card .med-card-kind,
+  body.is-game-active .card .med-card-level {
+    top: 7px;
+    min-width: 26px;
+    height: 15px;
+    padding: 1px 3px 2px;
+    font-size: 7px;
+  }
+
+  body.is-game-active .card .med-card-kind {
+    left: 7px;
+  }
+
+  body.is-game-active .card .med-card-level {
+    right: 7px;
+  }
 }
 
 @media (max-width: 900px) {
@@ -2439,20 +2580,20 @@ body.is-game-active .pause-secondary-button:active {
    WAVE REWARD TRAY — PHYSICAL TABLETOP CHOICE COMPONENT
    ============================================================ */
 body.is-game-active .strategy-event-overlay {
-  align-items: flex-start;
-  padding: clamp(34px, 7vh, 72px) 24px 24px;
+  align-items: center;
+  padding: 20px 24px;
   background:
-    radial-gradient(circle at 50% 40%, rgba(82, 88, 83, 0.08), transparent 38%),
-    rgba(9, 12, 12, 0.73) !important;
-  backdrop-filter: blur(1.5px) saturate(0.92) !important;
+    radial-gradient(circle at 50% 46%, rgba(90, 99, 93, 0.09), transparent 40%),
+    rgba(7, 10, 9, 0.76) !important;
+  backdrop-filter: blur(1px) saturate(0.94) !important;
 }
 
 body.is-game-active .strategy-event-panel {
   position: relative;
-  width: min(920px, calc(100vw - 40px));
-  gap: 12px;
-  padding: 23px 24px 24px;
-  border: 2px solid #77736b;
+  width: min(850px, calc(100vw - 40px));
+  gap: 9px;
+  padding: 20px 22px 23px;
+  border: 1px solid #77736b;
   border-radius: 0;
   clip-path: polygon(11px 0, calc(100% - 11px) 0, 100% 11px, 100% calc(100% - 11px), calc(100% - 11px) 100%, 11px 100%, 0 calc(100% - 11px), 0 11px);
   color: #eee4d3;
@@ -2509,6 +2650,8 @@ body.is-game-active .strategy-event-kicker {
   font-size: 9px;
   font-weight: 750;
   letter-spacing: 0.1em;
+  justify-self: center;
+  margin-inline: auto;
 }
 
 body.is-game-active .strategy-event-kicker::before {
@@ -2525,27 +2668,19 @@ body.is-game-active .strategy-event-kicker::before {
 body.is-game-active .strategy-event-title {
   position: relative;
   margin: 0;
-  padding: 2px 0 10px 39px;
+  padding: 1px 0 10px;
   border-bottom: 1px solid rgba(180, 172, 157, 0.26);
   color: #eee1ca;
   font-family: var(--font-title);
-  font-size: clamp(24px, 3vw, 30px);
+  font-size: clamp(22px, 2.6vw, 27px);
   line-height: 1.1;
   letter-spacing: 0.04em;
+  text-align: center;
   text-shadow: 0 2px 1px rgba(0, 0, 0, 0.68);
 }
 
 body.is-game-active .strategy-event-title::before {
-  content: "";
-  position: absolute;
-  left: 3px;
-  top: 1px;
-  width: 27px;
-  height: 27px;
-  background: #d2b981;
-  filter: drop-shadow(0 2px 1px rgba(0, 0, 0, 0.48));
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M5 3h14v3h-1v3c0 3-2 5-5 6v2h4v3H7v-3h4v-2c-3-1-5-3-5-6V6H5V3zm3 3v3c0 2 1 3 4 4 3-1 4-2 4-4V6H8zM3 6h3v2H5c0 2 1 3 3 4l-1 2c-3-1-4-3-4-6V6zm15 0h3v2c0 3-1 5-4 6l-1-2c2-1 3-2 3-4h-1V6z'/%3E%3C/svg%3E") center / contain no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M5 3h14v3h-1v3c0 3-2 5-5 6v2h4v3H7v-3h4v-2c-3-1-5-3-5-6V6H5V3zm3 3v3c0 2 1 3 4 4 3-1 4-2 4-4V6H8zM3 6h3v2H5c0 2 1 3 3 4l-1 2c-3-1-4-3-4-6V6zm15 0h3v2c0 3-1 5-4 6l-1-2c2-1 3-2 3-4h-1V6z'/%3E%3C/svg%3E") center / contain no-repeat;
+  display: none;
 }
 
 body.is-game-active .strategy-event-summary {
@@ -2556,20 +2691,21 @@ body.is-game-active .strategy-event-summary {
   font-size: 11px;
   font-weight: 650;
   line-height: 1.45;
+  text-align: center;
 }
 
 body.is-game-active .strategy-event-choices {
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 13px;
-  padding: 4px 1px 7px;
+  gap: 14px;
+  padding: 6px 1px 8px;
 }
 
 body.is-game-active .strategy-reward-option {
   position: relative;
-  min-height: 302px;
+  min-height: 342px;
   grid-template-rows: auto auto 1fr auto auto;
-  gap: 6px;
-  padding: 17px 15px 15px;
+  gap: 7px;
+  padding: 20px 14px 15px;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--card-accent) 42%, #716f69);
   border-radius: 0;
@@ -2642,7 +2778,8 @@ body.is-game-active .strategy-reward-option:disabled {
 body.is-game-active .strategy-reward-kind {
   position: absolute;
   top: 12px;
-  right: 12px;
+  left: 12px;
+  right: auto;
   z-index: 1;
   min-width: 37px;
   padding: 3px 6px 4px;
@@ -2662,11 +2799,37 @@ body.is-game-active .strategy-reward-kind {
   text-align: center;
 }
 
+body.is-game-active .strategy-reward-cost {
+  position: absolute;
+  z-index: 2;
+  top: 8px;
+  right: 10px;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  clip-path: polygon(50% 0, 90% 18%, 100% 60%, 72% 100%, 28% 100%, 0 60%, 10% 18%);
+  color: #f3eadb;
+  background:
+    linear-gradient(138deg, rgba(255, 255, 255, 0.26), transparent 38%),
+    color-mix(in srgb, var(--card-accent) 54%, #343735);
+  box-shadow:
+    inset 0 0 0 2px rgba(24, 26, 25, 0.44),
+    0 4px 0 #171a19,
+    0 7px 9px rgba(0, 0, 0, 0.4);
+  font-family: var(--font-title);
+  font-size: 16px;
+  font-weight: 900;
+  line-height: 1;
+  text-shadow: 0 2px 2px rgba(0, 0, 0, 0.74);
+}
+
 body.is-game-active .strategy-reward-icon {
   justify-self: center;
-  width: min(100%, 218px);
-  height: 112px;
-  margin: 7px 0 3px;
+  width: 100%;
+  height: 132px;
+  margin: 10px 0 3px;
   border: 1px solid color-mix(in srgb, var(--card-accent) 48%, #71746f);
   border-radius: 0;
   clip-path: polygon(7px 0, calc(100% - 7px) 0, 100% 7px, 100% calc(100% - 7px), calc(100% - 7px) 100%, 7px 100%, 0 calc(100% - 7px), 0 7px);
@@ -2712,7 +2875,7 @@ body.is-game-active .strategy-reward-icon.has-card-art svg {
 body.is-game-active .strategy-reward-title {
   color: #eee1ca;
   font-family: var(--font-title);
-  font-size: 17px;
+  font-size: 18px;
   font-weight: 900;
   line-height: 1.2;
   text-align: center;
@@ -2723,7 +2886,7 @@ body.is-game-active .strategy-reward-desc {
   align-self: start;
   color: #b5b2aa;
   font-family: var(--font-body);
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 650;
   line-height: 1.48;
   text-align: center;
@@ -2738,7 +2901,7 @@ body.is-game-active .strategy-reward-meta {
 
 body.is-game-active .strategy-reward-action {
   margin-top: auto;
-  padding: 8px 10px 9px;
+  padding: 9px 10px 10px;
   border: 1px solid color-mix(in srgb, var(--card-accent) 38%, #656963);
   clip-path: polygon(4px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 4px), calc(100% - 4px) 100%, 4px 100%, 0 calc(100% - 4px), 0 4px);
   color: color-mix(in srgb, var(--card-accent) 66%, #eee1ca);
@@ -2848,7 +3011,7 @@ body.is-game-active .strategy-event-action:disabled {
   }
 
   body.is-game-active .strategy-event-title {
-    padding-left: 34px;
+    padding-left: 0;
     font-size: 22px;
   }
 
@@ -2878,6 +3041,12 @@ body.is-game-active .strategy-event-action:disabled {
     height: 72px;
     margin: 0;
     font-size: 23px;
+  }
+
+  body.is-game-active .strategy-reward-cost {
+    width: 30px;
+    height: 30px;
+    font-size: 14px;
   }
 
   body.is-game-active .strategy-reward-title,

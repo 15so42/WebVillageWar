@@ -17,12 +17,15 @@ const WAVE_DIFFICULTY_GROWTH_PER_SELECTED_DIFFICULTY = 0.16;
 const CHANGELOG_ENTRIES = [
   {
     date: '2026-07-23',
-    title: '统一雪原战斗界面的黑铁策略 HUD',
+    title: '统一战斗与局外界面的黑铁策略 HUD',
     items: [
       '顶部战况重构为紧凑的黑铁波次终端，只突出当前波次、敌军构成、波次附魔与目标剩余时间，并使用实体令牌呈现附魔信息。',
       '手牌、能量格、抽牌堆与弃牌堆统一为低多边形实体桌游组件，强化卡牌厚度、费用徽章、使用次数和选中状态，同时保持原有卡牌布局与玩法。',
       '军需铺入口改为中世纪行商车图标；军需铺、暂停和波次奖励弹窗统一采用战斗 HUD 的深灰黑铁、切角、铆钉和内凹模块语言。',
       '三选一奖励直接展示卡牌自身的卡面插画、卡牌种类和类型主题色，取消额外的普通、稀有、史诗标记。',
+      '主菜单、选关、牌组配置、商店、升级、百科与更新日志统一为同一套黑铁策略终端界面，并保留选关后配置牌组再进入战斗的完整流程。',
+      '牌组配置页改为固定整备栏与独立卡牌滚动区；卡体采用中性黑铁材质，类型使用独立主题色，已加入状态和移出按钮降低视觉权重。',
+      '战斗手牌新增卡牌类型与等级铭牌；手机端方向、全屏、界面缩放、单位命令、框选提示和操作反馈同步采用切角黑铁样式。',
       '第一关采用最终确认的曝光、太阳强度与材质颜色，并让雪原地表保持纯白主体，与山体顶部积雪颜色一致。'
     ]
   },
@@ -923,6 +926,12 @@ export class MetaGameSystem {
       return;
     }
     if (action === 'start-level') {
+      if (this.view === 'levels') {
+        this.ensureDeckSelection();
+        this.persistPreferences();
+        this.show('deck');
+        return;
+      }
       this.startLevel();
       return;
     }
@@ -966,7 +975,7 @@ export class MetaGameSystem {
     const viewScrollTop = options.preserveScroll
       ? this.root.querySelector('.meta-deck, .meta-layout, .meta-home, .meta-menu, .meta-page')?.scrollTop ?? 0
       : 0;
-    const shellClass = `meta-shell ${this.view === 'menu' ? 'is-main-menu' : 'is-subpage'}`;
+    const shellClass = `meta-shell view-${this.view} ${this.view === 'menu' ? 'is-main-menu' : 'is-subpage'}`;
     this.root.innerHTML = `
       <div class="${shellClass}" role="dialog" aria-modal="true" aria-label="局外菜单">
         ${this.renderHeader()}
@@ -1319,7 +1328,10 @@ export class MetaGameSystem {
           <div class="med-corner bottom-right"></div>
 
           <div class="med-book-page left-page">
-            <h3 class="med-page-title">战役编年史</h3>
+            <div class="med-page-heading">
+              <span>战役目录</span>
+              <h3 class="med-page-title">选择作战区域</h3>
+            </div>
             <div class="med-chapter-list">
               ${LEVEL_DEFINITIONS.map((level) => {
                 const unlockedDiff = this.availableDifficulty(level.id);
@@ -1332,7 +1344,7 @@ export class MetaGameSystem {
                     <div class="plaque-nail left-nail"></div>
                     <div class="plaque-nail right-nail"></div>
                     <div class="plaque-content">
-                        <span class="chapter-icon">${unlockedDiff >= MAX_LEVEL_DIFFICULTY ? '🚩' : '⚔️'}</span>
+                        <span class="chapter-icon" aria-hidden="true">${unlockedDiff >= MAX_LEVEL_DIFFICULTY ? '旗' : '战'}</span>
                         <div class="chapter-info">
                             <span class="chapter-name">${level.name}</span>
                             <span class="chapter-level">等级 ${unlockedDiff}</span>
@@ -1345,10 +1357,20 @@ export class MetaGameSystem {
           </div>
 
           <div class="med-book-page right-page">
-             <h2 class="med-region-title">${selectedLevel.name}</h2>
+             <div class="med-region-heading">
+                <span>当前战区</span>
+                <h2 class="med-region-title">${selectedLevel.name}</h2>
+             </div>
              <div class="med-region-illustration">
                 <div class="med-region-map-placeholder">
-                    🗺️
+                    <svg viewBox="0 0 220 110" focusable="false" aria-hidden="true">
+                      <path class="region-map-panel" d="M18 18 74 8l72 18 56-12v78l-56 12-72-18-56 10z"></path>
+                      <path class="region-map-fold" d="M74 8v78m72-60v78"></path>
+                      <path class="region-map-route" d="M42 70c20-30 42 4 62-20s42-6 73 18"></path>
+                      <circle class="region-map-point" cx="42" cy="70" r="5"></circle>
+                      <circle class="region-map-point" cx="104" cy="50" r="5"></circle>
+                      <path class="region-map-target" d="m177 58 10 10-10 10-10-10z"></path>
+                    </svg>
                 </div>
              </div>
              <p class="med-region-desc">${selectedLevel.summary || selectedLevel.subtitle || '未知区域的战役。'}</p>
@@ -1374,7 +1396,7 @@ export class MetaGameSystem {
              </div>
 
              <button class="med-war-start-btn" type="button" data-action="start-level">
-                <span class="btn-inner-text">吹响号角 / 开始战役</span>
+                <span class="btn-inner-text">配置牌组 / 进入整备</span>
              </button>
           </div>
         </div>

@@ -16,12 +16,12 @@ const DISCARD_FALL_DELAY_MS = 500;
 const TEMPORARY_CARD_EFFECT_LIMIT = 6;
 const CARD_USAGE_HINT = '上滑使用 / 下滑丢弃';
 const CARD_KIND_COLORS = {
-  summon: '#4f7d64',
-  enchant: '#8a6fc4',
-  spell: '#3f7fa7',
-  building: '#8b6840',
-  tactic: '#6f718a',
-  ability: '#5f8f9f'
+  summon: '#5d8b68',
+  building: '#a27444',
+  spell: '#4f86b8',
+  enchant: '#8a69b8',
+  tactic: '#a65e52',
+  ability: '#b9944f'
 };
 const CARD_RANGE_DISC_RENDER_ORDER = 62;
 const CARD_RANGE_RING_RENDER_ORDER = 63;
@@ -177,7 +177,8 @@ export class CardSystem {
       <div class="med-card-wrapper">
         <div class="med-card-bg"></div>
         <div class="med-card-cost"><span>${cardEnergyCost(card)}</span></div>
-        <div class="med-card-level" hidden>Lv.${card.level ?? 1}</div>
+        <div class="med-card-kind">${kindLabel(card.kind)}</div>
+        <div class="med-card-level">Lv.${card.level ?? 1}</div>
         ${cardUseBarMarkup(card)}
         ${cardCooldownOverlayMarkup(this, card)}
         <div class="med-card-face">

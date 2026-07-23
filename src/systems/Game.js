@@ -7556,6 +7556,7 @@ function strategyRewardMarkup(choice, index) {
       style="--reward-accent:${visual.accent};--card-accent:${cardAccent};--card-color:${cardAccent}"${disabledAttr}
     >
       <span class="strategy-reward-kind">${escapeHtml(strategyRewardKindLabel(choice, card))}</span>
+      <span class="strategy-reward-cost" aria-label="费用 ${cardEnergyCost(card)}">${cardEnergyCost(card)}</span>
       <span class="strategy-reward-icon has-card-art" aria-hidden="true">${createCardArtMarkup(card)}</span>
       <strong class="strategy-reward-title">${escapeHtml(title)}</strong>
       <p class="strategy-reward-desc">${escapeHtml(description)}</p>
