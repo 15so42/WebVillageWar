@@ -4,11 +4,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 
 function applyGroundShader(material, { storybookSnow = false } = {}) {
   const colorVariationChunk = storybookSnow
-    ? `
-      vec3 coolSnowTint = vec3(0.96, 0.99, 1.02);
-      vec3 warmSnowTint = vec3(1.04, 1.02, 0.97);
-      diffuseColor.rgb *= mix(coolSnowTint, warmSnowTint, noiseColor * 0.5 + 0.5);
-      `
+    ? 'diffuseColor.rgb *= 1.0;'
     : 'diffuseColor.rgb *= 1.0 + noiseColor * 0.025;';
   const roughnessVariationChunk = storybookSnow
     ? 'roughnessFactor = mix(0.86, 0.98, noiseColor * 0.5 + 0.5);'
@@ -421,7 +417,7 @@ const WORLD_PRESETS = {
     },
     sky: {
       toneMapping: 'aces',
-      exposure: 0.96,
+      exposure: 0.88,
       background: '#dce9e9',
       skyGradient: {
         top: '#648cb3',
@@ -432,7 +428,7 @@ const WORLD_PRESETS = {
       fogNear: 42,
       fogFar: 255,
       sun: '#fff1d6',
-      sunIntensity: 2.04,
+      sunIntensity: 3.18,
       shadowIntensity: 1,
       sunPosition: { x: -92, y: 29, z: 83 },
       sunTarget: { x: 0, y: 0, z: 0 },
@@ -460,9 +456,9 @@ const WORLD_PRESETS = {
       puddle: '#b0ccdb'
     },
     materials: {
-      snow: '#eee8d8',
-      rock: '#969487',
-      tree: '#356747'
+      snow: '#ffffff',
+      rock: '#878787',
+      tree: '#4c705a'
     },
     ground: {
       width: 344,
@@ -1348,7 +1344,7 @@ export function createWorld(scene, worldOptions = {}) {
       updateTaggedWorldMaterials(scene, kind, nextHex);
 
       if (kind === 'snow') {
-        ['base', 'side', 'north', 'valley', 'forest', 'high', 'snow', 'path'].forEach((key) => {
+        ['base', 'side', 'north', 'valley', 'forest', 'high', 'snow'].forEach((key) => {
           if (!initialSnowPalette[key]) return;
           config.palette[key] = relativeMaterialHex(
             initialSnowPalette[key],
@@ -1815,7 +1811,12 @@ function terrainColorAt(x, z, height) {
   if (config.theme === 'red-desert') {
     return desertTerrainColorAt(x, z, height, palette);
   }
-  const color = new THREE.Color(palette.base);
+  const storybookSnow = config.sceneKey === 'snow-valley';
+  const color = new THREE.Color(
+    storybookSnow
+      ? worldMaterialColor('snow', palette.snow)
+      : palette.base
+  );
   const northMask = northMaskAt(z);
   const sideRise = smoothstep(10, 39, Math.abs(x));
   const snowMask = snowMaskAt(x, z, height);
@@ -1825,12 +1826,14 @@ function terrainColorAt(x, z, height) {
   const facet = hash2(x * 0.14, z * 0.14) - 0.5;
   const landMask = landmassMaskAt(x, z);
 
-  color.lerp(new THREE.Color(palette.side), sideRise * 0.28);
-  color.lerp(new THREE.Color(palette.north), northMask * 0.22);
-  color.lerp(new THREE.Color(palette.valley), valleyMask * 0.12);
-  color.lerp(new THREE.Color(palette.forest), forestFloor * 0.18);
-  color.lerp(new THREE.Color(palette.high), smoothstep(4.8, 8.8, height) * 0.24);
-  color.lerp(new THREE.Color(palette.snow), 0.48 + snowMask * 0.38);
+  if (!storybookSnow) {
+    color.lerp(new THREE.Color(palette.side), sideRise * 0.28);
+    color.lerp(new THREE.Color(palette.north), northMask * 0.22);
+    color.lerp(new THREE.Color(palette.valley), valleyMask * 0.12);
+    color.lerp(new THREE.Color(palette.forest), forestFloor * 0.18);
+    color.lerp(new THREE.Color(palette.high), smoothstep(4.8, 8.8, height) * 0.24);
+    color.lerp(new THREE.Color(palette.snow), 0.48 + snowMask * 0.38);
+  }
 
   // Blend path directly into terrain
   if (palette.path) {
@@ -1851,7 +1854,9 @@ function terrainColorAt(x, z, height) {
     color.lerp(water, waterBlend);
     color.lerp(rock, cliffBand * 0.28);
   }
-  color.offsetHSL(0, 0.006 * facet, 0.018 * facet);
+  if (!storybookSnow) {
+    color.offsetHSL(0, 0.006 * facet, 0.018 * facet);
+  }
   return color;
 }
 

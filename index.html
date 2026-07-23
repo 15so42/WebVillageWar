@@ -29,25 +29,19 @@
             <div id="fps-meter" class="fps-meter" aria-label="frame rate" hidden>FPS --</div>
           </div>
         </div>
-        <div class="hud-meters">
-          <div class="meter meter-base">
-            <span>基地</span>
-            <strong id="base-health">100%</strong>
-          </div>
-          <div class="meter meter-wave">
-            <span>波次</span>
+        <div class="hud-meters wave-command-panel" aria-label="当前波次状态">
+          <div class="meter meter-wave wave-command-wave">
+            <span>当前波次</span>
             <strong id="wave-label">准备</strong>
           </div>
-          <div class="meter meter-time">
-            <span>时间</span>
-            <strong id="battle-time">00:00</strong>
+          <section id="wave-preview" class="wave-preview wave-command-info" aria-label="波次情报"></section>
+          <div class="meter meter-time wave-command-time">
+            <span>目标剩余</span>
+            <strong id="battle-time">03:00</strong>
           </div>
-          <div class="meter meter-silver">
-            <span>银币</span>
+          <div class="hud-resource-data" aria-hidden="true" hidden>
+            <strong id="base-health">100%</strong>
             <strong id="silver-count">0</strong>
-          </div>
-          <div class="meter meter-units">
-            <span>友军</span>
             <strong id="unit-count">0</strong>
           </div>
         </div>
@@ -59,7 +53,17 @@
           <span class="desktop-hint">B军需铺</span>
         </div>
         <button id="run-shop-toggle" class="run-shop-toggle" type="button" title="军需铺 (B)" hidden>
-          <span class="run-shop-toggle-icon" aria-hidden="true">⛭</span>
+          <span class="run-shop-toggle-icon" aria-hidden="true">
+            <svg viewBox="0 0 38 30" focusable="false">
+              <path class="shop-icon-canopy" d="M4 10 9 3h18l5 7-3 4H7z"></path>
+              <path class="shop-icon-canopy-fold" d="M9 3 11 13M18 3v10M27 3l-2 10"></path>
+              <path class="shop-icon-cart-frame" d="M8 12v9M28 12v9"></path>
+              <path class="shop-icon-cart-bed" d="M5 18h27l-3 7H9z"></path>
+              <path class="shop-icon-cart-handle" d="M31 20h5l1 2"></path>
+              <circle class="shop-icon-wheel" cx="12" cy="26" r="3"></circle>
+              <circle class="shop-icon-wheel" cx="27" cy="26" r="3"></circle>
+            </svg>
+          </span>
           <span class="run-shop-toggle-label">军需铺</span>
         </button>
       </section>
@@ -82,8 +86,6 @@
           </div>
         </section>
       </div>
-
-      <section id="wave-preview" class="wave-preview" aria-label="波次预览"></section>
 
       <section id="selected-panel" class="hud hud-selected" aria-label="selected unit" hidden>
         <div class="selected-portrait" aria-hidden="true">

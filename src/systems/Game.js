@@ -83,8 +83,6 @@ const UNIT_CLIMB_SPEED = 3.4;
 const UNIT_MAX_SMOOTH_CLIMB_HEIGHT = 0.58;
 const UNIT_GROUND_EPSILON = 0.006;
 const MAX_ACTIVE_WAVE_SPAWNS = 7;
-const WAVE_PREVIEW_COUNT = 5;
-const MOBILE_WAVE_PREVIEW_COUNT = 3;
 const MAX_LEVEL_DIFFICULTY = 10;
 const TOTAL_WAVES = 21;
 const BOSS_WAVES_TO_WIN = 3;
@@ -459,14 +457,14 @@ const RENDER_TONE_MAPPING_LABELS = {
 };
 const SNOW_VALLEY_HEAD_RENDER_TUNING = Object.freeze({
   toneMapping: 'aces',
-  exposure: 0.96,
+  exposure: 0.88,
   brightness: 1.15,
   contrast: 1.1,
   saturation: 1.12,
   hue: 0,
   warmth: 0.02,
   sunColor: '#fff1d6',
-  sunIntensity: 2.04,
+  sunIntensity: 3.18,
   sunX: -92,
   sunY: 29,
   sunZ: 83,
@@ -1363,27 +1361,27 @@ export class Game {
   updateWavePreview() {
     const root = this.dom.wavePreview;
     if (!root) return;
-    const startIndex = this.currentWave
-      ? Math.max(0, this.currentWave.index - 1)
-      : this.waveIndex;
-    const previewCount = wavePreviewNodeCount();
-    const waves = this.waveSchedule.slice(startIndex, startIndex + previewCount);
-    if (!waves.length) {
+    const wave = this.currentWave ?? this.waveSchedule[this.waveIndex] ?? null;
+    if (!wave) {
       root.innerHTML = '';
       return;
     }
+    const stateLabel = this.currentWave
+      ? '当前攻势'
+      : (this.wave > 0 ? '下一波情报' : '首波情报');
+    const rosterLabel = waveCommandRosterLabel(wave);
+    const affixMarkup = waveAffixIdsForConfig(wave)
+      .map((affixId) => waveCommandAffixMarkup(affixId))
+      .join('');
+    root.dataset.state = this.currentWave ? 'active' : 'upcoming';
     root.innerHTML = `
-      <div class="wave-preview-track" style="--wave-node-count: ${waves.length}">
-        ${waves.map((wave) => {
-          const isActive = this.currentWave === wave;
-          return `
-            <div class="wave-preview-node is-${cssKey(wave.kind)}${isActive ? ' is-active' : ''}">
-              <span class="wave-node-dot">${escapeHtml(wave.index)}</span>
-              <strong>${escapeHtml(waveKindShortLabel(wave))}</strong>
-              ${waveAffixPreviewMarkup(wave)}
-            </div>
-          `;
-        }).join('')}
+      <div class="wave-command-summary is-${cssKey(wave.kind)}">
+        <span class="wave-command-kicker">${escapeHtml(stateLabel)}</span>
+        <strong class="wave-command-kind">${escapeHtml(waveKindLabel(wave))}</strong>
+        <span class="wave-command-roster">${escapeHtml(rosterLabel)}</span>
+      </div>
+      <div class="wave-command-affixes" aria-label="波次附魔">
+        ${affixMarkup || '<span class="wave-affix-token is-neutral"><span class="wave-affix-token-icon" aria-hidden="true">—</span><span><strong>无附魔</strong><small>标准攻势</small></span></span>'}
       </div>
     `;
   }
@@ -6365,13 +6363,20 @@ export class Game {
       );
       this.dom.baseHealth.textContent = `${baseRatio}%`;
     }
-    this.dom.waveLabel.textContent = this.currentWave
-      ? `${this.currentWave.index}/${this.waveSchedule.length}`
-      : (this.wave > 0 ? '整备' : '准备');
+    const displayedWave = this.currentWave ?? this.waveSchedule[this.waveIndex] ?? null;
+    this.dom.waveLabel.textContent = displayedWave
+      ? `${displayedWave.index}/${this.waveSchedule.length}`
+      : `${this.waveSchedule.length}/${this.waveSchedule.length}`;
     if (this.dom.silverCount) {
       this.dom.silverCount.textContent = formatSilverAmount(this.getSilver());
     }
-    this.dom.battleTime.textContent = formatBattleTime(this.elapsedTime);
+    const targetTime = Math.max(0, Number(this.levelSession.level.targetTime ?? 0));
+    const targetTimeRemaining = Math.max(0, targetTime - this.elapsedTime);
+    this.dom.battleTime.textContent = formatBattleTime(targetTimeRemaining);
+    this.dom.battleTime.closest('.meter-time')?.classList.toggle(
+      'is-expired',
+      targetTime > 0 && targetTimeRemaining <= 0
+    );
     this.dom.unitCount.textContent = String(this.friendlyUnits.length);
     if (this.selectedUnits.length > 1) {
       if (this.dom.selectedPanel) {
@@ -7089,13 +7094,6 @@ function resolveSessionDifficultyGrowth(session) {
   return levelGrowth * (1 + (selectedDifficulty - 1) * WAVE_DIFFICULTY_GROWTH_PER_SELECTED_DIFFICULTY);
 }
 
-function wavePreviewNodeCount() {
-  if (window.matchMedia?.('(pointer: coarse)')?.matches) {
-    return MOBILE_WAVE_PREVIEW_COUNT;
-  }
-  return WAVE_PREVIEW_COUNT;
-}
-
 function waveDifficultyBonus(wave, sessionOrGrowth = 1) {
   const growth = Number.isFinite(sessionOrGrowth)
     ? sessionOrGrowth
@@ -7190,21 +7188,34 @@ function waveAffixIdsForConfig(waveConfig) {
   return waveConfig?.affixId ? [waveConfig.affixId] : [];
 }
 
-function waveAffixPreviewLabel(wave) {
-  const affixIds = waveAffixIdsForConfig(wave);
-  if (!affixIds.length) return '';
-  return affixIds
-    .map((affixId) => {
-      const affix = WAVE_AFFIX_DEFINITIONS[affixId];
-      return affix ? `${affix.name}附魔` : affixId;
-    })
-    .join(' · ');
+function waveCommandRosterLabel(wave) {
+  const names = [...new Set(wave?.types ?? [])]
+    .slice(0, 2)
+    .map((type) => UNIT_DEFINITIONS[type]?.name ?? type)
+    .filter(Boolean);
+  const roster = names.length ? names.join(' / ') : '敌军';
+  return `${Math.max(0, Math.floor(wave?.count ?? 0))} 名 · ${roster}`;
 }
 
-function waveAffixPreviewMarkup(wave) {
-  const label = waveAffixPreviewLabel(wave);
-  if (!label) return '';
-  return `<span class="wave-preview-affix">${escapeHtml(label)}</span>`;
+function waveCommandAffixMarkup(affixId) {
+  const affix = WAVE_AFFIX_DEFINITIONS[affixId];
+  if (!affix) return '';
+  const glyph = {
+    swarm: '群',
+    armored: '甲',
+    rush: '速',
+    ranged: '弓',
+    siege: '城'
+  }[affixId] ?? '◆';
+  return `
+    <span class="wave-affix-token" data-affix="${escapeHtml(affix.id)}" title="${escapeHtml(affix.description)}">
+      <span class="wave-affix-token-icon" aria-hidden="true">${escapeHtml(glyph)}</span>
+      <span class="wave-affix-token-copy">
+        <strong>${escapeHtml(affix.name)}</strong>
+        <small>${escapeHtml(affix.preview)}</small>
+      </span>
+    </span>
+  `;
 }
 
 function waveAffixLevel(waveConfig) {
@@ -7219,12 +7230,6 @@ function isUnitInWave(unit, wave) {
 
 function waveKindLabel(wave) {
   if (wave.kind === 'boss') return `Boss ${wave.bossOrdinal}/${BOSS_WAVES_TO_WIN}`;
-  if (wave.kind === 'elite') return '精英';
-  return '普通';
-}
-
-function waveKindShortLabel(wave) {
-  if (wave.kind === 'boss') return 'Boss';
   if (wave.kind === 'elite') return '精英';
   return '普通';
 }
@@ -7537,20 +7542,21 @@ function randomItem(items) {
 
 function strategyRewardMarkup(choice, index) {
   const visual = strategyRewardVisualMeta(choice);
+  const card = resolveStrategyChoiceCard(choice, index);
+  const cardAccent = cardThemeColor(card);
   const title = choice.title ?? choice.card?.name ?? '奖励';
   const description = choice.description ?? choice.card?.summary ?? '';
   const meta = choice.metaText ? `<span class="strategy-reward-meta">${escapeHtml(choice.metaText)}</span>` : '';
   const disabledAttr = choice.disabled ? ' disabled aria-disabled="true"' : '';
-  const iconClass = 'strategy-reward-icon';
   return `
     <button
       class="strategy-reward-option is-${visual.kindKey}${choice.disabled ? ' is-disabled' : ''}"
       type="button"
       data-strategy-choice-index="${index}"
-      style="--reward-accent:${visual.accent}"${disabledAttr}
+      style="--reward-accent:${visual.accent};--card-accent:${cardAccent};--card-color:${cardAccent}"${disabledAttr}
     >
-      <span class="${iconClass}" aria-hidden="true">${escapeHtml(visual.icon)}</span>
-      <span class="strategy-reward-type">${escapeHtml(visual.typeLabel)}</span>
+      <span class="strategy-reward-kind">${escapeHtml(strategyRewardKindLabel(choice, card))}</span>
+      <span class="strategy-reward-icon has-card-art" aria-hidden="true">${createCardArtMarkup(card)}</span>
       <strong class="strategy-reward-title">${escapeHtml(title)}</strong>
       <p class="strategy-reward-desc">${escapeHtml(description)}</p>
       ${meta}
@@ -7653,6 +7659,8 @@ function strategyChoiceMarkup(choice, index) {
 
 function resolveStrategyChoiceCard(choice, index) {
   if (choice.card) return choice.card;
+  if (choice.targetCard) return choice.targetCard;
+  if (choice.temporaryCard) return choice.temporaryCard;
   return {
     id: `strategy-choice-${index}`,
     name: choice.title ?? '奖励',
