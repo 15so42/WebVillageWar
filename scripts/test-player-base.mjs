@@ -1,0 +1,24 @@
+import assert from 'node:assert/strict';
+import {
+  consumeBaseHealthLossMilestones,
+  resolvePlayerBaseDamage
+} from '../src/systems/playerBaseRules.js';
+
+assert.equal(resolvePlayerBaseDamage(999, { isAttack: true, attackDamage: 1 }), 1);
+assert.equal(resolvePlayerBaseDamage(0, { isAttack: true, attackDamage: 1 }), 1);
+assert.equal(resolvePlayerBaseDamage(10, { isAttack: false, attackDamage: 1 }), 10);
+
+assert.deepEqual(
+  consumeBaseHealthLossMilestones(9, 1, 10),
+  { milestones: 1, progress: 0 }
+);
+assert.deepEqual(
+  consumeBaseHealthLossMilestones(0, 25, 10),
+  { milestones: 2, progress: 5 }
+);
+assert.deepEqual(
+  consumeBaseHealthLossMilestones(4, 5, 10),
+  { milestones: 0, progress: 9 }
+);
+
+console.log('Player-base damage and energy milestone checks passed.');

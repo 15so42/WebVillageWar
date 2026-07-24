@@ -41,7 +41,8 @@ export function isStationaryCombatUnit(unit) {
   if (!unit?.definition || !unit.alive || unit.underConstruction) return false;
   const definition = unit.definition;
   if (!(unit.isBuilding || definition.canMove === false)) return false;
-  return (definition.attackRange ?? 0) > 0 && (definition.damage ?? 0) > 0;
+  return (definition.attackRange ?? 0) > 0 &&
+    Math.max(definition.physicalAttack ?? 0, definition.magicAttack ?? 0) > 0;
 }
 
 export function isStaticUnit(unit) {

@@ -102,8 +102,13 @@ export class ClientMirror {
   applyUnitState(unit, state) {
     if ('health' in state) unit.health = state.health;
     if ('maxHealth' in state) unit.attributes?.setBase?.('maxHealth', state.maxHealth);
+    if ('physicalAttack' in state) unit.attributes?.setBase?.('physicalAttack', state.physicalAttack);
+    if ('magicAttack' in state) unit.attributes?.setBase?.('magicAttack', state.magicAttack);
     if ('shield' in state) unit.shield = state.shield;
     if ('maxShield' in state) unit.attributes?.setBase?.('maxShield', state.maxShield);
+    if ('maxEnchantmentSlots' in state) {
+      unit.maxEnchantmentSlots = Math.max(0, Math.floor(state.maxEnchantmentSlots ?? 4));
+    }
     if ('maxDurability' in state) unit.attributes?.setBase?.('maxDurability', state.maxDurability);
     if ('durability' in state && unit.weapon) {
       unit.weapon.durability = Math.max(0, Math.min(unit.weapon.maxDurability, Number(state.durability) || 0));
@@ -209,6 +214,9 @@ export class ClientMirror {
     if ('waveIndex' in changes) this.game.wave = changes.waveIndex;
     if ('waveScheduleIndex' in changes) this.game.waveIndex = changes.waveScheduleIndex;
     if ('elapsedTime' in changes) this.game.elapsedTime = changes.elapsedTime;
+    if ('endlessDifficulty' in changes) {
+      this.game.endlessDifficulty = Number(changes.endlessDifficulty) || 0;
+    }
     if ('currentWave' in changes) {
       const incomingWave = changes.currentWave;
       const scheduledWave = incomingWave

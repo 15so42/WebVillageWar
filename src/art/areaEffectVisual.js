@@ -42,28 +42,32 @@ export function createAreaEffectVisual({ radius, color, accent, kind }) {
   ring.layers.set(1);
   group.add(ring);
 
+  const isWildfire = kind === 'wildfire';
   const puffMaterial = mat(color, {
     transparent: true,
-    opacity: kind === 'whiteSmoke' ? 0.42 : 0.34,
+    opacity: isWildfire ? 0.82 : (kind === 'whiteSmoke' ? 0.42 : 0.34),
     emissive: accent,
-    emissiveIntensity: kind === 'whiteSmoke' ? 0.08 : 0.18,
+    emissiveIntensity: isWildfire ? 0.92 : (kind === 'whiteSmoke' ? 0.08 : 0.18),
     depthWrite: false
   }).clone();
   for (let i = 0; i < SMOKE_PARTICLE_COUNT; i += 1) {
     const angle = Math.random() * Math.PI * 2;
     const distance = radius * Math.sqrt(Math.random()) * 0.88;
     const puff = new THREE.Mesh(
-      new THREE.DodecahedronGeometry(0.18 + Math.random() * 0.26, 0),
+      isWildfire
+        ? new THREE.ConeGeometry(0.13 + Math.random() * 0.14, 0.48 + Math.random() * 0.55, 5)
+        : new THREE.DodecahedronGeometry(0.18 + Math.random() * 0.26, 0),
       puffMaterial
     );
     puff.position.set(
       Math.cos(angle) * distance,
-      0.22 + Math.random() * 0.82,
+      isWildfire ? 0.26 + Math.random() * 0.22 : 0.22 + Math.random() * 0.82,
       Math.sin(angle) * distance
     );
     puff.userData.base = puff.position.clone();
     puff.userData.phase = Math.random() * Math.PI * 2;
     puff.userData.speed = 0.35 + Math.random() * 0.55;
+    puff.userData.isFlame = isWildfire;
     puff.renderOrder = 1322;
     puff.layers.set(0);
     group.add(puff);
@@ -84,14 +88,22 @@ export function updateAreaEffectVisual(group, { age, duration, radius, kind }, d
   group.userData.ring.scale.setScalar(radius * (1 + pulse * 1.4));
   group.userData.disc.material.opacity = (kind === 'whiteSmoke' ? 0.18 : 0.2) * alpha;
   group.userData.ring.material.opacity = (kind === 'whiteSmoke' ? 0.62 : 0.54) * alpha;
-  group.userData.puffMaterial.opacity = (kind === 'whiteSmoke' ? 0.42 : 0.34) * alpha;
+  group.userData.puffMaterial.opacity = (
+    kind === 'wildfire' ? 0.82 : (kind === 'whiteSmoke' ? 0.42 : 0.34)
+  ) * alpha;
   group.children.forEach((child, index) => {
     if (!child.userData.base) return;
     const phase = child.userData.phase + age * child.userData.speed;
     child.position.x = child.userData.base.x + Math.cos(phase) * 0.12;
     child.position.z = child.userData.base.z + Math.sin(phase * 0.84) * 0.12;
-    child.position.y = child.userData.base.y + Math.sin(phase * 1.25) * 0.08;
+    child.position.y = child.userData.base.y + Math.sin(phase * (child.userData.isFlame ? 5 : 1.25))
+      * (child.userData.isFlame ? 0.12 : 0.08);
     child.rotation.y += dt * (0.35 + index * 0.01);
-    child.scale.setScalar(0.72 + Math.sin(phase) * 0.16 + Math.sin(t * Math.PI) * 0.18);
+    const scale = 0.72 + Math.sin(phase) * 0.16 + Math.sin(t * Math.PI) * 0.18;
+    child.scale.set(
+      scale * (child.userData.isFlame ? 0.78 : 1),
+      scale * (child.userData.isFlame ? 1.25 : 1),
+      scale * (child.userData.isFlame ? 0.78 : 1)
+    );
   });
 }

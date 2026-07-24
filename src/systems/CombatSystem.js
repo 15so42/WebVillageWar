@@ -45,7 +45,7 @@ export class CombatSystem {
     this.applySourceAttackTraits(context);
 
     if (target === this.game.playerBase) {
-      this.game.damagePlayerBase(context.damage);
+      this.game.damagePlayerBase(context.damage, { isAttack: true });
       scratch.copy(source.position);
       scratch.y += 0.8;
       this.game.effects.spawnHit(scratch);
@@ -97,6 +97,9 @@ export class CombatSystem {
     target.takeRawDamage(finalDamage, {
       bypassShield: isTrueDamage || isDirectHealthDamage
     });
+    if (shieldBefore > 0.01 && (target.shield ?? 0) <= 0.01) {
+      this.triggerJadeShatter(target);
+    }
     this.game.networkBridge?.notifyCombatResult?.({
       kind: 'damage_applied',
       targetId: target.id,
@@ -229,14 +232,14 @@ export class CombatSystem {
       this.spawnTraitText(source, '重矢', '#dff8ff');
     }
     if (hasRuntimeTrait(source, 'shieldRam')) {
-      context.knockback *= 1.35;
+      context.damage += Math.max(0, source.weapon?.durability ?? 0) * 0.1;
     }
     if (hasRuntimeTrait(source, 'warcryDamage')) {
       const enemies = source.team === 'player' ? this.game.enemyUnits : this.game.friendlyUnits;
       const count = enemies.filter((unit) => (
         unit.alive && unit.position && distance2D(unit.position, source.position) <= 3.2
       )).length;
-      context.damage += Math.min(4, count);
+      context.damage += count;
     }
     if (hasRuntimeTrait(source, 'backstab') && wasRecentlyDamagedByOtherUnit(
       target,
@@ -250,7 +253,7 @@ export class CombatSystem {
   applyDefenderRuntimeTraits(context) {
     const target = context.target;
     if (!context.isAttack || !hasRuntimeTrait(target, 'holyShield')) return;
-    if (Math.random() >= 0.1) return;
+    if (Math.random() >= 0.25) return;
     const restored = target.restoreShield?.(10) ?? 0;
     if (restored <= 0.01) return;
     this.game.effects.spawnRing(target.position, '#ffe0a3', 0.68, 0.42);
@@ -313,6 +316,37 @@ export class CombatSystem {
     });
   }
 
+  triggerJadeShatter(unit) {
+    if (!unit?.position || unit.team !== TEAMS.PLAYER) return;
+    const stacks = this.game.getAbilityStacks?.('jadeShatter', unit)
+      ?? this.game.abilities?.getStacks?.('jadeShatter')
+      ?? 0;
+    if (stacks <= 0) return;
+    const now = this.game.elapsedTime ?? 0;
+    if ((unit.jadeShatterReadyAt ?? 0) > now) return;
+    unit.jadeShatterReadyAt = now + 6;
+    const radius = 2.6 + Math.max(0, stacks - 1) * 0.15;
+    const damage = Math.max(1, unit.maxShield ?? 0) * 0.35 * stacks;
+    const point = unit.position.clone();
+    point.y = this.game.groundHeightAt(point);
+    this.game.effects.spawnJadeShatter(point, radius);
+    this.game.effects.spawnRing(point, '#65e0c1', radius, 0.62);
+    this.game.enemyUnits.forEach((enemy) => {
+      if (!enemy.alive || enemy.underConstruction) return;
+      if (distance2D(enemy.position, point) > radius) return;
+      this.applyDamage(enemy, damage, unit.alive ? unit : null, 0, {
+        damage,
+        source: unit.alive ? unit : null,
+        target: enemy,
+        defenseDamageType: 'magic',
+        isAttack: false,
+        skipHitAnimation: true,
+        damageNumberHeight: enemy.projectileHitHeight ?? 1.45,
+        damageNumberDuration: 0.66
+      });
+    });
+  }
+
   applyPostAttackRuntimeTraits(context) {
     const source = context.source;
     const target = context.target;
@@ -326,8 +360,8 @@ export class CombatSystem {
       this.game.buffs.applyBuff(target, 'armorShredded', source, { duration: 3 });
     }
     if (hasRuntimeTrait(source, 'flurryStrike') && target.alive && Math.random() < 0.22) {
-      this.game.combat.applyDamage(target, dealt * 0.45, source, 0, {
-        damage: dealt * 0.45,
+      this.game.combat.applyDamage(target, dealt, source, 0, {
+        damage: dealt,
         source,
         target,
         defenseDamageType: context.attackDamageType ?? 'physical',
@@ -342,16 +376,18 @@ export class CombatSystem {
       this.game.buffs.applyBuff(target, 'weakenedAttack', source, { duration: 3.5 });
     }
     if (hasRuntimeTrait(source, 'bloodthirst')) {
-      const healed = source.restoreHealth?.(dealt * 0.18) ?? 0;
+      const missingHealth = Math.max(0, (source.maxHealth ?? 0) - (source.health ?? 0));
+      const healAmount = missingHealth * 0.08;
+      const healed = source.restoreHealth?.(healAmount) ?? 0;
       if (healed > 0.01) {
         this.game.effects.spawnHealNumber(source.position, healed, {
-          displayAmount: dealt * 0.18,
+          displayAmount: healAmount,
           color: '#ff9b9b',
           height: source.projectileHitHeight ?? 1.55
         });
       }
     }
-    if (hasRuntimeTrait(source, 'cleave') && Math.random() < 0.35) {
+    if (hasRuntimeTrait(source, 'cleave')) {
       this.applyCleaveDamage(source, target, dealt * 0.35);
     }
     if (hasRuntimeTrait(source, 'markTarget') && target.alive) {

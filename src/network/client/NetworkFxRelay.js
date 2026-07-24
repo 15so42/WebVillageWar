@@ -79,6 +79,12 @@ export function applyNetworkFx(game, event) {
     case 'fx_meteor':
       effects.spawnMeteor(vecFrom(event), event.radius ?? 2.4, () => {});
       break;
+    case 'fx_lava_eruption':
+      effects.spawnLavaEruption(vecFrom(event), event.radius ?? 3.5, () => {});
+      break;
+    case 'fx_jade_shatter':
+      effects.spawnJadeShatter(vecFrom(event), event.radius ?? 2.6);
+      break;
     case 'fx_falling_star':
       effects.spawnFallingStar(vecFrom(event), event.radius ?? 2.1, () => {});
       break;
@@ -204,6 +210,24 @@ const EFFECT_RELAY_SPECS = [
     name: 'fx_falling_star',
     serialize: ([position, radius]) => ({
       name: 'fx_falling_star',
+      ...vec3(position),
+      radius
+    })
+  },
+  {
+    method: 'spawnLavaEruption',
+    name: 'fx_lava_eruption',
+    serialize: ([position, radius]) => ({
+      name: 'fx_lava_eruption',
+      ...vec3(position),
+      radius
+    })
+  },
+  {
+    method: 'spawnJadeShatter',
+    name: 'fx_jade_shatter',
+    serialize: ([position, radius]) => ({
+      name: 'fx_jade_shatter',
       ...vec3(position),
       radius
     })

@@ -7,7 +7,13 @@
     "dev": "vite --host 0.0.0.0 --port 3000",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "server:coop": "node server/index.js"
+    "server:coop": "node server/index.js",
+    "test:endless": "node scripts/test-endless-mode.mjs",
+    "test:targeting": "node scripts/test-targeting.mjs",
+    "test:player-base": "node scripts/test-player-base.mjs",
+    "test:unit-resource-sync": "node scripts/test-unit-resource-sync.mjs",
+    "test:dual-attack": "node scripts/test-dual-attack.mjs",
+    "test:altar-specialization": "node scripts/test-altar-specialization-reward.mjs"
   },
   "dependencies": {
     "three": "^0.170.0",

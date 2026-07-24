@@ -76,6 +76,7 @@ export class UnitEntity {
     this.visualState = 'idle';
     this.buffs = new Map();
     this.enchantments = new Map();
+    this.maxEnchantmentSlots = 4;
     this.status = {
       burnTime: 0,
       burnDamagePerSecond: 0,
@@ -113,6 +114,13 @@ export class UnitEntity {
     if (!definition) return null;
     const existing = this.buffs.get(id);
     const isEnchantment = definition.category === 'enchantment';
+    if (
+      isEnchantment &&
+      !existing &&
+      this.enchantments.size >= Math.max(0, Math.floor(this.maxEnchantmentSlots ?? 4))
+    ) {
+      return null;
+    }
     const incomingLevel = resolveIncomingBuffLevel(definition, overrides);
     const existingLevel = Math.max(1, existing?.level ?? 1);
     const level = existing && isEnchantment
@@ -318,7 +326,8 @@ function createUnitAttributes(definition) {
     moveSpeed: definition.speed,
     attackRange: definition.attackRange,
     attackRate: definition.attackRate,
-    attackDamage: definition.damage,
+    physicalAttack: definition.physicalAttack ?? 0,
+    magicAttack: definition.magicAttack ?? 0,
     knockback: definition.knockback,
     knockbackResistance: definition.knockbackResistance ?? 0,
     aggroRange: definition.aggroRange,
@@ -338,7 +347,17 @@ function bindUnitAttributeGetters(unit) {
   bindAttributeGetter(unit, 'moveSpeed', 'moveSpeed');
   bindAttributeGetter(unit, 'attackRange', 'attackRange');
   bindAttributeGetter(unit, 'attackRate', 'attackRate');
-  bindAttributeGetter(unit, 'attackDamage', 'attackDamage');
+  bindAttributeGetter(unit, 'physicalAttack', 'physicalAttack');
+  bindAttributeGetter(unit, 'magicAttack', 'magicAttack');
+  Object.defineProperty(unit, 'attackDamage', {
+    configurable: true,
+    enumerable: true,
+    get() {
+      return this.definition.attackDamageType === 'magic'
+        ? this.magicAttack
+        : this.physicalAttack;
+    }
+  });
   bindAttributeGetter(unit, 'armor', 'armor');
   bindAttributeGetter(unit, 'magicResistance', 'magicResistance');
   bindAttributeGetter(unit, 'knockback', 'knockback');

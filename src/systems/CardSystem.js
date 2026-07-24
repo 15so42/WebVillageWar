@@ -429,7 +429,7 @@ export class CardSystem {
       return;
     }
 
-    if (this.drag.card.target === 'none' || this.drag.card.kind === 'tactic') {
+    if (this.drag.card.target === 'none') {
       this.moveGhost(event.clientX, event.clientY);
       this.ghost.hidden = false;
       this.drag.point = null;
@@ -804,7 +804,7 @@ export class CardSystem {
     this.spendEnergy(cost);
     this.game.runCardsPlayedCount = (this.game.runCardsPlayedCount ?? 0) + 1;
     this.game.abilitiesFor?.(this.playerSlot)?.onCardPlayed(drag.card, drag);
-    if (isTerrainCard(drag.card)) {
+    if (isTerrainCard(drag.card) && !cardHasUseLimit(drag.card)) {
       this.startCardCooldown(drag.card);
       this.renderHand();
       this.updateCardAffordability();

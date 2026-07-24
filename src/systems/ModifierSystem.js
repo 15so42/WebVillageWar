@@ -33,9 +33,28 @@ export class ModifierSystem {
     return this.getAttribute(unit, 'attackRate', unit.definition.attackRate);
   }
 
-  getAttackDamage(unit) {
-    const baseDamage = this.getAttribute(unit, 'attackDamage', unit.definition.damage);
-    return baseDamage * this.getAttackDamageMultiplier(unit);
+  getPhysicalAttack(unit) {
+    const baseAttack = this.getAttribute(
+      unit,
+      'physicalAttack',
+      unit?.definition?.physicalAttack ?? 0
+    );
+    return baseAttack * this.getAttackDamageMultiplier(unit);
+  }
+
+  getMagicAttack(unit) {
+    const baseAttack = this.getAttribute(
+      unit,
+      'magicAttack',
+      unit?.definition?.magicAttack ?? 0
+    );
+    return baseAttack * this.getAttackDamageMultiplier(unit);
+  }
+
+  getAttackDamage(unit, attackDamageType = unit?.definition?.attackDamageType) {
+    return normalizeAttackDamageType(attackDamageType) === 'magic'
+      ? this.getMagicAttack(unit)
+      : this.getPhysicalAttack(unit);
   }
 
   getArmor(unit) {
@@ -107,14 +126,15 @@ export class ModifierSystem {
   }
 
   createAttackContext(source, target, override = {}) {
+    const attackDamageType = normalizeAttackDamageType(
+      override.attackDamageType ?? source?.definition?.attackDamageType
+    );
     return {
       game: this.game,
       source,
       target,
-      damage: override.damage ?? this.getAttackDamage(source),
-      attackDamageType: normalizeAttackDamageType(
-        override.attackDamageType ?? source?.definition?.attackDamageType
-      ),
+      damage: override.damage ?? this.getAttackDamage(source, attackDamageType),
+      attackDamageType,
       knockback: override.knockback ?? this.getKnockback(source),
       damageTypes: new Set(override.damageTypes ?? []),
       isProjectile: Boolean(override.isProjectile),

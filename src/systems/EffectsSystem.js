@@ -1248,6 +1248,163 @@ export class EffectsSystem {
     });
   }
 
+  spawnLavaEruption(position, radius, onImpact) {
+    const group = new THREE.Group();
+    group.position.set(position.x, (position.y ?? 0) + 0.08, position.z);
+
+    const magmaMaterial = mat('#ff642b', {
+      emissive: '#ff2f0d',
+      emissiveIntensity: 1.15,
+      roughness: 0.62,
+      transparent: true,
+      opacity: 0.96,
+      depthWrite: false
+    }).clone();
+    const coreMaterial = basicMat('#ffd36b', {
+      transparent: true,
+      opacity: 0.88,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    }).clone();
+    const rockMaterial = mat('#352626', {
+      emissive: '#8f2918',
+      emissiveIntensity: 0.38,
+      roughness: 0.9,
+      transparent: true,
+      opacity: 0.96
+    }).clone();
+    const groundMaterial = basicMat('#ff4b20', {
+      transparent: true,
+      opacity: 0.72,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    }).clone();
+    const groundRift = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.42, 8), groundMaterial);
+    groundRift.rotation.x = -Math.PI / 2;
+    groundRift.scale.setScalar(radius);
+    group.add(groundRift);
+
+    const core = new THREE.Mesh(new THREE.SphereGeometry(0.52, 10, 7), coreMaterial);
+    core.scale.set(1.2, 0.35, 1.2);
+    group.add(core);
+
+    const jets = [];
+    for (let index = 0; index < 7; index += 1) {
+      const angle = (index / 7) * Math.PI * 2 + Math.random() * 0.4;
+      const jet = new THREE.Mesh(
+        new THREE.ConeGeometry(0.13 + Math.random() * 0.14, 1.1 + Math.random() * 1.4, 5),
+        magmaMaterial
+      );
+      jet.position.set(
+        Math.cos(angle) * radius * (0.12 + Math.random() * 0.28),
+        0,
+        Math.sin(angle) * radius * (0.12 + Math.random() * 0.28)
+      );
+      jet.rotation.z = (Math.random() - 0.5) * 0.45;
+      jet.userData.height = 0.9 + Math.random() * 1.3;
+      jet.userData.phase = Math.random() * Math.PI * 2;
+      jets.push(jet);
+      group.add(jet);
+    }
+
+    const fragments = [];
+    for (let index = 0; index < 16; index += 1) {
+      const angle = Math.random() * Math.PI * 2;
+      const fragment = new THREE.Mesh(
+        new THREE.TetrahedronGeometry(0.08 + Math.random() * 0.13, 0),
+        index % 3 === 0 ? magmaMaterial : rockMaterial
+      );
+      fragment.userData.velocity = new THREE.Vector3(
+        Math.cos(angle) * (1.4 + Math.random() * radius),
+        2.4 + Math.random() * 4.2,
+        Math.sin(angle) * (1.4 + Math.random() * radius)
+      );
+      fragments.push(fragment);
+      group.add(fragment);
+    }
+
+    let impacted = false;
+    this.addEffect(group, 1.05, (dt, t) => {
+      const rise = Math.sin(Math.min(1, t * 1.45) * Math.PI);
+      groundRift.scale.setScalar(radius * (0.45 + t * 0.75));
+      groundMaterial.opacity = 0.72 * (1 - t);
+      core.scale.set(
+        radius * (0.18 + t * 0.24),
+        0.32 + rise * 1.25,
+        radius * (0.18 + t * 0.24)
+      );
+      coreMaterial.opacity = 0.88 * (1 - t) ** 1.6;
+      jets.forEach((jet) => {
+        const flicker = 0.82 + Math.sin(jet.userData.phase + t * 38) * 0.16;
+        jet.scale.set(1, rise * jet.userData.height * flicker, 1);
+        jet.rotation.y += dt * 3.2;
+      });
+      fragments.forEach((fragment) => {
+        fragment.position.addScaledVector(fragment.userData.velocity, dt);
+        fragment.userData.velocity.y -= 8.2 * dt;
+        fragment.rotation.x += dt * 8;
+        fragment.rotation.y += dt * 5;
+        fragment.scale.setScalar(Math.max(0.18, 1 - t * 0.72));
+      });
+      magmaMaterial.opacity = 0.96 * (1 - t * 0.55);
+      rockMaterial.opacity = 0.96 * (1 - t);
+      if (!impacted && t >= 0.18) {
+        impacted = true;
+        onImpact?.();
+      }
+    });
+  }
+
+  spawnJadeShatter(position, radius) {
+    const group = new THREE.Group();
+    group.position.set(position.x, (position.y ?? 0) + 0.14, position.z);
+    const jadeMaterial = mat('#54d9b5', {
+      emissive: '#1f8f78',
+      emissiveIntensity: 0.9,
+      transparent: true,
+      opacity: 0.92,
+      depthWrite: false
+    }).clone();
+    const flashMaterial = basicMat('#bfffe9', {
+      transparent: true,
+      opacity: 0.78,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    }).clone();
+    const flash = new THREE.Mesh(new THREE.SphereGeometry(0.55, 10, 7), flashMaterial);
+    flash.scale.set(1, 0.55, 1);
+    group.add(flash);
+    const shards = [];
+    for (let index = 0; index < 14; index += 1) {
+      const angle = (index / 14) * Math.PI * 2 + Math.random() * 0.2;
+      const shard = new THREE.Mesh(
+        new THREE.TetrahedronGeometry(0.1 + Math.random() * 0.15, 0),
+        jadeMaterial
+      );
+      shard.userData.velocity = new THREE.Vector3(
+        Math.cos(angle) * radius * (1.4 + Math.random() * 0.7),
+        1.2 + Math.random() * 2.4,
+        Math.sin(angle) * radius * (1.4 + Math.random() * 0.7)
+      );
+      shards.push(shard);
+      group.add(shard);
+    }
+    this.addEffect(group, 0.72, (dt, t) => {
+      flash.scale.setScalar(radius * (0.3 + t * 0.85));
+      flash.scale.y *= 0.48;
+      flashMaterial.opacity = 0.78 * (1 - t) ** 2;
+      jadeMaterial.opacity = 0.92 * (1 - t);
+      shards.forEach((shard) => {
+        shard.position.addScaledVector(shard.userData.velocity, dt);
+        shard.userData.velocity.y -= 5.8 * dt;
+        shard.rotation.x += dt * 9;
+        shard.rotation.z += dt * 7;
+        shard.scale.setScalar(1 - t * 0.58);
+      });
+    });
+  }
+
   spawnCrater(position, radius) {
     const crater = new THREE.Mesh(
       new THREE.CircleGeometry(radius * 0.72, 18),

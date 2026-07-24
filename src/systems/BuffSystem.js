@@ -757,7 +757,7 @@ export class BuffSystem {
     if (bonus > 0) {
       unit.attributes.addModifiers([
         {
-          stat: 'attackDamage',
+          stat: 'attackPower',
           type: 'add',
           amount: bonus
         }

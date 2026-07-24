@@ -227,11 +227,18 @@ export class SnapshotBuilder {
       waveScheduleIndex: this.game.waveIndex ?? 0,
       waveLabel: this.game.currentWave?.label ?? '',
       elapsedTime: Math.floor((this.game.elapsedTime ?? 0) * 4) / 4,
+      endlessDifficulty: Number(this.game.endlessDifficulty ?? 0),
       currentWave: this.game.currentWave ? {
         index: this.game.currentWave.index ?? this.game.wave ?? 0,
         label: this.game.currentWave.label ?? '',
         kind: this.game.currentWave.kind ?? 'normal',
-        count: this.game.currentWave.count ?? null
+        count: this.game.currentWave.count ?? null,
+        bossOrdinal: this.game.currentWave.bossOrdinal ?? 0,
+        types: this.game.currentWave.types ?? [],
+        affixId: this.game.currentWave.affixId ?? null,
+        affixIds: this.game.currentWave.affixIds ?? [],
+        effectiveDifficulty: this.game.currentWave.effectiveDifficulty ?? null,
+        challengeMode: this.game.currentWave.challengeMode ?? this.game.levelSession?.challengeMode
       } : null,
       levelFinished: Boolean(this.game.levelFinished)
     };
@@ -305,11 +312,18 @@ export class SnapshotBuilder {
           waveScheduleIndex: this.game.waveIndex ?? 0,
           waveLabel: this.game.currentWave?.label ?? '',
           elapsedTime: Math.floor((this.game.elapsedTime ?? 0) * 4) / 4,
+          endlessDifficulty: Number(this.game.endlessDifficulty ?? 0),
           currentWave: this.game.currentWave ? {
             index: this.game.currentWave.index ?? this.game.wave ?? 0,
             label: this.game.currentWave.label ?? '',
             kind: this.game.currentWave.kind ?? 'normal',
-            count: this.game.currentWave.count ?? null
+            count: this.game.currentWave.count ?? null,
+            bossOrdinal: this.game.currentWave.bossOrdinal ?? 0,
+            types: this.game.currentWave.types ?? [],
+            affixId: this.game.currentWave.affixId ?? null,
+            affixIds: this.game.currentWave.affixIds ?? [],
+            effectiveDifficulty: this.game.currentWave.effectiveDifficulty ?? null,
+            challengeMode: this.game.currentWave.challengeMode ?? this.game.levelSession?.challengeMode
           } : null,
           levelFinished: Boolean(this.game.levelFinished)
         },
@@ -335,8 +349,11 @@ export class SnapshotBuilder {
       playerColorIndex: playerColorIndex(this.game, unit.controllerPlayerId ?? unit.ownerPlayerId),
       health: round(unit.health),
       maxHealth: round(unit.maxHealth),
+      physicalAttack: round(this.game.modifiers?.getPhysicalAttack?.(unit) ?? unit.physicalAttack ?? 0),
+      magicAttack: round(this.game.modifiers?.getMagicAttack?.(unit) ?? unit.magicAttack ?? 0),
       shield: round(unit.shield ?? 0),
       maxShield: round(unit.maxShield ?? 0),
+      maxEnchantmentSlots: Math.max(0, Math.floor(unit.maxEnchantmentSlots ?? 4)),
       durability: round(unit.weapon?.durability ?? 0),
       maxDurability: round(unit.weapon?.maxDurability ?? 0),
       underConstruction: Boolean(unit.underConstruction),

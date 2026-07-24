@@ -3545,3 +3545,23 @@ body.is-game-active .loot-confirm-close {
     line-height: 1.18 !important;
   }
 }
+
+/* Supply-shop three-choice cards intentionally share the exact wave-reward
+   card component. Existing-card catalog pickers remain compact and scrollable. */
+body.is-game-active .run-shop-panel.is-detail.is-wave-card-picker {
+  width: min(850px, calc(100vw - 40px)) !important;
+}
+
+body.is-game-active .run-shop-choice-list.is-horizontal-row .run-shop-reward-option {
+  flex: 0 0 min(242px, 28vw);
+  width: min(242px, 28vw);
+  max-width: 242px;
+}
+
+@media (min-width: 901px) {
+  /* The energy toolbar can add a second row. Keep temporary cards clear of
+     both the compact and expanded panel instead of letting the lower edges overlap. */
+  body.is-game-active .temporary-card-slot {
+    bottom: 330px !important;
+  }
+}

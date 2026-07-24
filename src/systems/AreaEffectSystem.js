@@ -151,6 +151,9 @@ export class AreaEffectSystem {
       if (applied && zone.kind === 'plagueFog' && Math.random() < 0.32) {
         this.game.effects.spawnPoisonParticles(unit, 2);
       }
+      if (applied && zone.kind === 'wildfire' && Math.random() < 0.48) {
+        this.game.effects.spawnBurningParticles(unit, 2);
+      }
     });
   }
 

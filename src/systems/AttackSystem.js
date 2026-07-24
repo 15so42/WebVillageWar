@@ -57,6 +57,7 @@ export class AttackSystem {
     unit.attackTimer = Math.max(unit.attackTimer, ability.attackLockSeconds ?? 0.35);
     unit.visualState = 'idle';
     const duration = getAnimationDuration(unit, 'attack');
+    const attackDamageType = ability.attackDamageType ?? unit.definition.attackDamageType;
     playUnitAnimation(unit, 'attack', duration, {
       variant: ability.animationVariant ?? 'rangedAbility'
     });
@@ -73,8 +74,8 @@ export class AttackSystem {
         projectileType: ability.projectileType ?? 'dagger',
         projectileColor: ability.projectileColor,
         projectileSpeed: ability.projectileSpeed ?? unit.definition.projectileSpeed ?? 13,
-        damage: this.game.modifiers.getAttackDamage(unit) * (ability.damageMultiplier ?? 1),
-        attackDamageType: ability.attackDamageType ?? unit.definition.attackDamageType,
+        damage: this.game.modifiers.getAttackDamage(unit, attackDamageType) * (ability.damageMultiplier ?? 1),
+        attackDamageType,
         knockback: ability.knockback ?? this.game.modifiers.getKnockback(unit),
         damageTypes: ability.damageTypes
       }
@@ -291,7 +292,7 @@ export class AttackSystem {
         projectileType: source.definition.projectileType ?? 'frostArrow',
         projectileColor: source.definition.projectileColor ?? '#bcecff',
         projectileSpeed: source.definition.projectileSpeed ?? 15,
-        damage: this.game.modifiers.getAttackDamage(source) * 0.5,
+        damage: this.game.modifiers.getAttackDamage(source, source.definition.attackDamageType) * 0.5,
         attackDamageType: source.definition.attackDamageType,
         knockback: this.game.modifiers.getKnockback(source) * 0.34,
         projectileDirection: direction,
@@ -313,7 +314,10 @@ export class AttackSystem {
       projectileType: source.definition.projectileType ?? 'lanternBolt',
       projectileColor: source.definition.projectileColor ?? '#d7b66d',
       projectileSpeed: source.definition.projectileSpeed ?? 18,
-      damage: Math.max(1, ability.damage ?? this.game.modifiers.getAttackDamage(source) * 1.4),
+      damage: Math.max(
+        1,
+        ability.damage ?? this.game.modifiers.getAttackDamage(source, source.definition.attackDamageType) * 1.4
+      ),
       attackDamageType: source.definition.attackDamageType,
       knockback: this.game.modifiers.getKnockback(source) * 0.82,
       projectilePierce: {
@@ -380,7 +384,10 @@ export class AttackSystem {
 
   strikeVenomTail(source, target, ability) {
     const landed = this.game.combat.applyAttack(source, target, {
-      damage: Math.max(1, ability.damage ?? this.game.modifiers.getAttackDamage(source) * 1.25),
+      damage: Math.max(
+        1,
+        ability.damage ?? this.game.modifiers.getAttackDamage(source, source.definition.attackDamageType) * 1.25
+      ),
       attackDamageType: source.definition.attackDamageType,
       knockback: this.game.modifiers.getKnockback(source) * 1.2,
       damageTypes: new Set(['undodgeable'])
@@ -511,7 +518,7 @@ export class AttackSystem {
       projectileType === 'waterOrb' &&
       hasRuntimeTrait(source, 'greatWaterOrb') &&
       Math.random() < 0.3;
-    projectileObject.scale.setScalar(isGreatWaterOrb ? 1.38 : 1);
+    projectileObject.scale.setScalar(isGreatWaterOrb ? 1.7 : 1);
     const launchPosition = this.getProjectileLaunchPosition(source);
     projectileObject.position.copy(launchPosition);
     projectileTrailTargetPosition.copy(target.position);
@@ -524,6 +531,7 @@ export class AttackSystem {
     this.game.scene.add(projectileObject);
 
     const pierce = override.projectilePierce ?? source.definition.projectilePierce;
+    const attackDamageType = override.attackDamageType ?? source.definition.attackDamageType;
     const projectile = {
       networkId: `projectile:${this.nextProjectileNetworkId++}`,
       object: projectileObject,
@@ -532,8 +540,10 @@ export class AttackSystem {
       type: projectileType,
       color: projectileColor,
       speed: override.projectileSpeed ?? this.game.modifiers.getProjectileSpeed(source),
-      damage: (override.damage ?? this.game.modifiers.getAttackDamage(source)) * (isGreatWaterOrb ? 1.55 : 1),
-      attackDamageType: override.attackDamageType ?? source.definition.attackDamageType,
+      damage: (
+        override.damage ?? this.game.modifiers.getAttackDamage(source, attackDamageType)
+      ) * (isGreatWaterOrb ? 1.55 : 1),
+      attackDamageType,
       knockback: (override.knockback ?? this.game.modifiers.getKnockback(source)) * (isGreatWaterOrb ? 1.25 : 1),
       damageTypes: override.damageTypes,
       onHit: override.onHit,

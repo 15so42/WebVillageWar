@@ -1,5 +1,5 @@
 export const RELAY_VERSION = 2;
-export const GAME_PROTOCOL_VERSION = 'multiplayer-v3';
+export const GAME_PROTOCOL_VERSION = 'multiplayer-v4';
 export const CATALOG_VERSION = 'cards-v1';
 
 export const MATCH_PHASE = Object.freeze({

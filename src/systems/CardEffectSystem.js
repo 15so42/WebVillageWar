@@ -12,6 +12,7 @@ export class CardEffectSystem {
       'cast-meteor-barrage': (context) => this.castMeteorBarrage(context),
       'apply-buff': (context) => this.applyBuff(context),
       'apply-random-enchantments': (context) => this.applyRandomEnchantments(context),
+      'increase-enchantment-slots': (context) => this.increaseEnchantmentSlots(context),
       'acquire-ability': (context) => this.acquireAbility(context),
       'gain-energy': (context) => this.gainEnergy(context),
       'gain-energy-from-units': (context) => this.gainEnergyFromUnits(context),
@@ -107,6 +108,14 @@ export class CardEffectSystem {
     const cardLevel = Math.max(1, Math.floor(card.level ?? 1));
     const definition = BUFF_DEFINITIONS[buffId];
     const isEnchantment = definition?.category === 'enchantment';
+    if (
+      isEnchantment &&
+      !targetUnit.enchantments?.has?.(buffId) &&
+      targetUnit.enchantments?.size >= Math.max(0, Math.floor(targetUnit.maxEnchantmentSlots ?? 4))
+    ) {
+      this.showEnchantmentSlotFailure(targetUnit);
+      return false;
+    }
     const applyCount = isEnchantment ? cardLevel : 1;
     const applyLevel = isEnchantment ? 1 : cardLevel;
     let buff = null;
@@ -153,6 +162,40 @@ export class CardEffectSystem {
     });
     this.game.selectUnit(targetUnit);
     return true;
+  }
+
+  increaseEnchantmentSlots({ card, effect, targetUnit }) {
+    if (!targetUnit) return false;
+    const amount = Math.max(1, Math.floor(resolveCardEffectNumber(card, effect, 'amount', 1)));
+    targetUnit.maxEnchantmentSlots = Math.max(
+      targetUnit.enchantments?.size ?? 0,
+      Math.floor(targetUnit.maxEnchantmentSlots ?? 4) + amount
+    );
+    targetUnit.statusUiDirty = true;
+    this.game.effects.spawnRing(targetUnit.position, card.color ?? '#63e0c4', 0.95, 0.72);
+    this.game.effects.spawnDamageNumber(targetUnit.position, 1, {
+      text: `附魔槽 +${amount}`,
+      color: card.color ?? '#9fffe8',
+      stroke: '#12352f',
+      height: targetUnit.projectileHitHeight ?? 1.55,
+      duration: 0.9,
+      fontSize: 76,
+      baseHeight: 0.5
+    });
+    this.game.selectUnit(targetUnit);
+    return true;
+  }
+
+  showEnchantmentSlotFailure(targetUnit) {
+    this.game.effects.spawnDamageNumber(targetUnit.position, 1, {
+      text: '附魔槽已满',
+      color: '#ffb0a4',
+      stroke: '#421b18',
+      height: targetUnit.projectileHitHeight ?? 1.55,
+      duration: 0.9,
+      fontSize: 74,
+      baseHeight: 0.5
+    });
   }
 
   acquireAbility({ card, effect }) {

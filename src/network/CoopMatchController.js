@@ -3,6 +3,7 @@ import { GAME_VERSION } from '../version.js';
 import { RoomClient } from './session/RoomClient.js';
 import { buildMatchDeck, normalizeMultiplayerSession } from './session/MultiplayerSession.js';
 import { GameNetworkBridge } from './bridge/GameNetworkBridge.js';
+import { normalizeChallengeMode } from '../systems/endlessMode.js';
 import {
   CATALOG_VERSION,
   COMMAND,
@@ -25,6 +26,7 @@ export class CoopMatchController {
     getDeckSelection,
     getSelectedLevelId,
     getSelectedDifficulty,
+    getSelectedChallengeMode,
     selectedLevel,
     cardWithLevel,
     toggleLocalDeckCard,
@@ -36,6 +38,7 @@ export class CoopMatchController {
     this.getDeckSelection = getDeckSelection;
     this.getSelectedLevelId = getSelectedLevelId;
     this.getSelectedDifficulty = getSelectedDifficulty;
+    this.getSelectedChallengeMode = getSelectedChallengeMode;
     this.selectedLevel = selectedLevel;
     this.cardWithLevel = cardWithLevel;
     this.toggleLocalDeckCard = toggleLocalDeckCard;
@@ -679,6 +682,7 @@ export class CoopMatchController {
     const levelId = lobbyConfig.levelId;
     const level = LEVEL_DEFINITIONS.find((entry) => entry.id === levelId) ?? LEVEL_DEFINITIONS[0];
     const difficulty = lobbyConfig.difficulty;
+    const challengeMode = lobbyConfig.challengeMode;
     const matchId = createStableId('match');
     const matchSeed = randomSeed();
     this.phase = MATCH_PHASE.MATCH_LOADING;
@@ -697,6 +701,7 @@ export class CoopMatchController {
       levelId,
       level,
       difficulty,
+      challengeMode,
       players: descriptors,
       decks: Object.fromEntries(players.map((player) => [player.playerId, player.deck])),
       matchRules: {
@@ -707,6 +712,7 @@ export class CoopMatchController {
         factions: [{ factionId: 'players', teamId: 'players' }],
         aiFactions: [{ factionId: 'enemy-ai', teamId: 'enemy' }],
         basePolicy: 'shared_team_base',
+        challengeMode,
         matchSeed,
         rulesVersion: GAME_PROTOCOL_VERSION,
         phaseRevision: this.phaseRevision
@@ -734,6 +740,7 @@ export class CoopMatchController {
       matchSeed: this.match.matchSeed,
       levelId: this.match.levelId,
       difficulty: this.match.difficulty,
+      challengeMode: this.match.challengeMode,
       players: this.match.players,
       matchRules: this.match.matchRules,
       localDeck: this.match.decks[playerId]
@@ -797,6 +804,7 @@ export class CoopMatchController {
       mode: 'multiplayer',
       level,
       difficulty: payload.difficulty ?? 1,
+      challengeMode: normalizeChallengeMode(payload.challengeMode),
       roomId: this.roomClient.room?.id,
       matchId: payload.matchId,
       matchSeed: payload.matchSeed,
@@ -893,7 +901,10 @@ export class CoopMatchController {
     const requestedDifficulty = Number(config.difficulty ?? this.getSelectedDifficulty?.() ?? 1);
     return {
       levelId: level?.id ?? LEVEL_DEFINITIONS[0]?.id ?? 'snow-valley',
-      difficulty: Math.max(1, Math.floor(Number.isFinite(requestedDifficulty) ? requestedDifficulty : 1))
+      difficulty: Math.max(1, Math.floor(Number.isFinite(requestedDifficulty) ? requestedDifficulty : 1)),
+      challengeMode: normalizeChallengeMode(
+        config.challengeMode ?? this.getSelectedChallengeMode?.()
+      )
     };
   }
 }

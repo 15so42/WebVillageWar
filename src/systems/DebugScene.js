@@ -196,6 +196,7 @@ export class DebugScene extends Game {
   }
 
   resetDebugStructures() {
+    this.playerBaseHealthLossProgress = 0;
     [this.playerBase, this.enemyCamp].forEach((structure) => {
       structure.alive = true;
       structure.health = structure.maxHealth;

@@ -22,6 +22,7 @@ import {
   runtimeUpgradeSummaryForCard,
   runtimeUpgradeTitleForCard
 } from '../data/cardUpgrades.js';
+import { pickAltarSpecializationChoices } from './altarRewardChoices.js';
 import { UnitEntity } from '../entities/UnitEntity.js';
 import { prewarmUnitModelTemplates } from '../art/visualRegistry.js';
 import { createWorld } from '../world/createWorld.js';
@@ -58,6 +59,23 @@ import { UnitRegistry } from './UnitRegistry.js';
 import { clamp, polarOffset, seededRandom } from '../utils/math.js';
 import { calculateLevelReward } from '../utils/levelRewards.js';
 import { formatSupportAmount, targetCombatRadius } from './combatHelpers.js';
+import {
+  applyEndlessDifficulty,
+  calculateEndlessReward,
+  endlessDifficultyDelta,
+  endlessEnchantLevel,
+  endlessEnemyClass,
+  endlessEnemyStatFactors,
+  endlessExpectedLifetime,
+  isEndlessMode,
+  normalizeChallengeMode,
+  resetEndlessDeckLevels
+} from './endlessMode.js';
+import {
+  consumeBaseHealthLossMilestones,
+  resolvePlayerBaseDamage
+} from './playerBaseRules.js';
+import { scaleResourceAfterMaximumChange } from './unitResourceSync.js';
 
 const ROUTE_REPATH_DISTANCE = 1.15;
 const ROUTE_REJOIN_DISTANCE = 2.2;
@@ -795,7 +813,10 @@ export class Game {
       ...(BALANCE.enemyDirector ?? {}),
       ...(this.levelSession.level.enemyDirector ?? {})
     };
-    this.waveSchedule = createWaveSchedule(this.levelSession);
+    this.endlessDifficulty = 0;
+    this.waveSchedule = this.isEndlessMode()
+      ? (this.networkClientMode ? [] : [createWaveConfig(this.levelSession, 1, this.endlessDifficulty)])
+      : createWaveSchedule(this.levelSession);
     this.waveIndex = 0;
     this.currentWave = null;
     this.wave = 0;
@@ -832,6 +853,7 @@ export class Game {
     this.strategyEvent = null;
     this.enemyCampAttackTimer = 0;
     this.playerBaseAttackTimer = 0;
+    this.playerBaseHealthLossProgress = 0;
     this.lastCardPlayed = null;
     this.runCardsPlayedCount = 0;
     this.selectedUnit = null;
@@ -998,6 +1020,7 @@ export class Game {
       waveLabel: document.querySelector('#wave-label'),
       silverCount: document.querySelector('#silver-count'),
       wavePreview: document.querySelector('#wave-preview'),
+      battleTimeLabel: document.querySelector('#battle-time-label'),
       battleTime: document.querySelector('#battle-time'),
       unitCount: document.querySelector('#unit-count'),
       selectedPanel: document.querySelector('#selected-panel'),
@@ -1325,11 +1348,26 @@ export class Game {
     units.forEach((unit) => this.removeEnemyUnitSilently(unit));
   }
 
+  isEndlessMode() {
+    return isEndlessMode(this.levelSession.challengeMode);
+  }
+
+  ensureWaveConfig(scheduleIndex = this.waveIndex) {
+    if (!this.isEndlessMode() || this.networkClientMode) {
+      return this.waveSchedule[scheduleIndex] ?? null;
+    }
+    while (this.waveSchedule.length <= scheduleIndex) {
+      const index = this.waveSchedule.length + 1;
+      this.waveSchedule.push(createWaveConfig(this.levelSession, index, this.endlessDifficulty));
+    }
+    return this.waveSchedule[scheduleIndex] ?? null;
+  }
+
   startNextWave() {
     if (this.levelFinished || this.levelSession.debug) return;
-    const wave = this.waveSchedule[this.waveIndex];
+    const wave = this.ensureWaveConfig(this.waveIndex);
     if (!wave) {
-      this.finishLevel(true);
+      this.finishLevel(true, { endReason: 'waves_completed' });
       return;
     }
     this.currentWave = wave;
@@ -1347,12 +1385,13 @@ export class Game {
     if (!wave || this.levelFinished) return;
     this.currentWave = null;
     this.currentEnemyForce = null;
+    this.ensureWaveConfig(this.waveIndex);
     this.updateWavePreview();
     if (wave.kind === 'boss') {
       this.bossesDefeated += 1;
       this.grantWaveSilver(wave);
-      if (this.bossesDefeated >= BOSS_WAVES_TO_WIN) {
-        this.finishLevel(true);
+      if (!this.isEndlessMode() && this.bossesDefeated >= BOSS_WAVES_TO_WIN) {
+        this.finishLevel(true, { endReason: 'waves_completed' });
         return;
       }
       this.pendingWaveAdvance = true;
@@ -2089,6 +2128,7 @@ export class Game {
         || this.runShopActiveCategory === 'temporary';
       const useHorizontalRow = useCardFaceGrid && !isCatalogPicker;
       this.runShopUi.root.classList.add('is-detail');
+      this.runShopUi.root.classList.toggle('is-wave-card-picker', useHorizontalRow);
       if (this.runShopUi.kicker) {
         this.runShopUi.kicker.textContent = this.runShopFreeReward
           ? `Boss 战利 #${this.bossesDefeated} · 免费一次`
@@ -2104,14 +2144,17 @@ export class Game {
       this.runShopUi.choiceList?.classList.toggle('is-horizontal-row', useHorizontalRow);
       if (this.runShopUi.choiceList) {
         this.runShopUi.choiceList.innerHTML = this.runShopChoices
-          .map((choice, index) => runShopChoiceMarkup(choice, index, { game: this }))
+          .map((choice, index) => runShopChoiceMarkup(choice, index, {
+            game: this,
+            useWaveRewardStyle: useHorizontalRow
+          }))
           .join('');
         fitStrategyRewardCards(this.runShopUi.choiceList);
       }
       if (this.runShopUi.skip) this.runShopUi.skip.hidden = true;
       return;
     }
-    this.runShopUi.root.classList.remove('is-detail');
+    this.runShopUi.root.classList.remove('is-detail', 'is-wave-card-picker');
     if (this.runShopUi.kicker) {
       this.runShopUi.kicker.textContent = this.runShopFreeReward
         ? `Boss 战利 #${this.bossesDefeated} · 免费一次`
@@ -2422,9 +2465,9 @@ export class Game {
       return {
         type,
         kicker: `首次占领 ${altarName}`,
-        title: '选择能力卡',
-        summary: '首次占领祭坛可从能力卡中三选一，立即获得对应能力。重复占领不会再次触发。',
-        choices: this.createAltarAbilityRewardChoices()
+        title: '选择兵种专精',
+        summary: '每位玩家根据自己的兵种独立三选一。优先出现当前已有兵种的专精，不足时由其他兵种补足。',
+        choices: this.createAltarSpecializationRewardChoices()
       };
     }
     if (type === 'wave-reward') {
@@ -2613,12 +2656,13 @@ export class Game {
     return this.createCardWaveRewardChoices(wave);
   }
 
-  createAltarAbilityRewardChoices() {
-    return this.randomCardChoices({
-      pool: this.selectedCardPool({ kind: 'ability' }),
-      action: 'acquire-ability',
-      actionLabel: '获得能力'
-    });
+  createAltarSpecializationRewardChoices() {
+    const choices = this.buildTraitUpgradeChoicePool({ includeAllUnitTypes: true });
+    return pickAltarSpecializationChoices(
+      choices,
+      this.ownedUnitTypes(),
+      STRATEGY_CHOICE_COUNT
+    );
   }
 
   buildRuntimeUpgradeChoicePool() {
@@ -2632,11 +2676,12 @@ export class Game {
     return UNIT_GENERIC_UPGRADES.map((upgrade) => this.createTeamGenericUpgradeChoice(upgrade));
   }
 
-  buildTraitUpgradeChoicePool() {
+  buildTraitUpgradeChoicePool({ includeAllUnitTypes = false } = {}) {
     const choices = [];
     const ownedTypes = this.ownedUnitTypes();
     const deckTypes = this.deckUnitTypes();
-    const orderedTypes = [...new Set([...ownedTypes, ...deckTypes])];
+    const allTypes = includeAllUnitTypes ? Object.keys(UNIT_SPECIAL_UPGRADES) : [];
+    const orderedTypes = [...new Set([...ownedTypes, ...deckTypes, ...allTypes])];
     orderedTypes.forEach((unitType) => {
       const owned = this.teamSpecialUpgrades.get(unitType) ?? new Set();
       (UNIT_SPECIAL_UPGRADES[unitType] ?? []).forEach((upgrade) => {
@@ -2751,11 +2796,12 @@ export class Game {
 
   applyTeamGenericUpgradeLayerToUnit(unit, upgrade, index = 0) {
     const previousMaxHealth = unit.maxHealth;
+    const previousMaxDurability = unit.weapon.maxDurability;
     const modifiers = unitGenericUpgradeModifiers(unit, upgrade, index);
     if (!modifiers.length) return;
     unit.attributes.addModifiers(modifiers, `team:${upgrade.id}:${index}`);
     if (modifiersAffectHealthOrDurability(modifiers)) {
-      syncUnitAfterMaxHealthModifiers(unit, previousMaxHealth);
+      syncUnitAfterMaxHealthModifiers(unit, previousMaxHealth, previousMaxDurability);
     }
     unit.clampToAttributeCaps();
     unit.statusUiDirty = true;
@@ -2770,9 +2816,10 @@ export class Game {
     if (upgrade.supportModifiers) applySupportUpgrade(unit, upgrade.supportModifiers);
     if (upgrade.modifiers?.length) {
       const previousMaxHealth = unit.maxHealth;
+      const previousMaxDurability = unit.weapon.maxDurability;
       unit.attributes.addModifiers(upgrade.modifiers, `team:${upgrade.id}`);
       if (modifiersAffectHealthOrDurability(upgrade.modifiers)) {
-        syncUnitAfterMaxHealthModifiers(unit, previousMaxHealth);
+        syncUnitAfterMaxHealthModifiers(unit, previousMaxHealth, previousMaxDurability);
       }
     }
     unit.clampToAttributeCaps();
@@ -3772,6 +3819,7 @@ export class Game {
   handleUnitDeath(unit, source = null) {
     const handled = this.unitRegistry.handleDeath(unit, source);
     if (!handled) return false;
+    this.updateEndlessDifficultyForDeath(unit);
     this.networkBridge?.notifyUnitDied?.(unit.id);
 
     if (unit?.team === TEAMS.ENEMY) {
@@ -3782,6 +3830,36 @@ export class Game {
     return true;
   }
 
+  markEndlessEnemySpawn(unit) {
+    if (!this.isEndlessMode() || this.networkClientMode || unit?.team !== TEAMS.ENEMY) return;
+    const enemyClass = endlessEnemyClass(unit);
+    unit.endlessSpawnedAt = this.elapsedTime;
+    unit.endlessEnemyClass = enemyClass;
+    unit.endlessExpectedLifetime = endlessExpectedLifetime({
+      baseHealth: unit.definition?.maxHealth ?? unit.maxHealth,
+      enemyClass
+    });
+  }
+
+  updateEndlessDifficultyForDeath(unit) {
+    if (
+      !this.isEndlessMode()
+      || this.networkClientMode
+      || unit?.team !== TEAMS.ENEMY
+      || unit.isSilentRemoval
+      || !Number.isFinite(unit.endlessSpawnedAt)
+      || !Number.isFinite(unit.endlessExpectedLifetime)
+    ) return;
+    const delta = endlessDifficultyDelta({
+      lifetime: Math.max(0, this.elapsedTime - unit.endlessSpawnedAt),
+      expectedLifetime: unit.endlessExpectedLifetime,
+      enemyClass: unit.endlessEnemyClass ?? endlessEnemyClass(unit)
+    });
+    this.endlessDifficulty = applyEndlessDifficulty(this.endlessDifficulty, delta);
+    this.hudUpdateTimer = 0;
+    this.updateHud(0);
+  }
+
   onUnitDied(unit, source = null) {
     if (unit?.team !== TEAMS.ENEMY) return;
     if (!source?.alive || source.team !== TEAMS.PLAYER || source.isBuilding) return;
@@ -3789,7 +3867,8 @@ export class Game {
 
     const share = 0.25;
     const sourceTag = `hunt-mark:${unit.id}`;
-    const attackDamage = this.modifiers.getAttackDamage(unit);
+    const physicalAttack = this.modifiers.getPhysicalAttack(unit);
+    const magicAttack = this.modifiers.getMagicAttack(unit);
     const attackRate = this.modifiers.getAttackRate(unit);
     const armor = this.modifiers.getArmor(unit);
     const magicResistance = this.modifiers.getMagicResistance(unit);
@@ -3798,7 +3877,8 @@ export class Game {
 
     source.attributes.addModifiers([
       { stat: 'maxHealth', type: 'add', amount: maxHealthGain },
-      { stat: 'attackDamage', type: 'add', amount: attackDamage * share },
+      { stat: 'physicalAttack', type: 'add', amount: physicalAttack * share },
+      { stat: 'magicAttack', type: 'add', amount: magicAttack * share },
       { stat: 'attackRate', type: 'add', amount: attackRate * share },
       { stat: 'armor', type: 'add', amount: armor * share },
       { stat: 'magicResistance', type: 'add', amount: magicResistance * share },
@@ -4014,6 +4094,7 @@ export class Game {
       team: owner.team,
       position
     });
+    inheritUpgradeTurretAttributes(turret, owner);
     turret.ownerUnitId = owner.id;
     turret.ownerPlayerId = owner.ownerPlayerId ?? this.activeEconomySlot ?? this.localPlayerSlot;
     turret.controllerPlayerId = owner.controllerPlayerId ?? turret.ownerPlayerId;
@@ -4179,6 +4260,7 @@ export class Game {
       this.applyEnemyForceAffixModifiers(unit, waveConfig);
       this.applySpiderSpawnTraits(unit, waveIndex, difficulty, i);
       this.initializeSpiderLifecycle(unit);
+      this.markEndlessEnemySpawn(unit);
       this.attachUnitStatus(unit);
       this.registerUnit(unit);
       spawnedUnits.push(unit);
@@ -4229,7 +4311,7 @@ export class Game {
       unit.attributes.addModifiers([
         { stat: 'maxHealth', type: 'multiply', amount: (eliteScale.eliteHealthMultiply ?? 1.45) * 0.5 },
         { stat: 'maxShield', type: 'multiply', amount: (eliteScale.eliteHealthMultiply ?? 1.45) * 0.5 },
-        { stat: 'attackDamage', type: 'multiply', amount: eliteScale.eliteDamageMultiply ?? 1.16 },
+        { stat: 'attackPower', type: 'multiply', amount: eliteScale.eliteDamageMultiply ?? 1.16 },
         { stat: 'knockbackResistance', type: 'add', amount: 0.14 }
       ], `force:${waveConfig.id ?? waveConfig.index ?? 0}:elite`);
       unit.health = unit.maxHealth;
@@ -4256,7 +4338,7 @@ export class Game {
           amount: (bossScale.bossShieldBase ?? 1.95) + bossRank * (bossScale.bossShieldPerRank ?? 0.2)
         },
         {
-          stat: 'attackDamage',
+          stat: 'attackPower',
           type: 'multiply',
           amount: (bossScale.bossDamageBase ?? 1.22) + bossRank * (bossScale.bossDamagePerRank ?? 0.08)
         },
@@ -4268,7 +4350,7 @@ export class Game {
         unit.attributes.addModifiers([
           { stat: 'maxHealth', type: 'multiply', amount: bossStatMultiply },
           { stat: 'maxShield', type: 'multiply', amount: bossStatMultiply },
-          { stat: 'attackDamage', type: 'multiply', amount: bossStatMultiply }
+          { stat: 'attackPower', type: 'multiply', amount: bossStatMultiply }
         ], `force:${waveConfig.id ?? waveConfig.index ?? 0}:boss-scale`);
       }
       const targetBossShield = unit.maxHealth * 0.5;
@@ -4284,7 +4366,7 @@ export class Game {
     }
     unit.attributes.addModifiers([
       { stat: 'maxHealth', type: 'multiply', amount: 1.18 },
-      { stat: 'attackDamage', type: 'multiply', amount: 1.08 },
+      { stat: 'attackPower', type: 'multiply', amount: 1.08 },
       { stat: 'knockbackResistance', type: 'add', amount: 0.08 }
     ], `force:${waveConfig.id ?? waveConfig.index ?? 0}:boss-support`);
     unit.health = unit.maxHealth;
@@ -4301,25 +4383,35 @@ export class Game {
   }
 
   effectiveDifficulty() {
+    if (this.isEndlessMode()) return this.endlessDifficulty;
     return resolveSessionBaseDifficulty(this.levelSession);
   }
 
   effectiveDifficultyForWave(wave = this.wave) {
+    if (this.isEndlessMode()) return this.endlessDifficulty;
     return this.effectiveDifficulty() + waveDifficultyBonus(wave, this.levelSession);
   }
 
   effectiveDifficultyForThreat(threatTier = this.currentWave?.index ?? this.wave ?? 1) {
+    if (this.isEndlessMode()) return this.endlessDifficulty;
     return this.effectiveDifficulty() + Math.max(0, Math.floor(threatTier) - 1);
   }
 
   applyEnemyDifficulty(unit, threatTier, difficulty) {
     const scale = BALANCE.waveScaling ?? {};
-    let healthFactor = 1
+    const endlessFactors = this.isEndlessMode()
+      ? endlessEnemyStatFactors(difficulty)
+      : null;
+    let healthFactor = endlessFactors?.health ?? (
+      1
       + (difficulty - 1) * (scale.difficultyHealthPerLevel ?? 0.11)
-      + (threatTier - 1) * (scale.threatHealthPerTier ?? 0.028);
-    let damageFactor = 1
+      + (threatTier - 1) * (scale.threatHealthPerTier ?? 0.028)
+    );
+    let damageFactor = endlessFactors?.damage ?? (
+      1
       + (difficulty - 1) * (scale.difficultyDamagePerLevel ?? 0.1)
-      + (threatTier - 1) * (scale.threatDamagePerTier ?? 0.022);
+      + (threatTier - 1) * (scale.threatDamagePerTier ?? 0.022)
+    );
     if (this.coop?.enabled) {
       healthFactor *= this.coop.healthMult ?? COOP_ENEMY_SCALING.healthMult;
       damageFactor *= this.coop.damageMult ?? COOP_ENEMY_SCALING.damageMult;
@@ -4336,7 +4428,7 @@ export class Game {
         amount: healthFactor
       },
       {
-        stat: 'attackDamage',
+        stat: 'attackPower',
         type: 'multiply',
         amount: damageFactor
       }
@@ -4353,7 +4445,7 @@ export class Game {
     unit.attributes.addModifiers([
       { stat: 'maxHealth', type: 'multiply', amount: healthFactor },
       { stat: 'maxShield', type: 'multiply', amount: healthFactor },
-      { stat: 'attackDamage', type: 'multiply', amount: damageFactor }
+      { stat: 'attackPower', type: 'multiply', amount: damageFactor }
     ], `director:opening:${force.id ?? 0}`);
     unit.health = unit.maxHealth;
     unit.shield = Math.min(unit.shield, unit.maxShield);
@@ -4362,7 +4454,9 @@ export class Game {
   applyEnemyStartingBuffs(unit, threatTier, difficulty) {
     const startingBuffs = unit.definition.startingBuffs ?? [];
     if (!startingBuffs.length) return;
-    const scalingLevel = enemyEnchantmentLevel(threatTier, difficulty);
+    const scalingLevel = this.isEndlessMode()
+      ? endlessEnchantLevel(difficulty)
+      : enemyEnchantmentLevel(threatTier, difficulty);
     startingBuffs.forEach((entry) => {
       const level = (entry.level ?? 1) + (entry.scalesWithDifficulty ? scalingLevel - 1 : 0);
       this.buffs.applyBuff(unit, entry.buffId, unit, {
@@ -4376,7 +4470,9 @@ export class Game {
     if (unit.type !== 'spider') return;
     if (stableEnemyRoll(threatTier, seedIndex + unit.id * 17, difficulty) % 3 !== 0) return;
     this.buffs.applyBuff(unit, 'poison', unit, {
-      level: enemyEnchantmentLevel(threatTier, difficulty),
+      level: this.isEndlessMode()
+        ? endlessEnchantLevel(difficulty)
+        : enemyEnchantmentLevel(threatTier, difficulty),
       sourceUnitType: unit.type
     });
   }
@@ -4419,6 +4515,7 @@ export class Game {
     egg.hatchTimer = SPIDER_EGG_HATCH_SECONDS;
     egg.parentSpiderId = parent.id;
     egg.enemyForce = parent.enemyForce ?? this.currentEnemyForce ?? null;
+    this.markEndlessEnemySpawn(egg);
     this.attachUnitStatus(egg);
     this.registerUnit(egg);
     this.effects.spawnRing(egg.position, '#b6d48d', 0.56, 0.45);
@@ -4463,6 +4560,7 @@ export class Game {
     this.applyEnemyDifficulty(spider, threatTier, difficulty);
     spider.enemyForce = egg.enemyForce ?? this.currentEnemyForce ?? null;
     this.initializeSpiderLifecycle(spider);
+    this.markEndlessEnemySpawn(spider);
     this.attachUnitStatus(spider);
     this.registerUnit(spider);
     this.orderEnemyAttack(spider, 0, 1);
@@ -4533,7 +4631,7 @@ export class Game {
         amount: shieldFactor
       },
       {
-        stat: 'attackDamage',
+        stat: 'attackPower',
         type: 'multiply',
         amount: damageFactor
       }
@@ -5054,7 +5152,7 @@ export class Game {
     this.cardSystem?.setHint?.(`测试${label} ×${this.debugTimeScale.toFixed(2)}`, 'test-mode');
   }
 
-  damagePlayerBase(amount) {
+  damagePlayerBase(amount, { isAttack = false } = {}) {
     if (this.playerBase.invincible) {
       this.playerBase.health = this.playerBase.maxHealth;
       this.playerBase.structureDurability = this.playerBase.maxStructureDurability;
@@ -5064,15 +5162,23 @@ export class Game {
       this.updateStructureStatusElement(this.playerBase, 0);
       return;
     }
+    if (!this.playerBase.alive) return;
+    const resolvedDamage = resolvePlayerBaseDamage(amount, {
+      isAttack,
+      attackDamage: BALANCE.playerBase.damagePerAttack ?? 1
+    });
+    if (resolvedDamage <= 0) return;
     const previousHealth = this.playerBase.health;
     const previousDurability = this.playerBase.structureDurability ?? 0;
-    this.playerBase.health = Math.max(0, this.playerBase.health - amount);
+    this.playerBase.health = Math.max(0, this.playerBase.health - resolvedDamage);
+    const healthLost = Math.max(0, previousHealth - this.playerBase.health);
     this.spendStructureDurability(this.playerBase, 1);
     this.networkBridge?.notifyCombatResult?.({
       kind: 'damage_applied',
       targetId: 'player-base',
       damageType: 'structure',
       requestedAmount: amount,
+      appliedAmount: healthLost,
       healthBefore: previousHealth,
       healthAfter: this.playerBase.health,
       durabilityBefore: previousDurability,
@@ -5084,12 +5190,42 @@ export class Game {
     this.shakeStructure(this.playerBase, 0.2, 0.36);
     this.effects.spawnRing(this.playerBase.position, '#ff8c66', 1.2, 0.44);
     this.effects.spawnStructureDust(this.playerBase.position, this.playerBase.collisionRadius);
-    this.effects.spawnDamageNumber(this.playerBase.position, amount, {
+    this.effects.spawnDamageNumber(this.playerBase.position, healthLost, {
       height: 2.55
     });
+    this.applyPlayerBaseHealthLossEnergyReward(healthLost);
     if (!this.playerBase.alive) {
       this.playerBase.health = 0;
     }
+  }
+
+  applyPlayerBaseHealthLossEnergyReward(healthLost) {
+    const threshold = BALANCE.playerBase.energyRewardHealthLoss ?? 10;
+    const result = consumeBaseHealthLossMilestones(
+      this.playerBaseHealthLossProgress,
+      healthLost,
+      threshold
+    );
+    this.playerBaseHealthLossProgress = result.progress;
+    if (result.milestones <= 0) return;
+
+    const rewardPerMilestone = Math.max(
+      0,
+      Number(BALANCE.playerBase.energyRewardAmount) || 0
+    );
+    const reward = rewardPerMilestone * result.milestones;
+    if (reward <= 0) return;
+
+    this.coopPlayerSlots().forEach((slot) => {
+      const cards = this.cardSystems?.[slot]
+        ?? (slot === this.localPlayerSlot ? this.cardSystem : null);
+      cards?.addEnergy?.(reward);
+    });
+    this.effects.spawnEnergyNumber(this.playerBase.position, reward, {
+      height: 3.05,
+      duration: 1.1,
+      fontSize: 96
+    });
   }
 
   damageEnemyCamp(amount) {
@@ -5125,40 +5261,44 @@ export class Game {
     }
     if (!this.enemyCamp.alive) {
       this.enemyCamp.health = 0;
-      this.finishLevel(true);
+      this.finishLevel(true, { endReason: 'enemy_camp_destroyed' });
     }
   }
 
   checkLevelEnd() {
     if (this.levelFinished) return;
     if (!this.enemyCamp.alive) {
-      this.finishLevel(true);
+      this.finishLevel(true, { endReason: 'enemy_camp_destroyed' });
       return;
     }
     if (!this.playerBase.alive) {
-      this.finishLevel(false);
+      this.finishLevel(this.isEndlessMode(), { endReason: 'player_base_destroyed' });
     }
   }
 
-  finishLevel(victory) {
+  finishLevel(victory, { endReason = null } = {}) {
     if (this.levelFinished) return;
     this.levelFinished = true;
+    this.levelEndReason = endReason;
     this.stop();
-    const result = this.createLevelResult(victory, this.localPlayerSlot);
+    const result = this.createLevelResult(victory, this.localPlayerSlot, endReason);
     if (this.coop?.enabled && this.networkRole === 'host') {
       const resultsByPlayerId = Object.fromEntries(Object.keys(this.players ?? {}).map((playerId) => [
         playerId,
-        this.createNetworkLevelResult(victory, playerId)
+        this.createNetworkLevelResult(victory, playerId, endReason)
       ]));
       this.networkBridge?.publishMatchResult?.(resultsByPlayerId);
     }
     this.onLevelComplete?.(result);
   }
 
-  createLevelResult(victory, playerId) {
+  createLevelResult(victory, playerId, endReason = this.levelEndReason) {
     const rewardMultiplier = this.abilitiesFor(playerId)?.getRewardMultiplier?.() ?? 1;
+    const endless = this.isEndlessMode();
     return {
       victory,
+      endReason,
+      endingDifficulty: endless ? this.endlessDifficulty : null,
       elapsedTime: this.elapsedTime,
       threat: this.wave,
       session: this.levelSession,
@@ -5166,18 +5306,22 @@ export class Game {
       enemyCampHealth: this.enemyCamp.health,
       bossesDefeated: this.bossesDefeated,
       rewardMultiplier,
-      authoritativeReward: victory ? calculateLevelReward({
-        level: this.levelSession.level,
-        difficulty: this.levelSession.difficulty,
-        elapsedTime: this.elapsedTime,
-        rewardMultiplier
-      }) : 0,
+      authoritativeReward: victory
+        ? (endless
+          ? calculateEndlessReward(this.endlessDifficulty, rewardMultiplier)
+          : calculateLevelReward({
+            level: this.levelSession.level,
+            difficulty: this.levelSession.difficulty,
+            elapsedTime: this.elapsedTime,
+            rewardMultiplier
+          }))
+        : 0,
       returnToMenu: this.coop?.enabled === true
     };
   }
 
-  createNetworkLevelResult(victory, playerId) {
-    const result = this.createLevelResult(victory, playerId);
+  createNetworkLevelResult(victory, playerId, endReason = this.levelEndReason) {
+    const result = this.createLevelResult(victory, playerId, endReason);
     const { session, returnToMenu, ...networkResult } = result;
     return networkResult;
   }
@@ -6418,19 +6562,32 @@ export class Game {
       this.dom.baseHealth.textContent = `${baseRatio}%`;
     }
     const displayedWave = this.currentWave ?? this.waveSchedule[this.waveIndex] ?? null;
-    this.dom.waveLabel.textContent = displayedWave
-      ? `${displayedWave.index}/${this.waveSchedule.length}`
-      : `${this.waveSchedule.length}/${this.waveSchedule.length}`;
+    if (this.isEndlessMode()) {
+      this.dom.waveLabel.textContent = displayedWave
+        ? String(displayedWave.index)
+        : String(Math.max(1, this.wave || 1));
+    } else {
+      this.dom.waveLabel.textContent = displayedWave
+        ? `${displayedWave.index}/${this.waveSchedule.length}`
+        : `${this.waveSchedule.length}/${this.waveSchedule.length}`;
+    }
     if (this.dom.silverCount) {
       this.dom.silverCount.textContent = formatSilverAmount(this.getSilver());
     }
-    const targetTime = Math.max(0, Number(this.levelSession.level.targetTime ?? 0));
-    const targetTimeRemaining = Math.max(0, targetTime - this.elapsedTime);
-    this.dom.battleTime.textContent = formatBattleTime(targetTimeRemaining);
-    this.dom.battleTime.closest('.meter-time')?.classList.toggle(
-      'is-expired',
-      targetTime > 0 && targetTimeRemaining <= 0
-    );
+    if (this.isEndlessMode()) {
+      if (this.dom.battleTimeLabel) this.dom.battleTimeLabel.textContent = '难度值';
+      this.dom.battleTime.textContent = Number(this.endlessDifficulty || 0).toFixed(1);
+      this.dom.battleTime.closest('.meter-time')?.classList.remove('is-expired');
+    } else {
+      if (this.dom.battleTimeLabel) this.dom.battleTimeLabel.textContent = '目标剩余';
+      const targetTime = Math.max(0, Number(this.levelSession.level.targetTime ?? 0));
+      const targetTimeRemaining = Math.max(0, targetTime - this.elapsedTime);
+      this.dom.battleTime.textContent = formatBattleTime(targetTimeRemaining);
+      this.dom.battleTime.closest('.meter-time')?.classList.toggle(
+        'is-expired',
+        targetTime > 0 && targetTimeRemaining <= 0
+      );
+    }
     this.dom.unitCount.textContent = String(this.friendlyUnits.length);
     if (this.selectedUnits.length > 1) {
       if (this.dom.selectedPanel) {
@@ -6464,7 +6621,8 @@ export class Game {
       const maxDurability = Math.round(unit.weapon.maxDurability);
       const enchantments = formatEnchantmentList(unit);
       const teamLabel = unit.team === TEAMS.PLAYER ? '友军' : '敌方';
-      const attack = formatSupportAmount(this.modifiers.getAttackDamage(unit));
+      const physicalAttack = formatSupportAmount(this.modifiers.getPhysicalAttack(unit));
+      const magicAttack = formatSupportAmount(this.modifiers.getMagicAttack(unit));
       const armor = formatSignedStat(this.modifiers.getArmor(unit));
       const magicResistance = formatSignedStat(this.modifiers.getMagicResistance(unit));
       const dodgeChance = Math.round(this.modifiers.getDodgeChance(unit) * 100);
@@ -6473,7 +6631,7 @@ export class Game {
       this.dom.selectedStats.textContent =
         `HP ${hp}/${Math.round(unit.maxHealth)} / 护盾 ${shield}/${Math.round(unit.maxShield)} / 武器 ${unit.weapon.name} / 耐久 ${durability}/${maxDurability}`;
       this.dom.selectedEnchants.textContent =
-        `${attackDamageTypeLabel(unit.definition.attackDamageType)}攻 ${attack} / 护甲 ${armor} / 魔抗 ${magicResistance} / 闪避 ${dodgeChance}% / 抗击退 ${knockbackResistance}% / 附魔 ${enchantments || '-'}`;
+        `物攻 ${physicalAttack} / 魔攻 ${magicAttack} / 护甲 ${armor} / 魔抗 ${magicResistance} / 闪避 ${dodgeChance}% / 抗击退 ${knockbackResistance}% / 附魔槽 ${unit.enchantments.size}/${Math.max(0, Math.floor(unit.maxEnchantmentSlots ?? 4))} / 附魔 ${enchantments || '-'}`;
     } else {
       if (this.dom.selectedPanel) {
         this.dom.selectedPanel.hidden = true;
@@ -6684,6 +6842,7 @@ export class Game {
             hp: Math.round(this.selectedUnit.health),
             weapon: Math.round(this.selectedUnit.weapon.durability),
             enchantments: [...this.selectedUnit.enchantments.keys()],
+            maxEnchantmentSlots: this.selectedUnit.maxEnchantmentSlots ?? 4,
             commandMoveGoal: this.selectedUnit.commandMoveGoal
               ? {
                   x: Number(this.selectedUnit.commandMoveGoal.x.toFixed(2)),
@@ -6807,10 +6966,18 @@ function normalizeLevelSession(session) {
       instanceId: `debug-${card.id}-${index}`
     }));
   const level = session?.level ?? fallbackLevel;
+  const challengeMode = normalizeChallengeMode(session?.challengeMode);
+  const normalizeRuntimeDeck = (deck) => (
+    isEndlessMode(challengeMode)
+      ? resetEndlessDeckLevels(deck)
+      : deck
+  );
+  const sessionDeck = Array.isArray(session?.deck) ? session.deck : fallbackDeck;
   const normalized = {
     level,
     difficulty: clampLevelDifficulty(session?.difficulty ?? 1),
-    deck: Array.isArray(session?.deck) ? session.deck : fallbackDeck,
+    challengeMode,
+    deck: normalizeRuntimeDeck(sessionDeck),
     debug: session?.debug === true,
     startedAt: session?.startedAt ?? Date.now()
   };
@@ -6825,7 +6992,15 @@ function normalizeLevelSession(session) {
     normalized.roomId = session.roomId ?? null;
     normalized.matchSeed = session.matchSeed ?? Date.now();
     normalized.coop = session.coop ?? null;
-    normalized.players = session.players ?? null;
+    normalized.players = session.players
+      ? Object.fromEntries(Object.entries(session.players).map(([playerId, player]) => [
+          playerId,
+          {
+            ...player,
+            deck: normalizeRuntimeDeck(Array.isArray(player?.deck) ? player.deck : [])
+          }
+        ]))
+      : null;
   }
   return normalized;
 }
@@ -7035,58 +7210,68 @@ function strategyAssaultPreview(assault) {
 }
 
 function createWaveSchedule(session) {
+  return Array.from(
+    { length: TOTAL_WAVES },
+    (_, offset) => createWaveConfig(session, offset + 1)
+  );
+}
+
+function createWaveConfig(session, index, endlessDifficulty = 0) {
   const level = session.level ?? {};
+  const endless = isEndlessMode(session.challengeMode);
   const baseDifficulty = resolveSessionBaseDifficulty(session);
-  const selectedDifficulty = clampLevelDifficulty(session?.difficulty ?? 1);
   const difficultyGrowth = resolveSessionDifficultyGrowth(session);
   const affixFlow = normalizeWaveAffixFlow(level.waveAffixFlow);
-  const totalWaves = TOTAL_WAVES;
-  const schedule = [];
-
-  for (let index = 1; index <= totalWaves; index += 1) {
-    const isBoss = index % WAVES_PER_BOSS === 0;
-    const kind = isBoss ? 'boss' : index % ELITE_WAVE_INTERVAL === 0 ? 'elite' : 'normal';
-    const bossOrdinal = isBoss ? Math.floor(index / WAVES_PER_BOSS) : 0;
-    const opening = index <= 2;
-    const difficultyBonus = waveDifficultyBonus(index, difficultyGrowth);
-    const effectiveDifficulty = baseDifficulty + difficultyBonus;
-    const affixId = chooseWaveAffix(index, kind, affixFlow);
-    const affixIds = chooseWaveAffixes(index, kind, affixFlow, effectiveDifficulty);
-    const affix = WAVE_AFFIX_DEFINITIONS[affixId];
-    const countBonus = waveAffixCountBonus(affix, index, kind);
-    const count = Math.min(
-      MAX_ACTIVE_WAVE_SPAWNS,
-      waveEnemyCount(kind, index, effectiveDifficulty, bossOrdinal) + countBonus
-    );
-    const types = enemyForceTypes({
-      level,
-      forceId: index,
-      kind,
-      count,
-      difficulty: effectiveDifficulty,
-      threatTier: index,
-      bossOrdinal,
-      opening,
-      affixId,
-      compositionPreferred: new Set()
-    });
-    schedule.push({
-      id: index,
-      index,
-      kind,
-      affixId,
-      affixIds,
-      bossOrdinal,
-      count,
-      types,
-      effectiveDifficulty,
-      difficultyBonus,
-      threatTier: index,
-      opening
-    });
-  }
-
-  return schedule;
+  const isBoss = index % WAVES_PER_BOSS === 0;
+  const kind = isBoss ? 'boss' : index % ELITE_WAVE_INTERVAL === 0 ? 'elite' : 'normal';
+  const bossOrdinal = isBoss ? Math.floor(index / WAVES_PER_BOSS) : 0;
+  const opening = index <= 2;
+  const difficultyBonus = endless ? 0 : waveDifficultyBonus(index, difficultyGrowth);
+  const effectiveDifficulty = endless ? Number(endlessDifficulty) || 0 : baseDifficulty + difficultyBonus;
+  const contentDifficulty = endless
+    ? Math.max(1, effectiveDifficulty + 1)
+    : effectiveDifficulty;
+  const affixId = chooseWaveAffix(index, kind, affixFlow);
+  const affixIds = chooseWaveAffixes(
+    index,
+    kind,
+    affixFlow,
+    endless ? Math.max(0, effectiveDifficulty) : effectiveDifficulty
+  );
+  const affix = WAVE_AFFIX_DEFINITIONS[affixId];
+  const countBonus = waveAffixCountBonus(affix, index, kind);
+  const count = Math.min(
+    MAX_ACTIVE_WAVE_SPAWNS,
+    waveEnemyCount(kind, index, contentDifficulty, bossOrdinal) + countBonus
+  );
+  const types = enemyForceTypes({
+    level,
+    forceId: index,
+    kind,
+    count,
+    difficulty: contentDifficulty,
+    threatTier: index,
+    bossOrdinal,
+    opening,
+    affixId,
+    compositionPreferred: new Set()
+  });
+  return {
+    id: index,
+    index,
+    kind,
+    affixId,
+    affixIds,
+    bossOrdinal,
+    count,
+    types,
+    effectiveDifficulty,
+    contentDifficulty,
+    difficultyBonus,
+    threatTier: index,
+    opening,
+    challengeMode: normalizeChallengeMode(session.challengeMode)
+  };
 }
 
 function waveAffixCountBonus(affix, index, kind) {
@@ -7283,7 +7468,11 @@ function isUnitInWave(unit, wave) {
 }
 
 function waveKindLabel(wave) {
-  if (wave.kind === 'boss') return `Boss ${wave.bossOrdinal}/${BOSS_WAVES_TO_WIN}`;
+  if (wave.kind === 'boss') {
+    return wave.challengeMode === 'endless'
+      ? `Boss ${wave.bossOrdinal}`
+      : `Boss ${wave.bossOrdinal}/${BOSS_WAVES_TO_WIN}`;
+  }
   if (wave.kind === 'elite') return '精英';
   return '普通';
 }
@@ -7389,7 +7578,8 @@ function isOpeningCombatSummon(card) {
   if (card?.kind !== 'summon' || !card.unitType) return false;
   const unit = UNIT_DEFINITIONS[card.unitType];
   if (!unit || unit.isBuilding || unit.support) return false;
-  return (unit.damage ?? 0) >= 3 && (unit.attackRange ?? 0) > 0;
+  return Math.max(unit.physicalAttack ?? 0, unit.magicAttack ?? 0) >= 3 &&
+    (unit.attackRange ?? 0) > 0;
 }
 
 function runtimeUnitUpgradeDefinition(unitType, upgradeId) {
@@ -7421,11 +7611,22 @@ function unitGenericUpgradeModifiers(unit, upgrade, index = 0) {
     ];
   }
   if (upgrade.stat === 'attack') {
-    return [{
-      stat: 'attackDamage',
-      type: 'add',
-      amount: teamGenericUpgradeAmount(unit.attackDamage ?? unit.attributes?.get?.('attackDamage') ?? 0)
-    }];
+    return [
+      {
+        stat: 'physicalAttack',
+        type: 'add',
+        amount: teamGenericUpgradeAmount(
+          unit.physicalAttack ?? unit.attributes?.get?.('physicalAttack') ?? 0
+        )
+      },
+      {
+        stat: 'magicAttack',
+        type: 'add',
+        amount: teamGenericUpgradeAmount(
+          unit.magicAttack ?? unit.attributes?.get?.('magicAttack') ?? 0
+        )
+      }
+    ];
   }
   if (upgrade.stat === 'armor') {
     return [{
@@ -7458,7 +7659,11 @@ function applySupportUpgrade(unit, supportModifiers) {
     const ability = unit.definition.support[key];
     if (!ability) return;
     if (Number.isFinite(modifier.amountFactor) && Number.isFinite(ability.amount)) {
-      ability.amount *= modifier.amountFactor;
+      if (Number.isFinite(ability.spellPowerFactor)) {
+        ability.outputMultiplier = (ability.outputMultiplier ?? 1) * modifier.amountFactor;
+      } else {
+        ability.amount *= modifier.amountFactor;
+      }
     }
     if (Number.isFinite(modifier.amountFactor) && Number.isFinite(ability.baseHealthPercent)) {
       ability.baseHealthPercent *= modifier.amountFactor;
@@ -7475,6 +7680,23 @@ function applySupportUpgrade(unit, supportModifiers) {
   });
 }
 
+function inheritUpgradeTurretAttributes(turret, owner) {
+  if (!turret?.attributes || !owner?.attributes) return;
+  const inherited = owner.attributes.snapshot();
+  Object.entries(inherited).forEach(([name, entry]) => {
+    if (!Number.isFinite(entry?.value)) return;
+    if (name === 'projectileSpeed' && entry.value <= 0) return;
+    const value = name === 'maxHealth' ? entry.value * 0.5 : entry.value;
+    turret.attributes.setBase(name, value);
+  });
+  turret.definition.canMove = false;
+  turret.health = turret.maxHealth;
+  turret.shield = Math.min(turret.maxShield, Math.max(0, owner.shield ?? 0));
+  turret.weapon.durability = turret.weapon.maxDurability;
+  turret.clampToAttributeCaps?.();
+  turret.statusUiDirty = true;
+}
+
 const SUMMON_CARD_LEVEL_STAT_PERCENT = 0.25;
 const UNIT_SUMMON_LEVEL_STATS = [
   'maxHealth',
@@ -7482,7 +7704,8 @@ const UNIT_SUMMON_LEVEL_STATS = [
   'moveSpeed',
   'attackRange',
   'attackRate',
-  'attackDamage',
+  'physicalAttack',
+  'magicAttack',
   'armor',
   'magicResistance',
   'knockback',
@@ -7509,9 +7732,13 @@ function modifiersAffectHealthOrDurability(modifiers = []) {
   ));
 }
 
-function syncUnitAfterMaxHealthModifiers(unit, previousMaxHealth) {
+function syncUnitAfterMaxHealthModifiers(unit, previousMaxHealth, previousMaxDurability) {
   scaleUnitHealthAfterMaxHealthChange(unit, previousMaxHealth);
-  unit.weapon.durability = Math.min(unit.weapon.maxDurability, unit.weapon.durability);
+  unit.weapon.durability = scaleResourceAfterMaximumChange(
+    unit.weapon.durability,
+    previousMaxDurability,
+    unit.weapon.maxDurability
+  );
 }
 
 function applySummonCardLevelModifiers(unit, card) {
@@ -7519,11 +7746,12 @@ function applySummonCardLevelModifiers(unit, card) {
   const bonusLevel = Math.max(0, Math.floor(card?.level ?? 1) - 1);
   if (bonusLevel <= 0) return;
   const previousMaxHealth = unit.maxHealth;
+  const previousMaxDurability = unit.weapon.maxDurability;
   unit.attributes.addModifiers(
     summonCardLevelModifiers(bonusLevel),
     `card:${card.id}:summon-level`
   );
-  syncUnitAfterMaxHealthModifiers(unit, previousMaxHealth);
+  syncUnitAfterMaxHealthModifiers(unit, previousMaxHealth, previousMaxDurability);
   unit.clampToAttributeCaps?.();
   unit.statusUiDirty = true;
 }
@@ -7536,7 +7764,7 @@ function applyBuildingCardUpgrade(unit, card) {
   if (unit.type === 'arrowTower') {
     unit.attributes.addModifiers([
       {
-        stat: 'attackDamage',
+        stat: 'attackPower',
         type: 'multiply',
         percent: 0.18 * bonusLevel
       },
@@ -7594,7 +7822,7 @@ function randomItem(items) {
   return items[Math.floor(Math.random() * items.length)] ?? items[0];
 }
 
-function strategyRewardMarkup(choice, index) {
+function strategyRewardMarkup(choice, index, options = {}) {
   const visual = strategyRewardVisualMeta(choice);
   const card = resolveStrategyChoiceCard(choice, index);
   const cardAccent = cardThemeColor(card);
@@ -7602,11 +7830,13 @@ function strategyRewardMarkup(choice, index) {
   const description = choice.description ?? choice.card?.summary ?? '';
   const meta = choice.metaText ? `<span class="meta-card-footer">${escapeHtml(choice.metaText)}</span>` : '';
   const disabledAttr = choice.disabled ? ' disabled aria-disabled="true"' : '';
+  const choiceIndexAttribute = options.choiceIndexAttribute ?? 'data-strategy-choice-index';
+  const extraClass = options.extraClass ? ` ${options.extraClass}` : '';
   return `
     <button
-      class="strategy-reward-option strategy-reward-card meta-card is-${visual.kindKey}${choice.disabled ? ' is-disabled' : ''}"
+      class="strategy-reward-option strategy-reward-card meta-card is-${visual.kindKey}${extraClass}${choice.disabled ? ' is-disabled' : ''}"
       type="button"
-      data-strategy-choice-index="${index}"
+      ${choiceIndexAttribute}="${index}"
       style="--reward-accent:${visual.accent};--card-accent:${cardAccent};--card-color:${cardAccent}"${disabledAttr}
     >
       <span class="meta-card-cost" aria-label="费用 ${cardEnergyCost(card)}">${cardEnergyCost(card)}</span>
@@ -7973,6 +8203,12 @@ function runShopCardFaceInnerMarkup(card) {
 
 function runShopChoiceMarkup(choice, index, options = {}) {
   const card = choice.targetCard ?? choice.card ?? choice.temporaryCard;
+  if (options.useWaveRewardStyle && runShopChoiceUsesCardFace(choice)) {
+    return strategyRewardMarkup(choice, index, {
+      choiceIndexAttribute: 'data-run-shop-choice-index',
+      extraClass: 'run-shop-reward-option'
+    });
+  }
   if (runShopChoiceUsesCardFace(choice)) {
     const visual = strategyRewardVisualMeta(choice);
     const description = choice.description ?? '';
@@ -9270,10 +9506,6 @@ function formatSignedStat(value) {
   const rounded = Math.round((Number.isFinite(value) ? value : 0) * 10) / 10;
   const text = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
   return rounded > 0 ? `+${text}` : text;
-}
-
-function attackDamageTypeLabel(type) {
-  return type === 'magic' ? '魔法' : '物理';
 }
 
 function formatBattleTime(seconds = 0) {

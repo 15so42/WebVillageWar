@@ -117,7 +117,7 @@ export class AbilitySystem {
       if (!ally.alive || ally.type !== unitType) return;
       ally.attributes.addModifiers([
         {
-          stat: 'attackDamage',
+          stat: 'attackPower',
           type: 'add',
           amount: ARSENAL_ATTACK_PER_SUMMON
         }

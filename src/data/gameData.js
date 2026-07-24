@@ -5,7 +5,14 @@ export const TEAMS = {
 
 export const DECK_SIZE = 36;
 export const ACTIVE_DECK_SIZE = 12;
-export const TERRAIN_CARD_IDS = ['meteor', 'poison-fog', 'white-smoke', 'plague-field'];
+export const TERRAIN_CARD_IDS = [
+  'meteor',
+  'poison-fog',
+  'white-smoke',
+  'plague-field',
+  'wildfire',
+  'lava-eruption'
+];
 export const TERRAIN_CARD_COOLDOWN_SECONDS = 22;
 
 export function isTerrainCard(card) {
@@ -530,7 +537,8 @@ export const UNIT_DEFINITIONS = {
         cooldown: 5.5,
         initialCooldown: 1.6,
         range: 7.2,
-        amount: 5
+        amount: 5,
+        spellPowerFactor: 0.5
       }
     },
     weapon: {
@@ -645,7 +653,8 @@ export const UNIT_DEFINITIONS = {
         cooldown: 5.5,
         initialCooldown: 2.2,
         range: 7.2,
-        amount: 4.5
+        amount: 4.5,
+        spellPowerFactor: 0.5
       }
     },
     weapon: {
@@ -1279,17 +1288,6 @@ export const UNIT_DEFINITIONS = {
     aggroRange: 15.4,
     projectileSpeed: 13.4,
     projectileColor: '#d8ef9b',
-    targetPriority: {
-      roleWeights: {
-        ranged: 7
-      },
-      supportWeight: 10,
-      magicUserWeight: 4,
-      backlineWeight: 4,
-      woundedHealthRatio: 0.35,
-      woundedWeight: 3,
-      distanceWeight: 0.72
-    },
     weapon: {
       name: '猎弓',
       maxDurability: 24,
@@ -2348,6 +2346,22 @@ export const UNIT_DEFINITIONS = {
   }
 };
 
+Object.values(UNIT_DEFINITIONS).forEach((definition) => {
+  const legacyDamage = Number.isFinite(definition.damage) ? definition.damage : 0;
+  const primaryType = definition.attackDamageType === 'magic' ? 'magic' : 'physical';
+  if (!Number.isFinite(definition.physicalAttack)) {
+    definition.physicalAttack = primaryType === 'physical' ? legacyDamage : 0;
+  }
+  if (!Number.isFinite(definition.magicAttack)) {
+    definition.magicAttack = primaryType === 'magic' ? legacyDamage : 0;
+  }
+  if (!Number.isFinite(definition.damage)) {
+    definition.damage = primaryType === 'magic'
+      ? definition.magicAttack
+      : definition.physicalAttack;
+  }
+});
+
 export const BUFF_DEFINITIONS = {
   fire: {
     name: '火焰附加',
@@ -2435,7 +2449,7 @@ export const BUFF_DEFINITIONS = {
     level: 1,
     modifiers: [
       {
-        stat: 'attackDamage',
+        stat: 'attackPower',
         type: 'add',
         amountPerLevel: 1.5
       }
@@ -2658,7 +2672,7 @@ export const BUFF_DEFINITIONS = {
         factorPerLevel: -0.02
       },
       {
-        stat: 'attackDamage',
+        stat: 'attackPower',
         type: 'multiply',
         factor: 0.97,
         factorPerLevel: -0.015
@@ -2751,7 +2765,7 @@ export const BUFF_DEFINITIONS = {
         factorPerLevel: 0.03
       },
       {
-        stat: 'attackDamage',
+        stat: 'attackPower',
         type: 'multiply',
         factor: 1.03,
         factorPerLevel: 0.02
@@ -2772,7 +2786,7 @@ export const BUFF_DEFINITIONS = {
         factorPerLevel: 0.025
       },
       {
-        stat: 'attackDamage',
+        stat: 'attackPower',
         type: 'multiply',
         factor: 1.14,
         factorPerLevel: 0.04
@@ -2852,7 +2866,7 @@ export const BUFF_DEFINITIONS = {
     level: 1,
     modifiers: [
       {
-        stat: 'attackDamage',
+        stat: 'attackPower',
         type: 'add',
         nearbyAllyAmountPerLevel: 1.2,
         radius: 6
@@ -2867,7 +2881,7 @@ export const BUFF_DEFINITIONS = {
     level: 1,
     modifiers: [
       {
-        stat: 'attackDamage',
+        stat: 'attackPower',
         type: 'multiply',
         percentPerLevel: 0.25
       },
@@ -3037,22 +3051,55 @@ export const BUFF_DEFINITIONS = {
     negative: true,
     modifiers: [
       {
-        stat: 'attackDamage',
-        type: 'multiply',
-        factor: 0.9
+        stat: 'attackPower',
+        type: 'add',
+        amount: -4
       }
     ]
   },
   purifyGuard: {
     name: '净化守护',
     category: 'status',
-    color: '#dcefff',
+    color: '#9dffb0',
     duration: 5,
+    tickInterval: 1,
+    effects: [
+      {
+        event: 'tick',
+        op: 'restoreHealthPercent',
+        percent: 0.05,
+        color: '#9dffb0'
+      }
+    ]
+  },
+  exorcismWard: {
+    name: '驱邪守护',
+    category: 'status',
+    color: '#dcefff',
+    duration: 30,
     modifiers: [
       {
         stat: 'magicResistance',
         type: 'add',
-        amount: 3
+        amount: 12
+      }
+    ]
+  },
+  wardResonanceGuard: {
+    name: '结界共鸣',
+    category: 'status',
+    color: '#ffcf7a',
+    duration: 5,
+    modifiers: [
+      {
+        stat: 'armor',
+        type: 'add',
+        amount: 7
+      },
+      {
+        stat: 'magicResistance',
+        type: 'add',
+        amount: 7
       }
     ]
   },
@@ -3294,6 +3341,13 @@ export const PLAYER_ABILITY_DEFINITIONS = {
     label: '盾',
     color: '#8fb6ff',
     summary: '友方单位获得护盾时，额外获得 2 点护盾/层'
+  },
+  jadeShatter: {
+    id: 'jadeShatter',
+    name: '玉碎',
+    label: '玉',
+    color: '#65e0c1',
+    summary: '友方单位护盾破碎时，对周围敌人造成其最大护盾 35%/层的魔法伤害（每单位 6 秒冷却）'
   }
 };
 
@@ -3552,7 +3606,7 @@ export const CARD_DEFINITIONS = [
     kind: 'summon',
     label: '医',
     artKey: 'physician',
-    summary: '低攻击，周期性治疗受伤友军',
+    summary: '低攻击，周期治疗量为 5 + 当前魔法攻击力 ×0.5',
     target: 'ground',
     radius: 1.15,
     cooldown: 7,
@@ -3672,7 +3726,7 @@ export const CARD_DEFINITIONS = [
     kind: 'summon',
     label: '界',
     artKey: 'warder',
-    summary: '低攻击，周期性为友军补充护盾',
+    summary: '低攻击，周期护盾量为 4.5 + 当前魔法攻击力 ×0.5',
     target: 'ground',
     radius: 1.15,
     cooldown: 7,
@@ -3794,6 +3848,54 @@ export const CARD_DEFINITIONS = [
     color: '#6a8a48'
   },
   {
+    id: 'wildfire',
+    name: '野火',
+    kind: 'spell',
+    label: '火',
+    artKey: 'fire',
+    summary: '0 费地形牌。生成 12 秒火焰地形，持续点燃范围内敌人；使用后 22 秒冷却并留在手牌。',
+    target: 'ground',
+    radius: 3.45,
+    terrainCard: true,
+    cooldown: 22,
+    energyCost: 0,
+    effect: {
+      type: 'create-area-effect',
+      areaEffect: {
+        kind: 'wildfire',
+        target: 'enemy',
+        duration: 12,
+        radius: 3.45,
+        applyInterval: 0.45,
+        buffId: 'burning',
+        buffDuration: 1.25,
+        damagePerSecondBase: 2.4,
+        damagePerSecondPerLevel: 0.8,
+        color: '#c84622',
+        accent: '#ffc75a'
+      }
+    },
+    color: '#d9572b'
+  },
+  {
+    id: 'lava-eruption',
+    name: '熔岩喷发',
+    kind: 'spell',
+    label: '熔',
+    artKey: 'meteor',
+    summary: '0 费地形牌。立即对范围内敌人造成“本局已打出牌数 × 2”的魔法伤害（包含本牌）；使用后 22 秒冷却并留在手牌。',
+    target: 'ground',
+    radius: 3.5,
+    terrainCard: true,
+    cooldown: 22,
+    energyCost: 0,
+    effect: {
+      type: 'cast-spell',
+      spellId: 'lava-eruption'
+    },
+    color: '#e0522d'
+  },
+  {
     id: 'focus-energy',
     name: '凝聚能量',
     kind: 'tactic',
@@ -3818,12 +3920,12 @@ export const CARD_DEFINITIONS = [
     kind: 'tactic',
     label: '涌',
     artKey: 'tacticEnergyLarge',
-    summary: '获得 3 点能量；升级后每级额外 +1（本局 2 次）',
+    summary: '获得 3 点能量；升级后每级额外 +1（本局 1 次）',
     target: 'none',
     radius: 1,
     cooldown: 0,
     energyCost: 0,
-    uses: 2,
+    uses: 1,
     effect: {
       type: 'gain-energy',
       amountBase: 3,
@@ -4229,6 +4331,42 @@ export const CARD_DEFINITIONS = [
     color: '#8fb6ff'
   },
   {
+    id: 'jade-shatter-ability',
+    name: '玉碎',
+    kind: 'ability',
+    label: '玉',
+    artKey: 'abilityEnchantEcho',
+    summary: '友方单位护盾破碎时，对周围敌人造成最大护盾 35%/层的魔法伤害；每单位 6 秒冷却。',
+    target: 'none',
+    radius: 1,
+    cooldown: 0,
+    energyCost: 4,
+    effect: {
+      type: 'acquire-ability',
+      abilityId: 'jadeShatter',
+      stacksBase: 1,
+      stacksPerLevel: 1
+    },
+    color: '#65e0c1'
+  },
+  {
+    id: 'rune-expansion',
+    name: '符文扩容',
+    kind: 'tactic',
+    label: '槽',
+    artKey: 'abilityEnchantEcho',
+    summary: '使一个友方单位的附魔槽上限永久 +1。',
+    target: 'friendly-unit',
+    radius: 1.1,
+    cooldown: 0,
+    energyCost: 5,
+    effect: {
+      type: 'increase-enchantment-slots',
+      amountBase: 1
+    },
+    color: '#63e0c4'
+  },
+  {
     id: 'fire-enchant',
     name: '火焰附加',
     kind: 'enchant',
@@ -4324,7 +4462,7 @@ export const CARD_DEFINITIONS = [
     kind: 'enchant',
     label: '力',
     artKey: 'power',
-    summary: '每级 +1 基础攻击力',
+    summary: '每级物理攻击力与魔法攻击力各 +1.5',
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,
@@ -4864,6 +5002,14 @@ export const CARD_META = {
     buyCost: 130,
     upgradeBaseCost: 38
   },
+  wildfire: {
+    buyCost: 145,
+    upgradeBaseCost: 42
+  },
+  'lava-eruption': {
+    buyCost: 190,
+    upgradeBaseCost: 50
+  },
   'focus-energy': {
     buyCost: 95,
     upgradeBaseCost: 70
@@ -4871,6 +5017,14 @@ export const CARD_META = {
   'burst-energy': {
     buyCost: 140,
     upgradeBaseCost: 90
+  },
+  'jade-shatter-ability': {
+    buyCost: 195,
+    upgradeBaseCost: 125
+  },
+  'rune-expansion': {
+    buyCost: 180,
+    upgradeBaseCost: 80
   },
   'silver-gamble': {
     buyCost: 120,
@@ -5197,8 +5351,11 @@ export const BALANCE = {
   },
   playerBase: {
     position: { x: 0, y: 0, z: 30 },
-    maxHealth: 320,
+    maxHealth: 50,
     maxStructureDurability: 49,
+    damagePerAttack: 1,
+    energyRewardHealthLoss: 10,
+    energyRewardAmount: 2,
     recoveryRadius: 4.8,
     healthPerSecond: 0.55,
     durabilityPerSecond: 0.8,

@@ -1,4 +1,5 @@
 import { TEAMS } from '../data/gameData.js';
+import { endlessEnchantCount, endlessEnchantLevel } from './endlessMode.js';
 
 const AFFIX_PRIMARY_BUFF = {
   swarm: 'waveSwarm',
@@ -252,7 +253,9 @@ export class EnemyEnchantmentSystem {
   enchantSpawnWave(units, waveConfig) {
     if (!Array.isArray(units) || units.length === 0) return;
 
-    const level = enemyEnchantLevel(waveConfig?.threatTier ?? 1, waveConfig?.effectiveDifficulty ?? 1);
+    const level = this.game.isEndlessMode?.()
+      ? endlessEnchantLevel(waveConfig?.effectiveDifficulty ?? this.game.endlessDifficulty)
+      : enemyEnchantLevel(waveConfig?.threatTier ?? 1, waveConfig?.effectiveDifficulty ?? 1);
     const sorted = [...units].sort((left, right) => enchantPriority(right) - enchantPriority(left));
     sorted.forEach((unit, index) => {
       const slots = this.spawnEnchantSlots(unit, waveConfig, index);
@@ -272,6 +275,9 @@ export class EnemyEnchantmentSystem {
   spawnEnchantSlots(unit, waveConfig, indexInWave) {
     void unit;
     void indexInWave;
+    if (this.game.isEndlessMode?.()) {
+      return endlessEnchantCount(waveConfig?.effectiveDifficulty ?? this.game.endlessDifficulty);
+    }
     const waveIndex = waveConfig?.index ?? waveConfig?.threatTier ?? 1;
     return waveEnchantCountForIndex(waveIndex);
   }
@@ -293,10 +299,12 @@ export class EnemyEnchantmentSystem {
       const { unit, score } = candidates[i];
       if (score < 2.4) break;
       if (unit.enchantments.size >= this.maxEnchantSlots(unit)) continue;
-      const level = enemyEnchantLevel(
-        this.game.enemyDirector?.threatTier ?? 1,
-        unit.enemyForce?.effectiveDifficulty ?? this.game.effectiveDifficulty?.() ?? 1
-      );
+      const level = this.game.isEndlessMode?.()
+        ? endlessEnchantLevel(unit.enemyForce?.effectiveDifficulty ?? this.game.endlessDifficulty)
+        : enemyEnchantLevel(
+          this.game.enemyDirector?.threatTier ?? 1,
+          unit.enemyForce?.effectiveDifficulty ?? this.game.effectiveDifficulty?.() ?? 1
+        );
       const cost = this.enchantCostForUnit(unit, level);
       if (this.game.enemyEnergyAvailableForEnchant(unit) < cost) continue;
       const buffId = this.pickEnchantForUnit(unit, {
@@ -333,11 +341,18 @@ export class EnemyEnchantmentSystem {
   }
 
   maxEnchantSlots(unit) {
+    const unitLimit = Math.max(0, Math.floor(unit?.maxEnchantmentSlots ?? 4));
+    if (this.game.isEndlessMode?.()) {
+      return Math.min(
+        unitLimit,
+        endlessEnchantCount(unit.enemyForce?.effectiveDifficulty ?? this.game.endlessDifficulty)
+      );
+    }
     const waveIndex = unit.enemyForce?.index
       ?? unit.enemyForce?.threatTier
       ?? this.game.currentWave?.index
       ?? 1;
-    return waveEnchantCountForIndex(waveIndex);
+    return Math.min(unitLimit, waveEnchantCountForIndex(waveIndex));
   }
 
   pickEnchantForUnit(unit, waveConfig, slotIndex = 0) {

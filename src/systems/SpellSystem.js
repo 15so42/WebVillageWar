@@ -5,7 +5,8 @@ export class SpellSystem {
     this.game = game;
     this.handlers = {
       meteor: (context) => this.castMeteor(context),
-      'meteor-barrage': (context) => this.castMeteorBarrage(context)
+      'meteor-barrage': (context) => this.castMeteorBarrage(context),
+      'lava-eruption': (context) => this.castLavaEruption(context)
     };
   }
 
@@ -74,6 +75,36 @@ export class SpellSystem {
         this.castMeteor({ point: strikePoint, card, playerId });
       }, index * staggerSeconds * 1000);
     }
+  }
+
+  castLavaEruption({ point, card, playerId = null }) {
+    if (!point) return;
+    const level = Math.max(1, Math.floor(card?.level ?? 1));
+    const radius = this.game.scaleSpellAreaRadius(
+      Math.max(0.5, (card?.radius ?? 3.5) * (1 + 0.06 * Math.max(0, level - 1))),
+      playerId
+    );
+    const cardsPlayedIncludingThis = Math.max(1, Math.floor(this.game.runCardsPlayedCount ?? 0) + 1);
+    const damage = cardsPlayedIncludingThis * 2;
+    const impactPoint = point.clone();
+    impactPoint.y = this.game.groundHeightAt(impactPoint);
+    this.game.effects.spawnLavaEruption(impactPoint, radius, () => {
+      this.game.enemyUnits.forEach((unit) => {
+        if (!unit.alive || unit.underConstruction) return;
+        if (distance2D(unit.position, impactPoint) > radius) return;
+        this.game.combat.applyDamage(unit, damage, null, 0, {
+          damage,
+          source: null,
+          target: unit,
+          defenseDamageType: 'magic',
+          isAttack: false,
+          damageNumberHeight: unit.projectileHitHeight ?? 1.45,
+          damageNumberDuration: 0.72
+        });
+      });
+      this.game.effects.spawnRing(impactPoint, '#ff7a32', radius, 0.72);
+      this.game.effects.spawnCrater(impactPoint, radius);
+    });
   }
 }
 

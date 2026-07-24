@@ -10,7 +10,7 @@ export const UNIT_GENERIC_UPGRADES = [
     id: 'unit-attack',
     kind: 'unit-generic',
     name: '锋刃训练',
-    summary: '全队攻击力 +10%（至少 +1）。',
+    summary: '全队物理攻击力与魔法攻击力各 +10%（各至少 +1）。',
     stat: 'attack'
   },
   {
@@ -35,7 +35,7 @@ export const UNIT_SPECIAL_UPGRADES = {
       id: 'knight-holy-shield',
       kind: 'unit-special',
       name: '圣盾',
-      summary: '受到普通攻击时有 10% 概率获得 10 点护盾。',
+      summary: '受到普通攻击时有 25% 概率获得 10 点护盾。',
       trait: 'holyShield'
     },
     {
@@ -58,7 +58,7 @@ export const UNIT_SPECIAL_UPGRADES = {
       id: 'swordsman-flurry',
       kind: 'unit-special',
       name: '连击',
-      summary: '普通攻击有 22% 概率追加一次 45% 物理伤害。',
+      summary: '普通攻击有 22% 概率追加一次 100% 物理伤害。',
       trait: 'flurryStrike'
     }
   ],
@@ -67,14 +67,14 @@ export const UNIT_SPECIAL_UPGRADES = {
       id: 'raider-warcry',
       kind: 'unit-special',
       name: '战吼',
-      summary: '攻击时附近敌人越多，伤害越高，最多 +4。',
+      summary: '攻击时附近每有一个敌人，伤害 +1，没有上限。',
       trait: 'warcryDamage'
     },
     {
       id: 'raider-intimidate',
       kind: 'unit-special',
       name: '破胆',
-      summary: '普通攻击有 30% 概率降低目标攻击力。',
+      summary: '普通攻击有 30% 概率使目标物理与魔法攻击力 -4。',
       trait: 'intimidate'
     }
   ],
@@ -83,14 +83,14 @@ export const UNIT_SPECIAL_UPGRADES = {
       id: 'berserker-bloodthirst',
       kind: 'unit-special',
       name: '浴血',
-      summary: '普通攻击造成伤害后回复伤害值 18% 的生命。',
+      summary: '普通攻击造成伤害后，恢复自身已损失生命值的 8%。',
       trait: 'bloodthirst'
     },
     {
       id: 'berserker-cleave',
       kind: 'unit-special',
       name: '旋斩',
-      summary: '普通攻击有 35% 概率对目标周围敌人造成溅射伤害。',
+      summary: '普通攻击必定对目标周围敌人造成溅射伤害。',
       trait: 'cleave'
     }
   ],
@@ -127,10 +127,10 @@ export const UNIT_SPECIAL_UPGRADES = {
       id: 'spearman-phalanx',
       kind: 'unit-special',
       name: '方阵',
-      summary: '护甲 +1，受到击退时额外抵抗。',
+      summary: '护甲 +3，抗击退 +22%。',
       modifiers: [
-        { stat: 'armor', type: 'add', amount: 1 },
-        { stat: 'knockbackResistance', type: 'add', amount: 0.12 }
+        { stat: 'armor', type: 'add', amount: 3 },
+        { stat: 'knockbackResistance', type: 'add', amount: 0.22 }
       ]
     }
   ],
@@ -149,7 +149,7 @@ export const UNIT_SPECIAL_UPGRADES = {
       id: 'tower-shield-ram',
       kind: 'unit-special',
       name: '盾冲',
-      summary: '盾击额外提高 35% 击退。',
+      summary: '普通攻击附加自身当前武器耐久 10% 的物理伤害。',
       trait: 'shieldRam'
     }
   ],
@@ -181,7 +181,7 @@ export const UNIT_SPECIAL_UPGRADES = {
       id: 'water-mage-great-orb',
       kind: 'unit-special',
       name: '大水弹',
-      summary: '攻击有 30% 概率召唤更大的水弹，造成更高伤害。',
+      summary: '攻击有 30% 概率召唤 1.7 倍大的水弹，造成更高伤害。',
       trait: 'greatWaterOrb'
     }
   ],
@@ -218,7 +218,7 @@ export const UNIT_SPECIAL_UPGRADES = {
       id: 'engineer-mini-turret',
       kind: 'unit-special',
       name: '便携炮台',
-      summary: '周期性部署 1 个低生命低耐久的小炮台，工匠可维修它。',
+      summary: '周期性部署 1 个继承工匠全部当前属性的小炮台，但最大生命只有继承值的 50%。',
       trait: 'miniTurret'
     }
   ],
@@ -247,14 +247,14 @@ export const UNIT_SPECIAL_UPGRADES = {
       id: 'purifier-guard',
       kind: 'unit-special',
       name: '净化守护',
-      summary: '净化后使目标短时间获得魔抗。',
+      summary: '净化成功后，使目标持续 5 秒每秒恢复 5% 最大生命。',
       trait: 'purifyGuard'
     },
     {
       id: 'purifier-exorcism',
       kind: 'unit-special',
       name: '驱邪',
-      summary: '净化成功时对目标周围敌人造成魔法伤害。',
+      summary: '净化成功后，使目标魔抗 +12，持续 30 秒。',
       trait: 'exorcism'
     }
   ],
@@ -274,7 +274,7 @@ export const UNIT_SPECIAL_UPGRADES = {
       id: 'warder-resonance',
       kind: 'unit-special',
       name: '结界共鸣',
-      summary: '给友军护盾时同时提高其魔抗。',
+      summary: '给友军护盾时，使目标护甲与魔抗各 +7，持续 5 秒。',
       trait: 'wardResonance'
     }
   ]

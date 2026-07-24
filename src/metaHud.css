@@ -1506,6 +1506,64 @@
   margin-bottom: 15px;
 }
 
+.med-challenge-mode-selector {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.med-mode-btn {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid #565b57;
+  color: #b8b4ab;
+  background: #1d211f;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.025);
+  text-align: left;
+}
+
+.med-mode-btn strong,
+.med-mode-btn small {
+  display: block;
+}
+
+.med-mode-btn strong {
+  color: #ddd5c7;
+  font-size: 12px;
+}
+
+.med-mode-btn small {
+  margin-top: 3px;
+  color: #8f918c;
+  font-size: 9px;
+}
+
+.med-mode-btn:hover {
+  border-color: #7c817b;
+  background: #272c29;
+}
+
+.med-mode-btn.is-selected {
+  border-color: #a88a50;
+  background: #2d2920;
+  box-shadow: inset 0 0 0 1px rgba(213, 177, 99, 0.18);
+}
+
+.med-mode-btn.is-selected strong {
+  color: var(--meta-gold);
+}
+
+.med-endless-note {
+  margin-bottom: 15px;
+  padding: 9px 10px;
+  border: 1px solid rgba(168, 138, 80, 0.35);
+  color: #bdb6a8;
+  background: rgba(45, 41, 32, 0.72);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
 .diff-label {
   color: #aaa79f;
   font-size: 11px;
@@ -1868,6 +1926,29 @@
   .med-difficulty-book-selector {
     gap: 3px;
     margin-bottom: 7px;
+  }
+
+  .med-challenge-mode-selector {
+    gap: 5px;
+    margin-bottom: 7px;
+  }
+
+  .med-mode-btn {
+    padding: 6px 7px;
+  }
+
+  .med-mode-btn strong {
+    font-size: 10px;
+  }
+
+  .med-mode-btn small,
+  .med-endless-note {
+    font-size: 8px;
+  }
+
+  .med-endless-note {
+    margin-bottom: 7px;
+    padding: 6px 7px;
   }
 
   .diff-label {

@@ -39,6 +39,7 @@ export function normalizeMultiplayerSession(session) {
     factions: session.matchRules?.factions ?? [],
     aiFactions: session.matchRules?.aiFactions ?? [],
     basePolicy: session.matchRules?.basePolicy ?? 'shared_team_base',
+    challengeMode: session.challengeMode ?? session.matchRules?.challengeMode ?? 'standard',
     matchSeed: session.matchSeed ?? session.matchRules?.matchSeed ?? 1,
     rulesVersion: GAME_PROTOCOL_VERSION,
     phaseRevision: session.matchRules?.phaseRevision ?? 0
@@ -56,6 +57,7 @@ export function normalizeMultiplayerSession(session) {
     matchId: session.matchId ?? null,
     matchSeed: matchRules.matchSeed,
     matchRules,
+    challengeMode: matchRules.challengeMode,
     coop: matchRules.mode === 'pve'
       ? {
         enabled: true,

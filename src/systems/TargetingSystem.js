@@ -14,17 +14,6 @@ const TARGET_INDEX_INTERVAL = 0.5;
 const TARGET_QUERY_PADDING = 3.2;
 const TARGET_GRID_CELL_SIZE = 5.5;
 
-const DEFAULT_ENEMY_TARGET_PRIORITY = {
-  distanceWeight: 1.15,
-  supportWeight: 2.5,
-  buildingWeight: 2.2,
-  backlineWeight: 1.7,
-  backlineAttackRange: 5,
-  woundedWeight: 1.3,
-  woundedHealthRatio: 0.45,
-  roleWeights: { ranged: 1.35, support: 1.5 }
-};
-
 export class TargetingSystem {
   constructor(game) {
     this.game = game;
@@ -161,7 +150,7 @@ export class TargetingSystem {
 
   nearestUnit(source, team, range, predicate = null) {
     let best = null;
-    let bestScore = -Infinity;
+    let bestDistance = Number.POSITIVE_INFINITY;
     const candidates = this.query(team, source.position, range + TARGET_QUERY_PADDING);
     for (let i = 0; i < candidates.length; i += 1) {
       const candidate = candidates[i];
@@ -172,10 +161,9 @@ export class TargetingSystem {
         distance2D(source.position, candidate.position) - targetCombatRadius(candidate)
       );
       if (distance > range) continue;
-      const score = targetPriorityScore(source, candidate, distance);
-      if (score > bestScore) {
+      if (distance < bestDistance) {
         best = candidate;
-        bestScore = score;
+        bestDistance = distance;
       }
     }
     return best;
@@ -283,34 +271,4 @@ function createTargetingStats() {
     queries: 0,
     candidates: 0
   };
-}
-
-function targetPriorityScore(source, candidate, distance) {
-  let priority = source?.definition?.targetPriority;
-  if (!priority && source?.team === TEAMS.ENEMY) {
-    priority = DEFAULT_ENEMY_TARGET_PRIORITY;
-  }
-  if (!priority) return -distance;
-  const distanceWeight = Math.max(0.05, priority.distanceWeight ?? 1);
-  let score = -distance * distanceWeight;
-  const roleWeights = priority.roleWeights ?? {};
-  score += roleWeights[candidate.definition?.role] ?? 0;
-  if (candidate.definition?.support) {
-    score += priority.supportWeight ?? 0;
-  }
-  if (candidate.isBuilding) {
-    score += priority.buildingWeight ?? 0;
-  }
-  if (candidate.definition?.attackDamageType === 'magic') {
-    score += priority.magicUserWeight ?? 0;
-  }
-  const attackRange = candidate.definition?.attackRange ?? 0;
-  if (attackRange >= (priority.backlineAttackRange ?? 5.5)) {
-    score += priority.backlineWeight ?? 0;
-  }
-  const healthRatio = candidate.health / Math.max(1, candidate.maxHealth);
-  if (healthRatio <= (priority.woundedHealthRatio ?? 0)) {
-    score += priority.woundedWeight ?? 0;
-  }
-  return score;
 }

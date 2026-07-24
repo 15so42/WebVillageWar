@@ -368,7 +368,7 @@ export class UnitLogicSystem {
       unit.supportCooldowns.set(key, Math.min(0.85, cooldown));
       return;
     }
-    const amount = Math.max(0, ability.amount ?? 0);
+    const amount = resolveSupportAmount(this.game, unit, ability);
     if (amount <= 0) {
       unit.supportCooldowns.set(key, 0.25);
       return;
@@ -430,7 +430,10 @@ export class UnitLogicSystem {
           });
         }
         if (hasRuntimeTrait(unit, 'exorcism')) {
-          this.damageEnemiesAroundCleanseTarget(unit, target, ability);
+          this.game.buffs.applyBuff(target, 'exorcismWard', unit, {
+            duration: 30,
+            level: 1
+          });
         }
         this.game.effects.spawnRing(target.position, '#dcefff', 0.7, 0.58);
         this.game.effects.spawnDamageNumber(target.position, 1, {
@@ -457,7 +460,7 @@ export class UnitLogicSystem {
       unit.supportCooldowns.set(key, Math.min(0.85, cooldown));
       return;
     }
-    const amount = Math.max(0, ability.amount ?? 0);
+    const amount = resolveSupportAmount(this.game, unit, ability);
     if (amount <= 0) {
       unit.supportCooldowns.set(key, 0.25);
       return;
@@ -479,8 +482,8 @@ export class UnitLogicSystem {
         fadeStart: 0.62
       });
       if (hasRuntimeTrait(unit, 'wardResonance')) {
-        this.game.buffs.applyBuff(target, 'purifyGuard', unit, {
-          duration: 4,
+        this.game.buffs.applyBuff(target, 'wardResonanceGuard', unit, {
+          duration: 5,
           level: 1
         });
       }
@@ -555,29 +558,6 @@ export class UnitLogicSystem {
     if (remaining > 0) return;
     const turret = this.game.spawnUpgradeTurret(unit, ability);
     unit.supportCooldowns.set(key, turret ? ability.cooldown : 2.5);
-  }
-
-  damageEnemiesAroundCleanseTarget(unit, target, ability) {
-    const radius = Math.max(2.4, ability.exorcismRadius ?? 3);
-    const damage = Math.max(4, ability.exorcismDamage ?? 7);
-    const enemies = unit.team === TEAMS.PLAYER ? this.game.enemyUnits : this.game.friendlyUnits;
-    let hit = 0;
-    enemies.forEach((enemy) => {
-      if (!enemy.alive || distance2D(enemy.position, target.position) > radius) return;
-      hit += 1;
-      this.game.combat.applyDamage(enemy, damage, unit, 0.35, {
-        damage,
-        source: unit,
-        target: enemy,
-        defenseDamageType: 'magic',
-        isAttack: false,
-        damageNumberHeight: enemy.projectileHitHeight ?? 1.45,
-        damageNumberDuration: 0.62
-      });
-    });
-    if (hit > 0) {
-      this.game.effects.spawnRing(target.position, '#dcefff', radius, 0.42);
-    }
   }
 
   queueSupportEffect(unit, target, type, apply) {
@@ -796,6 +776,16 @@ export class UnitLogicSystem {
     unit.wanderGoal = unit.spawnPoint.clone();
     unit.wanderTimer = 1.2;
   }
+}
+
+function resolveSupportAmount(game, unit, ability) {
+  const baseAmount = Math.max(0, Number(ability?.amount) || 0);
+  const spellPowerFactor = Math.max(0, Number(ability?.spellPowerFactor) || 0);
+  const spellPower = spellPowerFactor > 0
+    ? Math.max(0, game?.modifiers?.getMagicAttack?.(unit) ?? unit?.magicAttack ?? 0)
+    : 0;
+  const outputMultiplier = Math.max(0, Number(ability?.outputMultiplier) || 1);
+  return (baseAmount + spellPower * spellPowerFactor) * outputMultiplier;
 }
 
 function insertRepairTarget(selected, selectedMissing, unit, missing, maxTargets) {

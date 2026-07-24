@@ -18,6 +18,12 @@ export class AttributeSet {
 
   addModifier(modifier, source = modifier.source ?? 'runtime', context = {}) {
     if (!modifier?.stat) return null;
+    if (modifier.stat === 'attackPower' || modifier.stat === 'attackDamage') {
+      const [physicalModifier, magicModifier] = expandAttackPowerModifier(modifier);
+      const firstId = this.addModifier(physicalModifier, source, context);
+      this.addModifier(magicModifier, source, context);
+      return firstId;
+    }
     const entry = this.ensureEntry(modifier.stat);
     const type = modifierType(modifier);
     const normalized = {
@@ -32,6 +38,7 @@ export class AttributeSet {
 
   addModifiers(modifiers = [], source = 'runtime', context = {}) {
     return modifiers
+      .flatMap((modifier) => expandAttackPowerModifier(modifier))
       .map((modifier) => this.addModifier(modifier, source, context))
       .filter(Boolean);
   }
@@ -83,6 +90,16 @@ export class AttributeSet {
     }
     return this.values.get(name);
   }
+}
+
+function expandAttackPowerModifier(modifier) {
+  if (modifier?.stat !== 'attackPower' && modifier?.stat !== 'attackDamage') {
+    return [modifier];
+  }
+  return [
+    { ...modifier, stat: 'physicalAttack' },
+    { ...modifier, stat: 'magicAttack' }
+  ];
 }
 
 export function bindAttributeGetter(target, propertyName, attributeName = propertyName) {

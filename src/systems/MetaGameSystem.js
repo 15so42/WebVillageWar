@@ -9,6 +9,7 @@ import { buildEnchantmentEncyclopediaSections } from '../data/enchantmentEncyclo
 import { TEST_VERSION_LABEL } from '../version.js';
 import { cardEnergyCost, cardThemeColor, cardUseBarMarkup, createCardArtMarkup } from './CardSystem.js';
 import { calculateLevelReward } from '../utils/levelRewards.js';
+import { CHALLENGE_MODE, isEndlessMode, normalizeChallengeMode } from './endlessMode.js';
 
 const STORAGE_KEY = 'village-war-meta-v1';
 const STARTING_COINS = 10000;
@@ -16,6 +17,52 @@ const STARTING_COINS_VERSION = 1;
 const MAX_LEVEL_DIFFICULTY = 10;
 const WAVE_DIFFICULTY_GROWTH_PER_SELECTED_DIFFICULTY = 0.16;
 const CHANGELOG_ENTRIES = [
+  {
+    date: '2026-07-24',
+    title: '双攻击属性、兵种专精与地形卡构筑',
+    items: [
+      '单位属性拆分为物理攻击力与魔法攻击力：物理伤害读取物攻、魔法伤害读取魔攻，单位详情同步展示两项；牧师治疗与结界师护盾改由魔法攻击力参与计算。',
+      '首次占领祭坛改为兵种专精三选一；联机时每位玩家按自己的牌组与在场单位独立生成，优先已有兵种，可选专精不足时由其他兵种补足。',
+      '新增玉碎、符文扩容、野火与熔岩喷发；单位默认拥有 4 个附魔槽，槽满后附魔失败，符文扩容可永久增加 1 个槽位。',
+      '爆发能量调整为每局仅可使用 1 次；野火生成持续点燃敌人的火焰地形，熔岩喷发成为可冷却复用的地形牌并按本局已打出牌数造成即时范围魔法伤害。',
+      '重做多项兵种专精数值与效果，包括战吼、破胆、连击、圣盾、浴血、旋斩、方阵、盾冲、大水弹、便携炮台、净化守护、驱邪和结界共鸣。'
+    ]
+  },
+  {
+    date: '2026-07-24',
+    title: '基地生命与受击能量反馈',
+    items: [
+      '己方基地最大生命调整为 50；敌人的每次攻击命中无论原伤害数值均固定扣除 1 点生命。',
+      '基地累计每损失 10 点生命，单机玩家或联机全体玩家各获得 2 点能量，并在基地上方显示能量奖励飘字。',
+      '修复升级卡牌召唤出的单位仍沿用一级基础当前耐久的问题；新单位现在会以升级后的最大耐久满耐久入场。'
+    ]
+  },
+  {
+    date: '2026-07-24',
+    title: '统一敌我单位索敌规则',
+    items: [
+      '移除敌人的远程、辅助、建筑、残血等战斗目标偏好与哥布林猎手专属权重；敌我单位现在统一攻击索敌范围内最近的合法单位。'
+    ]
+  },
+  {
+    date: '2026-07-24',
+    title: '军需铺卡面与 PC 底部界面调整',
+    items: [
+      '军需铺的三选一卡牌改为与波次奖励相同的完整卡面结构、尺寸与信息层级；已有卡牌目录仍保留紧凑浏览样式。',
+      'PC 端临时牌区域整体上移，为普通及展开后的能量条预留清晰间距；手机端底部布局保持不变。'
+    ]
+  },
+  {
+    date: '2026-07-24',
+    title: '各地图无尽挑战与联机 Host 权威难度',
+    items: [
+      '每张地图新增独立的无尽挑战模式：无限生成普通、精英与 Boss 波次，波次终端以实时难度值替代目标倒计时。',
+      '无尽难度从 0 开始，只由 Host 根据每个敌人的实际存活时间即时调整；极快击杀会显著提高难度，慢速击杀会降低难度，属性与出生附魔随当前难度变化。',
+      '双人联机房间可由 Host 锁定普通或无尽模式，Client 只接收权威难度与波次状态；重连快照会恢复当前难度。',
+      '进入无尽挑战后，所有运行时卡牌统一从 Lv.1 开始，局外卡牌升级不生效且不会被修改；对局内获得的升级仍然有效。',
+      '无尽模式中摧毁敌营或己方基地失守都会结束挑战并结算胜利，金币按结束难度和玩家自己的胜利金币能力计算。'
+    ]
+  },
   {
     date: '2026-07-24',
     title: '移动端战场操作与性能优化',
@@ -800,6 +847,7 @@ export class MetaGameSystem {
     this.view = 'menu';
     this.selectedLevelId = this.progress.preferences.selectedLevelId;
     this.selectedDifficulty = this.selectedDifficultyForLevel(this.selectedLevelId);
+    this.selectedChallengeMode = normalizeChallengeMode(this.progress.preferences.challengeMode);
     this.deckSelection = this.progress.preferences.deckSelection.slice(0, DECK_SIZE);
     this.lastResult = null;
     this.notice = null;
@@ -835,15 +883,17 @@ export class MetaGameSystem {
       : 0;
     if (result.victory) {
       const levelId = result.session.level.id;
-      const currentDifficulty = this.availableDifficulty(levelId);
-      const nextDifficulty = Math.min(
-        MAX_LEVEL_DIFFICULTY,
-        clampDifficulty(result.session.difficulty) + 1
-      );
-      this.progress.levelDifficulties[levelId] = Math.max(
-        currentDifficulty,
-        nextDifficulty
-      );
+      if (!isEndlessMode(result.session.challengeMode)) {
+        const currentDifficulty = this.availableDifficulty(levelId);
+        const nextDifficulty = Math.min(
+          MAX_LEVEL_DIFFICULTY,
+          clampDifficulty(result.session.difficulty) + 1
+        );
+        this.progress.levelDifficulties[levelId] = Math.max(
+          currentDifficulty,
+          nextDifficulty
+        );
+      }
       this.progress.coins += reward;
       saveProgress(this.progress);
     }
@@ -869,6 +919,7 @@ export class MetaGameSystem {
     this.progress = loadProgress();
     this.selectedLevelId = this.progress.preferences.selectedLevelId;
     this.selectedDifficulty = this.selectedDifficultyForLevel(this.selectedLevelId);
+    this.selectedChallengeMode = normalizeChallengeMode(this.progress.preferences.challengeMode);
     this.deckSelection = this.progress.preferences.deckSelection.slice(0, DECK_SIZE);
     this.lastResult = null;
     this.setNotice('本地存档已清除，已恢复为初始进度。');
@@ -948,6 +999,23 @@ export class MetaGameSystem {
         this.selectedDifficulty = difficulty;
         this.persistPreferences();
       }
+      this.show('levels');
+      return;
+    }
+    if (action === 'diff-down' || action === 'diff-up') {
+      const offset = action === 'diff-up' ? 1 : -1;
+      const available = this.availableDifficulty(this.selectedLevelId);
+      this.selectedDifficulty = Math.max(
+        1,
+        Math.min(available, clampDifficulty(this.selectedDifficulty) + offset)
+      );
+      this.persistPreferences();
+      this.show('levels');
+      return;
+    }
+    if (action === 'select-challenge-mode') {
+      this.selectedChallengeMode = normalizeChallengeMode(actionTarget.dataset.challengeMode);
+      this.persistPreferences();
       this.show('levels');
       return;
     }
@@ -1348,6 +1416,7 @@ export class MetaGameSystem {
       availableDifficulty
     );
     const baseDifficulty = Math.max(1, Math.floor(selectedLevel.baseDifficulty ?? 1));
+    const endless = isEndlessMode(this.selectedChallengeMode);
     // The battle director uses a fixed 21-wave schedule.  Deriving this from
     // the old threat value left the level-select screen advertising five waves.
     const totalWaves = 21;
@@ -1421,10 +1490,22 @@ export class MetaGameSystem {
                 </div>
                 <div class="med-stat-box">
                     <span class="stat-label">预计波次规模</span>
-                    <span class="stat-value">${totalWaves} 波</span>
+                    <span class="stat-value">${endless ? '无限' : `${totalWaves} 波`}</span>
                 </div>
              </div>
-             
+
+             <div class="med-challenge-mode-selector" role="group" aria-label="挑战模式">
+                <button type="button" class="med-mode-btn ${endless ? '' : 'is-selected'}" data-action="select-challenge-mode" data-challenge-mode="${CHALLENGE_MODE.STANDARD}">
+                  <strong>普通战役</strong><small>21 波 · 传统胜负</small>
+                </button>
+                <button type="button" class="med-mode-btn ${endless ? 'is-selected' : ''}" data-action="select-challenge-mode" data-challenge-mode="${CHALLENGE_MODE.ENDLESS}">
+                  <strong>无尽挑战</strong><small>难度 0 · 无限波次</small>
+                </button>
+             </div>
+
+             ${endless ? `
+             <div class="med-endless-note">所有卡牌入场统一为 Lv.1，局外升级不生效。难度只按敌人存活时间即时变化；任一基地被摧毁都会结束挑战并结算金币。</div>
+             ` : `
              <div class="med-difficulty-book-selector">
                 <span class="diff-label">挑战刻度</span>
                 <div class="diff-controls">
@@ -1433,6 +1514,7 @@ export class MetaGameSystem {
                     <button type="button" class="diff-btn" data-action="diff-up" ${selectedDifficulty >= availableDifficulty ? 'disabled' : ''}>▶</button>
                 </div>
              </div>
+             `}
 
              <button class="med-war-start-btn" type="button" data-action="start-level">
                 <span class="btn-inner-text">配置牌组 / 进入整备</span>
@@ -1613,16 +1695,25 @@ export class MetaGameSystem {
     const result = this.lastResult;
     if (!result) return this.renderLevels();
     const level = result.session.level;
+    const endless = isEndlessMode(result.session.challengeMode);
+    const endReasonText = result.endReason === 'player_base_destroyed'
+      ? '己方基地失守，无尽挑战结束'
+      : result.endReason === 'enemy_camp_destroyed'
+        ? '敌方营地已被摧毁'
+        : null;
     return `
       <main class="meta-home">
         <section class="meta-panel meta-result-panel">
-          <div class="meta-panel-kicker">${result.victory ? '通关成功' : '关卡失败'}</div>
-          <h1>${level.name} / 难度 ${result.session.difficulty}</h1>
+          <div class="meta-panel-kicker">${result.victory ? (endless ? '无尽挑战胜利结算' : '通关成功') : '关卡失败'}</div>
+          <h1>${level.name} / ${endless ? `结束难度 ${Number(result.endingDifficulty ?? 0).toFixed(1)}` : `难度 ${result.session.difficulty}`}</h1>
+          ${endReasonText ? `<p>${endReasonText}</p>` : ''}
           <div class="meta-result-grid">
             <span>用时 <strong>${formatTime(result.elapsedTime)}</strong></span>
             <span>应对威胁 <strong>${result.threat ?? result.wave ?? 0}</strong></span>
             <span>获得金币 <strong>${result.reward}</strong></span>
-            <span>已解锁难度 <strong>${result.nextDifficulty}</strong></span>
+            ${endless
+              ? `<span>结束难度 <strong>${Number(result.endingDifficulty ?? 0).toFixed(1)}</strong></span>`
+              : `<span>已解锁难度 <strong>${result.nextDifficulty}</strong></span>`}
           </div>
           <div class="meta-action-row">
             ${result.returnToMenu
@@ -1706,6 +1797,7 @@ export class MetaGameSystem {
     this.progress.preferences = {
       selectedLevelId,
       selectedDifficulties,
+      challengeMode: normalizeChallengeMode(this.selectedChallengeMode),
       deckSelection: this.deckSelection.slice(0, DECK_SIZE)
     };
     saveProgress(this.progress);
@@ -1795,6 +1887,7 @@ export class MetaGameSystem {
     const session = {
       level: this.selectedLevel(),
       difficulty,
+      challengeMode: normalizeChallengeMode(this.selectedChallengeMode),
       deck,
       startedAt: Date.now()
     };
@@ -1891,6 +1984,7 @@ function normalizePreferences(rawPreferences, ownedCards, levelDifficulties) {
   return {
     selectedLevelId,
     selectedDifficulties,
+    challengeMode: normalizeChallengeMode(rawPreferences?.challengeMode),
     deckSelection
   };
 }

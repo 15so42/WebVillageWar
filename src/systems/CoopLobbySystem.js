@@ -1,13 +1,15 @@
 import { LEVEL_DEFINITIONS } from '../data/gameData.js';
 import { GAME_VERSION } from '../version.js';
+import { CHALLENGE_MODE, isEndlessMode, normalizeChallengeMode } from './endlessMode.js';
 
 const DECK_SIZE = 36;
 
 export class CoopLobbySystem {
-  constructor({ controller, getSelectedLevelId, getSelectedDifficulty, selectedLevel, getOwnedCardIds, cardWithLevel, availableDifficulty, renderDeckCard, onBack }) {
+  constructor({ controller, getSelectedLevelId, getSelectedDifficulty, getSelectedChallengeMode, selectedLevel, getOwnedCardIds, cardWithLevel, availableDifficulty, renderDeckCard, onBack }) {
     this.controller = controller;
     this.getSelectedLevelId = getSelectedLevelId;
     this.getSelectedDifficulty = getSelectedDifficulty;
+    this.getSelectedChallengeMode = getSelectedChallengeMode;
     this.selectedLevel = selectedLevel;
     this.getOwnedCardIds = getOwnedCardIds;
     this.cardWithLevel = cardWithLevel;
@@ -19,6 +21,7 @@ export class CoopLobbySystem {
     this.joinRoomId = '';
     this.createLevelId = null;
     this.createDifficulty = null;
+    this.createChallengeMode = null;
     if (!this.root) {
       this.root = document.createElement('section');
       this.root.id = 'coop-lobby-root';
@@ -71,6 +74,11 @@ export class CoopLobbySystem {
     }
     if (event.target?.id === 'coop-create-difficulty') {
       this.createDifficulty = Math.max(1, Number(event.target.value) || 1);
+      return;
+    }
+    if (event.target?.id === 'coop-create-mode') {
+      this.createChallengeMode = normalizeChallengeMode(event.target.value);
+      this.render(this.controller.viewState?.() ?? { room: this.controller.roomClient.room });
     }
   }
 
@@ -88,7 +96,10 @@ export class CoopLobbySystem {
     if (action === 'create') {
       const levelId = this.root.querySelector('#coop-create-level')?.value ?? this.createLevelId;
       const difficulty = Number(this.root.querySelector('#coop-create-difficulty')?.value ?? this.createDifficulty ?? 1);
-      this.controller.createRoom({ levelId, difficulty });
+      const challengeMode = normalizeChallengeMode(
+        this.root.querySelector('#coop-create-mode')?.value ?? this.createChallengeMode
+      );
+      this.controller.createRoom({ levelId, difficulty, challengeMode });
       return;
     }
     if (action === 'join') {
@@ -128,6 +139,11 @@ export class CoopLobbySystem {
       ?? this.selectedLevel?.()
       ?? LEVEL_DEFINITIONS[0];
     const difficulty = lobbyConfig?.difficulty ?? this.getSelectedDifficulty?.() ?? 1;
+    const challengeMode = normalizeChallengeMode(
+      lobbyConfig?.challengeMode
+      ?? this.createChallengeMode
+      ?? this.getSelectedChallengeMode?.()
+    );
     const createLevelId = this.createLevelId ?? this.getSelectedLevelId?.() ?? LEVEL_DEFINITIONS[0]?.id;
     const createMaxDifficulty = Math.max(1, Number(this.availableDifficulty?.(createLevelId) ?? 1));
     const createDifficulty = Math.min(
@@ -138,6 +154,7 @@ export class CoopLobbySystem {
       ?? LEVEL_DEFINITIONS[0];
     this.createLevelId = createLevelId;
     this.createDifficulty = createDifficulty;
+    this.createChallengeMode = challengeMode;
     const players = room?.players ?? {};
     const playerRows = (room?.playerOrder ?? Object.keys(players))
       .map((playerId) => players[playerId])
@@ -171,8 +188,9 @@ export class CoopLobbySystem {
             </div>
             <div class="coop-room-meta">
               <span>关卡 ${escapeHtml(level?.name ?? '')}</span>
-              <span>难度 ${difficulty}</span>
-              <span>基础金币 ${Math.max(0, Number(level?.baseReward) || 0)}</span>
+              <span>模式 ${isEndlessMode(challengeMode) ? '无尽挑战' : '普通战役'}</span>
+              <span>${isEndlessMode(challengeMode) ? '初始难度 0' : `难度 ${difficulty}`}</span>
+              <span>${isEndlessMode(challengeMode) ? '金币按结束难度结算' : `基础金币 ${Math.max(0, Number(level?.baseReward) || 0)}`}</span>
               <span>人数 ${playerRows.length}</span>
               <span>身份 ${isHost ? '房主 (Host)' : '队友'}</span>
             </div>
@@ -195,6 +213,14 @@ export class CoopLobbySystem {
               </select>
             </label>
             <label class="coop-level-field">
+              <span>房主选择模式</span>
+              <select id="coop-create-mode">
+                <option value="${CHALLENGE_MODE.STANDARD}" ${isEndlessMode(challengeMode) ? '' : 'selected'}>普通战役 · 21 波</option>
+                <option value="${CHALLENGE_MODE.ENDLESS}" ${isEndlessMode(challengeMode) ? 'selected' : ''}>无尽挑战 · 无限波次</option>
+              </select>
+            </label>
+            ${isEndlessMode(challengeMode) ? '' : `
+            <label class="coop-level-field">
               <span>房主选择难度</span>
               <select id="coop-create-difficulty">
                 ${Array.from({ length: createMaxDifficulty }, (_, index) => {
@@ -203,9 +229,12 @@ export class CoopLobbySystem {
                 }).join('')}
               </select>
             </label>
-            <p class="coop-lobby-hint">本关基础金币：<strong>${Math.max(0, Number(createLevel?.baseReward) || 0)}</strong>。胜利后会再按难度、用时和个人奖励能力结算。</p>
+            `}
+            <p class="coop-lobby-hint">${isEndlessMode(challengeMode)
+              ? '无尽模式双方卡牌入场统一为 Lv.1；难度从 0 开始并由 Host 按敌人存活时间调整，任一基地被摧毁都会结算胜利。'
+              : `本关基础金币：<strong>${Math.max(0, Number(createLevel?.baseReward) || 0)}</strong>。胜利后会再按难度、用时和个人奖励能力结算。`}</p>
             <button type="button" class="meta-menu-button coop-create-button" data-coop-action="create">创建房间</button>
-            <p class="coop-lobby-hint">关卡与难度会在创建时由 Host 锁定；创建后每位玩家各自选择并确认自己的 36 张出战牌。</p>
+            <p class="coop-lobby-hint">关卡、模式与普通难度会在创建时由 Host 锁定；创建后每位玩家各自选择并确认自己的 36 张出战牌。</p>
             <div class="coop-lobby-divider" role="separator"><span>或加入好友房间</span></div>
             <label class="coop-join-field">
               <span>房间号</span>
