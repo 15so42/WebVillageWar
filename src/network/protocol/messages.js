@@ -47,6 +47,7 @@ export const MSG = Object.freeze({
   TIME_SYNC_RESPONSE: 'time_sync_response',
   FULL_SNAPSHOT: 'full_snapshot',
   RESYNC_REQUEST: 'resync_request',
+  MATCH_FINISHED: 'match_finished',
   EVENT: 'event',
   HOST_WAITING: 'host_waiting'
 });

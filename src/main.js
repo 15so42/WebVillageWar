@@ -208,6 +208,7 @@ try {
           getSelectedDifficulty: () => meta.selectedDifficulty,
           selectedLevel: () => meta.selectedLevel(),
           cardWithLevel: (id) => meta.cardWithLevel(id),
+          toggleLocalDeckCard: (id) => meta.toggleDeckCard(id),
           onStartGame: (session, bridge) => startCoopSession(session, bridge),
           onNotice: (message) => {
             meta.setNotice(message);
@@ -230,6 +231,13 @@ try {
           getSelectedLevelId: () => meta.selectedLevelId,
           getSelectedDifficulty: () => meta.selectedDifficulty,
           selectedLevel: () => meta.selectedLevel(),
+          getOwnedCardIds: () => meta.progress.ownedCards.slice(),
+          cardWithLevel: (id) => meta.cardWithLevel(id),
+          availableDifficulty: (id) => meta.availableDifficulty(id),
+          renderDeckCard: (card, options) => meta.renderMetaCard(card, {
+            ...options,
+            actionAttribute: 'data-coop-action'
+          }),
           onBack: () => meta.show('menu')
         });
       }

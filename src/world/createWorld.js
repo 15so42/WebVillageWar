@@ -441,8 +441,10 @@ const WORLD_PRESETS = {
       shadowRadius: 8,
       shadowBias: -0.0005,
       shadowNormalBias: 0.02,
-      realtimeShadows: true,
-      bakedShadows: false
+      // 雪原首关采用静态地表阴影遮罩：保留环境布景的层次，同时避免实时阴影
+      // 在大面积纯白雪地上产生过重、随视角跳动的阴影。
+      realtimeShadows: false,
+      bakedShadows: true
     },
     palette: {
       base: '#eee8d8',

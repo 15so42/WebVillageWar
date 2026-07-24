@@ -60,6 +60,24 @@ body.is-game-active .pc-medieval-hud .hud-meters.wave-command-panel::after {
   right: 11px;
 }
 
+/* The parent that contains the shop, wave panel and FPS is layout-only.
+   Each child is already its own physical module, so it must not draw a long
+   shared black strip behind them. */
+body.is-game-active .hud.pc-medieval-hud {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
+
+/* The co-op public player summary duplicates the local energy and hand UI.
+   Hide this full-width summary strip; detailed player state remains available
+   to the networking layer without occupying the battlefield HUD. */
+body.is-game-active .pc-medieval-hud .coop-player-status {
+  display: none !important;
+}
+
 body.is-game-active .pc-medieval-hud .wave-command-panel .meter {
   --meter-icon-color: #c7bda9;
   position: relative;
@@ -1015,14 +1033,14 @@ body.is-game-active .card-use-bar {
   top: 27px !important;
   bottom: 11px !important;
   left: 7px !important;
-  width: 15px !important;
+  width: 11px !important;
   height: auto !important;
   box-sizing: border-box;
   display: flex !important;
   flex-direction: column-reverse !important;
   align-items: stretch;
-  gap: 4px !important;
-  padding: 17px 3px 5px !important;
+  gap: 3px !important;
+  padding: 17px 2px 5px !important;
   overflow: hidden;
   border: 0 !important;
   clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px);
@@ -1052,7 +1070,7 @@ body.is-game-active .card-use-bar::before {
 
 body.is-game-active .card-use-bar span {
   flex: 1 1 0 !important;
-  width: 9px !important;
+  width: auto !important;
   min-height: 11px !important;
   max-height: 34px;
   box-sizing: border-box;
@@ -1074,8 +1092,16 @@ body.is-game-active .card-use-bar span.is-filled {
 }
 
 body.is-game-active .med-card-wrapper:has(> .card-use-bar) .med-card-face {
-  width: calc(100% - 27px);
-  margin-left: 27px;
+  width: calc(100% - 19px);
+  margin-left: 19px;
+}
+
+/* Limited-use cards have a narrower art window; zoom their shared artwork a
+   little further so the SVG/bitmap never leaves a dark inner margin. */
+body.is-game-active .med-card-wrapper:has(> .card-use-bar) .med-card-art-container .card-art-svg,
+body.is-game-active .med-card-wrapper:has(> .card-use-bar) .med-card-art-container .card-art-image {
+  transform: scale(1.32);
+  transform-origin: center;
 }
 
 body.is-game-active .med-card-wrapper:has(> .card-use-bar) .med-card-bottom {
@@ -2995,6 +3021,98 @@ body.is-game-active .strategy-event-action.is-disabled,
 body.is-game-active .strategy-event-action:disabled {
   opacity: 0.55;
   filter: saturate(0.7) brightness(0.86);
+}
+
+/* Portrait battlefield: the hand owns the bottom edge, pile controls sit
+   directly above its corners, and tactical controls stay in the top zones. */
+@media (max-width: 560px) and (orientation: portrait) {
+  body.is-game-active .card-hand {
+    left: 50% !important;
+    bottom: calc(8px + env(safe-area-inset-bottom)) !important;
+    width: calc((100vw - 16px) / var(--mobile-ui-scale)) !important;
+    max-width: none !important;
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    justify-content: stretch !important;
+    align-items: flex-end !important;
+    gap: 5px !important;
+    transform: translateX(-50%) scale(var(--mobile-ui-scale)) !important;
+    transform-origin: bottom center !important;
+  }
+
+  body.is-game-active .card-hand > .card,
+  body.is-game-active .card-hand > .card-empty-slot,
+  body.is-game-active .card-hand > .temporary-card-empty-slot {
+    flex: 1 1 0 !important;
+    width: auto !important;
+    min-width: 0 !important;
+  }
+
+  body.is-game-active .pile-button.is-draw,
+  body.is-game-active .pile-button.is-discard {
+    bottom: calc(22px + env(safe-area-inset-bottom) + var(--mobile-hand-visual-height) + var(--mobile-energy-panel-height)) !important;
+    width: 46px !important;
+    height: 52px !important;
+  }
+
+  body.is-game-active .pile-button.is-draw {
+    left: 8px !important;
+    right: auto !important;
+    transform-origin: left bottom !important;
+  }
+
+  body.is-game-active .pile-button.is-discard {
+    right: 8px !important;
+    left: auto !important;
+    transform-origin: right bottom !important;
+  }
+
+  body.is-game-active .energy-panel {
+    bottom: calc(16px + env(safe-area-inset-bottom) + var(--mobile-hand-visual-height)) !important;
+    width: min(330px, calc((100vw - 28px) / var(--mobile-ui-scale))) !important;
+  }
+
+  body.is-game-active .game-hint-panel {
+    bottom: calc(36px + env(safe-area-inset-bottom) + var(--mobile-hand-visual-height) + var(--mobile-energy-panel-height) + 52px) !important;
+  }
+
+  body.is-game-active .pc-medieval-hud .hud-meters.wave-command-panel {
+    top: 8px !important;
+    left: 8px !important;
+    width: calc(100vw - 104px) !important;
+    transform: none !important;
+  }
+
+  body.is-game-active .hud-toolbar {
+    position: fixed !important;
+    z-index: 26 !important;
+    top: 8px !important;
+    right: 8px !important;
+    left: auto !important;
+    margin: 0 !important;
+  }
+
+  body.is-game-active .render-tuning-button {
+    top: 48px !important;
+    right: 8px !important;
+    left: auto !important;
+  }
+
+  body.is-game-active .pc-medieval-hud .run-shop-toggle {
+    top: 84px !important;
+    left: 8px !important;
+  }
+
+  body.is-game-active .mobile-action-dock {
+    top: 96px !important;
+    right: 8px !important;
+    left: auto !important;
+  }
+
+  body.is-game-active .game-command-dock {
+    left: 8px !important;
+    bottom: calc(73px + env(safe-area-inset-bottom) + var(--mobile-hand-visual-height)) !important;
+  }
 }
 
 @media (max-width: 700px) {

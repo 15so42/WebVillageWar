@@ -9,6 +9,7 @@ import {
 import { triggerUnitHitFlash } from '../../art/visualRegistry.js';
 import { UnitEntity } from '../../entities/UnitEntity.js';
 import { SYNC, VISUAL_STATE_FROM_CODE } from '../protocol/syncConfig.js';
+import { MSG } from '../protocol/messages.js';
 import { applyNetworkFx } from './NetworkFxRelay.js';
 import { ProjectileMirror } from './ProjectileMirror.js';
 
@@ -380,6 +381,10 @@ export class ClientMirror {
   }
 
   applyEvent(event) {
+    if (event.name === MSG.MATCH_FINISHED) {
+      this.game.finishNetworkLevel?.(event.result);
+      return;
+    }
     if (event.name?.startsWith('fx_')) applyNetworkFx(this.game, event);
     if (event.name === 'projectile_spawn') this.projectiles.spawn(event.projectile);
     if (event.name === 'projectile_despawn') this.projectiles.remove(event.projectileId);

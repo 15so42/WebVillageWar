@@ -152,7 +152,7 @@ LOBBY_EDITING
 
 ### 5.1 大厅规则
 
-- 玩家修改牌组、模式、阵营、地图、难度或会影响对局的配置后，Host 必须将相关玩家恢复为未准备。
+- 房主在创建房间时锁定地图关卡与自己已解锁的难度；房间创建后每位玩家在自己的大厅视图中用与单机相同的卡面独立选择牌组。玩家修改牌组、模式、阵营、地图、难度或会影响对局的配置后，Host 必须将相关玩家恢复为未准备。
 - 加入房间和回连后，Client 必须先向 Host 发送游戏版本握手。`gameVersion`、`gameProtocolVersion` 与 `catalogVersion` 必须全部完全一致；任一不一致都禁止准备或恢复对局，并同时提示主机版本与客户端版本。版本校验由 Host / Client 端到端完成，中继不解析版本。
 - `ready` 命令携带 `gameVersion`、`deckRevision` 和 `catalogVersion`。Host 验证卡牌数量、拥有权、重复限制和版本后，才广播 `player_ready_changed`。
 - 全员准备只是 Host 可以开始的条件，不等于 Client 自行调用 `startLevel()`。

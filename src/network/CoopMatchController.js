@@ -27,6 +27,7 @@ export class CoopMatchController {
     getSelectedDifficulty,
     selectedLevel,
     cardWithLevel,
+    toggleLocalDeckCard,
     onStartGame,
     onNotice,
     onLobbyVisible,
@@ -37,6 +38,7 @@ export class CoopMatchController {
     this.getSelectedDifficulty = getSelectedDifficulty;
     this.selectedLevel = selectedLevel;
     this.cardWithLevel = cardWithLevel;
+    this.toggleLocalDeckCard = toggleLocalDeckCard;
     this.onStartGame = onStartGame;
     this.onNotice = onNotice;
     this.onLobbyVisible = onLobbyVisible;
@@ -50,6 +52,7 @@ export class CoopMatchController {
     this.loadedPlayers = new Set();
     this.localCommandSeq = 1;
     this.match = null;
+    this.lobbyConfig = null;
     this.launchedRevision = 0;
     this.unsubscribe = this.roomClient.onUpdate((state) => this.handleRoomUpdate(state));
     this.restoreAttempted = false;
@@ -65,9 +68,13 @@ export class CoopMatchController {
     this.roomClient.leaveRoom();
   }
 
-  createRoom(playerName = '玩家 1') {
-    if (!this.hasValidLocalDeck()) return;
+  createRoom(options = {}, playerName = '玩家 1') {
+    if (typeof options === 'string') {
+      playerName = options;
+      options = {};
+    }
     this.resetMatchState();
+    this.lobbyConfig = this.resolveLobbyConfig(options);
     this.onNotice?.('正在创建房间…');
     this.roomClient.createRoom(playerName).catch((error) => {
       this.onNotice?.(error?.message ?? '连接服务器失败');
@@ -75,7 +82,6 @@ export class CoopMatchController {
   }
 
   joinRoom(roomId, playerName = '玩家') {
-    if (!this.hasValidLocalDeck()) return;
     this.resetMatchState();
     this.onNotice?.('正在加入房间…');
     this.roomClient.joinRoom(roomId, playerName).catch((error) => {
@@ -175,9 +181,32 @@ export class CoopMatchController {
 
   hasValidLocalDeck() {
     const deck = this.getDeckSelection?.() ?? [];
-    if (deck.length === DECK_SIZE) return true;
-    this.onNotice?.(`请先选满 ${DECK_SIZE} 张卡牌`);
-    return false;
+    if (deck.length !== DECK_SIZE) {
+      this.onNotice?.(`请先选满 ${DECK_SIZE} 张卡牌`);
+      return false;
+    }
+    if (!deck.some((id) => this.cardWithLevel?.(id)?.kind === 'summon')) {
+      this.onNotice?.('牌组至少需要 1 张单位卡');
+      return false;
+    }
+    return true;
+  }
+
+  changeDeckCard(cardId) {
+    if (
+      !cardId
+      || (this.phase !== MATCH_PHASE.LOBBY_EDITING && this.phase !== MATCH_PHASE.READY_CHECK)
+      || !this.roomClient.room?.id
+    ) return false;
+    const localPlayerId = this.roomClient.playerId;
+    const wasReady = Boolean(this.lobbyPlayers.get(localPlayerId)?.ready);
+    this.toggleLocalDeckCard?.(cardId);
+    if (wasReady) {
+      this.toggleReady(false);
+    } else {
+      this.onLobbyVisible?.(this.viewState({ event: MSG.LOBBY_STATE }));
+    }
+    return true;
   }
 
   toggleReady(ready) {
@@ -211,6 +240,7 @@ export class CoopMatchController {
     this.commandResults.clear();
     this.loadedPlayers.clear();
     this.match = null;
+    this.lobbyConfig = null;
     this.launchedRevision = 0;
     this.pendingReconnectSession = null;
     this.reconnectProbeSession = null;
@@ -405,6 +435,7 @@ export class CoopMatchController {
       if ((payload.phaseRevision ?? 0) < this.phaseRevision) return;
       this.phase = payload.phase;
       this.phaseRevision = payload.phaseRevision;
+      this.lobbyConfig = this.resolveLobbyConfig(payload.lobbyConfig ?? {});
       this.applyLobbyView(payload.players);
       this.onLobbyVisible?.(this.viewState({ event: MSG.LOBBY_STATE }));
       return;
@@ -547,6 +578,9 @@ export class CoopMatchController {
     if (command.payload?.ready && deck.some((card) => !card?.id)) {
       return this.rejectLobbyCommand(command, 'invalid_card_definition');
     }
+    if (command.payload?.ready && !deck.some((card) => this.cardWithLevel?.(card.id)?.kind === 'summon')) {
+      return this.rejectLobbyCommand(command, 'deck_requires_summon');
+    }
     player.ready = Boolean(command.payload?.ready);
     player.deck = deck.map((card) => ({ id: card.id, level: card.level ?? 1 }));
     player.deckRevision = command.payload?.deckRevision ?? deckRevision(player.deck);
@@ -600,6 +634,7 @@ export class CoopMatchController {
       phase: this.phase,
       phaseRevision: this.phaseRevision,
       gameVersion: GAME_VERSION,
+      lobbyConfig: this.lobbyConfig,
       players: this.publicLobbyPlayers()
     };
     this.applyLobbyView(payload.players);
@@ -640,9 +675,10 @@ export class CoopMatchController {
         || player.gameVersion !== GAME_VERSION
       ))
     ) return;
-    const levelId = this.getSelectedLevelId?.() ?? LEVEL_DEFINITIONS[0]?.id;
-    const level = this.selectedLevel?.(levelId) ?? LEVEL_DEFINITIONS[0];
-    const difficulty = this.getSelectedDifficulty?.() ?? 1;
+    const lobbyConfig = this.resolveLobbyConfig(this.lobbyConfig ?? {});
+    const levelId = lobbyConfig.levelId;
+    const level = LEVEL_DEFINITIONS.find((entry) => entry.id === levelId) ?? LEVEL_DEFINITIONS[0];
+    const difficulty = lobbyConfig.difficulty;
     const matchId = createStableId('match');
     const matchSeed = randomSeed();
     this.phase = MATCH_PHASE.MATCH_LOADING;
@@ -833,6 +869,7 @@ export class CoopMatchController {
         ...room,
         phase: this.phase,
         phaseRevision: this.phaseRevision,
+        lobbyConfig: this.lobbyConfig,
         players: Object.fromEntries([...this.lobbyPlayers.entries()].map(([id, player]) => [id, {
           ...room.players?.[id],
           ...player,
@@ -847,6 +884,16 @@ export class CoopMatchController {
         currentVersion: GAME_VERSION
       } : null,
       reconnectChecking: this.reconnectProbePending
+    };
+  }
+
+  resolveLobbyConfig(config = {}) {
+    const requestedLevelId = config.levelId ?? this.getSelectedLevelId?.();
+    const level = LEVEL_DEFINITIONS.find((entry) => entry.id === requestedLevelId) ?? LEVEL_DEFINITIONS[0];
+    const requestedDifficulty = Number(config.difficulty ?? this.getSelectedDifficulty?.() ?? 1);
+    return {
+      levelId: level?.id ?? LEVEL_DEFINITIONS[0]?.id ?? 'snow-valley',
+      difficulty: Math.max(1, Math.floor(Number.isFinite(requestedDifficulty) ? requestedDifficulty : 1))
     };
   }
 }

@@ -20,7 +20,7 @@
   color: var(--meta-text);
   background:
     linear-gradient(180deg, rgba(15, 19, 18, 0.78), rgba(8, 11, 10, 0.9)),
-    url("/assets/generated/main-menu-parchment-background.png") center / cover no-repeat;
+    url("/assets/generated/main-menu-parchment-background.webp") center / cover no-repeat;
   background-blend-mode: normal, multiply;
   backdrop-filter: none;
 }
@@ -1002,7 +1002,7 @@
 .meta-shell.view-deck .meta-card .card-art-svg,
 .meta-shell.view-deck .meta-card .card-art-image {
   opacity: 1;
-  transform: scale(1.055);
+  transform: scale(1.18);
   transform-origin: center;
   filter:
     saturate(1.1)
@@ -1712,6 +1712,195 @@
   }
 }
 
+/* Phone portrait: keep the expedition terminal actionable in one viewport.
+   The chapter rail scrolls independently; briefing, map, difficulty and the
+   deck-preparation action stay beside it instead of becoming a long column. */
+@media (max-width: 560px) {
+  .meta-root {
+    padding: 7px;
+  }
+
+  .meta-shell.is-subpage.view-levels {
+    width: calc(100vw - 14px);
+  }
+
+  .meta-shell.is-subpage.view-levels .meta-header {
+    min-height: 60px;
+    padding: 8px 11px 7px 16px;
+  }
+
+  .meta-shell.is-subpage.view-levels .meta-title {
+    font-size: 20px;
+  }
+
+  .meta-shell.is-subpage.view-levels .meta-subtitle {
+    margin-top: 2px;
+    font-size: 8px;
+  }
+
+  .meta-shell.is-subpage.view-levels .meta-back-button {
+    min-height: 32px;
+    padding: 6px 9px;
+    font-size: 11px;
+  }
+
+  .meta-shell.is-subpage.view-levels .meta-currency {
+    display: none;
+  }
+
+  .med-map-book-container {
+    min-height: 0;
+    padding: 6px;
+    overflow: hidden;
+  }
+
+  .med-map-book {
+    height: 100%;
+    min-height: 0;
+    grid-template-columns: minmax(104px, 0.38fr) minmax(0, 0.62fr);
+  }
+
+  .med-book-page,
+  .left-page,
+  .right-page {
+    min-height: 0;
+    padding: 10px;
+  }
+
+  .left-page {
+    padding-right: 8px;
+  }
+
+  .right-page {
+    padding-left: 10px;
+  }
+
+  .med-page-heading,
+  .med-region-heading {
+    gap: 2px;
+    margin-bottom: 7px;
+    padding-bottom: 6px;
+  }
+
+  .med-page-heading > span,
+  .med-region-heading > span {
+    font-size: 7px;
+  }
+
+  .med-page-title {
+    font-size: 15px;
+    line-height: 1.15;
+  }
+
+  .med-region-title {
+    font-size: 20px;
+    line-height: 1.1;
+  }
+
+  .med-chapter-list {
+    display: flex;
+    min-height: 0;
+    grid-template-columns: none;
+    gap: 6px;
+    overflow-y: auto;
+    padding: 0 3px 2px 0;
+  }
+
+  .med-chapter-plaque,
+  .meta-root .med-chapter-plaque {
+    min-height: 48px;
+    padding: 6px 7px !important;
+  }
+
+  .plaque-content {
+    gap: 0;
+  }
+
+  .chapter-name {
+    font-size: 13px;
+    line-height: 1.12;
+  }
+
+  .chapter-level {
+    margin-top: 2px;
+    font-size: 8px;
+  }
+
+  .med-region-illustration {
+    height: 92px;
+    margin-bottom: 7px;
+  }
+
+  .med-region-map-placeholder {
+    width: min(168px, 84%);
+    height: 72px;
+  }
+
+  .med-region-desc {
+    display: -webkit-box;
+    margin-bottom: 7px;
+    overflow: hidden;
+    font-size: 11px;
+    line-height: 1.35;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .med-region-stats {
+    flex-direction: row;
+    gap: 5px;
+    margin-bottom: 7px;
+    padding: 5px 0;
+  }
+
+  .med-stat-box {
+    padding: 4px 5px;
+  }
+
+  .stat-label {
+    font-size: 8px;
+  }
+
+  .stat-value {
+    font-size: 14px;
+  }
+
+  .med-difficulty-book-selector {
+    gap: 3px;
+    margin-bottom: 7px;
+  }
+
+  .diff-label {
+    font-size: 9px;
+  }
+
+  .diff-controls {
+    gap: 8px;
+  }
+
+  .diff-display {
+    width: 52px;
+    font-size: 18px;
+  }
+
+  .diff-btn {
+    width: 32px;
+    height: 29px;
+  }
+
+  .med-war-start-btn,
+  .meta-root .med-war-start-btn {
+    min-height: 42px;
+    margin-top: auto;
+    padding: 8px !important;
+  }
+
+  .btn-inner-text {
+    font-size: 13px;
+    letter-spacing: 0.08em;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .meta-root button,
   .meta-card {
@@ -1898,8 +2087,10 @@
   color: var(--meta-text);
   background:
     linear-gradient(180deg, rgba(15, 19, 18, 0.78), rgba(8, 11, 10, 0.9)),
-    url("/assets/generated/main-menu-parchment-background.png") center / cover no-repeat;
+    url("/assets/generated/main-menu-parchment-background.webp") center / cover no-repeat;
   background-blend-mode: normal, multiply;
+  overflow: auto;
+  place-items: start center;
 }
 
 .coop-lobby-root::before {
@@ -1933,6 +2124,7 @@
     inset 0 -7px 0 rgba(6, 8, 7, 0.3),
     0 5px 0 #0d100f,
     0 20px 44px rgba(0, 0, 0, 0.56);
+  margin: auto 0;
 }
 
 .coop-lobby::before,
@@ -1995,6 +2187,72 @@
 
 .coop-lobby-entry {
   gap: 13px;
+}
+
+.coop-level-field {
+  display: grid;
+  gap: 7px;
+  color: #c8c1b5;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.coop-level-field select {
+  min-height: 42px;
+  padding: 9px 11px;
+  border: 1px solid #585c57;
+  border-radius: 0;
+  color: #eee4d3;
+  background: #151917;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.36);
+  font: inherit;
+}
+
+.coop-deck-builder {
+  padding: 14px;
+  border: 1px solid #565a55;
+  clip-path: polygon(7px 0, calc(100% - 7px) 0, 100% 7px, 100% calc(100% - 7px), calc(100% - 7px) 100%, 7px 100%, 0 calc(100% - 7px), 0 7px);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.035), transparent 36%),
+    linear-gradient(180deg, #252927, #171b19);
+  box-shadow: inset 0 0 0 1px #111413, inset 0 1px 0 rgba(255, 255, 255, 0.045), 0 4px 0 #111413;
+}
+
+.coop-deck-builder-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid rgba(175, 170, 158, 0.2);
+}
+
+.coop-deck-builder-head > div {
+  display: grid;
+  gap: 2px;
+}
+
+.coop-deck-builder-head span,
+.coop-deck-builder-head small {
+  color: #a6a399;
+  font-size: 10px;
+}
+
+.coop-deck-builder-head strong {
+  color: #e8deca;
+  font-family: var(--font-title);
+  font-size: 16px;
+}
+
+.coop-deck-card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  max-height: min(48vh, 420px);
+  margin-top: 10px;
+  padding-right: 3px;
+  overflow-y: auto;
 }
 
 .coop-lobby-divider {
@@ -2188,5 +2446,140 @@
 
   .coop-reconnect-actions {
     grid-template-columns: 1fr;
+  }
+
+  .coop-deck-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-height: 44vh;
+  }
+}
+
+/* Narrow phones keep the desktop terminal hierarchy, but render its card
+   modules at a compact scale in a predictable two-column field. */
+@media (max-width: 560px) {
+  .meta-root .meta-shell.view-deck,
+  .meta-root .meta-shell.view-shop,
+  .meta-root .meta-shell.view-upgrades {
+    width: calc(100vw - 14px);
+    max-height: calc(100dvh - 14px);
+  }
+
+  .meta-root .meta-deck {
+    padding: 8px 8px 11px;
+    gap: 8px;
+  }
+
+  .meta-root .meta-deck-summary {
+    min-height: 0;
+    gap: 7px;
+    padding: 9px 10px;
+  }
+
+  .meta-root .meta-deck-summary .meta-section-title {
+    font-size: 15px;
+  }
+
+  .meta-root .meta-deck-summary p,
+  .meta-root .meta-deck-note {
+    font-size: 10px;
+    line-height: 1.28;
+  }
+
+  .meta-root .meta-card-grid,
+  .meta-root .meta-encyclopedia-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    padding: 2px 1px 7px;
+  }
+
+  .meta-root .meta-card {
+    min-height: 272px;
+  }
+
+  .meta-root .meta-card-face {
+    grid-template-rows: auto 84px auto minmax(38px, auto) auto;
+    gap: 6px;
+    padding: 9px 8px 7px 14px;
+  }
+
+  .meta-root .meta-card .card-art {
+    min-height: 84px;
+    height: 84px;
+  }
+
+  .meta-root .meta-card-header,
+  .meta-root .meta-card-face p,
+  .meta-root .meta-card-footer {
+    font-size: 9px;
+  }
+
+  .meta-root .meta-card-face strong {
+    font-size: 14px;
+    line-height: 1.1;
+  }
+
+  .meta-root .meta-card-rune {
+    width: 25px;
+    height: 25px;
+    font-size: 14px;
+  }
+
+  .meta-root .meta-card-cost {
+    top: 7px;
+    right: 7px;
+    min-width: 27px;
+    height: 27px;
+    font-size: 14px;
+  }
+
+  .meta-root .meta-card-level {
+    top: 39px;
+    right: 6px;
+    min-width: 37px;
+    height: 18px;
+    font-size: 10px;
+  }
+
+  .meta-root .meta-card-status {
+    top: 61px;
+    right: 7px;
+    min-width: 42px;
+    padding: 3px 5px;
+    font-size: 8px;
+  }
+
+  .meta-root .meta-card-use-bar {
+    top: 40px;
+    bottom: 49px;
+    left: 6px;
+    width: 7px;
+  }
+
+  .meta-root .meta-card-action {
+    width: calc(100% - 20px);
+    min-height: 33px;
+    margin: 0 8px 9px 12px;
+    padding: 6px 7px !important;
+    font-size: 11px;
+  }
+
+  .meta-root .meta-encyclopedia-entry {
+    min-height: 0;
+    padding: 10px;
+  }
+}
+
+/* Keep these final because the shared Meta selectors below the expedition
+   rules use !important desktop padding. */
+@media (max-width: 560px) {
+  .meta-root .med-chapter-plaque {
+    min-height: 48px;
+    padding: 6px 7px !important;
+  }
+
+  .meta-root .med-war-start-btn {
+    min-height: 42px;
+    margin-top: auto;
+    padding: 8px !important;
   }
 }

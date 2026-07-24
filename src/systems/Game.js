@@ -56,6 +56,7 @@ import { TargetingSystem } from './TargetingSystem.js';
 import { UnitLogicSystem } from './UnitLogicSystem.js';
 import { UnitRegistry } from './UnitRegistry.js';
 import { clamp, polarOffset, seededRandom } from '../utils/math.js';
+import { calculateLevelReward } from '../utils/levelRewards.js';
 import { formatSupportAmount, targetCombatRadius } from './combatHelpers.js';
 
 const ROUTE_REPATH_DISTANCE = 1.15;
@@ -2601,7 +2602,7 @@ export class Game {
 
   createAltarAbilityRewardChoices() {
     return this.randomCardChoices({
-      pool: CARD_DEFINITIONS.filter((card) => card.kind === 'ability' && !card.lootOnly),
+      pool: this.selectedCardPool({ kind: 'ability' }),
       action: 'acquire-ability',
       actionLabel: '获得能力'
     });
@@ -5129,7 +5130,20 @@ export class Game {
     if (this.levelFinished) return;
     this.levelFinished = true;
     this.stop();
-    this.onLevelComplete?.({
+    const result = this.createLevelResult(victory, this.localPlayerSlot);
+    if (this.coop?.enabled && this.networkRole === 'host') {
+      const resultsByPlayerId = Object.fromEntries(Object.keys(this.players ?? {}).map((playerId) => [
+        playerId,
+        this.createNetworkLevelResult(victory, playerId)
+      ]));
+      this.networkBridge?.publishMatchResult?.(resultsByPlayerId);
+    }
+    this.onLevelComplete?.(result);
+  }
+
+  createLevelResult(victory, playerId) {
+    const rewardMultiplier = this.abilitiesFor(playerId)?.getRewardMultiplier?.() ?? 1;
+    return {
       victory,
       elapsedTime: this.elapsedTime,
       threat: this.wave,
@@ -5137,8 +5151,34 @@ export class Game {
       playerBaseHealth: this.playerBase.health,
       enemyCampHealth: this.enemyCamp.health,
       bossesDefeated: this.bossesDefeated,
-      rewardMultiplier: this.abilitiesFor(this.localPlayerSlot)?.getRewardMultiplier?.() ?? 1
-    });
+      rewardMultiplier,
+      authoritativeReward: victory ? calculateLevelReward({
+        level: this.levelSession.level,
+        difficulty: this.levelSession.difficulty,
+        elapsedTime: this.elapsedTime,
+        rewardMultiplier
+      }) : 0,
+      returnToMenu: this.coop?.enabled === true
+    };
+  }
+
+  createNetworkLevelResult(victory, playerId) {
+    const result = this.createLevelResult(victory, playerId);
+    const { session, returnToMenu, ...networkResult } = result;
+    return networkResult;
+  }
+
+  finishNetworkLevel(networkResult = {}) {
+    if (this.levelFinished || this.destroyed) return;
+    this.levelFinished = true;
+    this.stop();
+    const result = {
+      ...this.createLevelResult(Boolean(networkResult.victory), this.localPlayerSlot),
+      ...networkResult,
+      session: this.levelSession,
+      returnToMenu: true
+    };
+    this.onLevelComplete?.(result);
   }
 
   setPaused(paused, reason = '设置') {

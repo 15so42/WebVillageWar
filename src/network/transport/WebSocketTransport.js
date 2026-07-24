@@ -156,7 +156,5 @@ export class WebSocketTransport {
 export function defaultCoopWsUrl() {
   const configured = import.meta.env.VITE_COOP_WS_URL;
   if (configured) return configured;
-  const host = window.location.hostname || '127.0.0.1';
-  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  return `${protocol}://${host}:8787`;
+  return 'ws://47.100.215.224:8888';
 }

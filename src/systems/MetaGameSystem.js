@@ -8,6 +8,7 @@ import {
 import { buildEnchantmentEncyclopediaSections } from '../data/enchantmentEncyclopedia.js';
 import { TEST_VERSION_LABEL } from '../version.js';
 import { cardEnergyCost, cardThemeColor, cardUseBarMarkup, createCardArtMarkup } from './CardSystem.js';
+import { calculateLevelReward } from '../utils/levelRewards.js';
 
 const STORAGE_KEY = 'village-war-meta-v1';
 const STARTING_COINS = 10000;
@@ -15,6 +16,17 @@ const STARTING_COINS_VERSION = 1;
 const MAX_LEVEL_DIFFICULTY = 10;
 const WAVE_DIFFICULTY_GROWTH_PER_SELECTED_DIFFICULTY = 0.16;
 const CHANGELOG_ENTRIES = [
+  {
+    date: '2026-07-24',
+    title: '公网联机中继接入',
+    items: [
+      '联机客户端默认连接公网中继 ws://47.100.215.224:8888，并在联机大厅明确展示当前中继地址。',
+      '公网 8888 中继更新为与当前客户端一致的协议版本；主菜单与局外终端背景改用压缩的低分辨率 WebP 底图，在保持模糊背景效果的同时显著减小加载体积。',
+      '联机创建房间时由 Host 锁定关卡与已解锁难度，并显示本关基础金币；房间内双方分别用与单机一致的完整卡面配置并确认自己的 36 张出战牌，操作卡牌时保留当前滚动位置。进入战斗后各自使用对应牌组，开局、波次、精英和祭坛奖励均按各自已确认牌组生成。',
+      '联机胜负改由 Host 向每位玩家发送权威结算：胜利金币按个人能力倍率独立结算并写入各自本地存档，结算页统一返回主菜单，避免正常结束被误显示为连接中断。',
+      '全关卡目标通关时间调整为 18、21、24 分钟，并继续用于速度奖励计算。'
+    ]
+  },
   {
     date: '2026-07-23',
     title: '统一战斗与局外界面的黑铁策略 HUD',
@@ -26,7 +38,12 @@ const CHANGELOG_ENTRIES = [
       '主菜单、选关、牌组配置、商店、升级、百科与更新日志统一为同一套黑铁策略终端界面，并保留选关后配置牌组再进入战斗的完整流程。',
       '牌组配置页改为固定整备栏与独立卡牌滚动区；卡体采用中性黑铁材质，类型使用独立主题色，已加入状态和移出按钮降低视觉权重。',
       '战斗手牌新增卡牌类型与等级铭牌；手机端方向、全屏、界面缩放、单位命令、框选提示和操作反馈同步采用切角黑铁样式。',
-      '第一关采用最终确认的曝光、太阳强度与材质颜色，并让雪原地表保持纯白主体，与山体顶部积雪颜色一致。'
+      '修复手机竖屏的“踏上征途”选关终端：关卡列表改为独立滚动的紧凑侧栏，地图、难度与“配置牌组 / 进入整备”按钮保持同屏可见和可点击。',
+      '手机端牌组配置、商店、升级和百科保留黑铁终端的卡牌结构，并以紧凑两列卡牌网格适配竖屏；战斗竖屏手牌改为满宽等分排列，抽牌堆与弃牌堆分别置于手牌上方两侧，波次终端和工具栏分居顶部左右区域。',
+      '全部 26 张附魔卡统一为 2 能量，附魔百科同步显示统一费用；主菜单副标题由“凛冬之战”更名为“村落战争”。',
+      '第一关采用最终确认的曝光、太阳强度与材质颜色，并让雪原地表保持纯白主体，与山体顶部积雪颜色一致。',
+      '雪原首关切换为静态烘焙地表阴影：树木、岩石、建筑和基地投影直接烘焙进雪地遮罩，关闭实时阴影图以保持稳定、干净的绘本层次；手机竖屏能量条收紧至手牌正上方，抽牌堆与弃牌堆移至能量条两侧上方。',
+      '联机中继已部署到公网游戏服务器，联机大厅改为说明中继会随当前服务器自动连接，不再显示仅适用于本机开发的 127.0.0.1 地址。'
     ]
   },
   {
@@ -791,7 +808,10 @@ export class MetaGameSystem {
   }
 
   completeLevel(result) {
-    const reward = result.victory ? this.calculateReward(result) : 0;
+    const authoritativeReward = Number(result.authoritativeReward);
+    const reward = result.victory
+      ? (Number.isFinite(authoritativeReward) ? Math.max(0, Math.floor(authoritativeReward)) : this.calculateReward(result))
+      : 0;
     if (result.victory) {
       const levelId = result.session.level.id;
       const currentDifficulty = this.availableDifficulty(levelId);
@@ -835,16 +855,12 @@ export class MetaGameSystem {
   }
 
   calculateReward(result) {
-    const level = result.session.level;
-    const difficulty = Math.max(1, result.session.difficulty);
-    const targetTime = Math.max(30, level.targetTime ?? 180);
-    const speedBonus = Math.max(0, (targetTime - result.elapsedTime) / targetTime);
-    const speedMultiplier = 1 + Math.min(0.6, speedBonus * 0.6);
-    const difficultyMultiplier = 1 + (difficulty - 1) * 0.45;
-    const abilityMultiplier = Math.max(0, result.rewardMultiplier ?? 1);
-    return Math.max(1, Math.round(
-      level.baseReward * difficultyMultiplier * speedMultiplier * abilityMultiplier
-    ));
+    return calculateLevelReward({
+      level: result.session.level,
+      difficulty: result.session.difficulty,
+      elapsedTime: result.elapsedTime,
+      rewardMultiplier: result.rewardMultiplier
+    });
   }
 
   onClick(event) {
@@ -1253,7 +1269,7 @@ export class MetaGameSystem {
             
             <div class="med-menu-title-container mw-menu-title-lockup">
                 <h1 class="med-menu-title-epic"><span>VILLAGE</span><span>WAR</span></h1>
-                <h2 class="med-menu-subtitle-epic">凛 冬 之 战</h2>
+                 <h2 class="med-menu-subtitle-epic">村落战争</h2>
             </div>
             <div class="med-menu-divider-epic">
                 <!-- Golden decorative line -->
@@ -1586,8 +1602,9 @@ export class MetaGameSystem {
             <span>已解锁难度 <strong>${result.nextDifficulty}</strong></span>
           </div>
           <div class="meta-action-row">
-            <button class="meta-primary-button" type="button" data-action="levels">继续选关</button>
-            <button class="meta-secondary-button" type="button" data-action="shop">商店</button>
+            ${result.returnToMenu
+              ? '<button class="meta-primary-button" type="button" data-action="menu">返回主菜单</button>'
+              : '<button class="meta-primary-button" type="button" data-action="levels">继续选关</button><button class="meta-secondary-button" type="button" data-action="shop">商店</button>'}
           </div>
         </section>
       </main>
@@ -1598,6 +1615,7 @@ export class MetaGameSystem {
     const disabled = options.disabled ? 'disabled' : '';
     const selected = options.selected ? ' is-selected' : '';
     const actionClass = options.action ? ` is-${options.action}` : '';
+    const actionAttribute = options.actionAttribute ?? 'data-action';
     const statusMarkup = options.statusText
       ? `<div class="meta-card-status">${options.statusText}</div>`
       : '';
@@ -1620,7 +1638,7 @@ export class MetaGameSystem {
         <button
           class="meta-card-action${actionClass}"
           type="button"
-          data-action="${options.action}"
+          ${actionAttribute}="${options.action}"
           data-card-id="${card.id}"
           ${disabled}
         >

@@ -290,6 +290,17 @@ export class GameNetworkBridge {
     this.game.showNetworkTerminatedDialog?.({ reason });
   }
 
+  publishMatchResult(resultsByPlayerId = {}) {
+    if (this.role !== 'host' || !this.host) return;
+    Object.entries(resultsByPlayerId).forEach(([playerId, result]) => {
+      if (playerId === this.localPlayerId) return;
+      this.host.emitEvent({
+        name: MSG.MATCH_FINISHED,
+        result
+      }, { toPlayerId: playerId });
+    });
+  }
+
   get commandSender() {
     return this.sender;
   }

@@ -4256,7 +4256,7 @@ export const CARD_DEFINITIONS = [
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,
-    energyCost: 4,
+    energyCost: 2,
     enchantmentId: 'thorns',
     effect: {
       type: 'apply-buff',
@@ -4292,7 +4292,7 @@ export const CARD_DEFINITIONS = [
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,
-    energyCost: 4,
+    energyCost: 2,
     enchantmentId: 'protection',
     effect: {
       type: 'apply-buff',
@@ -4346,7 +4346,7 @@ export const CARD_DEFINITIONS = [
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,
-    energyCost: 4,
+    energyCost: 2,
     enchantmentId: 'explosion',
     effect: {
       type: 'apply-buff',
@@ -4364,7 +4364,7 @@ export const CARD_DEFINITIONS = [
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,
-    energyCost: 4,
+    energyCost: 2,
     enchantmentId: 'critical',
     effect: {
       type: 'apply-buff',
@@ -4400,7 +4400,7 @@ export const CARD_DEFINITIONS = [
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,
-    energyCost: 4,
+    energyCost: 2,
     enchantmentId: 'phoenix',
     effect: {
       type: 'apply-buff',
@@ -4436,7 +4436,7 @@ export const CARD_DEFINITIONS = [
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,
-    energyCost: 4,
+    energyCost: 2,
     enchantmentId: 'soulEater',
     effect: {
       type: 'apply-buff',
@@ -4454,7 +4454,7 @@ export const CARD_DEFINITIONS = [
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,
-    energyCost: 4,
+    energyCost: 2,
     enchantmentId: 'lifesteal',
     effect: {
       type: 'apply-buff',
@@ -4472,7 +4472,7 @@ export const CARD_DEFINITIONS = [
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,
-    energyCost: 4,
+    energyCost: 2,
     enchantmentId: 'drain',
     effect: {
       type: 'apply-buff',
@@ -4490,7 +4490,7 @@ export const CARD_DEFINITIONS = [
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,
-    energyCost: 4,
+    energyCost: 2,
     enchantmentId: 'poison',
     effect: {
       type: 'apply-buff',
@@ -4544,7 +4544,7 @@ export const CARD_DEFINITIONS = [
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,
-    energyCost: 4,
+    energyCost: 2,
     enchantmentId: 'spiritShield',
     effect: {
       type: 'apply-buff',
@@ -4580,7 +4580,7 @@ export const CARD_DEFINITIONS = [
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,
-    energyCost: 4,
+    energyCost: 2,
     enchantmentId: 'waveArmored',
     effect: {
       type: 'apply-buff',
@@ -4634,7 +4634,7 @@ export const CARD_DEFINITIONS = [
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,
-    energyCost: 4,
+    energyCost: 2,
     enchantmentId: 'waveSiege',
     effect: {
       type: 'apply-buff',
@@ -4670,7 +4670,7 @@ export const CARD_DEFINITIONS = [
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,
-    energyCost: 1,
+    energyCost: 2,
     enchantmentId: 'wolfInstinct',
     lootOnly: true,
     effect: {
@@ -5040,7 +5040,7 @@ export const LEVEL_DEFINITIONS = [
     name: '雪谷营地',
     subtitle: '怪物营地正在雪谷集结',
     baseReward: 45,
-    targetTime: 180,
+    targetTime: 1080,
     name: '雪原营地',
     subtitle: '教学关：在雪原中熟悉出兵、附魔和基地推进',
     baseDifficulty: 1,
@@ -5073,7 +5073,7 @@ export const LEVEL_DEFINITIONS = [
     name: '松林通道',
     subtitle: '林带更密，敌方射手开始增多',
     baseReward: 60,
-    targetTime: 210,
+    targetTime: 1260,
     name: '幽暗地牢',
     subtitle: '地牢关：多个石台由狭窄通路连接，争夺平台之间的推进路线',
     baseDifficulty: 2,
@@ -5107,7 +5107,7 @@ export const LEVEL_DEFINITIONS = [
     name: '霜脊前线',
     subtitle: '高难度怪物会获得更高成长',
     baseReward: 80,
-    targetTime: 240,
+    targetTime: 1440,
     name: '赤岩沙漠',
     subtitle: '沙漠关：阳光会灼烧友军，利用巨岩阴影推进',
     baseDifficulty: 3,

@@ -4,15 +4,21 @@ import { GAME_VERSION } from '../version.js';
 const DECK_SIZE = 36;
 
 export class CoopLobbySystem {
-  constructor({ controller, getSelectedLevelId, getSelectedDifficulty, selectedLevel, onBack }) {
+  constructor({ controller, getSelectedLevelId, getSelectedDifficulty, selectedLevel, getOwnedCardIds, cardWithLevel, availableDifficulty, renderDeckCard, onBack }) {
     this.controller = controller;
     this.getSelectedLevelId = getSelectedLevelId;
     this.getSelectedDifficulty = getSelectedDifficulty;
     this.selectedLevel = selectedLevel;
+    this.getOwnedCardIds = getOwnedCardIds;
+    this.cardWithLevel = cardWithLevel;
+    this.availableDifficulty = availableDifficulty;
+    this.renderDeckCard = renderDeckCard;
     this.onBack = onBack;
     this.root = document.querySelector('#coop-lobby-root');
     this.notice = '';
     this.joinRoomId = '';
+    this.createLevelId = null;
+    this.createDifficulty = null;
     if (!this.root) {
       this.root = document.createElement('section');
       this.root.id = 'coop-lobby-root';
@@ -54,6 +60,17 @@ export class CoopLobbySystem {
   onInput(event) {
     if (event.target?.id === 'coop-room-id') {
       this.joinRoomId = String(event.target.value ?? '').trim().toUpperCase();
+      return;
+    }
+    if (event.target?.id === 'coop-create-level') {
+      this.createLevelId = event.target.value;
+      const maxDifficulty = Math.max(1, Number(this.availableDifficulty?.(this.createLevelId) ?? 1));
+      this.createDifficulty = Math.min(Math.max(1, Number(this.createDifficulty ?? 1)), maxDifficulty);
+      this.render(this.controller.viewState?.() ?? { room: this.controller.roomClient.room });
+      return;
+    }
+    if (event.target?.id === 'coop-create-difficulty') {
+      this.createDifficulty = Math.max(1, Number(event.target.value) || 1);
     }
   }
 
@@ -69,7 +86,9 @@ export class CoopLobbySystem {
       return;
     }
     if (action === 'create') {
-      this.controller.createRoom();
+      const levelId = this.root.querySelector('#coop-create-level')?.value ?? this.createLevelId;
+      const difficulty = Number(this.root.querySelector('#coop-create-difficulty')?.value ?? this.createDifficulty ?? 1);
+      this.controller.createRoom({ levelId, difficulty });
       return;
     }
     if (action === 'join') {
@@ -85,6 +104,10 @@ export class CoopLobbySystem {
       this.controller.toggleReady(!currentlyReady);
       return;
     }
+    if (action === 'deck-card') {
+      this.controller.changeDeckCard(button.dataset.cardId);
+      return;
+    }
     if (action === 'reconnect-confirm') {
       this.controller.confirmReconnect?.();
       return;
@@ -95,11 +118,26 @@ export class CoopLobbySystem {
   }
 
   render(state = {}) {
+    const rootScrollTop = this.root.scrollTop;
+    const deckScrollTop = this.root.querySelector('.coop-deck-card-grid')?.scrollTop ?? 0;
     const room = state.room ?? this.controller.roomClient.room;
     const slot = this.controller.roomClient.playerId;
     const isHost = this.controller.roomClient.isHost;
-    const level = this.selectedLevel?.() ?? LEVEL_DEFINITIONS[0];
-    const difficulty = this.getSelectedDifficulty?.() ?? 1;
+    const lobbyConfig = room?.lobbyConfig ?? state.lobbyConfig ?? null;
+    const level = LEVEL_DEFINITIONS.find((entry) => entry.id === lobbyConfig?.levelId)
+      ?? this.selectedLevel?.()
+      ?? LEVEL_DEFINITIONS[0];
+    const difficulty = lobbyConfig?.difficulty ?? this.getSelectedDifficulty?.() ?? 1;
+    const createLevelId = this.createLevelId ?? this.getSelectedLevelId?.() ?? LEVEL_DEFINITIONS[0]?.id;
+    const createMaxDifficulty = Math.max(1, Number(this.availableDifficulty?.(createLevelId) ?? 1));
+    const createDifficulty = Math.min(
+      Math.max(1, Number(this.createDifficulty ?? this.getSelectedDifficulty?.() ?? 1)),
+      createMaxDifficulty
+    );
+    const createLevel = LEVEL_DEFINITIONS.find((entry) => entry.id === createLevelId)
+      ?? LEVEL_DEFINITIONS[0];
+    this.createLevelId = createLevelId;
+    this.createDifficulty = createDifficulty;
     const players = room?.players ?? {};
     const playerRows = (room?.playerOrder ?? Object.keys(players))
       .map((playerId) => players[playerId])
@@ -134,6 +172,7 @@ export class CoopLobbySystem {
             <div class="coop-room-meta">
               <span>关卡 ${escapeHtml(level?.name ?? '')}</span>
               <span>难度 ${difficulty}</span>
+              <span>基础金币 ${Math.max(0, Number(level?.baseReward) || 0)}</span>
               <span>人数 ${playerRows.length}</span>
               <span>身份 ${isHost ? '房主 (Host)' : '队友'}</span>
             </div>
@@ -146,10 +185,27 @@ export class CoopLobbySystem {
             </div>
             <p class="coop-lobby-hint">${!selfVersionVerified ? '正在与主机校验游戏版本…' : (allReady ? '全员已准备，Host 正在创建权威对局…' : `至少 2 人且全员准备后开始 · 当前阶段 ${escapeHtml(room.phase ?? 'LOBBY_EDITING')}`)}</p>
           </section>
+          ${this.renderDeckBuilder({ selfReady, locked: room.phase === 'MATCH_LOADING' || room.phase === 'OPENING_SELECTION' || room.phase === 'RUNNING' })}
         ` : `
           <section class="coop-lobby-entry">
+            <label class="coop-level-field">
+              <span>房主选择关卡</span>
+              <select id="coop-create-level">
+                ${LEVEL_DEFINITIONS.map((entry) => `<option value="${escapeHtml(entry.id)}" ${entry.id === createLevelId ? 'selected' : ''}>${escapeHtml(entry.name)}</option>`).join('')}
+              </select>
+            </label>
+            <label class="coop-level-field">
+              <span>房主选择难度</span>
+              <select id="coop-create-difficulty">
+                ${Array.from({ length: createMaxDifficulty }, (_, index) => {
+                  const value = index + 1;
+                  return `<option value="${value}" ${value === createDifficulty ? 'selected' : ''}>难度 ${value}</option>`;
+                }).join('')}
+              </select>
+            </label>
+            <p class="coop-lobby-hint">本关基础金币：<strong>${Math.max(0, Number(createLevel?.baseReward) || 0)}</strong>。胜利后会再按难度、用时和个人奖励能力结算。</p>
             <button type="button" class="meta-menu-button coop-create-button" data-coop-action="create">创建房间</button>
-            <p class="coop-lobby-hint">创建后会生成房间号，发给队友加入即可</p>
+            <p class="coop-lobby-hint">关卡与难度会在创建时由 Host 锁定；创建后每位玩家各自选择并确认自己的 36 张出战牌。</p>
             <div class="coop-lobby-divider" role="separator"><span>或加入好友房间</span></div>
             <label class="coop-join-field">
               <span>房间号</span>
@@ -158,7 +214,7 @@ export class CoopLobbySystem {
             <button type="button" class="meta-menu-button" data-coop-action="join">加入房间</button>
           </section>
         `}
-        <p class="coop-lobby-hint">当前游戏版本 v${escapeHtml(GAME_VERSION)} · 需先选满 ${DECK_SIZE} 张出战牌。中继默认 ws://127.0.0.1:8787</p>
+        <p class="coop-lobby-hint">当前游戏版本 v${escapeHtml(GAME_VERSION)} · 需先选满 ${DECK_SIZE} 张出战牌。联机中继：47.100.215.224:8888</p>
       </main>
       ${reconnect ? `
         <section class="coop-reconnect-backdrop" role="presentation">
@@ -173,6 +229,42 @@ export class CoopLobbySystem {
           </div>
         </section>
       ` : ''}
+    `;
+    this.root.scrollTop = rootScrollTop;
+    const deckGrid = this.root.querySelector('.coop-deck-card-grid');
+    if (deckGrid) deckGrid.scrollTop = deckScrollTop;
+  }
+
+  renderDeckBuilder({ selfReady, locked }) {
+    const deck = this.controller.getDeckSelection?.() ?? [];
+    const selected = new Set(deck);
+    const ownedIds = this.getOwnedCardIds?.() ?? [];
+    const selectedCount = deck.length;
+    return `
+      <section class="coop-deck-builder" aria-label="选择自己的出战牌组">
+        <header class="coop-deck-builder-head">
+          <div>
+            <span>个人牌组</span>
+            <strong>选择牌组 ${selectedCount}/${DECK_SIZE}</strong>
+          </div>
+          <small>${selfReady ? '修改牌组会自动取消准备' : '只会发送你自己的牌组给 Host'}</small>
+        </header>
+        <p class="coop-lobby-hint">双方独立选择牌组、能量、银币和奖励。奖励候选只从各自已确认的出战牌组生成。</p>
+        <div class="meta-card-grid coop-deck-card-grid">
+          ${ownedIds.map((id) => {
+            const card = this.cardWithLevel?.(id) ?? { id, name: id, kind: 'card', level: 1 };
+            const isSelected = selected.has(id);
+            const disabled = locked || (!isSelected && selectedCount >= DECK_SIZE);
+            return this.renderDeckCard?.(card, {
+              action: 'deck-card',
+              stateText: isSelected ? '移出' : '加入',
+              statusText: isSelected ? '已加入' : '',
+              selected: isSelected,
+              disabled
+            }) ?? '';
+          }).join('') || '<p class="coop-lobby-hint">当前没有可用卡牌。</p>'}
+        </div>
+      </section>
     `;
   }
 }
