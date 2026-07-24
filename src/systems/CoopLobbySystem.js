@@ -243,7 +243,7 @@ export class CoopLobbySystem {
             <button type="button" class="meta-menu-button" data-coop-action="join">加入房间</button>
           </section>
         `}
-        <p class="coop-lobby-hint">当前游戏版本 v${escapeHtml(GAME_VERSION)} · 需先选满 ${DECK_SIZE} 张出战牌。联机中继：47.100.215.224:8888</p>
+        <p class="coop-lobby-hint">当前游戏版本 v${escapeHtml(GAME_VERSION)} · 需先选满 ${DECK_SIZE} 张出战牌 · 联机服务自动连接</p>
       </main>
       ${reconnect ? `
         <section class="coop-reconnect-backdrop" role="presentation">
