@@ -1,7 +1,17 @@
 :root {
   --mobile-ui-scale: 0.6;
+  --mobile-hand-scale: 0.75;
+  --mobile-hud-scale: 0.8;
+  --mobile-top-control-scale: 1;
+  --mobile-overlay-scale: 1;
+  --mobile-toolbar-left: 122px;
+  --mobile-toolbar-top: 70px;
   --mobile-hand-visual-height: 108px;
   --mobile-energy-panel-height: 54px;
+  --mobile-energy-group-half-width: 99px;
+  --mobile-pile-visual-width: 28px;
+  --mobile-pile-gap: 5px;
+  --mobile-energy-raise: 14px;
   --mobile-hint-gap: 8px;
   --game-hud-inset: 10px;
   --game-hud-width: min(210px, calc(100vw - 28px));
@@ -3061,6 +3071,11 @@ body.is-run-shop-open .card-pile-dock {
   filter: saturate(0.92) contrast(0.96) brightness(0.98);
 }
 
+/* Device controls only belong to the active battlefield. */
+body:not(.is-game-active) .mobile-action-dock {
+  display: none !important;
+}
+
 .card.is-hand-card-target {
   transform: translateY(-10px) scale(1.04);
   box-shadow:
@@ -5908,8 +5923,7 @@ body.is-animation-preview-active .mobile-action-dock {
 
 @media (pointer: coarse) and (orientation: landscape) {
   body:not(.is-animation-preview-active) .mobile-action-dock {
-    display: grid;
-    visibility: visible;
+    display: none;
   }
 }
 

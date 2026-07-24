@@ -331,7 +331,7 @@ export class CardSystem {
     this.drag.playThreshold = this.drag.sourceHeight * PLAY_DRAG_RATIO;
     this.drag.discardThreshold = this.drag.sourceHeight * DISCARD_DRAG_RATIO;
     this.drag.sourceElement?.classList.add('is-dragging');
-    this.prepareDragGhost(event.currentTarget, card);
+    this.prepareDragGhost(event.currentTarget, card, event.pointerType);
     this.ghost.classList.toggle('enchant-crosshair', card.target === 'friendly-unit');
     this.ghost.hidden = true;
     this.updateDraggedCardMotion(event);
@@ -700,10 +700,10 @@ export class CardSystem {
     this.ghost.style.top = `${y}px`;
   }
 
-  prepareDragGhost(sourceElement, card) {
+  prepareDragGhost(sourceElement, card, pointerType) {
     this.ghost.textContent = '';
     this.ghost.classList.remove('has-card-preview');
-    if (!shouldUseCardFaceGhost(card) || !sourceElement) return;
+    if (!shouldUseCardFaceGhost(card, pointerType) || !sourceElement) return;
     const clone = sourceElement.cloneNode(true);
     clone.classList.remove(
       'is-dragging',
@@ -1921,8 +1921,10 @@ function kindLabel(kind) {
   return '附魔卡';
 }
 
-function shouldUseCardFaceGhost(card) {
-  return card?.kind === 'ability';
+function shouldUseCardFaceGhost(card, pointerType) {
+  // Touch input has no hover state. Mirror the source card while it is pulled
+  // from the hand so every card type gets a readable deployment preview.
+  return pointerType === 'touch' || card?.kind === 'ability';
 }
 
 function shouldExhaustAfterPlay(card) {

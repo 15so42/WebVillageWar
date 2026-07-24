@@ -18,6 +18,17 @@ let feedbackTimer = 0;
 const UI_SCALE_STORAGE_KEY = 'village-war-ui-scale';
 const UI_SCALE_OPTIONS = [0.4, 0.6, 0.8];
 const DEFAULT_UI_SCALE = 0.6;
+// The supply terminal and wave console share the same top-left scale group.
+// Keep the secondary controls immediately after the scaled supply terminal.
+const MOBILE_TOP_TOOLBAR_BASE_LEFT = 126;
+const MOBILE_TOP_TOOLBAR_BASE_TOP = 70;
+const MOBILE_ENERGY_LOGICAL_WIDTH = 330;
+const MOBILE_PILE_LOGICAL_WIDTH = 46;
+const MOBILE_PILE_GAP = 8;
+const MOBILE_HAND_SLOT_COUNT = 5;
+const MOBILE_HAND_GAP = 2;
+const MOBILE_CARD_ASPECT_RATIO = 179 / 116;
+const MOBILE_HAND_SCALE_MULTIPLIER = 1.25;
 const APP_BASE_URL = new URL(import.meta.env.BASE_URL || './', window.location.href);
 
 applyStoredUiScale();
@@ -28,13 +39,7 @@ mobileActionDock?.addEventListener('click', (event) => {
   event.preventDefault();
   event.stopPropagation();
   const action = button.dataset.mobileAction;
-  if (action === 'fullscreen') {
-    requestAppFullscreen();
-  } else if (action === 'landscape') {
-    requestLandscape();
-  } else if (action === 'portrait') {
-    requestPortrait();
-  } else if (action === 'ui-scale') {
+  if (action === 'ui-scale') {
     cycleUiScale();
   }
 });
@@ -253,63 +258,6 @@ try {
   throw error;
 }
 
-async function requestAppFullscreen() {
-  const root = document.documentElement;
-  if (document.fullscreenElement || document.webkitFullscreenElement) {
-    showMobileFeedback('已经是全屏');
-    return true;
-  }
-  const request = root.requestFullscreen
-    ?? root.webkitRequestFullscreen
-    ?? root.msRequestFullscreen;
-  if (!request) {
-    showMobileFeedback('当前浏览器不支持网页全屏');
-    return false;
-  }
-  try {
-    await request.call(root);
-    showMobileFeedback('已进入全屏');
-    return true;
-  } catch {
-    showMobileFeedback('请用浏览器菜单全屏，或添加到主屏幕后打开');
-    return false;
-  }
-}
-
-async function requestLandscape() {
-  await requestAppFullscreen();
-  const orientation = screen.orientation;
-  if (!orientation?.lock) {
-    showMobileFeedback('请旋转手机，并关闭系统竖屏锁定');
-    return;
-  }
-  try {
-    await orientation.lock('landscape');
-    showMobileFeedback('已请求横屏');
-  } catch {
-    showMobileFeedback('请旋转手机，并关闭系统竖屏锁定');
-  }
-}
-
-async function requestPortrait() {
-  const orientation = screen.orientation;
-  if (!orientation?.lock) {
-    showMobileFeedback('请旋转手机，并关闭系统横屏锁定');
-    return;
-  }
-  try {
-    await orientation.lock('portrait');
-    showMobileFeedback('已请求竖屏');
-  } catch {
-    try {
-      orientation.unlock?.();
-    } catch {
-      // Some browsers expose unlock but still reject it outside installed apps.
-    }
-    showMobileFeedback('请旋转手机，并关闭系统横屏锁定');
-  }
-}
-
 function showMobileFeedback(message) {
   if (!mobileActionFeedback) return;
   mobileActionFeedback.textContent = message;
@@ -343,19 +291,38 @@ function currentUiScale() {
 
 function applyUiScale(scale) {
   document.documentElement.style.setProperty('--mobile-ui-scale', String(scale));
+  document.documentElement.style.setProperty('--mobile-hand-scale', String(scale * MOBILE_HAND_SCALE_MULTIPLIER));
+  // All mobile components use the same percentage. Each group remains tied
+  // to its own screen anchor, so a smaller UI closes inward predictably.
+  document.documentElement.style.setProperty('--mobile-hud-scale', String(scale));
+  document.documentElement.style.setProperty('--mobile-top-control-scale', String(scale));
+  document.documentElement.style.setProperty('--mobile-overlay-scale', String(scale));
+  document.documentElement.style.setProperty('--mobile-toolbar-left', `${Math.round(8 + (MOBILE_TOP_TOOLBAR_BASE_LEFT - 8) * scale)}px`);
+  document.documentElement.style.setProperty('--mobile-toolbar-top', `${Math.round(8 + (MOBILE_TOP_TOOLBAR_BASE_TOP - 8) * scale)}px`);
   syncMobileUiMetrics(scale);
 }
 
 function syncMobileUiMetrics(scale = currentUiScale()) {
   const width = window.innerWidth || 0;
   const isPortrait = window.matchMedia?.('(orientation: portrait)')?.matches ?? false;
-  const cardHeight = isPortrait ? 179 : (width <= 760 ? 196 : 176);
-  document.documentElement.style.setProperty('--mobile-hand-visual-height', `${Math.round(cardHeight * scale)}px`);
+  const cardHeight = isPortrait
+    ? Math.max(0, ((width - 16 - ((MOBILE_HAND_SLOT_COUNT - 1) * MOBILE_HAND_GAP)) / MOBILE_HAND_SLOT_COUNT) * MOBILE_CARD_ASPECT_RATIO * scale * MOBILE_HAND_SCALE_MULTIPLIER)
+    : (width <= 760 ? 196 : 176) * scale;
+  document.documentElement.style.setProperty('--mobile-hand-visual-height', `${Math.round(cardHeight)}px`);
   const energyPanel = document.querySelector('.energy-panel');
   const energyHeight = energyPanel?.getBoundingClientRect?.().height ?? 0;
   if (energyHeight > 0) {
     document.documentElement.style.setProperty('--mobile-energy-panel-height', `${Math.round(energyHeight)}px`);
   }
+
+  // The energy bar, draw pile and discard pile are one bottom-centre group.
+  // Their positions use post-scale pixels so the side piles stay attached to
+  // the energy bar when the player changes the mobile UI scale.
+  const energyLogicalWidth = Math.min(MOBILE_ENERGY_LOGICAL_WIDTH, Math.max(0, width - 28));
+  document.documentElement.style.setProperty('--mobile-energy-group-half-width', `${Math.round((energyLogicalWidth * scale) / 2)}px`);
+  document.documentElement.style.setProperty('--mobile-pile-visual-width', `${Math.round(MOBILE_PILE_LOGICAL_WIDTH * scale)}px`);
+  document.documentElement.style.setProperty('--mobile-pile-gap', `${Math.round(MOBILE_PILE_GAP * scale)}px`);
+  document.documentElement.style.setProperty('--mobile-energy-raise', `${Math.round((MOBILE_PILE_LOGICAL_WIDTH * scale) / 2)}px`);
 }
 
 window.addEventListener('resize', () => syncMobileUiMetrics(), { passive: true });

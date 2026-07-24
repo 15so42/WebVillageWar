@@ -3183,3 +3183,365 @@ body.is-game-active .strategy-event-action:disabled {
     grid-template-columns: 1fr;
   }
 }
+
+/* Phone battlefield: use the left side as one compact tactical stack instead
+   of letting the desktop toolbar's absolute positioning pull controls toward
+   the middle of a portrait viewport.  This stays last so shared legacy media
+   rules cannot pull the controls back to the top-right. */
+@media (max-width: 700px) and (orientation: portrait) {
+  /* A transformed ancestor turns fixed children into coordinates relative to
+     its scaled box.  The legacy mobile scale on this full-screen HUD was what
+     pushed the "top" controls into the battlefield centre. */
+  body.is-game-active .pc-medieval-hud {
+    transform: none !important;
+    transform-origin: top left !important;
+  }
+
+  body.is-game-active .pc-medieval-hud .hud-meters.wave-command-panel {
+    top: calc(8px + env(safe-area-inset-top)) !important;
+    right: auto !important;
+    left: 8px !important;
+    width: min(312px, calc((100vw - 164px) / 0.8)) !important;
+    grid-template-columns: 76px minmax(0, 1fr) 76px !important;
+    transform: scale(var(--mobile-hud-scale)) !important;
+    transform-origin: top left !important;
+  }
+
+  body.is-game-active .pc-medieval-hud .hud-meters.wave-command-panel .meter {
+    min-width: 0 !important;
+  }
+
+  /* Keep the selected unit card independently anchored at the real top-right
+     rather than inheriting the old mobile-scale placement rules. */
+  body.is-game-active .hud-selected {
+    position: fixed !important;
+    top: calc(8px + env(safe-area-inset-top)) !important;
+    right: 8px !important;
+    bottom: auto !important;
+    left: auto !important;
+    width: 180px !important;
+    grid-template-columns: 56px minmax(0, 1fr) !important;
+    gap: 8px !important;
+    padding: 8px !important;
+    transform: scale(var(--mobile-hud-scale)) !important;
+    transform-origin: top right !important;
+  }
+
+  body.is-game-active .hud-selected .selected-portrait {
+    align-self: start;
+    height: 36px !important;
+    min-height: 36px !important;
+  }
+
+  body.is-game-active .hud-selected .selected-portrait::before {
+    top: 3px;
+    width: 24px;
+    height: 30px;
+  }
+
+  body.is-game-active .hud-selected .selected-portrait::after {
+    left: 7px;
+    right: 7px;
+    bottom: 4px;
+    height: 5px;
+  }
+
+  body.is-game-active .hud-selected .selected-portrait-figure {
+    top: 13px;
+    width: 11px;
+    height: 14px;
+  }
+
+  body.is-game-active .hud-selected #selected-name {
+    padding-bottom: 5px !important;
+    font-size: 13px !important;
+  }
+
+  body.is-game-active .hud-selected #selected-stats,
+  body.is-game-active .hud-selected #selected-enchants {
+    padding-left: 18px;
+    font-size: 9px !important;
+    line-height: 1.28 !important;
+  }
+
+  body.is-game-active .pc-medieval-hud .run-shop-toggle {
+    top: calc(var(--mobile-toolbar-top) + env(safe-area-inset-top)) !important;
+    right: auto !important;
+    left: 8px !important;
+    min-width: 108px !important;
+    /* The wave console and supply terminal form one top-left tactical group. */
+    transform: scale(var(--mobile-hud-scale)) !important;
+    transform-origin: top left !important;
+  }
+
+  body.is-game-active .hud-toolbar {
+    position: fixed !important;
+    z-index: 26 !important;
+    top: calc(var(--mobile-toolbar-top) + env(safe-area-inset-top)) !important;
+    right: auto !important;
+    left: var(--mobile-toolbar-left) !important;
+    display: flex !important;
+    flex-direction: row-reverse !important;
+    align-items: center !important;
+    gap: 6px !important;
+    margin: 0 !important;
+    transform: scale(var(--mobile-hud-scale)) !important;
+    transform-origin: top left !important;
+  }
+
+  body.is-game-active .hud-toolbar .fps-meter,
+  body.is-game-active .hud-toolbar .game-settings-button {
+    position: static !important;
+    top: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    left: auto !important;
+    transform: none !important;
+  }
+
+  /* Orientation/fullscreen/UI-scale controls are secondary device tools, so
+     keep their vertical stack on the right-hand centre rather than competing
+     with the top-left tactical information. */
+  body.is-game-active .mobile-action-dock {
+    top: 50% !important;
+    right: 8px !important;
+    bottom: auto !important;
+    left: auto !important;
+    transform: translateY(-50%) scale(var(--mobile-top-control-scale)) !important;
+    transform-origin: right center !important;
+  }
+
+  /* Bottom controls use the exact same percentage as the other mobile groups.
+     The hand deliberately does not counter-expand back to the screen edges. */
+  body.is-game-active .card-hand {
+    width: calc(100vw - 16px) !important;
+    gap: 2px !important;
+    transform: translateX(-50%) scale(var(--mobile-hand-scale)) !important;
+    transform-origin: bottom center !important;
+  }
+
+  body.is-game-active .card-hand > .card,
+  body.is-game-active .card-hand > .card-empty-slot,
+  body.is-game-active .card-hand > .temporary-card-empty-slot {
+    height: auto !important;
+    aspect-ratio: 116 / 179;
+  }
+
+  body.is-game-active .energy-panel {
+    z-index: 6 !important;
+    bottom: calc(12px + var(--mobile-energy-raise) + env(safe-area-inset-bottom) + var(--mobile-hand-visual-height)) !important;
+    width: min(330px, calc(100vw - 28px)) !important;
+    transform: translateX(-50%) scale(var(--mobile-ui-scale)) !important;
+    transform-origin: bottom center !important;
+  }
+
+  body.is-game-active .temporary-card-slot {
+    z-index: 7 !important;
+    bottom: calc(18px + var(--mobile-energy-raise) + env(safe-area-inset-bottom) + var(--mobile-hand-visual-height) + var(--mobile-energy-panel-height)) !important;
+    transform: translateX(-50%) scale(var(--mobile-ui-scale)) !important;
+    transform-origin: bottom center !important;
+  }
+
+  body.is-game-active .pile-button.is-draw {
+    bottom: calc(12px + var(--mobile-energy-raise) + env(safe-area-inset-bottom) + var(--mobile-hand-visual-height)) !important;
+    left: calc(50% - var(--mobile-energy-group-half-width) - var(--mobile-pile-gap) - var(--mobile-pile-visual-width)) !important;
+    right: auto !important;
+    transform: scale(var(--mobile-ui-scale)) !important;
+    transform-origin: left bottom !important;
+  }
+
+  body.is-game-active .pile-button.is-discard {
+    bottom: calc(12px + var(--mobile-energy-raise) + env(safe-area-inset-bottom) + var(--mobile-hand-visual-height)) !important;
+    right: calc(50% - var(--mobile-energy-group-half-width) - var(--mobile-pile-gap) - var(--mobile-pile-visual-width)) !important;
+    left: auto !important;
+    transform: scale(var(--mobile-ui-scale)) !important;
+    transform-origin: right bottom !important;
+  }
+
+  body.is-game-active .game-command-dock {
+    transform: scale(var(--mobile-ui-scale)) !important;
+    transform-origin: left bottom !important;
+  }
+
+  /* Full-screen terminals use the same UI-scale ratio while staying centred
+     in the viewport.  Their default factor remains 1 so the compact mobile
+     layouts stay readable before the player changes the setting. */
+  body.is-game-active .run-shop-panel,
+  body.is-game-active .pause-panel,
+  body.is-game-active .strategy-event-panel {
+    transform: scale(var(--mobile-overlay-scale)) !important;
+    transform-origin: center center !important;
+  }
+
+  /* Reward options may be taller than a portrait viewport. Reserve a fixed
+     action row so “skip / next wave” never drops below the fold, and scroll
+     only the card choice list. */
+  body.is-game-active .strategy-event-overlay {
+    align-items: center !important;
+    padding: 8px !important;
+  }
+
+  body.is-game-active .strategy-event-panel {
+    width: calc(100vw - 16px) !important;
+    height: auto !important;
+    max-height: calc(100dvh - 16px) !important;
+    min-height: 0 !important;
+    grid-template-rows: none !important;
+    overflow-y: auto !important;
+  }
+
+  body.is-game-active .strategy-event-choices {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 6px !important;
+    min-height: auto !important;
+    overflow: visible !important;
+    align-content: start;
+    padding: 6px 2px 10px !important;
+  }
+
+  /* Both the initial-unit choice and every reward event render the same
+     full deck-card face.  Keep its proportions intact instead of turning
+     mobile rewards into narrow information columns. */
+  body.is-game-active .strategy-reward-option.meta-card {
+    width: 100% !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    aspect-ratio: 116 / 179;
+    display: grid !important;
+    grid-template-rows: minmax(0, 1fr) auto !important;
+    gap: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+  }
+
+  body.is-game-active .strategy-reward-option.meta-card .meta-card-face {
+    min-height: 0 !important;
+    display: grid !important;
+    grid-template-rows: auto minmax(0, 1fr) auto !important;
+    gap: 4px !important;
+    padding: 7px 7px 4px 11px !important;
+  }
+
+  body.is-game-active .strategy-reward-option.meta-card .card-art {
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+  }
+
+  body.is-game-active .strategy-reward-option.meta-card .card-art-svg,
+  body.is-game-active .strategy-reward-option.meta-card .card-art-image {
+    transform: scale(1.14);
+    transform-origin: center;
+  }
+
+  body.is-game-active .strategy-reward-option.meta-card .card-name {
+    font-size: 10px !important;
+    line-height: 1.12 !important;
+    text-align: center;
+  }
+
+  body.is-game-active .strategy-reward-option.meta-card .card-text,
+  body.is-game-active .strategy-reward-option.meta-card .meta-card-footer {
+    display: none !important;
+  }
+
+  body.is-game-active .strategy-reward-option.meta-card .meta-card-header {
+    font-size: 7px !important;
+  }
+
+  body.is-game-active .strategy-reward-option.meta-card .meta-card-cost {
+    width: 24px !important;
+    min-width: 24px !important;
+    height: 24px !important;
+    font-size: 11px !important;
+  }
+
+  body.is-game-active .strategy-reward-option.meta-card .meta-card-level {
+    top: 37px;
+    min-width: 34px;
+    height: 16px;
+    font-size: 8px;
+  }
+
+  body.is-game-active .strategy-reward-option.meta-card .meta-card-use-bar {
+    top: 39px;
+    bottom: 37px;
+    left: 5px;
+    width: 6px;
+  }
+
+  body.is-game-active .strategy-reward-option.meta-card .meta-card-action {
+    width: calc(100% - 14px) !important;
+    min-height: 22px;
+    margin: 0 6px 6px 8px !important;
+    padding: 4px 3px 5px !important;
+    font-size: 7px !important;
+  }
+
+  body.is-game-active .strategy-event-actions {
+    position: relative;
+    z-index: 2;
+    min-height: 48px;
+    margin: 0 !important;
+    padding: 9px 0 0 !important;
+    background: linear-gradient(180deg, rgba(24, 27, 25, 0), #1b1e1c 28%) !important;
+  }
+
+  /* The card gesture owns touch input; otherwise mobile browsers promote an
+     upward play gesture into page panning and fire pointercancel. */
+  body.is-game-active .card-hand,
+  body.is-game-active .card-hand > .card,
+  body.is-game-active .temporary-card-slot .card {
+    touch-action: none !important;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+  }
+}
+
+/* Final mobile tabletop pass: keep all field controls on the same black-iron
+   material, while deliberately leaving the card faces to their own style. */
+body.is-game-active .game-command-dock button,
+body.is-game-active .mobile-action-dock button,
+body.is-game-active .pile-button,
+body.is-game-active .pc-medieval-hud .run-shop-toggle,
+body.is-game-active .hud-toolbar .fps-meter,
+body.is-game-active .hud-toolbar .game-settings-button {
+  border: 1px solid #706d65 !important;
+  border-radius: 2px !important;
+  clip-path: polygon(4px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 4px), calc(100% - 4px) 100%, 4px 100%, 0 calc(100% - 4px), 0 4px) !important;
+  color: #ded6c8 !important;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.065), transparent 42%),
+    linear-gradient(180deg, #383b39, #202321) !important;
+  box-shadow:
+    inset 0 0 0 1px #171a19,
+    inset 0 1px 0 rgba(255, 255, 255, 0.065),
+    inset 0 -4px 0 rgba(7, 9, 8, 0.24),
+    0 4px 0 #151817,
+    0 8px 12px rgba(0, 0, 0, 0.36) !important;
+}
+
+body.is-game-active .loot-confirm-close {
+  box-sizing: border-box;
+  display: grid !important;
+  place-items: center !important;
+  padding: 0 !important;
+  line-height: 1 !important;
+  text-align: center !important;
+  text-indent: 0 !important;
+}
+
+@media (max-width: 700px) and (orientation: portrait) {
+  /* Keep the larger card faces readable by tightening their internal type. */
+  body.is-game-active .card-hand .med-card-name {
+    font-size: 9px !important;
+    line-height: 1.06 !important;
+  }
+
+  body.is-game-active .card-hand .med-card-desc {
+    font-size: 6.5px !important;
+    line-height: 1.18 !important;
+  }
+}

@@ -736,15 +736,23 @@ export class Game {
     this.saoPass.params.saoBlurRadius = 4;
     this.saoPass.params.saoBlurStdDev = 4;
     this.saoPass.params.saoBlurDepthCutoff = 0.01;
+    // First-map terrain already uses baked ground shadows.  On phones, keep
+    // that static shading but avoid the four full-screen passes that are most
+    // likely to make the device run hot during a long battle.
+    const useFullPostProcessing = this.renderQuality.mode !== 'mobile';
+    this.saoPass.enabled = useFullPostProcessing;
     this.composer.addPass(this.saoPass);
 
     this.bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.15, 0.4, 0.85);
+    this.bloomPass.enabled = useFullPostProcessing;
     this.composer.addPass(this.bloomPass);
 
     this.outlinePass = new ShaderPass(OutlineShader);
+    this.outlinePass.enabled = useFullPostProcessing;
     this.composer.addPass(this.outlinePass);
 
     this.vignettePass = new ShaderPass(StorybookVignetteShader);
+    this.vignettePass.enabled = useFullPostProcessing;
     this.composer.addPass(this.vignettePass);
 
     const overlayPass = new RenderPass(this.scene, this.camera);
@@ -1188,7 +1196,12 @@ export class Game {
   tick() {
     if (this.destroyed) return;
     const rawDt = this.clock.getDelta();
-    const timeScale = this.levelTestMode ? this.debugTimeScale : 1;
+    const debugTimeScale = this.levelTestMode ? this.debugTimeScale : 1;
+    // Box-selecting on a touch screen needs a little time to read the field.
+    // It is deliberately local-only: a co-op Host cannot slow the shared
+    // simulation and a Client must keep following Host time.
+    const boxSelectTimeScale = this.mobileBoxSelectMode && !this.coop?.enabled ? 0.1 : 1;
+    const timeScale = debugTimeScale * boxSelectTimeScale;
     const dt = Math.min(rawDt, 0.05) * timeScale;
     this.updateFpsMeter(rawDt);
     if (this.paused) {
@@ -2919,6 +2932,7 @@ export class Game {
     this.strategyEventUi.choices.innerHTML = event.choices
       .map((choice, index) => strategyRewardMarkup(choice, index))
       .join('');
+    fitStrategyRewardCards(this.strategyEventUi.choices);
     this.renderStrategyEventActions(event);
   }
 
@@ -7586,22 +7600,29 @@ function strategyRewardMarkup(choice, index) {
   const cardAccent = cardThemeColor(card);
   const title = choice.title ?? choice.card?.name ?? '奖励';
   const description = choice.description ?? choice.card?.summary ?? '';
-  const meta = choice.metaText ? `<span class="strategy-reward-meta">${escapeHtml(choice.metaText)}</span>` : '';
+  const meta = choice.metaText ? `<span class="meta-card-footer">${escapeHtml(choice.metaText)}</span>` : '';
   const disabledAttr = choice.disabled ? ' disabled aria-disabled="true"' : '';
   return `
     <button
-      class="strategy-reward-option is-${visual.kindKey}${choice.disabled ? ' is-disabled' : ''}"
+      class="strategy-reward-option strategy-reward-card meta-card is-${visual.kindKey}${choice.disabled ? ' is-disabled' : ''}"
       type="button"
       data-strategy-choice-index="${index}"
       style="--reward-accent:${visual.accent};--card-accent:${cardAccent};--card-color:${cardAccent}"${disabledAttr}
     >
-      <span class="strategy-reward-kind">${escapeHtml(strategyRewardKindLabel(choice, card))}</span>
-      <span class="strategy-reward-cost" aria-label="费用 ${cardEnergyCost(card)}">${cardEnergyCost(card)}</span>
-      <span class="strategy-reward-icon has-card-art" aria-hidden="true">${createCardArtMarkup(card)}</span>
-      <strong class="strategy-reward-title">${escapeHtml(title)}</strong>
-      <p class="strategy-reward-desc">${escapeHtml(description)}</p>
-      ${meta}
-      <span class="strategy-reward-action">${escapeHtml(choice.actionLabel ?? visual.actionLabel)}</span>
+      <span class="meta-card-cost" aria-label="费用 ${cardEnergyCost(card)}">${cardEnergyCost(card)}</span>
+      <span class="meta-card-level">Lv.${card.level ?? 1}</span>
+      ${cardUseBarMarkup(card, 'meta-card-use-bar')}
+      <div class="meta-card-face">
+        <div class="meta-card-header">
+          <span class="meta-card-rune">${escapeHtml(card.label ?? '')}</span>
+          <span>${escapeHtml(strategyRewardKindLabel(choice, card))}</span>
+        </div>
+        ${createCardArtMarkup(card)}
+        <strong class="card-name">${escapeHtml(title)}</strong>
+        <div class="card-text">${escapeHtml(description)}</div>
+        ${meta}
+      </div>
+      <span class="meta-card-action">${escapeHtml(choice.actionLabel ?? visual.actionLabel)}</span>
     </button>
   `;
 }
