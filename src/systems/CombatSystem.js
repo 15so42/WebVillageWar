@@ -95,7 +95,9 @@ export class CombatSystem {
     const healthBefore = target.health;
     const shieldBefore = target.shield ?? 0;
     target.takeRawDamage(finalDamage, {
-      bypassShield: isTrueDamage || isDirectHealthDamage
+      bypassShield: isTrueDamage || isDirectHealthDamage,
+      source,
+      damageTypes: damageContext.damageTypes
     });
     if (shieldBefore > 0.01 && (target.shield ?? 0) <= 0.01) {
       this.triggerJadeShatter(target);
@@ -124,6 +126,15 @@ export class CombatSystem {
     const finalKnockback = Math.max(0, damageContext.knockback * (1 - knockbackResistance));
     damageContext.damageDealt = finalDamage;
     damageContext.knockbackApplied = finalKnockback;
+
+    if (
+      source
+      && finalDamage > 0.001
+      && target.team === TEAMS.ENEMY
+      && (!source.team || source.team !== target.team)
+    ) {
+      this.game.markEndlessEnemyCombatStarted?.(target, source);
+    }
 
     if (source && finalKnockback > 0 && !isStaticUnit(target)) {
       if (source.team === TEAMS.PLAYER && target.team === TEAMS.ENEMY) {
@@ -252,7 +263,35 @@ export class CombatSystem {
 
   applyDefenderRuntimeTraits(context) {
     const target = context.target;
-    if (!context.isAttack || !hasRuntimeTrait(target, 'holyShield')) return;
+    if (!context.isAttack) return;
+    this.applyAttackBlockTrait(context);
+    if (hasRuntimeTrait(target, 'holyShield')) {
+      this.applyHolyShieldTrait(target);
+    }
+  }
+
+  applyAttackBlockTrait(context) {
+    if (context.damage <= 0 || context.damageTypes?.has?.('true')) return;
+    const target = context.target;
+    const trait = findDefinitionTrait(target, 'attackBlock');
+    if (!trait || Math.random() >= Math.max(0, trait.chance ?? 0)) return;
+    const multiplier = Math.min(1, Math.max(0, trait.damageMultiplier ?? 0.5));
+    const before = context.damage;
+    context.damage = Math.max(0, context.damage * multiplier);
+    context.damageBlocked = (context.damageBlocked ?? 0) + Math.max(0, before - context.damage);
+    this.game.effects.spawnRing(target.position, trait.color ?? '#d8dde0', 0.58, 0.32);
+    this.game.effects.spawnDamageNumber(target.position, 1, {
+      text: '格挡',
+      color: trait.color ?? '#eef7ff',
+      stroke: '#24323a',
+      height: (target.projectileHitHeight ?? 1.45) + 0.12,
+      duration: 0.58,
+      fontSize: 84,
+      baseHeight: 0.48
+    });
+  }
+
+  applyHolyShieldTrait(target) {
     if (Math.random() >= 0.25) return;
     const restored = target.restoreShield?.(10) ?? 0;
     if (restored <= 0.01) return;
@@ -357,7 +396,8 @@ export class CombatSystem {
       this.spawnTraitText(target, '眩晕', '#ffd166');
     }
     if (hasRuntimeTrait(source, 'sunderArmor') && target.alive) {
-      this.game.buffs.applyBuff(target, 'armorShredded', source, { duration: 3 });
+      const applied = this.game.buffs.applyBuff(target, 'armorShredded', source, { duration: 3 });
+      if (applied) this.spawnTraitText(target, '破甲', '#d8c58d');
     }
     if (hasRuntimeTrait(source, 'flurryStrike') && target.alive && Math.random() < 0.22) {
       this.game.combat.applyDamage(target, dealt, source, 0, {
@@ -450,6 +490,10 @@ function defenseDamageType(context) {
 
 function hasRuntimeTrait(unit, trait) {
   return unit?.runtimeTraits?.has?.(trait) === true;
+}
+
+function findDefinitionTrait(unit, type) {
+  return (unit?.definition?.traits ?? []).find((trait) => trait?.type === type) ?? null;
 }
 
 function recordRecentDamageSource(target, source, now) {

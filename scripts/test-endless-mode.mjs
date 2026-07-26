@@ -7,6 +7,7 @@ import {
   endlessEnchantLevel,
   endlessEnemyStatFactors,
   endlessExpectedLifetime,
+  endlessPlayerUnitDeathDifficultyDelta,
   normalizeChallengeMode,
   resetEndlessDeckLevels
 } from '../src/systems/endlessMode.js';
@@ -14,31 +15,51 @@ import {
 assert.equal(normalizeChallengeMode('endless'), 'endless');
 assert.equal(normalizeChallengeMode('unknown'), 'standard');
 
-assert.equal(endlessExpectedLifetime({ baseHealth: 18 }), 20);
-assert.equal(endlessExpectedLifetime({ baseHealth: 64, enemyClass: 'elite' }), 35);
-assert.equal(endlessExpectedLifetime({ baseHealth: 150, enemyClass: 'boss' }), 70);
+assert.equal(endlessExpectedLifetime({ baseHealth: 18 }), 5);
+assert.equal(endlessExpectedLifetime({ baseHealth: 64, enemyClass: 'elite' }), 8.75);
+assert.equal(endlessExpectedLifetime({ baseHealth: 150, enemyClass: 'boss' }), 17.5);
 
 assert.equal(endlessDifficultyDelta({
-  lifetime: 20,
-  expectedLifetime: 20,
+  baseHealth: 18,
+  lifetime: 5,
+  expectedLifetime: 5,
   enemyClass: 'normal'
 }), 0);
 assert.equal(endlessDifficultyDelta({
+  baseHealth: 18,
   lifetime: 0.01,
-  expectedLifetime: 20,
+  expectedLifetime: 5,
   enemyClass: 'normal'
-}), 2);
+}), 0.24);
 assert.equal(endlessDifficultyDelta({
+  baseHealth: 90,
   lifetime: 0.01,
-  expectedLifetime: 70,
+  expectedLifetime: 5,
+  enemyClass: 'normal'
+}), 1.2);
+assert.equal(endlessDifficultyDelta({
+  baseHealth: 150,
+  lifetime: 0.01,
+  expectedLifetime: 17.5,
   enemyClass: 'boss'
 }), 10);
 assert(endlessDifficultyDelta({
-  lifetime: 40,
-  expectedLifetime: 20,
+  baseHealth: 18,
+  lifetime: 10,
+  expectedLifetime: 5,
   enemyClass: 'normal'
 }) < 0);
+assert.equal(endlessDifficultyDelta({
+  baseHealth: 18,
+  lifetime: 10,
+  expectedLifetime: 5,
+  enemyClass: 'normal'
+}), -0.015);
 assert.equal(applyEndlessDifficulty(-0.25, -0.125), -0.37);
+assert.equal(endlessPlayerUnitDeathDifficultyDelta(2), -0.48);
+assert.equal(endlessPlayerUnitDeathDifficultyDelta(3), -0.72);
+assert.equal(endlessPlayerUnitDeathDifficultyDelta(-1), 0);
+assert.equal(applyEndlessDifficulty(2, endlessPlayerUnitDeathDifficultyDelta(3)), 1.28);
 
 assert.deepEqual(endlessEnemyStatFactors(0), { health: 1, damage: 1 });
 assert.deepEqual(endlessEnemyStatFactors(-100), { health: 0.1, damage: 0.1 });
@@ -48,7 +69,7 @@ assert.equal(endlessEnchantCount(7), 3);
 assert.equal(endlessEnchantLevel(-2), 1);
 assert.equal(endlessEnchantLevel(7), 4);
 assert.equal(calculateEndlessReward(-3, 2), 0);
-assert.equal(calculateEndlessReward(7.9, 1.5), 11);
+assert.equal(calculateEndlessReward(7.9, 1.5), 71);
 
 const upgradedDeck = [
   { id: 'militia', level: 5, instanceId: 'card-1' },

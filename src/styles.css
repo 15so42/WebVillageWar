@@ -158,8 +158,104 @@ body.is-meta-open .mobile-box-select-hint {
   gap: 0.8px;
 }
 
+.world-status.is-friendly-structure {
+  --status-content-width: 112px;
+}
+
 .world-status.is-structure .world-durability-bar {
   height: 5px;
+}
+
+.world-rebirth-queue {
+  --rebirth-token-size: 20px;
+  width: 112px;
+  min-height: 27px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  margin-top: 2px;
+  pointer-events: none;
+}
+
+.world-rebirth-queue[hidden] {
+  display: none;
+}
+
+.world-rebirth-token {
+  --rebirth-color: #f1d97a;
+  width: var(--rebirth-token-size);
+  height: 27px;
+  display: grid;
+  grid-template-rows: 18px 9px;
+  justify-items: center;
+  align-items: center;
+  color: #fff7d7;
+  font-weight: 900;
+  line-height: 1;
+  text-shadow:
+    -1px -1px 0 #21180d,
+    1px -1px 0 #21180d,
+    -1px 1px 0 #21180d,
+    1px 1px 0 #21180d,
+    0 1px 2px rgba(0, 0, 0, 0.55);
+}
+
+.world-rebirth-avatar {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(33, 27, 25, 0.9);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 35% 28%, rgba(255, 255, 255, 0.82), transparent 20%),
+    var(--rebirth-color);
+  box-shadow:
+    0 0 0 1px rgba(255, 245, 188, 0.42),
+    0 1px 3px rgba(0, 0, 0, 0.38);
+  color: #21180d;
+  font-size: 9px;
+  text-shadow: none;
+  overflow: hidden;
+}
+
+.world-rebirth-avatar .card-art {
+  width: 100%;
+  min-height: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 50%;
+  box-shadow: none;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(0, 0, 0, 0.08)),
+    color-mix(in srgb, var(--rebirth-color) 48%, #17251f);
+}
+
+.world-rebirth-avatar .card-art::after {
+  opacity: 0.18;
+}
+
+.world-rebirth-avatar .card-art-svg {
+  transform: scale(1.58);
+}
+
+.world-rebirth-avatar-fallback {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+}
+
+.world-rebirth-time {
+  font-size: 8px;
+  letter-spacing: 0;
+  transform: translateY(-1px);
+}
+
+.world-rebirth-token.is-overflow .world-rebirth-avatar {
+  background: #3d4b52;
+  color: #fff7d7;
 }
 
 .ability-icon-tooltip {
@@ -1775,7 +1871,7 @@ body.is-run-shop-open .card-pile-dock {
   display: grid;
   place-items: center;
   border: 1px solid rgba(255, 255, 255, 0.26);
-  border-radius: 7px;
+  border-radius: 50%;
   color: #fff7db;
   background:
     radial-gradient(circle at 24% 16%, rgba(255, 255, 255, 0.36), transparent 38%),
@@ -1785,6 +1881,10 @@ body.is-run-shop-open .card-pile-dock {
     0 0 14px color-mix(in srgb, var(--ability-color) 45%, transparent);
   font-size: 13px;
   font-weight: 900;
+}
+
+.specialization-icon {
+  border-color: rgba(255, 238, 178, 0.42);
 }
 
 .ability-icon strong {
@@ -1801,6 +1901,12 @@ body.is-run-shop-open .card-pile-dock {
   background: #fff2c7;
   font-size: 10px;
   line-height: 1;
+}
+
+.specialization-icon strong {
+  color: #fff4cf;
+  background: #1f2420;
+  font-size: 8px;
 }
 
 .core-icon-row {
@@ -3990,6 +4096,18 @@ body:not(.is-game-active) .mobile-action-dock {
   gap: 16px;
 }
 
+.meta-deck-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.meta-deck-actions button {
+  min-width: 96px;
+}
+
 .meta-deck-note {
   margin: 8px 0 0;
   color: rgba(247, 244, 232, 0.66);
@@ -4041,6 +4159,132 @@ body:not(.is-game-active) .mobile-action-dock {
     0 15px 28px rgba(0, 0, 0, 0.17),
     0 0 0 1px rgba(158, 238, 219, 0.14),
     inset 0 0 0 1px rgba(158, 238, 219, 0.08);
+}
+
+.meta-card.is-deck-in {
+  border-color: rgba(158, 238, 219, 0.52);
+}
+
+.meta-card.is-deck-in::before {
+  opacity: 0.78;
+}
+
+.meta-card.is-deck-out {
+  border-color: rgba(255, 122, 92, 0.32);
+  background:
+    linear-gradient(180deg, rgba(85, 32, 26, 0.18), rgba(255, 246, 218, 0.018) 45%, rgba(6, 16, 15, 0.14)),
+    color-mix(in srgb, var(--card-color) 4%, rgba(18, 28, 28, 0.66));
+}
+
+.meta-card.is-deck-out .meta-card-face {
+  opacity: 0.58;
+  filter: grayscale(0.46) saturate(0.62) brightness(0.78);
+}
+
+.meta-card.is-deck-out .meta-card-status {
+  border-color: rgba(255, 122, 92, 0.42);
+  color: #ffd8cf;
+  background: rgba(57, 20, 17, 0.56);
+}
+
+.meta-card.is-deck-out::after {
+  content: "";
+  position: absolute;
+  inset: 13px 12px 52px 16px;
+  z-index: 3;
+  border-radius: 8px;
+  background:
+    linear-gradient(43deg, transparent calc(50% - 4px), rgba(255, 105, 73, 0.88) calc(50% - 4px), rgba(255, 105, 73, 0.88) calc(50% + 4px), transparent calc(50% + 4px)),
+    linear-gradient(-43deg, transparent calc(50% - 4px), rgba(255, 105, 73, 0.7) calc(50% - 4px), rgba(255, 105, 73, 0.7) calc(50% + 4px), transparent calc(50% + 4px));
+  box-shadow: inset 0 0 28px rgba(255, 105, 73, 0.08);
+  opacity: 0.86;
+  pointer-events: none;
+}
+
+.meta-card-deck-mark {
+  position: absolute;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.meta-card-deck-mark span {
+  position: relative;
+  display: block;
+}
+
+.meta-card-deck-mark span::before,
+.meta-card-deck-mark span::after {
+  content: "";
+  position: absolute;
+}
+
+.meta-card.is-deck-in .meta-card-deck-mark {
+  top: 72px;
+  right: 74px;
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(158, 238, 219, 0.42);
+  border-radius: 50%;
+  background: rgba(13, 45, 39, 0.72);
+  box-shadow:
+    0 0 16px rgba(158, 238, 219, 0.18),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.meta-card.is-deck-in .meta-card-deck-mark span {
+  width: 15px;
+  height: 12px;
+}
+
+.meta-card.is-deck-in .meta-card-deck-mark span::before {
+  left: 1px;
+  top: 1px;
+  width: 11px;
+  height: 6px;
+  border-left: 3px solid #c8f6e9;
+  border-bottom: 3px solid #c8f6e9;
+  border-radius: 2px;
+  transform: rotate(-45deg);
+}
+
+.meta-card.is-deck-out .meta-card-deck-mark {
+  top: 44%;
+  left: 50%;
+  width: 64px;
+  height: 64px;
+  transform: translate(-50%, -50%);
+  border: 2px solid rgba(255, 122, 92, 0.7);
+  border-radius: 50%;
+  background: rgba(57, 20, 17, 0.62);
+  box-shadow:
+    0 0 24px rgba(255, 105, 73, 0.16),
+    inset 0 0 0 1px rgba(255, 242, 199, 0.08);
+}
+
+.meta-card.is-deck-out .meta-card-deck-mark span {
+  width: 40px;
+  height: 40px;
+}
+
+.meta-card.is-deck-out .meta-card-deck-mark span::before,
+.meta-card.is-deck-out .meta-card-deck-mark span::after {
+  left: 2px;
+  top: 18px;
+  width: 36px;
+  height: 5px;
+  border-radius: 999px;
+  background: #ffb09f;
+  box-shadow: 0 0 10px rgba(255, 105, 73, 0.26);
+}
+
+.meta-card.is-deck-out .meta-card-deck-mark span::before {
+  transform: rotate(45deg);
+}
+
+.meta-card.is-deck-out .meta-card-deck-mark span::after {
+  transform: rotate(-45deg);
 }
 
 .meta-card-cost,
@@ -4113,7 +4357,7 @@ body:not(.is-game-active) .mobile-action-dock {
   position: absolute;
   top: 72px;
   right: 9px;
-  z-index: 3;
+  z-index: 5;
   min-width: 48px;
   padding: 4px 7px;
   border: 1px solid rgba(158, 238, 219, 0.28);
@@ -5091,6 +5335,14 @@ body:not(.is-game-active) .mobile-action-dock {
     flex-direction: column;
   }
 
+  .meta-deck-actions {
+    justify-content: stretch;
+  }
+
+  .meta-deck-actions button {
+    flex: 1 1 128px;
+  }
+
   .meta-card-grid {
     grid-template-columns: repeat(auto-fill, minmax(164px, 1fr));
   }
@@ -5120,6 +5372,33 @@ body:not(.is-game-active) .mobile-action-dock {
   .meta-card-status {
     top: 68px;
     font-size: 10px;
+  }
+
+  .meta-card.is-deck-in .meta-card-deck-mark {
+    top: 68px;
+    right: 66px;
+    width: 24px;
+    height: 24px;
+  }
+
+  .meta-card.is-deck-out::after {
+    inset: 11px 10px 48px 15px;
+  }
+
+  .meta-card.is-deck-out .meta-card-deck-mark {
+    width: 54px;
+    height: 54px;
+  }
+
+  .meta-card.is-deck-out .meta-card-deck-mark span {
+    width: 34px;
+    height: 34px;
+  }
+
+  .meta-card.is-deck-out .meta-card-deck-mark span::before,
+  .meta-card.is-deck-out .meta-card-deck-mark span::after {
+    top: 15px;
+    width: 30px;
   }
 }
 
@@ -8465,7 +8744,7 @@ body.is-game-active #selected-enchants {
 body.is-game-active .ability-icon,
 body.is-game-active .core-icon {
   border: 1px solid #8c8375;
-  border-radius: 3px;
+  border-radius: 50%;
   background:
     linear-gradient(145deg, rgba(255, 255, 255, 0.18), transparent 44%),
     color-mix(in srgb, var(--ability-color, var(--core-color)) 40%, #393b39);

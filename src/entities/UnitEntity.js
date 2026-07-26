@@ -205,13 +205,19 @@ export class UnitEntity {
     });
   }
 
-  restoreHealth(amount) {
+  restoreHealth(amount, options = {}) {
+    const incoming = Math.max(0, Number(amount) || 0);
     const previousHealth = this.health;
-    this.health = clamp(this.health + amount, 0, this.maxHealth);
+    this.health = clamp(this.health + incoming, 0, this.maxHealth);
+    const healed = this.health - previousHealth;
     if (this.health !== previousHealth) {
       this.statusUiDirty = true;
     }
-    return this.health - previousHealth;
+    const overflow = Math.max(0, incoming - healed);
+    if (overflow > 0.001 && this.alive !== false) {
+      this.game?.buffs?.onOverheal?.(this, overflow, options.source ?? null);
+    }
+    return healed;
   }
 
   restoreShield(amount) {
@@ -292,9 +298,21 @@ export class UnitEntity {
   }
 
   takeRawDamage(amount, options = {}) {
-    const incoming = Math.max(0, amount);
+    const damageContext = {
+      target: this,
+      source: options.source ?? null,
+      damage: Math.max(0, amount),
+      bypassShield: options.bypassShield === true,
+      damageTypes: options.damageTypes instanceof Set
+        ? options.damageTypes
+        : new Set(options.damageTypes ?? [])
+    };
+    if (!damageContext.bypassShield && this.shield > 0.001) {
+      this.game?.buffs?.beforeShieldDamage?.(damageContext);
+    }
+    const incoming = Math.max(0, damageContext.damage);
     const previousHealth = this.health;
-    const absorbed = options.bypassShield ? 0 : Math.min(this.shield, incoming);
+    const absorbed = damageContext.bypassShield ? 0 : Math.min(this.shield, incoming);
     this.shield -= absorbed;
     this.health -= incoming - absorbed;
     if (this.health < previousHealth) {

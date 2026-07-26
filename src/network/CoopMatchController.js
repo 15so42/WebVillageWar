@@ -1,4 +1,4 @@
-import { LEVEL_DEFINITIONS } from '../data/gameData.js';
+import { DECK_SIZE, LEVEL_DEFINITIONS } from '../data/gameData.js';
 import { GAME_VERSION } from '../version.js';
 import { RoomClient } from './session/RoomClient.js';
 import { buildMatchDeck, normalizeMultiplayerSession } from './session/MultiplayerSession.js';
@@ -12,8 +12,6 @@ import {
   MATCH_PHASE,
   MSG
 } from './protocol/messages.js';
-
-const DECK_SIZE = 36;
 
 export function multiplayerVersionMatches(payload = {}) {
   return payload.gameVersion === GAME_VERSION
@@ -30,6 +28,7 @@ export class CoopMatchController {
     selectedLevel,
     cardWithLevel,
     toggleLocalDeckCard,
+    setLocalDeckSelection,
     onStartGame,
     onNotice,
     onLobbyVisible,
@@ -42,6 +41,7 @@ export class CoopMatchController {
     this.selectedLevel = selectedLevel;
     this.cardWithLevel = cardWithLevel;
     this.toggleLocalDeckCard = toggleLocalDeckCard;
+    this.setLocalDeckSelection = setLocalDeckSelection;
     this.onStartGame = onStartGame;
     this.onNotice = onNotice;
     this.onLobbyVisible = onLobbyVisible;
@@ -185,11 +185,7 @@ export class CoopMatchController {
   hasValidLocalDeck() {
     const deck = this.getDeckSelection?.() ?? [];
     if (deck.length !== DECK_SIZE) {
-      this.onNotice?.(`请先选满 ${DECK_SIZE} 张卡牌`);
-      return false;
-    }
-    if (!deck.some((id) => this.cardWithLevel?.(id)?.kind === 'summon')) {
-      this.onNotice?.('牌组至少需要 1 张单位卡');
+      this.onNotice?.(`牌组需要正好 ${DECK_SIZE} 张卡牌`);
       return false;
     }
     return true;
@@ -204,6 +200,22 @@ export class CoopMatchController {
     const localPlayerId = this.roomClient.playerId;
     const wasReady = Boolean(this.lobbyPlayers.get(localPlayerId)?.ready);
     this.toggleLocalDeckCard?.(cardId);
+    if (wasReady) {
+      this.toggleReady(false);
+    } else {
+      this.onLobbyVisible?.(this.viewState({ event: MSG.LOBBY_STATE }));
+    }
+    return true;
+  }
+
+  replaceDeckSelection(cardIds = []) {
+    if (
+      (this.phase !== MATCH_PHASE.LOBBY_EDITING && this.phase !== MATCH_PHASE.READY_CHECK)
+      || !this.roomClient.room?.id
+    ) return false;
+    const localPlayerId = this.roomClient.playerId;
+    const wasReady = Boolean(this.lobbyPlayers.get(localPlayerId)?.ready);
+    this.setLocalDeckSelection?.(cardIds);
     if (wasReady) {
       this.toggleReady(false);
     } else {
@@ -572,17 +584,14 @@ export class CoopMatchController {
     if (command.payload?.gameVersion !== GAME_VERSION) {
       return this.rejectLobbyCommand(command, 'game_version_mismatch');
     }
-    if (command.payload?.ready && deck.length !== DECK_SIZE) {
-      return this.rejectLobbyCommand(command, 'invalid_deck_size');
-    }
     if (command.payload?.catalogVersion !== CATALOG_VERSION) {
       return this.rejectLobbyCommand(command, 'catalog_version_mismatch');
     }
+    if (command.payload?.ready && deck.length !== DECK_SIZE) {
+      return this.rejectLobbyCommand(command, 'deck_requires_exact_size');
+    }
     if (command.payload?.ready && deck.some((card) => !card?.id)) {
       return this.rejectLobbyCommand(command, 'invalid_card_definition');
-    }
-    if (command.payload?.ready && !deck.some((card) => this.cardWithLevel?.(card.id)?.kind === 'summon')) {
-      return this.rejectLobbyCommand(command, 'deck_requires_summon');
     }
     player.ready = Boolean(command.payload?.ready);
     player.deck = deck.map((card) => ({ id: card.id, level: card.level ?? 1 }));

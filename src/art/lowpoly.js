@@ -6426,17 +6426,30 @@ export function createAttackRangeRing(color = '#62d56f') {
 export function createMeteorModel() {
   const group = new THREE.Group();
   const core = new THREE.Mesh(
-    new THREE.DodecahedronGeometry(0.52, 0),
-    mat('#4a3d39', { emissive: '#37160c', emissiveIntensity: 0.4 })
+    new THREE.DodecahedronGeometry(0.72, 0),
+    basicMat('#3a2620')
   );
-  const glow = new THREE.Mesh(
-    new THREE.DodecahedronGeometry(0.78, 0),
-    basicMat('#ff8c3a', {
+  const hotCore = new THREE.Mesh(
+    new THREE.DodecahedronGeometry(0.46, 0),
+    basicMat('#ffd27a', {
       transparent: true,
-      opacity: 0.34,
-      depthWrite: false
+      opacity: 0.88,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
     })
   );
-  group.add(glow, core);
+  const glow = new THREE.Mesh(
+    new THREE.DodecahedronGeometry(1.08, 0),
+    basicMat('#ff8c3a', {
+      transparent: true,
+      opacity: 0.58,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    })
+  );
+  glow.renderOrder = 1600;
+  hotCore.renderOrder = 1601;
+  core.renderOrder = 1602;
+  group.add(glow, hotCore, core);
   return enableShadows(group);
 }

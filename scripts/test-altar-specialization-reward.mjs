@@ -18,6 +18,20 @@ const enoughOwned = pickAltarSpecializationChoices(
 );
 assert.equal(enoughOwned.length, 3);
 assert.ok(enoughOwned.every((choice) => ['knight', 'archer'].includes(choice.unitType)));
+assert.ok(enoughOwned.some((choice) => choice.unitType === 'knight'));
+assert.ok(enoughOwned.some((choice) => choice.unitType === 'archer'));
+
+const distinctOwnedTypes = pickAltarSpecializationChoices(
+  choices,
+  new Set(['knight', 'archer', 'mage']),
+  3,
+  fixedRandom
+);
+assert.equal(distinctOwnedTypes.length, 3);
+assert.deepEqual(
+  new Set(distinctOwnedTypes.map((choice) => choice.unitType)),
+  new Set(['knight', 'archer', 'mage'])
+);
 
 const needsFallback = pickAltarSpecializationChoices(
   choices,

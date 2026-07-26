@@ -217,6 +217,9 @@ export class ClientMirror {
     if ('endlessDifficulty' in changes) {
       this.game.endlessDifficulty = Number(changes.endlessDifficulty) || 0;
     }
+    if ('rebirthQueue' in changes) {
+      this.game.applyNetworkRebirthQueue?.(changes.rebirthQueue);
+    }
     if ('currentWave' in changes) {
       const incomingWave = changes.currentWave;
       const scheduledWave = incomingWave

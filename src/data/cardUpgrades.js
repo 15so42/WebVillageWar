@@ -174,7 +174,7 @@ export const UNIT_SPECIAL_UPGRADES = {
       id: 'water-mage-snare',
       kind: 'unit-special',
       name: '水牢',
-      summary: '命中后使目标短时间减速。',
+      summary: '命中后禁锢目标 2.4 秒，使其无法移动但仍可攻击。',
       trait: 'waterSnare'
     },
     {
@@ -218,7 +218,7 @@ export const UNIT_SPECIAL_UPGRADES = {
       id: 'engineer-mini-turret',
       kind: 'unit-special',
       name: '便携炮台',
-      summary: '周期性部署 1 个继承工匠全部当前属性的小炮台，但最大生命只有继承值的 50%。',
+      summary: '周期性部署 1 个小炮台，继承工匠生命、攻击、双抗与耐久成长，但保留炮台自己的远程射程与索敌。',
       trait: 'miniTurret'
     }
   ],
@@ -290,7 +290,7 @@ export function runtimeUpgradeTitleForCard(card) {
 }
 
 export function runtimeUpgradeSummaryForCard(card) {
-  if (card?.kind === 'summon') return '提高同名单位卡召唤单位的全部属性，每级 +25%。';
+  if (card?.kind === 'summon') return '提高同名单位卡召唤单位的生命、护盾、攻击、双抗与武器耐久，每级 +25%。';
   if (card?.kind === 'building') return '提升建筑核心效果，尽量强化功能而非肉度。';
   if (card?.id === 'meteor') return '提高陨石伤害、范围和击退。';
   if (card?.kind === 'spell') return '提高区域持续时间、范围或区域效果等级。';

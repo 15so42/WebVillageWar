@@ -228,6 +228,7 @@ export class SnapshotBuilder {
       waveLabel: this.game.currentWave?.label ?? '',
       elapsedTime: Math.floor((this.game.elapsedTime ?? 0) * 4) / 4,
       endlessDifficulty: Number(this.game.endlessDifficulty ?? 0),
+      rebirthQueue: this.game.serializeRebirthQueue?.() ?? [],
       currentWave: this.game.currentWave ? {
         index: this.game.currentWave.index ?? this.game.wave ?? 0,
         label: this.game.currentWave.label ?? '',
@@ -313,6 +314,7 @@ export class SnapshotBuilder {
           waveLabel: this.game.currentWave?.label ?? '',
           elapsedTime: Math.floor((this.game.elapsedTime ?? 0) * 4) / 4,
           endlessDifficulty: Number(this.game.endlessDifficulty ?? 0),
+          rebirthQueue: this.game.serializeRebirthQueue?.() ?? [],
           currentWave: this.game.currentWave ? {
             index: this.game.currentWave.index ?? this.game.wave ?? 0,
             label: this.game.currentWave.label ?? '',

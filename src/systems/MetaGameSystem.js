@@ -58,8 +58,8 @@ const DEVELOPMENT_CHANGELOG_ARCHIVE = [
     title: '各地图无尽挑战与联机 Host 权威难度',
     items: [
       '每张地图新增独立的无尽挑战模式：无限生成普通、精英与 Boss 波次，波次终端以实时难度值替代目标倒计时。',
-      '无尽难度从 0 开始，只由 Host 根据每个敌人的实际存活时间即时调整；极快击杀会显著提高难度，慢速击杀会降低难度，属性与出生附魔随当前难度变化。',
-      '双人联机房间可由 Host 锁定普通或无尽模式，Client 只接收权威难度与波次状态；重连快照会恢复当前难度。',
+      '无尽难度从 0 开始，只由 Host 根据每个敌人从首次受伤到死亡的交战时间即时调整；极快击杀会显著提高难度，慢速击杀会降低难度，属性与出生附魔随当前难度变化。',
+      '多人联机房间可由 Host 锁定普通或无尽模式，Client 只接收权威难度与波次状态；重连快照会恢复当前难度。',
       '进入无尽挑战后，所有运行时卡牌统一从 Lv.1 开始，局外卡牌升级不生效且不会被修改；对局内获得的升级仍然有效。',
       '无尽模式中摧毁敌营或己方基地失守都会结束挑战并结算胜利，金币按结束难度和玩家自己的胜利金币能力计算。'
     ]
@@ -840,6 +840,132 @@ const DEVELOPMENT_CHANGELOG_ARCHIVE = [
 
 const CHANGELOG_ENTRIES = [
   {
+    date: '2026-07-26',
+    title: '野火伤害强化',
+    items: [
+      '野火地形的燃烧伤害提高 50%，1 级伤害从每秒 3.2 提高到 4.8，清理低血敌人的体感更明显。'
+    ]
+  },
+  {
+    date: '2026-07-26',
+    title: '无尽难度按血量结算',
+    items: [
+      '无尽模式中，击杀敌人的难度变化改为按敌人最大生命加权结算；低血小怪被秒杀只会小幅提高难度，血厚敌人才会带来更明显变化。',
+      '玩家单位阵亡的降难度仍按单位费用 x0.24 结算，使高费核心单位阵亡后难度能更快回落。'
+    ]
+  },
+  {
+    date: '2026-07-25',
+    title: '无尽损兵降压加倍',
+    items: [
+      '无尽模式中，玩家单位阵亡会按该单位费用 x0.24 降低当前难度，损兵后敌人强度会更快回落。'
+    ]
+  },
+  {
+    date: '2026-07-25',
+    title: '战斗反馈与兵种特性调整',
+    items: [
+      '重做熔岩喷发、野火与燃烧视觉：熔岩会向上喷发并带有飞溅，火焰会持续摇动燃烧，不再只有地面圆环。',
+      '熔岩喷发伤害调整为本局已打出牌数 x1；修复矮人工匠的小炮台继承近战射程后几乎不开火的问题，小炮台现在保留自己的远程射程和索敌。',
+      '水法师「水牢」专精改为禁锢目标 2.4 秒；集群、重甲、冲锋附魔卡面说明补充具体属性数值。',
+      '单位详情血量显示改为正血量至少显示 1，避免 0.x 生命被四舍五入成 0 后造成误判。',
+      '无盾剑士新增 30% 概率格挡攻击，使本次攻击伤害减半；盗贼基础闪避提高到 18%，在白雾中获得双倍烟雾闪避加成。'
+    ]
+  },
+  {
+    date: '2026-07-25',
+    title: '复生图腾修复与无尽奖励',
+    items: [
+      '修复复生图腾单位死亡后没有进入复活倒计时、也不会从基地复活的问题。',
+      '复活队列现在会在基地血条下方显示对应单位的小图标和倒计时秒数。',
+      '无尽模式结束奖励从最终难度 x4 提高到最终难度 x6，并继续受个人奖励倍率影响。'
+    ]
+  },
+  {
+    date: '2026-07-25',
+    title: '单位成长、无尽与毒雾平衡',
+    items: [
+      '单位卡升级不再提高攻击范围、移动速度、攻速、索敌、弹速、击退和闪避，改为只强化生命、护盾、攻击、双抗与武器耐久。',
+      '修复手机单指滑动时可能残留旧触点并误触发双指缩放的问题，战场拖动镜头更稳定。',
+      '无尽模式正向难度增长降低 40%，挑战结束奖励会按最终难度和个人奖励倍率结算。',
+      '毒雾强化为更大的 12 秒区域，挂毒更频繁，最大生命值毒伤明显提高。'
+    ]
+  },
+  {
+    date: '2026-07-25',
+    title: '复生图腾附魔',
+    items: [
+      '新增「复生图腾」附魔牌：被附魔单位死亡后会正常离场，并在基地血条下方显示头像与复活倒计时。',
+      '复生倒计时基础为 60 秒，附魔每升 1 级缩短 5 秒；倒计时结束后单位会从己方基地旁复活。',
+      '复活会保留死亡前的关键属性上限、护盾、武器耐久、双抗、移速和已有附魔效果，适合保护核心成长单位。'
+    ]
+  },
+  {
+    date: '2026-07-25',
+    title: '附魔、瘟疫与发牌池',
+    items: [
+      '新增「过量治疗」和「护盾韧性」两张附魔牌：溢出治疗会转化为护盾，护盾受伤时可按等级固定减免伤害。',
+      '瘟疫不再造成持续掉血，改为 3 秒内降低敌人的护甲和魔抗；卡牌升级会提高双抗削弱幅度。',
+      '单机和多人联机的出战牌组恢复为 18 张；波次奖励选走的牌会从本局发牌池移除，无尽模式发完后不再弹出发牌奖励。',
+      '军需铺初始价格提高到 12 银币，军需铺三选一仍从最初 18 张出战牌中随机，不消耗波次发牌池。'
+    ]
+  },
+  {
+    date: '2026-07-25',
+    title: '牌组操作优化',
+    items: [
+      '配置牌组时，加入或移除卡牌后会保持当前滚动位置，不再跳回卡牌列表顶部。',
+      '出战牌组选择会即时保存，下一次进入单机或多人联机牌组配置时会保留上次选择。',
+      '单机和多人联机牌组配置增加全选与全部移除按钮，批量调整牌组更快。'
+    ]
+  },
+  {
+    date: '2026-07-25',
+    title: '自由牌组与 Boss 血量',
+    items: [
+      '单机和多人联机的出战牌组取消固定张数限制，选择任意数量卡牌即可准备或进入关卡。',
+      '牌组配置仍会提示至少保留 1 张卡牌，避免空牌组开局。',
+      '所有关卡和普通、无尽模式中的 Boss 最大生命值在当前基础上降低 40%，Boss 护盾也会按降低后的生命值重新计算。'
+    ]
+  },
+  {
+    date: '2026-07-25',
+    title: '牌组状态提示',
+    items: [
+      '配置牌组时，已加入的卡牌会显示出战序号和确认标识，方便检查当前出战牌。',
+      '未入选或刚移出的卡牌会整体变暗并画上醒目的叉号，加入和移出状态更容易分辨。',
+      '手机端牌组卡面的加入与移出标识同步适配，窄屏下也能快速看出哪些卡不在出战牌组里。'
+    ]
+  },
+  {
+    date: '2026-07-25',
+    title: '法术表现与附魔修正',
+    items: [
+      '陨石术的下落过程加入更清晰的陨石本体、火光和拖尾，单机释放时不再只看到地面的预警圈。',
+      '魔力涌动临时卡改为随机进行 5 次 1 级附魔，说明文字和实际效果保持一致。',
+      '随机附魔效果会按卡牌配置的单次附魔等级结算，避免临时卡因为自身等级一次性附出过高等级。'
+    ]
+  },
+  {
+    date: '2026-07-25',
+    title: '专精与单位详情',
+    items: [
+      '祭坛兵种专精会先围绕本局携带或已经部署的兵种出现，并尽量覆盖不同兵种，阵容成长不再像完全随机。',
+      '点击敌方单位也能查看生命、护盾、武器、护甲、魔抗、闪避和附魔等详情；框选与命令仍只控制自己的单位。',
+      '剑士「破甲斩」命中后会正确降低目标护甲，并显示破甲状态和战斗提示。',
+      '已选择的兵种专精会显示在能量条里，与能力卡图标同排展示，并统一改为圆形背景。'
+    ]
+  },
+  {
+    date: '2026-07-24',
+    title: '多人联机入口与无尽计时',
+    items: [
+      '主菜单入口从「双人联机」改为「多人联机」，与当前动态多人房间规则保持一致。',
+      '无尽难度评价改为从敌人第一次被非空攻击者实际打伤开始计时，再按死亡时的交战时长调整难度。',
+      '无尽模式的标准交战时间整体缩短为原来的 25%，普通敌人的基础评价时间从 20 秒调整为 5 秒。'
+    ]
+  },
+  {
     date: '2026-07-24',
     title: '兵种构筑与祭坛专精',
     items: [
@@ -891,7 +1017,7 @@ const CHANGELOG_ENTRIES = [
     date: '2026-07-13',
     title: '卡牌成长、军需铺与祭坛',
     items: [
-      '单位卡升级会提高召唤单位的全部属性，队伍训练和卡牌等级可以叠加。',
+      '单位卡升级会提高召唤单位的核心战斗属性，队伍训练和卡牌等级可以叠加。',
       '军需铺支持升级、复制和移除已有卡牌；波次奖励可花费银币重选，也可以直接放弃。',
       '地形牌改为冷却后重复使用，附魔牌不再受冷却限制；祭坛成为对局内获得关键能力的主要地点。',
       '首领、精英与建筑节奏重新平衡，基地防御建筑耐久耗尽后可继续维修恢复。'
@@ -919,7 +1045,7 @@ export class MetaGameSystem {
     this.selectedLevelId = this.progress.preferences.selectedLevelId;
     this.selectedDifficulty = this.selectedDifficultyForLevel(this.selectedLevelId);
     this.selectedChallengeMode = normalizeChallengeMode(this.progress.preferences.challengeMode);
-    this.deckSelection = this.progress.preferences.deckSelection.slice(0, DECK_SIZE);
+    this.deckSelection = this.progress.preferences.deckSelection.slice();
     this.lastResult = null;
     this.notice = null;
     this.noticeTimer = null;
@@ -991,7 +1117,7 @@ export class MetaGameSystem {
     this.selectedLevelId = this.progress.preferences.selectedLevelId;
     this.selectedDifficulty = this.selectedDifficultyForLevel(this.selectedLevelId);
     this.selectedChallengeMode = normalizeChallengeMode(this.progress.preferences.challengeMode);
-    this.deckSelection = this.progress.preferences.deckSelection.slice(0, DECK_SIZE);
+    this.deckSelection = this.progress.preferences.deckSelection.slice();
     this.lastResult = null;
     this.setNotice('本地存档已清除，已恢复为初始进度。');
     this.show('menu', { keepNotice: true });
@@ -1101,6 +1227,16 @@ export class MetaGameSystem {
       this.show('deck', { preserveScroll: true });
       return;
     }
+    if (action === 'deck-select-all') {
+      this.selectAllDeckCards();
+      this.show('deck', { preserveScroll: true });
+      return;
+    }
+    if (action === 'deck-clear-all') {
+      this.clearDeckCards();
+      this.show('deck', { preserveScroll: true });
+      return;
+    }
     if (action === 'start-level') {
       if (this.view === 'levels') {
         this.ensureDeckSelection();
@@ -1147,10 +1283,7 @@ export class MetaGameSystem {
   }
 
   render(options = {}) {
-    const scrollTop = options.preserveScroll ? this.root.scrollTop : 0;
-    const viewScrollTop = options.preserveScroll
-      ? this.root.querySelector('.meta-deck, .meta-layout, .meta-home, .meta-menu, .meta-page')?.scrollTop ?? 0
-      : 0;
+    const scrollPositions = options.preserveScroll ? captureMetaScrollPositions(this.root) : [];
     const shellClass = `meta-shell view-${this.view} ${this.view === 'menu' ? 'is-main-menu' : 'is-subpage'}`;
     this.root.innerHTML = `
       <div class="${shellClass}" role="dialog" aria-modal="true" aria-label="局外菜单">
@@ -1160,15 +1293,9 @@ export class MetaGameSystem {
       </div>
     `;
     if (options.preserveScroll) {
-      this.root.scrollTop = scrollTop;
-      const restoreViewScroll = () => {
-        const viewScroller = this.root.querySelector('.meta-deck, .meta-layout, .meta-home, .meta-menu, .meta-page');
-        if (viewScroller) viewScroller.scrollTop = viewScrollTop;
-      };
-      restoreViewScroll();
+      restoreMetaScrollPositions(this.root, scrollPositions);
       window.requestAnimationFrame(() => {
-        this.root.scrollTop = scrollTop;
-        restoreViewScroll();
+        restoreMetaScrollPositions(this.root, scrollPositions);
       });
     }
   }
@@ -1454,7 +1581,7 @@ export class MetaGameSystem {
                   <span class="btn-text-main">踏上征途</span> 
                   <span class="btn-text-sub">Embark</span>
               </button>
-              <button class="med-btn-epic mw-menu-button mw-menu-button-secondary" type="button" data-action="coop"><span class="mw-button-label">双人联机</span><span class="mw-button-caption">Co-op</span></button>
+              <button class="med-btn-epic mw-menu-button mw-menu-button-secondary" type="button" data-action="coop"><span class="mw-button-label">多人联机</span><span class="mw-button-caption">Co-op</span></button>
               <button class="med-btn-epic mw-menu-button mw-menu-button-secondary" type="button" data-action="shop"><span class="mw-button-label">炼金工坊</span><span class="mw-button-caption">Workshop</span></button>
               <div class="med-menu-row mw-menu-utility-row">
                   <button class="med-btn-epic-small mw-menu-button mw-menu-button-utility" type="button" data-action="guide">
@@ -1575,7 +1702,7 @@ export class MetaGameSystem {
              </div>
 
              ${endless ? `
-             <div class="med-endless-note">所有卡牌入场统一为 Lv.1，局外升级不生效。难度只按敌人存活时间即时变化；任一基地被摧毁都会结束挑战并结算金币。</div>
+             <div class="med-endless-note">所有卡牌入场统一为 Lv.1，局外升级不生效。难度按敌人首次受伤到死亡的交战时间即时变化；任一基地被摧毁都会结束挑战并结算金币。</div>
              ` : `
              <div class="med-difficulty-book-selector">
                 <span class="diff-label">挑战刻度</span>
@@ -1598,31 +1725,38 @@ export class MetaGameSystem {
 
   renderDeckBuilder() {
     this.ensureDeckSelection();
-    const selected = new Set(this.deckSelection);
     const selectedCount = this.deckSelection.length;
+    const deckReady = selectedCount === DECK_SIZE;
     return `
       <main class="meta-deck">
         <section class="meta-panel meta-deck-summary">
           <div>
             <div class="meta-section-title">出战牌组</div>
-            <p>已选择 ${selectedCount}/${DECK_SIZE}。必须选择 ${DECK_SIZE} 张卡牌才能进入关卡。</p>
+            <p>已选择 ${selectedCount}/${DECK_SIZE} 张。波次奖励会从这 ${DECK_SIZE} 张牌中发放，必须正好选满后才能进入关卡。</p>
             <p class="meta-deck-note">能量不会自动恢复，战斗中靠击杀敌人充能。</p>
           </div>
-          <button class="meta-primary-button" type="button" data-action="start-level" ${selectedCount === DECK_SIZE ? '' : 'disabled'}>
-            开始关卡
-          </button>
-          <button class="meta-secondary-button" type="button" data-action="levels">返回选关</button>
+          <div class="meta-deck-actions">
+            <button class="meta-primary-button" type="button" data-action="start-level" ${deckReady ? '' : 'disabled'}>
+              开始关卡
+            </button>
+            <button class="meta-secondary-button" type="button" data-action="deck-select-all">全选</button>
+            <button class="meta-secondary-button" type="button" data-action="deck-clear-all" ${selectedCount > 0 ? '' : 'disabled'}>全部移除</button>
+            <button class="meta-secondary-button" type="button" data-action="levels">返回选关</button>
+          </div>
         </section>
         <section class="meta-card-grid">
           ${this.progress.ownedCards.map((id) => {
             const card = this.cardWithLevel(id);
-            const isSelected = selected.has(id);
+            const selectedIndex = this.deckSelection.indexOf(id);
+            const isSelected = selectedIndex !== -1;
+            const addDisabled = !isSelected && selectedCount >= DECK_SIZE;
             return this.renderMetaCard(card, {
               action: 'toggle-deck-card',
-              stateText: isSelected ? '移出' : '加入',
-              statusText: isSelected ? '已加入' : '',
+              stateText: isSelected ? '移出牌组' : (addDisabled ? '牌组已满' : '加入出战'),
+              statusText: isSelected ? `出战 #${selectedIndex + 1}` : '未入选',
+              deckState: isSelected ? 'in' : 'out',
               selected: isSelected,
-              disabled: !isSelected && selectedCount >= DECK_SIZE
+              disabled: addDisabled
             });
           }).join('')}
         </section>
@@ -1799,17 +1933,22 @@ export class MetaGameSystem {
   renderMetaCard(card, options) {
     const disabled = options.disabled ? 'disabled' : '';
     const selected = options.selected ? ' is-selected' : '';
+    const deckState = options.deckState ? ` is-deck-${options.deckState}` : '';
     const actionClass = options.action ? ` is-${options.action}` : '';
     const actionAttribute = options.actionAttribute ?? 'data-action';
     const statusMarkup = options.statusText
       ? `<div class="meta-card-status">${options.statusText}</div>`
       : '';
+    const deckMarkMarkup = options.deckState
+      ? '<div class="meta-card-deck-mark" aria-hidden="true"><span></span></div>'
+      : '';
     return `
-      <article class="meta-card is-kind-${card.kind}${selected}" style="--card-color:${cardThemeColor(card)}">
+      <article class="meta-card is-kind-${card.kind}${selected}${deckState}" style="--card-color:${cardThemeColor(card)}">
         <div class="meta-card-cost">${cardEnergyCost(card)}</div>
         <div class="meta-card-level">Lv.${card.level ?? 1}</div>
         ${cardUseBarMarkup(card, 'meta-card-use-bar')}
         ${statusMarkup}
+        ${deckMarkMarkup}
         <div class="meta-card-face">
           <div class="meta-card-header">
             <span class="meta-card-rune">${card.label}</span>
@@ -1869,7 +2008,7 @@ export class MetaGameSystem {
       selectedLevelId,
       selectedDifficulties,
       challengeMode: normalizeChallengeMode(this.selectedChallengeMode),
-      deckSelection: this.deckSelection.slice(0, DECK_SIZE)
+      deckSelection: this.deckSelection.slice()
     };
     saveProgress(this.progress);
   }
@@ -1900,9 +2039,27 @@ export class MetaGameSystem {
       this.persistPreferences();
       return;
     }
-    if (this.deckSelection.length >= DECK_SIZE) return;
+    if (this.deckSelection.length >= DECK_SIZE) {
+      this.setNotice(`出战牌组最多 ${DECK_SIZE} 张。`);
+      return;
+    }
     this.deckSelection.push(id);
     this.persistPreferences();
+  }
+
+  setDeckSelection(ids = []) {
+    this.deckSelection = normalizeDeckSelection(ids, this.progress.ownedCards, {
+      defaultToOwned: false
+    });
+    this.persistPreferences();
+  }
+
+  selectAllDeckCards() {
+    this.setDeckSelection(this.progress.ownedCards.slice(0, DECK_SIZE));
+  }
+
+  clearDeckCards() {
+    this.setDeckSelection([]);
   }
 
   buyCard(id) {
@@ -1932,11 +2089,11 @@ export class MetaGameSystem {
   startLevel() {
     this.ensureDeckSelection();
     if (this.deckSelection.length !== DECK_SIZE) {
-      this.setNotice(`请选择 ${DECK_SIZE} 张卡牌后开始关卡`);
+      this.setNotice(`请正好选择 ${DECK_SIZE} 张卡牌后开始关卡。`);
       this.show('deck', { preserveScroll: true, keepNotice: true });
       return;
     }
-    const deckIds = this.deckSelection.slice(0, DECK_SIZE);
+    const deckIds = this.deckSelection.slice();
     const deck = deckIds.map((id, index) => {
       const card = this.cardWithLevel(id);
       return {
@@ -1944,11 +2101,6 @@ export class MetaGameSystem {
         instanceId: `${id}-${index}-${Date.now()}-${Math.random().toString(36).slice(2)}`
       };
     });
-    if (!deck.some((card) => card.kind === 'summon')) {
-      this.setNotice('出战牌组至少需要 1 张单位卡');
-      this.show('deck', { preserveScroll: true, keepNotice: true });
-      return;
-    }
     const difficulty = Math.min(
       clampDifficulty(this.selectedDifficulty),
       this.availableDifficulty(this.selectedLevelId)
@@ -1975,6 +2127,36 @@ function createMetaRoot() {
   root.className = 'meta-root';
   document.querySelector('#app')?.appendChild(root);
   return root;
+}
+
+function captureMetaScrollPositions(root) {
+  const selectors = [
+    ':scope',
+    '.meta-shell',
+    '.meta-deck',
+    '.meta-card-grid',
+    '.meta-layout',
+    '.meta-home',
+    '.meta-menu',
+    '.meta-page'
+  ];
+  return selectors.map((selector) => {
+    const element = selector === ':scope' ? root : root.querySelector(selector);
+    return {
+      selector,
+      top: element?.scrollTop ?? 0,
+      left: element?.scrollLeft ?? 0
+    };
+  });
+}
+
+function restoreMetaScrollPositions(root, positions = []) {
+  positions.forEach((entry) => {
+    const element = entry.selector === ':scope' ? root : root.querySelector(entry.selector);
+    if (!element) return;
+    element.scrollTop = entry.top;
+    element.scrollLeft = entry.left;
+  });
 }
 
 function pageTitleForView(view) {
@@ -2042,16 +2224,14 @@ function normalizePreferences(rawPreferences, ownedCards, levelDifficulties) {
       clampDifficulty(levelDifficulties[level.id] ?? 1)
     );
   });
-  const savedDeckSelection = normalizeDeckSelection(rawPreferences?.deckSelection, ownedCards);
+  const hasSavedDeckSelection = Array.isArray(rawPreferences?.deckSelection);
+  const savedDeckSelection = normalizeDeckSelection(rawPreferences?.deckSelection, ownedCards, {
+    defaultToOwned: false
+  });
   const starterDeckSelection = normalizeDeckSelection(STARTER_CARD_IDS, ownedCards, {
     defaultToOwned: false
   });
-  let deckSelection = savedDeckSelection.length === DECK_SIZE
-    ? savedDeckSelection
-    : starterDeckSelection;
-  if (deckSelection.length < DECK_SIZE) {
-    deckSelection = fillDeckSelection(deckSelection, ownedCards);
-  }
+  const deckSelection = hasSavedDeckSelection ? savedDeckSelection : starterDeckSelection;
   return {
     selectedLevelId,
     selectedDifficulties,
@@ -2068,29 +2248,18 @@ function normalizeLevelId(levelId) {
 
 function normalizeDeckSelection(rawDeckSelection, ownedCards, options = {}) {
   const defaultToOwned = options.defaultToOwned !== false;
+  const limit = Math.max(0, Math.floor(options.limit ?? DECK_SIZE));
   const source = Array.isArray(rawDeckSelection)
     ? rawDeckSelection
     : defaultToOwned ? ownedCards : [];
   const owned = new Set(ownedCards);
   const result = [];
   source.forEach((id) => {
+    if (result.length >= limit) return;
     if (!owned.has(id) || result.includes(id)) return;
     result.push(id);
   });
-  return result.slice(0, DECK_SIZE);
-}
-
-function fillDeckSelection(selection, ownedCards) {
-  const owned = new Set(ownedCards);
-  const result = [...selection];
-  const addIfMissing = (id) => {
-    if (result.length >= DECK_SIZE) return;
-    if (!owned.has(id) || result.includes(id)) return;
-    result.push(id);
-  };
-  ownedCards.forEach(addIfMissing);
-  STARTER_CARD_IDS.forEach(addIfMissing);
-  return result.slice(0, DECK_SIZE);
+  return result;
 }
 
 function normalizeOwnedCards(rawOwnedCards) {

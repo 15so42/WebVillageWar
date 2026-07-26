@@ -118,6 +118,7 @@ function modifierType(modifier) {
 }
 
 function resolveAddAmount(modifier, context) {
+  if (!modifierAppliesToOwner(modifier, context.owner)) return 0;
   const level = resolveLevel(modifier, context);
   const amount = toFiniteNumber(modifier.amount ?? modifier.value, 0);
   const amountPerLevel = toFiniteNumber(modifier.amountPerLevel, 0);
@@ -128,6 +129,7 @@ function resolveAddAmount(modifier, context) {
 }
 
 function resolveMultiplier(modifier, context) {
+  if (!modifierAppliesToOwner(modifier, context.owner)) return 1;
   const level = resolveLevel(modifier, context);
   if (Number.isFinite(modifier.factor) || Number.isFinite(modifier.factorPerLevel)) {
     return (
@@ -174,6 +176,23 @@ function toFiniteNumber(value, fallback) {
   return Number.isFinite(value) ? value : fallback;
 }
 
+function modifierAppliesToOwner(modifier, owner) {
+  const unitTypes = normalizeTypeList(modifier.unitTypes ?? modifier.onlyUnitTypes ?? modifier.unitType ?? modifier.onlyUnitType);
+  if (unitTypes.length && !unitTypes.includes(owner?.type)) return false;
+  const excludeUnitTypes = normalizeTypeList(modifier.excludeUnitTypes ?? modifier.exceptUnitTypes);
+  if (excludeUnitTypes.length && excludeUnitTypes.includes(owner?.type)) return false;
+  return true;
+}
+
+function normalizeTypeList(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item ?? '').trim()).filter(Boolean);
+  }
+  if (value == null) return [];
+  const text = String(value).trim();
+  return text ? [text] : [];
+}
+
 function minifyModifier(modifier) {
   return {
     id: modifier.id,
@@ -182,6 +201,12 @@ function minifyModifier(modifier) {
     amountPerLevel: modifier.amountPerLevel,
     nearbyAllyAmountPerLevel: modifier.nearbyAllyAmountPerLevel,
     radius: modifier.radius,
+    unitType: modifier.unitType,
+    unitTypes: modifier.unitTypes,
+    onlyUnitType: modifier.onlyUnitType,
+    onlyUnitTypes: modifier.onlyUnitTypes,
+    excludeUnitTypes: modifier.excludeUnitTypes,
+    exceptUnitTypes: modifier.exceptUnitTypes,
     factor: modifier.factor,
     percent: modifier.percent,
     percentPerLevel: modifier.percentPerLevel,

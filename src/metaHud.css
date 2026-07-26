@@ -606,6 +606,18 @@
     linear-gradient(180deg, #313533, #222624);
 }
 
+.meta-deck-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.meta-deck-actions button {
+  min-width: 96px;
+}
+
 /* Deck builder keeps its command bar fixed while only the card library scrolls. */
 .meta-shell.view-deck .meta-deck {
   display: grid;
@@ -1696,6 +1708,14 @@
     flex-wrap: wrap;
   }
 
+  .meta-deck-actions {
+    justify-content: stretch;
+  }
+
+  .meta-deck-actions button {
+    flex: 1 1 128px;
+  }
+
   .med-map-book {
     grid-template-columns: 1fr;
   }
@@ -2309,7 +2329,22 @@
   border-bottom: 1px solid rgba(175, 170, 158, 0.2);
 }
 
-.coop-deck-builder-head > div {
+.coop-deck-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.coop-deck-actions button {
+  min-width: 92px;
+  min-height: 34px;
+  padding: 7px 10px !important;
+  font-size: 11px;
+}
+
+.coop-deck-builder-head > div:not(.coop-deck-actions) {
   display: grid;
   gap: 2px;
 }
@@ -2519,6 +2554,19 @@
 
   .coop-lobby-header {
     grid-template-columns: 1fr;
+  }
+
+  .coop-deck-builder-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .coop-deck-actions {
+    justify-content: stretch;
+  }
+
+  .coop-deck-actions button {
+    flex: 1 1 118px;
   }
 
   .coop-lobby-back {

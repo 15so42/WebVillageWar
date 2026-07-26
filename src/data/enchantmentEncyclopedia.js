@@ -28,8 +28,11 @@ const ENCHANTMENT_SECTIONS = [
       'block',
       'recovery',
       'phoenix',
+      'rebirthTotem',
       'spiritWeapon',
       'spiritShield',
+      'overhealShield',
+      'shieldWard',
       'immortality'
     ]
   },

@@ -3,7 +3,7 @@ export const TEAMS = {
   ENEMY: 'enemy'
 };
 
-export const DECK_SIZE = 36;
+export const DECK_SIZE = 18;
 export const ACTIVE_DECK_SIZE = 12;
 export const TERRAIN_CARD_IDS = [
   'meteor',
@@ -105,7 +105,14 @@ export const UNIT_DEFINITIONS = {
       name: '铁剑',
       maxDurability: 35,
       durabilityCost: 1.15
-    }
+    },
+    traits: [
+      {
+        type: 'attackBlock',
+        chance: 0.3,
+        damageMultiplier: 0.5
+      }
+    ]
   },
   berserker: {
     name: '狂战士',
@@ -414,7 +421,7 @@ export const UNIT_DEFINITIONS = {
     magicResistance: 1,
     knockback: 2.4,
     aggroRange: 13.2,
-    dodgeChance: 0.12,
+    dodgeChance: 0.18,
     weaponAbility: {
       rangedProjectile: {
         key: 'throwDagger',
@@ -2524,6 +2531,13 @@ export const BUFF_DEFINITIONS = {
       }
     ]
   },
+  rebirthTotem: {
+    name: '复生图腾',
+    category: 'enchantment',
+    color: '#f1d97a',
+    duration: 999,
+    level: 1
+  },
   spiritWeapon: {
     name: '灵武',
     category: 'enchantment',
@@ -2858,6 +2872,43 @@ export const BUFF_DEFINITIONS = {
       }
     ]
   },
+  overhealShield: {
+    name: '过量治疗',
+    category: 'enchantment',
+    color: '#9fffe8',
+    duration: 999,
+    level: 1,
+    modifiers: [
+      {
+        stat: 'maxShield',
+        type: 'add',
+        amountPerLevel: 2
+      }
+    ],
+    effects: [
+      {
+        event: 'overheal',
+        op: 'convertOverhealToShield',
+        ratio: 1,
+        vfx: 'shield',
+        color: '#9fffe8'
+      }
+    ]
+  },
+  shieldWard: {
+    name: '护盾韧性',
+    category: 'enchantment',
+    color: '#a8d8ff',
+    duration: 999,
+    level: 1,
+    effects: [
+      {
+        event: 'beforeShieldDamage',
+        op: 'reduceShieldDamageFlat',
+        amountPerLevel: 0.75
+      }
+    ]
+  },
   wolfInstinct: {
     name: '狼性',
     category: 'enchantment',
@@ -2945,18 +2996,22 @@ export const BUFF_DEFINITIONS = {
     name: '瘟疫',
     category: 'status',
     color: '#6a8a48',
-    duration: 99,
-    tickInterval: 1,
+    duration: 3,
     level: 1,
-    hidden: true,
+    hidden: false,
     negative: true,
-    effects: [
+    modifiers: [
       {
-        event: 'tick',
-        op: 'plagueTick',
-        spreadRadius: 2.4,
-        percentPerLevel: 0.01,
-        vfx: 'poison'
+        stat: 'armor',
+        type: 'add',
+        amount: -0.5,
+        amountPerLevel: -0.5
+      },
+      {
+        stat: 'magicResistance',
+        type: 'add',
+        amount: -0.5,
+        amountPerLevel: -0.5
       }
     ]
   },
@@ -2971,6 +3026,13 @@ export const BUFF_DEFINITIONS = {
         type: 'add',
         amount: 0.05,
         amountPerLevel: 0.05
+      },
+      {
+        stat: 'dodgeChance',
+        type: 'add',
+        amount: 0.05,
+        amountPerLevel: 0.05,
+        unitTypes: ['rogue']
       }
     ]
   },
@@ -2983,17 +3045,17 @@ export const BUFF_DEFINITIONS = {
     negative: true
   },
   waterSnared: {
-    name: '水牢',
+    name: '水牢禁锢',
     category: 'status',
     color: '#76cfff',
     duration: 2.4,
-    hidden: true,
+    hidden: false,
     negative: true,
     modifiers: [
       {
         stat: 'moveSpeed',
         type: 'multiply',
-        factor: 0.62
+        factor: 0
       }
     ]
   },
@@ -3017,7 +3079,7 @@ export const BUFF_DEFINITIONS = {
     category: 'status',
     color: '#d8c58d',
     duration: 3,
-    hidden: true,
+    hidden: false,
     negative: true,
     modifiers: [
       {
@@ -3189,6 +3251,7 @@ export const ENCHANTMENTS = {
   critical: BUFF_DEFINITIONS.critical,
   focus: BUFF_DEFINITIONS.focus,
   phoenix: BUFF_DEFINITIONS.phoenix,
+  rebirthTotem: BUFF_DEFINITIONS.rebirthTotem,
   spiritWeapon: BUFF_DEFINITIONS.spiritWeapon,
   soulEater: BUFF_DEFINITIONS.soulEater,
   lifesteal: BUFF_DEFINITIONS.lifesteal,
@@ -3198,6 +3261,8 @@ export const ENCHANTMENTS = {
   recovery: BUFF_DEFINITIONS.recovery,
   immortality: BUFF_DEFINITIONS.immortality,
   spiritShield: BUFF_DEFINITIONS.spiritShield,
+  overhealShield: BUFF_DEFINITIONS.overhealShield,
+  shieldWard: BUFF_DEFINITIONS.shieldWard,
   wolfInstinct: BUFF_DEFINITIONS.wolfInstinct,
   ursineSpirit: BUFF_DEFINITIONS.ursineSpirit,
   heavyStrike: BUFF_DEFINITIONS.heavyStrike,
@@ -3406,7 +3471,7 @@ export const CARD_DEFINITIONS = [
     kind: 'summon',
     label: '剑',
     artKey: 'swordsman',
-    summary: '召唤 1 名无盾剑士',
+    summary: '召唤 1 名无盾剑士；30% 概率格挡攻击，使本次攻击伤害减半',
     target: 'ground',
     radius: 1.15,
     cooldown: 5.5,
@@ -3566,7 +3631,7 @@ export const CARD_DEFINITIONS = [
     kind: 'summon',
     label: '盗',
     artKey: 'rogue',
-    summary: '近战匕首单位，每 7 秒投掷飞刀，12% 闪避普通攻击',
+    summary: '近战匕首单位，每 7 秒投掷飞刀，18% 闪避普通攻击',
     target: 'ground',
     radius: 1.15,
     cooldown: 6,
@@ -3767,9 +3832,9 @@ export const CARD_DEFINITIONS = [
     kind: 'spell',
     label: '毒',
     artKey: 'poisonFog',
-    summary: '0 费地形牌。10 秒毒雾，仅对敌方单位施加最大生命值中毒；使用后 22 秒冷却并留在手牌。',
+    summary: '0 费地形牌。12 秒强化毒雾，仅对敌方单位施加更高最大生命值中毒；使用后 22 秒冷却并留在手牌。',
     target: 'ground',
-    radius: 3.65,
+    radius: 4.15,
     terrainCard: true,
     cooldown: 22,
     energyCost: 0,
@@ -3778,13 +3843,13 @@ export const CARD_DEFINITIONS = [
       areaEffect: {
         kind: 'poisonFog',
         target: 'enemy',
-        duration: 10,
-        radius: 3.65,
-        applyInterval: 0.45,
+        duration: 12,
+        radius: 4.15,
+        applyInterval: 0.32,
         buffId: 'poisoned',
-        buffDuration: 1.8,
-        maxHealthDamagePercentPerSecondBase: 0.016,
-        maxHealthDamagePercentPerSecondPerLevel: 0.01,
+        buffDuration: 2.4,
+        maxHealthDamagePercentPerSecondBase: 0.026,
+        maxHealthDamagePercentPerSecondPerLevel: 0.014,
         color: '#78b85a',
         accent: '#dff6a5'
       }
@@ -3797,7 +3862,7 @@ export const CARD_DEFINITIONS = [
     kind: 'spell',
     label: '烟',
     artKey: 'whiteSmoke',
-    summary: '0 费地形牌。30 秒白烟，仅对友方单位提供等级相关闪避率；使用后 22 秒冷却并留在手牌。',
+    summary: '0 费地形牌。30 秒白烟，友方获得基础 +5%、每级再 +5% 闪避；盗贼获得双倍加成。使用后 22 秒冷却并留在手牌。',
     target: 'ground',
     radius: 3.45,
     terrainCard: true,
@@ -3825,7 +3890,7 @@ export const CARD_DEFINITIONS = [
     kind: 'spell',
     label: '疫',
     artKey: 'plagueFog',
-    summary: '0 费地形牌。范围内敌人感染瘟疫；使用后 22 秒冷却并留在手牌，主动下滑才会进入弃牌堆。',
+    summary: '0 费地形牌。范围内敌人感染瘟疫，3 秒内降低护甲和魔抗；使用后 22 秒冷却并留在手牌。',
     target: 'ground',
     radius: 3.55,
     terrainCard: true,
@@ -3840,7 +3905,7 @@ export const CARD_DEFINITIONS = [
         radius: 3.55,
         applyInterval: 1,
         buffId: 'plague',
-        buffDuration: 99,
+        buffDuration: 3,
         color: '#6a8a48',
         accent: '#b8d88a'
       }
@@ -3869,8 +3934,8 @@ export const CARD_DEFINITIONS = [
         applyInterval: 0.45,
         buffId: 'burning',
         buffDuration: 1.25,
-        damagePerSecondBase: 2.4,
-        damagePerSecondPerLevel: 0.8,
+        damagePerSecondBase: 3.6,
+        damagePerSecondPerLevel: 1.2,
         color: '#c84622',
         accent: '#ffc75a'
       }
@@ -3883,7 +3948,7 @@ export const CARD_DEFINITIONS = [
     kind: 'spell',
     label: '熔',
     artKey: 'meteor',
-    summary: '0 费地形牌。立即对范围内敌人造成“本局已打出牌数 × 2”的魔法伤害（包含本牌）；使用后 22 秒冷却并留在手牌。',
+    summary: '0 费地形牌。立即对范围内敌人造成“本局已打出牌数 × 1”的魔法伤害（包含本牌）；使用后 22 秒冷却并留在手牌。',
     target: 'ground',
     radius: 3.5,
     terrainCard: true,
@@ -4547,6 +4612,24 @@ export const CARD_DEFINITIONS = [
     color: '#ff9a47'
   },
   {
+    id: 'rebirth-totem-enchant',
+    name: '复生图腾',
+    kind: 'enchant',
+    label: '生',
+    artKey: 'rebirthTotem',
+    summary: '死亡后进入复活倒计时，60 秒后从基地复活；每级升级缩短 5 秒',
+    target: 'friendly-unit',
+    radius: 1.1,
+    cooldown: 0,
+    energyCost: 3,
+    enchantmentId: 'rebirthTotem',
+    effect: {
+      type: 'apply-buff',
+      buffId: 'rebirthTotem'
+    },
+    color: '#f1d97a'
+  },
+  {
     id: 'spirit-weapon-enchant',
     name: '灵武附加',
     kind: 'enchant',
@@ -4691,12 +4774,48 @@ export const CARD_DEFINITIONS = [
     color: '#8fb7dc'
   },
   {
+    id: 'overheal-shield-enchant',
+    name: '过量治疗',
+    kind: 'enchant',
+    label: '溢',
+    artKey: 'recovery',
+    summary: '每级护盾上限 +2；溢出的治疗转化为护盾',
+    target: 'friendly-unit',
+    radius: 1.1,
+    cooldown: 0,
+    energyCost: 2,
+    enchantmentId: 'overhealShield',
+    effect: {
+      type: 'apply-buff',
+      buffId: 'overhealShield'
+    },
+    color: '#9fffe8'
+  },
+  {
+    id: 'shield-ward-enchant',
+    name: '护盾韧性',
+    kind: 'enchant',
+    label: '韧',
+    artKey: 'spiritShield',
+    summary: '护盾受到伤害时，每级固定减免 0.75 伤害',
+    target: 'friendly-unit',
+    radius: 1.1,
+    cooldown: 0,
+    energyCost: 2,
+    enchantmentId: 'shieldWard',
+    effect: {
+      type: 'apply-buff',
+      buffId: 'shieldWard'
+    },
+    color: '#a8d8ff'
+  },
+  {
     id: 'swarm-enchant',
     name: '集群附魔',
     kind: 'enchant',
     label: '群',
     artKey: 'waveSwarm',
-    summary: '生命和攻击略降，但移动与攻速提升',
+    summary: '1级：生命 -10%、攻击 -4.5%、攻速 +9%、移速 +4%；每级额外生命 -2%、攻击 -1.5%、攻速 +3%、移速 +2%',
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,
@@ -4714,7 +4833,7 @@ export const CARD_DEFINITIONS = [
     kind: 'enchant',
     label: '甲',
     artKey: 'waveArmored',
-    summary: '提高最大生命、护盾与护甲，适合前排',
+    summary: '1级：生命 +12.5%、护盾 +43%、护甲 +2.05、抗击退 +19.5%；每级额外生命 +2.5%、护盾 +8%、护甲 +0.45、抗击退 +3.5%',
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,
@@ -4732,7 +4851,7 @@ export const CARD_DEFINITIONS = [
     kind: 'enchant',
     label: '冲',
     artKey: 'waveRush',
-    summary: '提高移动速度与攻击节奏',
+    summary: '1级：移速 +24%、攻速 +8.5%；每级额外移速 +4%、攻速 +2.5%',
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,
@@ -4929,6 +5048,14 @@ export const CARD_META = {
     initial: true,
     buyCost: 0,
     upgradeBaseCost: 28
+  },
+  'overheal-shield-enchant': {
+    buyCost: 150,
+    upgradeBaseCost: 42
+  },
+  'shield-ward-enchant': {
+    buyCost: 145,
+    upgradeBaseCost: 40
   },
   'swarm-enchant': {
     buyCost: 105,
@@ -5157,6 +5284,10 @@ export const CARD_META = {
   'phoenix-enchant': {
     buyCost: 135,
     upgradeBaseCost: 38
+  },
+  'rebirth-totem-enchant': {
+    buyCost: 160,
+    upgradeBaseCost: 46
   },
   'spirit-weapon-enchant': {
     buyCost: 105,
@@ -5400,6 +5531,12 @@ export const BALANCE = {
     openingThreatEnd: 2.4,
     openingHealthMultiplier: 0.62,
     openingDamageMultiplier: 0.56
+  },
+  runCurrency: {
+    shop: {
+      basePrice: 12,
+      priceIncrement: 3
+    }
   },
   world: {
     ground: {

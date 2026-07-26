@@ -142,7 +142,7 @@ export class AreaEffectSystem {
         overrides.maxHealthDamagePercentPerSecond = maxHealthDamagePercentPerSecond;
       }
       const applied = this.game.buffs.applyBuff(unit, zone.buffId, zone.source, overrides);
-      if (applied && zone.kind === 'poisonFog' && Math.random() < 0.38) {
+      if (applied && zone.kind === 'poisonFog' && Math.random() < 0.62) {
         this.game.effects.spawnPoisonParticles(unit, 1);
       }
       if (applied && zone.kind === 'whiteSmoke' && Math.random() < 0.24) {

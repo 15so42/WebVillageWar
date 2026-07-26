@@ -7,6 +7,7 @@ import { clamp, lerp } from '../utils/math.js';
 
 const MAX_ACTIVE_EFFECTS = 260;
 const MAX_POOLED_EFFECTS_PER_KEY = 56;
+const METEOR_TRAIL_AXIS = new THREE.Vector3(0, 1, 0);
 
 export class EffectsSystem {
   constructor(scene) {
@@ -727,12 +728,13 @@ export class EffectsSystem {
   }
 
   spawnFire(position) {
-    this.spawnFireParticlesAt(position, 5, 0.44, 0.36);
+    this.spawnFireParticlesAt(position, 9, 0.76, 0.46, 1.25);
   }
 
   spawnBurningParticles(target, count = 2) {
     if (!target?.position) return;
-    this.spawnFireParticlesAt(target.position, count, 0.5, 0.42, target.projectileHitHeight ?? 1.2);
+    const flameCount = Math.max(2, Math.floor(count));
+    this.spawnFireParticlesAt(target.position, flameCount, 0.68, 0.46, target.projectileHitHeight ?? 1.2);
   }
 
   spawnPoisonParticles(target, count = 2) {
@@ -932,51 +934,86 @@ export class EffectsSystem {
 
   spawnFireParticlesAt(position, count = 3, duration = 0.48, radius = 0.35, height = 1.1) {
     const poolKey = `fire:${count}`;
-    const group = this.acquireParticleGroup(poolKey, count, () => createPooledParticle('#ff5d2d', {
-      transparent: true,
-      opacity: 0.92,
-      emissive: '#ff5d2d',
-      emissiveIntensity: 0.9,
-      depthWrite: false
-    }));
+    const group = this.acquireParticleGroup(poolKey, count, () => createPooledFireParticle());
+    const groundY = (position.y ?? 0) + 0.06;
     group.children.forEach((particle) => {
       const warm = Math.random();
-      const color = warm > 0.48 ? '#ffd35a' : '#ff5d2d';
+      const color = warm > 0.72 ? '#ffe58a' : (warm > 0.36 ? '#ff8a32' : '#e6421f');
       setEffectMaterialColor(particle.material, color, {
-        opacity: 0.92,
+        opacity: particle.userData.isEmber ? 0.86 : 0.92,
         emissive: color,
-        emissiveIntensity: 0.9
+        emissiveIntensity: 1
       });
       const angle = Math.random() * Math.PI * 2;
       const distance = Math.sqrt(Math.random()) * radius;
-      particle.userData.baseScale = 0.045 + Math.random() * 0.045;
-      particle.position.set(
-        position.x + Math.cos(angle) * distance,
-        (position.y ?? 0) + 0.28 + Math.random() * Math.max(0.3, height * 0.45),
-        position.z + Math.sin(angle) * distance
-      );
-      particle.rotation.set(0, 0, 0);
-      particle.scale.setScalar(particle.userData.baseScale);
-      particle.userData.velocity.set(
-        Math.cos(angle) * (0.16 + Math.random() * 0.42),
-        2.2 + Math.random() * 1.45,
-        Math.sin(angle) * (0.16 + Math.random() * 0.42)
-      );
-      particle.userData.spin.set(
-        Math.random() * 8,
-        Math.random() * 8,
-        Math.random() * 8
-      );
+      const baseX = position.x + Math.cos(angle) * distance;
+      const baseZ = position.z + Math.sin(angle) * distance;
+      particle.userData.base.set(baseX, groundY, baseZ);
+      particle.userData.phase = Math.random() * Math.PI * 2;
+      particle.userData.delay = Math.random() * 0.16;
+      if (particle.userData.isEmber) {
+        particle.userData.baseScale = 0.035 + Math.random() * 0.04;
+        particle.position.set(baseX, groundY + 0.18 + Math.random() * height * 0.38, baseZ);
+        particle.scale.setScalar(particle.userData.baseScale);
+        particle.userData.velocity.set(
+          Math.cos(angle) * (0.12 + Math.random() * 0.34),
+          1.25 + Math.random() * 1.4,
+          Math.sin(angle) * (0.12 + Math.random() * 0.34)
+        );
+        particle.userData.spin.set(
+          5 + Math.random() * 6,
+          4 + Math.random() * 6,
+          5 + Math.random() * 6
+        );
+      } else {
+        particle.userData.flameHeight = Math.max(0.42, height * (0.48 + Math.random() * 0.48));
+        particle.userData.flameWidth = 0.095 + Math.random() * 0.075;
+        particle.userData.sway = 0.045 + Math.random() * 0.105;
+        particle.userData.rise = 0.12 + Math.random() * 0.24;
+        particle.position.set(baseX, groundY + particle.userData.flameHeight * 0.5, baseZ);
+        particle.rotation.set(
+          (Math.random() - 0.5) * 0.28,
+          Math.random() * Math.PI * 2,
+          (Math.random() - 0.5) * 0.24
+        );
+        particle.scale.set(
+          particle.userData.flameWidth,
+          particle.userData.flameHeight,
+          particle.userData.flameWidth
+        );
+      }
     });
 
     this.addEffect(group, duration, (dt, t) => {
       group.children.forEach((particle) => {
-        particle.position.addScaledVector(particle.userData.velocity, dt);
-        particle.rotation.x += particle.userData.spin.x * dt;
-        particle.rotation.y += particle.userData.spin.y * dt;
-        particle.rotation.z += particle.userData.spin.z * dt;
-        particle.scale.setScalar(particle.userData.baseScale * (1 - t * 0.72));
-        particle.material.opacity = 0.92 * (1 - t);
+        const localT = clamp((t - particle.userData.delay) / (1 - particle.userData.delay), 0, 1);
+        if (particle.userData.isEmber) {
+          particle.position.addScaledVector(particle.userData.velocity, dt);
+          particle.userData.velocity.y -= 1.9 * dt;
+          particle.rotation.x += particle.userData.spin.x * dt;
+          particle.rotation.y += particle.userData.spin.y * dt;
+          particle.rotation.z += particle.userData.spin.z * dt;
+          particle.scale.setScalar(particle.userData.baseScale * (1 - localT * 0.68));
+          particle.material.opacity = 0.86 * (1 - localT);
+          return;
+        }
+        const tongue = Math.sin(localT * Math.PI);
+        const flicker = 0.86 + Math.sin(particle.userData.phase + t * 58) * 0.14
+          + Math.sin(particle.userData.phase * 0.7 + t * 91) * 0.08;
+        const heightScale = Math.max(0.01, particle.userData.flameHeight * (0.28 + tongue * 0.88) * flicker);
+        const widthScale = Math.max(0.01, particle.userData.flameWidth * (0.72 + tongue * 0.64));
+        const swayX = Math.cos(particle.userData.phase + t * 15) * particle.userData.sway * tongue;
+        const swayZ = Math.sin(particle.userData.phase * 0.83 + t * 13) * particle.userData.sway * tongue;
+        particle.position.set(
+          particle.userData.base.x + swayX,
+          particle.userData.base.y + heightScale * 0.5 + localT * particle.userData.rise,
+          particle.userData.base.z + swayZ
+        );
+        particle.rotation.x = Math.sin(particle.userData.phase + t * 10) * 0.16;
+        particle.rotation.y += dt * (2.8 + Math.sin(particle.userData.phase) * 0.7);
+        particle.rotation.z = Math.cos(particle.userData.phase + t * 12) * 0.2;
+        particle.scale.set(widthScale, heightScale, widthScale);
+        particle.material.opacity = 0.92 * Math.min(1, tongue * 1.45) * (1 - localT * 0.24);
       });
     }, () => this.releasePooledEffect(poolKey, group));
   }
@@ -1082,34 +1119,69 @@ export class EffectsSystem {
   spawnMeteor(position, radius, onImpact) {
     const group = new THREE.Group();
     const meteor = createSpellModel('meteor');
-    const meteorScale = clamp(0.95 + radius * 0.1, 1.05, 1.42);
+    const meteorScale = clamp(1.25 + radius * 0.14, 1.36, 1.82);
     meteor.scale.setScalar(meteorScale);
     meteor.rotation.set(0.8, 0.2, 0.5);
+    meteor.traverse((child) => {
+      if (!child.isMesh) return;
+      child.renderOrder = Math.max(child.renderOrder ?? 0, 1600);
+      if (!child.material) return;
+      child.material = child.material.clone();
+      child.material.depthTest = false;
+      child.material.depthWrite = false;
+    });
     group.add(meteor);
 
     const haloMaterial = basicMat('#ff6b25', {
       transparent: true,
-      opacity: 0.26,
+      opacity: 0.44,
+      depthTest: false,
       depthWrite: false,
       blending: THREE.AdditiveBlending
     }).clone();
-    const halo = new THREE.Mesh(new THREE.SphereGeometry(0.92, 12, 8), haloMaterial);
+    const halo = new THREE.Mesh(new THREE.SphereGeometry(1.16, 14, 9), haloMaterial);
+    halo.renderOrder = 1599;
     group.add(halo);
+
+    const coreFlareMaterial = basicMat('#ffe39a', {
+      transparent: true,
+      opacity: 0.78,
+      depthTest: false,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    }).clone();
+    const coreFlare = new THREE.Mesh(new THREE.SphereGeometry(0.48, 12, 8), coreFlareMaterial);
+    coreFlare.renderOrder = 1603;
+    meteor.add(coreFlare);
+
+    const trailBeamMaterial = basicMat('#ff7a2f', {
+      transparent: true,
+      opacity: 0.72,
+      depthTest: false,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending
+    }).clone();
+    const trailBeam = new THREE.Mesh(new THREE.ConeGeometry(0.42, 3.4, 12, 1, true), trailBeamMaterial);
+    trailBeam.renderOrder = 1598;
+    group.add(trailBeam);
 
     const trailMaterial = basicMat('#ff9a3d', {
       transparent: true,
-      opacity: 0.72,
+      opacity: 0.8,
+      depthTest: false,
       depthWrite: false,
       blending: THREE.AdditiveBlending
     }).clone();
     const trail = [];
-    for (let index = 0; index < 9; index += 1) {
+    for (let index = 0; index < 12; index += 1) {
       const ember = new THREE.Mesh(
-        new THREE.TetrahedronGeometry(0.11 + index * 0.018, 0),
+        new THREE.TetrahedronGeometry(0.14 + index * 0.02, 0),
         trailMaterial
       );
       ember.userData.phase = Math.random() * Math.PI * 2;
       ember.userData.side = (Math.random() - 0.5) * (0.16 + index * 0.035);
+      ember.renderOrder = 1604;
       trail.push(ember);
       group.add(ember);
     }
@@ -1123,24 +1195,31 @@ export class EffectsSystem {
     const shadow = new THREE.Mesh(new THREE.CircleGeometry(1, 30), shadowMaterial);
     shadow.rotation.x = -Math.PI / 2;
     shadow.position.set(position.x, (position.y ?? 0) + 0.055, position.z);
+    shadow.renderOrder = 1502;
     group.add(shadow);
 
-    const start = new THREE.Vector3(position.x - 4.6, 15.5, position.z - 4.1);
-    const end = new THREE.Vector3(position.x, (position.y ?? 0) + 0.82, position.z);
+    const start = new THREE.Vector3(position.x - 2.7, (position.y ?? 0) + 9.8, position.z - 2.35);
+    const end = new THREE.Vector3(position.x, (position.y ?? 0) + 1.08, position.z);
     const trailDirection = start.clone().sub(end).normalize();
     let impacted = false;
-    this.addEffect(group, 1.08, (dt, t) => {
+    this.addEffect(group, 1.18, (dt, t) => {
       const ease = t * t * (3 - 2 * t);
       meteor.position.lerpVectors(start, end, ease);
       meteor.rotation.x += dt * 8.4;
       meteor.rotation.y += dt * 6.1;
       halo.position.copy(meteor.position);
       const flicker = 1 + Math.sin(t * 56) * 0.09;
-      halo.scale.setScalar(meteorScale * (1.16 + (1 - t) * 0.22) * flicker);
-      haloMaterial.opacity = 0.2 + (1 - t) * 0.16;
+      halo.scale.setScalar(meteorScale * (1.2 + (1 - t) * 0.3) * flicker);
+      haloMaterial.opacity = 0.34 + (1 - t) * 0.24;
+      coreFlare.scale.setScalar(0.8 + flicker * 0.18);
+      coreFlareMaterial.opacity = 0.66 + (1 - t) * 0.22;
+      trailBeam.position.copy(meteor.position).addScaledVector(trailDirection, 1.55);
+      trailBeam.quaternion.setFromUnitVectors(METEOR_TRAIL_AXIS, trailDirection);
+      trailBeam.scale.setScalar(0.72 + (1 - t) * 0.34);
+      trailBeamMaterial.opacity = 0.3 + (1 - t) * 0.46;
 
       trail.forEach((ember, index) => {
-        const distance = 0.42 + index * 0.34;
+        const distance = 0.52 + index * 0.31;
         ember.position.copy(meteor.position).addScaledVector(trailDirection, distance);
         const side = ember.userData.side * (0.45 + t);
         ember.position.x += Math.sin(ember.userData.phase + t * 24) * side;
@@ -1150,11 +1229,11 @@ export class EffectsSystem {
         ember.rotation.x += dt * (4 + index * 0.35);
         ember.rotation.y -= dt * (3 + index * 0.28);
       });
-      trailMaterial.opacity = 0.42 + (1 - t) * 0.38;
+      trailMaterial.opacity = 0.5 + (1 - t) * 0.4;
       shadow.scale.setScalar(radius * lerp(0.22, 0.72, ease));
       shadowMaterial.opacity = lerp(0.08, 0.34, ease);
 
-      if (!impacted && t > 0.86) {
+      if (!impacted && t > 0.9) {
         impacted = true;
         this.spawnMeteorImpact(position, radius);
         onImpact?.();
@@ -1250,106 +1329,236 @@ export class EffectsSystem {
 
   spawnLavaEruption(position, radius, onImpact) {
     const group = new THREE.Group();
-    group.position.set(position.x, (position.y ?? 0) + 0.08, position.z);
+    group.position.set(position.x, (position.y ?? 0) + 0.04, position.z);
 
-    const magmaMaterial = mat('#ff642b', {
-      emissive: '#ff2f0d',
-      emissiveIntensity: 1.15,
-      roughness: 0.62,
+    const magmaMaterial = basicMat('#ff6a23', {
       transparent: true,
-      opacity: 0.96,
-      depthWrite: false
-    }).clone();
-    const coreMaterial = basicMat('#ffd36b', {
-      transparent: true,
-      opacity: 0.88,
+      opacity: 0.94,
+      side: THREE.DoubleSide,
+      depthTest: false,
       depthWrite: false,
       blending: THREE.AdditiveBlending
     }).clone();
-    const rockMaterial = mat('#352626', {
-      emissive: '#8f2918',
-      emissiveIntensity: 0.38,
+    const coreMaterial = basicMat('#ffe08a', {
+      transparent: true,
+      opacity: 0.86,
+      side: THREE.DoubleSide,
+      depthTest: false,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    }).clone();
+    const rockMaterial = mat('#332321', {
+      emissive: '#a93618',
+      emissiveIntensity: 0.48,
       roughness: 0.9,
       transparent: true,
       opacity: 0.96
     }).clone();
-    const groundMaterial = basicMat('#ff4b20', {
+    const heatMaterial = basicMat('#ff3f18', {
       transparent: true,
-      opacity: 0.72,
+      opacity: 0.44,
       side: THREE.DoubleSide,
+      depthTest: false,
       depthWrite: false,
       blending: THREE.AdditiveBlending
     }).clone();
-    const groundRift = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.42, 8), groundMaterial);
-    groundRift.rotation.x = -Math.PI / 2;
-    groundRift.scale.setScalar(radius);
-    group.add(groundRift);
+    const crackMaterial = basicMat('#ffb347', {
+      transparent: true,
+      opacity: 0.76,
+      side: THREE.DoubleSide,
+      depthTest: false,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    }).clone();
 
-    const core = new THREE.Mesh(new THREE.SphereGeometry(0.52, 10, 7), coreMaterial);
-    core.scale.set(1.2, 0.35, 1.2);
-    group.add(core);
+    const heatDisc = new THREE.Mesh(new THREE.CircleGeometry(1, 42), heatMaterial);
+    heatDisc.rotation.x = -Math.PI / 2;
+    heatDisc.position.y = 0.012;
+    heatDisc.renderOrder = 1510;
+    group.add(heatDisc);
+
+    const shockwave = new THREE.Mesh(new THREE.RingGeometry(0.82, 1, 48), heatMaterial);
+    shockwave.rotation.x = -Math.PI / 2;
+    shockwave.position.y = 0.02;
+    shockwave.renderOrder = 1511;
+    group.add(shockwave);
+
+    const cracks = [];
+    for (let index = 0; index < 9; index += 1) {
+      const angle = (index / 9) * Math.PI * 2 + (Math.random() - 0.5) * 0.22;
+      const length = radius * (0.38 + Math.random() * 0.42);
+      const crack = new THREE.Mesh(new THREE.BoxGeometry(1, 0.022, 0.06), crackMaterial);
+      crack.position.set(
+        Math.cos(angle) * length * 0.42,
+        0.028,
+        Math.sin(angle) * length * 0.42
+      );
+      crack.rotation.y = -angle;
+      crack.scale.set(length, 1, 0.78 + Math.random() * 0.8);
+      crack.userData.phase = Math.random() * Math.PI * 2;
+      cracks.push(crack);
+      group.add(crack);
+    }
+
+    const mainColumn = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.36, 0.68, 1, 9, 1, true),
+      magmaMaterial
+    );
+    mainColumn.renderOrder = 1515;
+    group.add(mainColumn);
+
+    const innerColumn = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.16, 0.34, 1, 8, 1, true),
+      coreMaterial
+    );
+    innerColumn.renderOrder = 1516;
+    group.add(innerColumn);
+
+    const lavaCap = new THREE.Mesh(new THREE.SphereGeometry(0.55, 10, 7), coreMaterial);
+    lavaCap.renderOrder = 1517;
+    group.add(lavaCap);
 
     const jets = [];
-    for (let index = 0; index < 7; index += 1) {
-      const angle = (index / 7) * Math.PI * 2 + Math.random() * 0.4;
+    for (let index = 0; index < 11; index += 1) {
+      const angle = (index / 11) * Math.PI * 2 + (Math.random() - 0.5) * 0.34;
+      const distance = radius * (0.13 + Math.random() * 0.35);
       const jet = new THREE.Mesh(
-        new THREE.ConeGeometry(0.13 + Math.random() * 0.14, 1.1 + Math.random() * 1.4, 5),
-        magmaMaterial
+        new THREE.ConeGeometry(0.5, 1, 6, 1, true),
+        index % 3 === 0 ? coreMaterial : magmaMaterial
       );
       jet.position.set(
-        Math.cos(angle) * radius * (0.12 + Math.random() * 0.28),
+        Math.cos(angle) * distance,
         0,
-        Math.sin(angle) * radius * (0.12 + Math.random() * 0.28)
+        Math.sin(angle) * distance
       );
-      jet.rotation.z = (Math.random() - 0.5) * 0.45;
-      jet.userData.height = 0.9 + Math.random() * 1.3;
+      jet.rotation.set(
+        (Math.random() - 0.5) * 0.32,
+        Math.random() * Math.PI * 2,
+        (Math.random() - 0.5) * 0.32
+      );
+      jet.userData.base = jet.position.clone();
+      jet.userData.height = radius * (0.34 + Math.random() * 0.5);
+      jet.userData.width = 0.12 + Math.random() * 0.12;
+      jet.userData.delay = Math.random() * 0.18;
       jet.userData.phase = Math.random() * Math.PI * 2;
+      jet.renderOrder = 1514;
       jets.push(jet);
       group.add(jet);
     }
 
     const fragments = [];
-    for (let index = 0; index < 16; index += 1) {
+    for (let index = 0; index < 24; index += 1) {
       const angle = Math.random() * Math.PI * 2;
+      const distance = Math.random() * radius * 0.18;
       const fragment = new THREE.Mesh(
-        new THREE.TetrahedronGeometry(0.08 + Math.random() * 0.13, 0),
-        index % 3 === 0 ? magmaMaterial : rockMaterial
+        new THREE.TetrahedronGeometry(0.07 + Math.random() * 0.15, 0),
+        index % 4 === 0 ? coreMaterial : (index % 2 === 0 ? magmaMaterial : rockMaterial)
+      );
+      fragment.position.set(
+        Math.cos(angle) * distance,
+        0.22 + Math.random() * 0.28,
+        Math.sin(angle) * distance
       );
       fragment.userData.velocity = new THREE.Vector3(
-        Math.cos(angle) * (1.4 + Math.random() * radius),
-        2.4 + Math.random() * 4.2,
-        Math.sin(angle) * (1.4 + Math.random() * radius)
+        Math.cos(angle) * (1.3 + Math.random() * radius * 1.05),
+        3.1 + Math.random() * 5.4,
+        Math.sin(angle) * (1.3 + Math.random() * radius * 1.05)
+      );
+      fragment.userData.spin = new THREE.Vector3(
+        5 + Math.random() * 8,
+        4 + Math.random() * 8,
+        5 + Math.random() * 8
       );
       fragments.push(fragment);
       group.add(fragment);
     }
 
-    let impacted = false;
-    this.addEffect(group, 1.05, (dt, t) => {
-      const rise = Math.sin(Math.min(1, t * 1.45) * Math.PI);
-      groundRift.scale.setScalar(radius * (0.45 + t * 0.75));
-      groundMaterial.opacity = 0.72 * (1 - t);
-      core.scale.set(
-        radius * (0.18 + t * 0.24),
-        0.32 + rise * 1.25,
-        radius * (0.18 + t * 0.24)
+    const smokeMaterial = mat('#332a28', {
+      transparent: true,
+      opacity: 0.34,
+      roughness: 0.95,
+      depthWrite: false
+    }).clone();
+    const smokePuffs = [];
+    for (let index = 0; index < 8; index += 1) {
+      const angle = Math.random() * Math.PI * 2;
+      const puff = new THREE.Mesh(new THREE.DodecahedronGeometry(0.18 + Math.random() * 0.24, 0), smokeMaterial);
+      puff.position.set(
+        Math.cos(angle) * radius * (0.16 + Math.random() * 0.18),
+        0.75 + Math.random() * 0.65,
+        Math.sin(angle) * radius * (0.16 + Math.random() * 0.18)
       );
-      coreMaterial.opacity = 0.88 * (1 - t) ** 1.6;
-      jets.forEach((jet) => {
-        const flicker = 0.82 + Math.sin(jet.userData.phase + t * 38) * 0.16;
-        jet.scale.set(1, rise * jet.userData.height * flicker, 1);
-        jet.rotation.y += dt * 3.2;
+      puff.userData.velocity = new THREE.Vector3(
+        Math.cos(angle) * (0.12 + Math.random() * 0.35),
+        0.58 + Math.random() * 0.5,
+        Math.sin(angle) * (0.12 + Math.random() * 0.35)
+      );
+      puff.userData.baseScale = 0.6 + Math.random() * 0.55;
+      smokePuffs.push(puff);
+      group.add(puff);
+    }
+
+    let impacted = false;
+    this.addEffect(group, 1.36, (dt, t) => {
+      const open = clamp(t / 0.16, 0, 1);
+      const collapse = clamp((t - 0.72) / 0.28, 0, 1);
+      const intensity = open * (1 - collapse);
+      const plumeHeight = Math.max(0.01, radius * (1.05 + Math.sin(t * 30) * 0.05) * intensity);
+      const plumeWidth = Math.max(0.01, radius * (0.13 + intensity * 0.09));
+
+      heatDisc.scale.setScalar(radius * (0.34 + t * 0.42));
+      shockwave.scale.setScalar(radius * (0.24 + t * 0.94));
+      heatMaterial.opacity = 0.44 * (1 - t) ** 1.25;
+      crackMaterial.opacity = 0.76 * (1 - t * 0.7) * (0.78 + Math.sin(t * 40) * 0.12);
+      cracks.forEach((crack) => {
+        const crackFlicker = 0.88 + Math.sin(crack.userData.phase + t * 56) * 0.12;
+        crack.scale.z = crackFlicker;
       });
+
+      mainColumn.position.y = plumeHeight * 0.5;
+      mainColumn.scale.set(plumeWidth, plumeHeight, plumeWidth);
+      mainColumn.rotation.y += dt * 3.6;
+      innerColumn.position.y = plumeHeight * 0.52;
+      innerColumn.scale.set(plumeWidth * 0.55, plumeHeight * 1.03, plumeWidth * 0.55);
+      innerColumn.rotation.y -= dt * 4.1;
+      lavaCap.position.y = plumeHeight * 0.98;
+      lavaCap.scale.setScalar(radius * (0.12 + intensity * 0.08) * (0.88 + Math.sin(t * 47) * 0.08));
+
+      jets.forEach((jet) => {
+        const localT = clamp((t - jet.userData.delay) / (1 - jet.userData.delay), 0, 1);
+        const jetIntensity = Math.sin(localT * Math.PI) * open;
+        const flicker = 0.82 + Math.sin(jet.userData.phase + t * 54) * 0.16;
+        const heightScale = Math.max(0.01, jet.userData.height * jetIntensity * flicker);
+        const widthScale = Math.max(0.01, jet.userData.width * (0.7 + jetIntensity * 0.8));
+        jet.visible = jetIntensity > 0.025;
+        jet.position.set(
+          jet.userData.base.x + Math.sin(jet.userData.phase + t * 10) * 0.08 * jetIntensity,
+          heightScale * 0.5,
+          jet.userData.base.z + Math.cos(jet.userData.phase + t * 9) * 0.08 * jetIntensity
+        );
+        jet.scale.set(widthScale, heightScale, widthScale);
+        jet.rotation.y += dt * (3.4 + jet.userData.width * 4);
+      });
+
       fragments.forEach((fragment) => {
         fragment.position.addScaledVector(fragment.userData.velocity, dt);
-        fragment.userData.velocity.y -= 8.2 * dt;
-        fragment.rotation.x += dt * 8;
-        fragment.rotation.y += dt * 5;
-        fragment.scale.setScalar(Math.max(0.18, 1 - t * 0.72));
+        fragment.userData.velocity.y -= 8.7 * dt;
+        fragment.rotation.x += fragment.userData.spin.x * dt;
+        fragment.rotation.y += fragment.userData.spin.y * dt;
+        fragment.rotation.z += fragment.userData.spin.z * dt;
+        fragment.scale.setScalar(Math.max(0.12, 1 - t * 0.76));
       });
-      magmaMaterial.opacity = 0.96 * (1 - t * 0.55);
+      smokePuffs.forEach((puff) => {
+        puff.position.addScaledVector(puff.userData.velocity, dt);
+        puff.scale.setScalar(puff.userData.baseScale * (0.7 + t * 0.85));
+      });
+
+      magmaMaterial.opacity = 0.94 * (0.2 + intensity * 0.8);
+      coreMaterial.opacity = 0.86 * (0.12 + intensity * 0.88);
       rockMaterial.opacity = 0.96 * (1 - t);
-      if (!impacted && t >= 0.18) {
+      smokeMaterial.opacity = 0.34 * Math.sin(t * Math.PI);
+
+      if (!impacted && t >= 0.14) {
         impacted = true;
         onImpact?.();
       }
@@ -1447,6 +1656,30 @@ function createPooledParticle(color, materialOptions = {}) {
   particle.userData.velocity = new THREE.Vector3();
   particle.userData.spin = new THREE.Vector3();
   particle.userData.baseScale = 1;
+  return particle;
+}
+
+function createPooledFireParticle() {
+  const isEmber = Math.random() > 0.72;
+  const particle = new THREE.Mesh(
+    isEmber
+      ? new THREE.OctahedronGeometry(1, 0)
+      : new THREE.ConeGeometry(0.5, 1, 6, 1, true),
+    basicMat('#ff7a2a', {
+      transparent: true,
+      opacity: 0.92,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    }).clone()
+  );
+  particle.userData.isEmber = isEmber;
+  particle.userData.velocity = new THREE.Vector3();
+  particle.userData.spin = new THREE.Vector3();
+  particle.userData.base = new THREE.Vector3();
+  particle.userData.baseScale = 1;
+  particle.userData.phase = 0;
+  particle.userData.delay = 0;
   return particle;
 }
 

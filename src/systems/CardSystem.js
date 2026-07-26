@@ -1651,25 +1651,35 @@ export class CardSystem {
     }
   }
 
-  updateAbilityIcons(abilities = []) {
+  updateAbilityIcons(abilities = [], specializations = []) {
     if (!this.abilityIcons) return;
     this.abilityIcons.innerHTML = '';
-    this.abilityIcons.hidden = abilities.length === 0;
-    abilities.forEach((ability) => {
+    const entries = [
+      ...specializations.map((specialization) => ({
+        ...specialization,
+        isSpecialization: true
+      })),
+      ...abilities
+    ];
+    this.abilityIcons.hidden = entries.length === 0;
+    entries.forEach((ability) => {
       const icon = document.createElement('div');
-      icon.className = 'ability-icon';
+      icon.className = ability.isSpecialization ? 'ability-icon specialization-icon' : 'ability-icon';
       icon.style.setProperty('--ability-color', ability.color ?? '#9dd8ff');
-      const remainingSeconds = Number.isFinite(ability.expiresAt)
+      const remainingSeconds = !ability.isSpecialization && Number.isFinite(ability.expiresAt)
         ? Math.max(0, Math.ceil(ability.expiresAt - (this.game.elapsedTime ?? 0)))
         : null;
       const durationText = remainingSeconds != null ? ` · 剩余 ${remainingSeconds}s` : '';
       const summary = ability.summary ?? '';
+      const stackText = ability.badge ?? ability.stacks;
+      const stackSuffix = ability.isSpecialization || stackText == null ? '' : ` x${stackText}`;
+      const title = `${ability.name ?? ''}${stackSuffix}${durationText}${summary ? ` - ${summary}` : ''}`;
       icon.innerHTML = `
-        <span>${ability.label ?? ability.name?.slice?.(0, 1) ?? '?'}</span>
-        <strong>${ability.stacks}</strong>
-        <span class="ability-icon-tooltip">${escapeHtml(`${ability.name} x${ability.stacks}${durationText}\n${summary}`)}</span>
+        <span>${escapeHtml(ability.label ?? ability.name?.slice?.(0, 1) ?? '?')}</span>
+        ${stackText == null ? '' : `<strong>${escapeHtml(stackText)}</strong>`}
+        <span class="ability-icon-tooltip">${escapeHtml(`${ability.name ?? ''}${stackSuffix}${durationText}${summary ? `\n${summary}` : ''}`)}</span>
       `;
-      icon.title = `${ability.name} x${ability.stacks}${durationText} - ${summary}`;
+      icon.title = title;
       this.abilityIcons.appendChild(icon);
     });
     this.syncEnergyPanelToolbar();
@@ -2354,6 +2364,19 @@ const CARD_ART_RENDERERS = {
     <polygon fill="#ff9a47" points="62,34 82,23 70,43" />
     <circle fill="#fff2c7" opacity="0.85" cx="49" cy="27" r="3" />
     <path fill="none" stroke="#fff2c7" stroke-width="2" opacity="0.7" d="M27 52 C40 60 57 60 70 52" />
+  `),
+  rebirthTotem: () => artSvg(`
+    <polygon fill="#2f3128" points="0,52 19,42 43,44 70,38 96,49 96,64 0,64" />
+    <ellipse fill="#f1d97a" opacity="0.2" cx="48" cy="45" rx="36" ry="15" />
+    <polygon fill="#6a5630" points="42,30 54,30 57,57 39,57" />
+    <polygon fill="#8f743e" points="37,21 59,21 64,33 48,42 32,33" />
+    <polygon fill="#f1d97a" points="48,11 58,25 48,36 38,25" />
+    <polygon fill="#fff2c7" points="48,17 53,25 48,31 43,25" />
+    <path fill="none" stroke="#f1d97a" stroke-width="3" stroke-linecap="round" d="M22 48 C35 36 61 36 74 48" />
+    <path fill="none" stroke="#fff2c7" stroke-width="2" opacity="0.72" d="M29 54 C40 47 56 47 67 54" />
+    <circle fill="#fff2c7" cx="27" cy="38" r="4" />
+    <circle fill="#f1d97a" opacity="0.82" cx="70" cy="35" r="5" />
+    <circle fill="#fff2c7" opacity="0.7" cx="48" cy="6" r="3" />
   `),
   spiritWeapon: () => artSvg(`
     <polygon fill="#22313e" points="0,51 19,42 43,44 70,38 96,48 96,64 0,64" />

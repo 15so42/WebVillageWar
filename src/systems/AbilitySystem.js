@@ -369,7 +369,8 @@ export class AbilitySystem {
   updateUi() {
     if (!this.mountUi) return;
     this.cardSystem?.updateAbilityIcons?.(
-      this.getActiveAbilities().filter((ability) => this.getStacks(ability.id) > 0)
+      this.getActiveAbilities().filter((ability) => this.getStacks(ability.id) > 0),
+      this.game.getEnergyPanelSpecializationIcons?.(this.playerSlot) ?? []
     );
   }
 

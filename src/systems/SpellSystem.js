@@ -85,7 +85,7 @@ export class SpellSystem {
       playerId
     );
     const cardsPlayedIncludingThis = Math.max(1, Math.floor(this.game.runCardsPlayedCount ?? 0) + 1);
-    const damage = cardsPlayedIncludingThis * 2;
+    const damage = cardsPlayedIncludingThis;
     const impactPoint = point.clone();
     impactPoint.y = this.game.groundHeightAt(impactPoint);
     this.game.effects.spawnLavaEruption(impactPoint, radius, () => {
@@ -102,7 +102,6 @@ export class SpellSystem {
           damageNumberDuration: 0.72
         });
       });
-      this.game.effects.spawnRing(impactPoint, '#ff7a32', radius, 0.72);
       this.game.effects.spawnCrater(impactPoint, radius);
     });
   }

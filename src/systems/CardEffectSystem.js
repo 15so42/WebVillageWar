@@ -139,13 +139,13 @@ export class CardEffectSystem {
       .filter(([, definition]) => definition.category === 'enchantment')
       .map(([id]) => id);
     if (!enchantmentIds.length) return false;
-    const cardLevel = Math.max(1, Math.floor(card.level ?? 1));
+    const applyLevel = Math.max(1, Math.floor(resolveCardEffectNumber(card, effect, 'level', 1)));
     let applied = 0;
     for (let index = 0; index < count; index += 1) {
       const buffId = enchantmentIds[Math.floor(Math.random() * enchantmentIds.length)];
       const buff = this.game.buffs.applyBuff(targetUnit, buffId, null, {
         sourceCard: card.id,
-        level: cardLevel + 1
+        level: applyLevel
       });
       if (buff) applied += 1;
     }

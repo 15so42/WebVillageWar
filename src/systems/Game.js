@@ -67,6 +67,7 @@ import {
   endlessEnemyClass,
   endlessEnemyStatFactors,
   endlessExpectedLifetime,
+  endlessPlayerUnitDeathDifficultyDelta,
   isEndlessMode,
   normalizeChallengeMode,
   resetEndlessDeckLevels
@@ -106,6 +107,7 @@ const MAX_LEVEL_DIFFICULTY = 10;
 const TOTAL_WAVES = 21;
 const BOSS_WAVES_TO_WIN = 3;
 const WAVES_PER_BOSS = 7;
+const BOSS_HEALTH_MULTIPLIER = 0.6;
 const ELITE_WAVE_INTERVAL = 3;
 const WAVE_DIFFICULTY_STEP_WAVES = 3;
 const WAVE_DIFFICULTY_GROWTH_PER_SELECTED_DIFFICULTY = 0.16;
@@ -115,7 +117,7 @@ const SILVER_GAIN_MULTIPLIER = 0.6;
 const FORCED_CARD_CHOICE_UNTIL_WAVE = 3;
 const OPENING_COMBAT_UNIT_CHOICES = 2;
 const ENEMY_CAMP_IDLE_SCAN_SECONDS = 0.18;
-const RUN_SHOP_BASE_PRICE = 8;
+const RUN_SHOP_BASE_PRICE = 12;
 const RUN_SHOP_PRICE_INCREMENT = 3;
 const RUN_SHOP_CATEGORIES = [
   {
@@ -289,7 +291,7 @@ const TEMPORARY_MANA_SURGE_CARD = {
   kind: 'enchant',
   label: '涌',
   artKey: 'abilityEnchantEcho',
-  summary: '特殊临时牌。拖拽给单位后，随机进行 3 次附魔（消耗）。',
+  summary: '特殊临时牌。拖拽给单位后，随机进行 5 次 1 级附魔（消耗）。',
   target: 'friendly-unit',
   radius: 1.1,
   cooldown: 0,
@@ -298,7 +300,8 @@ const TEMPORARY_MANA_SURGE_CARD = {
   lootOnly: true,
   effect: {
     type: 'apply-random-enchantments',
-    count: 3
+    count: 5,
+    level: 1
   },
   color: '#b68cff'
 };
@@ -384,7 +387,7 @@ const STRATEGY_REWARD_OPTION_DEFINITIONS = [
     id: 'temporary-mana-surge-card',
     action: 'grant-temporary-card',
     title: '获得魔力涌动',
-    description: '获得一张特殊临时牌：对目标随机进行 3 次附魔（消耗）。',
+    description: '获得一张特殊临时牌：对目标随机进行 5 次 1 级附魔（消耗）。',
     temporaryCard: TEMPORARY_MANA_SURGE_CARD
   }
 ];
@@ -397,6 +400,10 @@ const MOBILE_PINCH_MIN_DISTANCE = 24;
 const STRUCTURE_HEALTH_LAG_DELAY = 0.4;
 const STRUCTURE_HEALTH_LAG_RAPID_DELAY = 0.08;
 const STRUCTURE_HEALTH_LAG_RAPID_WINDOW = 0.18;
+const REBIRTH_TOTEM_ENCHANTMENT_ID = 'rebirthTotem';
+const REBIRTH_TOTEM_BASE_SECONDS = 60;
+const REBIRTH_TOTEM_SECONDS_REDUCTION_PER_LEVEL = 5;
+const REBIRTH_TOTEM_MIN_SECONDS = 5;
 const PLAYER_VISUAL_COLORS = ['#62d56f', '#f2c94c', '#a970ff', '#55a7ff'];
 const PERF_HISTORY_LIMIT = 120;
 const PERF_CHART_UPDATE_INTERVAL = 0.25;
@@ -419,6 +426,7 @@ const PERF_LABELS = {
   mechanics: '关卡机制',
   navDebug: '寻路显示',
   playerBaseAttack: '基地防御火力',
+  rebirth: '复生队列',
   recovery: '恢复',
   render: '渲染',
   selection: '选择',
@@ -840,6 +848,9 @@ export class Game {
     }
     this.strategyRewardRerollCount = 0;
     this.shopPrices = createInitialShopPrices();
+    this.waveRewardDeck = createRewardDeckIds(this.levelSession.deck);
+    this.rebirthQueue = [];
+    this.nextRebirthQueueId = 1;
     this.awaitingOpeningReward = false;
     this.runShopOpen = false;
     this.runShopCausedPause = false;
@@ -1271,6 +1282,7 @@ export class Game {
       runPerfStep('mechanics', () => this.levelMechanics.update(dt));
       runPerfStep('areaEffects', () => this.areaEffects.update(dt));
       runPerfStep('loot', () => this.lootDrops.update(dt));
+      runPerfStep('rebirth', () => this.updateRebirthQueue(dt));
       runPerfStep('effects', () => this.effects.update(dt));
       runPerfStep('structure', () => this.updateStructureFeedback(dt));
       runPerfStep('camera', () => this.updateCamera(dt));
@@ -1298,6 +1310,7 @@ export class Game {
       runStep('mechanics', () => this.levelMechanics.update(dt));
       runStep('areaEffects', () => this.areaEffects.update(dt));
       runStep('loot', () => this.lootDrops.update(dt));
+      runStep('rebirth', () => this.updateRebirthQueue(dt));
       runStep('effects', () => this.effects.update(dt));
       runStep('structure', () => this.updateStructureFeedback(dt));
       runStep('camera', () => this.updateCamera(dt));
@@ -1502,24 +1515,33 @@ export class Game {
     if (!this.players) {
       return this.openStrategyEvent(type, options);
     }
-    this.coopRewardWaitSlots = new Set(this.coopPlayerSlots());
+    this.coopRewardWaitSlots = new Set();
     this.coopRewardKind = 'strategy';
     this.coopPlayerSlots().forEach((slot) => {
+      let hasEvent = false;
       this.withPlayerContext(slot, () => {
         this.strategyRewardRerollCount = 0;
         let event = this.createStrategyEvent(type, options);
-        if (!event?.choices?.length && type !== 'card-choice') {
+        if (!event?.choices?.length && type !== 'card-choice' && type !== 'wave-reward') {
           event = this.createStrategyEvent('card-choice', {
             ...options,
             fallbackFrom: type
           });
         }
-        if (!event?.choices?.length) {
+        if (!event?.choices?.length && type !== 'wave-reward') {
           event = this.createFallbackCardChoiceEvent(options);
         }
         this.strategyEvent = event?.choices?.length ? event : null;
+        hasEvent = Boolean(this.strategyEvent);
       });
+      if (hasEvent) this.coopRewardWaitSlots.add(slot);
     });
+    if (!this.coopRewardWaitSlots.size) {
+      this.coopRewardWaitSlots = null;
+      this.coopRewardKind = null;
+      this.continueAfterStrategyFlow(false);
+      return false;
+    }
     this.showLocalCoopStrategyUi();
     this.networkBridge?.markPrivateStateDirty?.();
     return true;
@@ -2398,6 +2420,10 @@ export class Game {
   openStrategyEvent(type, options = {}) {
     if (this.levelFinished || this.levelSession.debug) return;
     let event = this.createStrategyEvent(type, options);
+    if (!event?.choices?.length && type === 'wave-reward') {
+      this.continueAfterStrategyFlow(false);
+      return false;
+    }
     if (!event?.choices?.length && type !== 'card-choice') {
       event = this.createStrategyEvent('card-choice', {
         ...options,
@@ -2609,6 +2635,43 @@ export class Game {
       .map((card) => this.cardSystem?.applyRuntimeCardLevel?.(card) ?? card);
   }
 
+  waveRewardDeckIds() {
+    const slot = this.activeEconomySlot ?? this.localPlayerSlot;
+    const run = this.players?.[slot];
+    if (run) {
+      if (!Array.isArray(run.waveRewardDeck)) {
+        run.waveRewardDeck = createRewardDeckIds(run.deck);
+      }
+      return run.waveRewardDeck;
+    }
+    if (!Array.isArray(this.waveRewardDeck)) {
+      this.waveRewardDeck = createRewardDeckIds(this.levelSession.deck);
+    }
+    return this.waveRewardDeck;
+  }
+
+  waveRewardCardPool(options = {}) {
+    const remaining = this.waveRewardDeckIds();
+    if (!remaining.length) return [];
+    const remainingIds = new Set(remaining);
+    return this.selectedCardPool({
+      ...options,
+      allowAllFallback: false
+    }).filter((card) => remainingIds.has(card.id));
+  }
+
+  consumeWaveRewardCard(card) {
+    const cardId = card?.id ?? card?.cardDefinitionId;
+    if (!cardId) return false;
+    const remaining = this.waveRewardDeckIds();
+    const index = remaining.indexOf(cardId);
+    if (index < 0) return false;
+    remaining.splice(index, 1);
+    const slot = this.activeEconomySlot ?? this.localPlayerSlot;
+    this.networkBridge?.markPrivateStateDirty?.(slot);
+    return true;
+  }
+
   randomCardChoices({ pool, action, actionLabel }) {
     return pickRandomItems(pool, STRATEGY_CHOICE_COUNT).map((card) => ({
       action,
@@ -2645,11 +2708,14 @@ export class Game {
 
   createCardWaveRewardChoices(wave = null) {
     return this.weightedCardChoices({
-      pool: this.selectedCardPool({ allowAllFallback: true }),
+      pool: this.waveRewardCardPool(),
       action: 'add-card',
       actionLabel: '获得卡牌',
       wave
-    });
+    }).map((choice) => ({
+      ...choice,
+      rewardSource: 'wave-reward-deck'
+    }));
   }
 
   createWaveRewardOptionChoices(wave = null) {
@@ -2705,8 +2771,18 @@ export class Game {
 
   ownedUnitTypes() {
     const types = new Set();
-    this.cardSystem?.allDeckCards?.().forEach((card) => {
+    const addCardUnitType = (card) => {
       if (card?.unitType) types.add(card.unitType);
+    };
+    const slot = this.activeEconomySlot ?? this.localPlayerSlot;
+    const coopDeck = this.levelSession?.players?.[slot]?.deck;
+    if (Array.isArray(coopDeck)) {
+      coopDeck.forEach(addCardUnitType);
+    } else if (Array.isArray(this.levelSession?.deck)) {
+      this.levelSession.deck.forEach(addCardUnitType);
+    }
+    this.cardSystem?.allDeckCards?.().forEach((card) => {
+      addCardUnitType(card);
     });
     this.friendlyUnits?.forEach((unit) => {
       if (unit?.alive && !unit.isWildlife && unit.type && this.unitBelongsToPlayer(unit)) {
@@ -2714,6 +2790,34 @@ export class Game {
       }
     });
     return types;
+  }
+
+  teamSpecialUpgradeMapForSlot(slot = this.activeEconomySlot ?? this.localPlayerSlot) {
+    return this.players?.[slot]?.teamSpecialUpgrades ?? this.teamSpecialUpgrades;
+  }
+
+  getEnergyPanelSpecializationIcons(slot = this.localPlayerSlot) {
+    const upgradesByType = this.teamSpecialUpgradeMapForSlot(slot);
+    if (!upgradesByType?.size) return [];
+    const icons = [];
+    upgradesByType.forEach((upgradeIds, unitType) => {
+      if (!upgradeIds?.size) return;
+      const unitName = UNIT_DEFINITIONS[unitType]?.name ?? unitType;
+      [...upgradeIds].forEach((upgradeId) => {
+        const upgrade = runtimeUnitUpgradeDefinition(unitType, upgradeId);
+        if (!upgrade) return;
+        icons.push({
+          id: `special:${unitType}:${upgrade.id}`,
+          kind: 'specialization',
+          name: `${unitName}·${upgrade.name}`,
+          label: unitName.slice(0, 1) || '专',
+          badge: '专',
+          color: specializationIconColor(unitType),
+          summary: upgrade.summary ?? ''
+        });
+      });
+    });
+    return icons;
   }
 
   createTeamGenericUpgradeChoice(upgrade) {
@@ -2791,6 +2895,7 @@ export class Game {
       this.applyTeamSpecialUpgradeToUnit(unit, upgrade);
     });
     if (upgrade.supportModifiers) this.teamSupportModifiersApplied.add(upgrade.id);
+    this.abilitiesFor(slot)?.updateUi?.();
     return true;
   }
 
@@ -2992,9 +3097,11 @@ export class Game {
     if (!event || event.type !== 'wave-reward') return false;
     const cost = this.getStrategyRewardRerollCost();
     if (this.getSilver() + 0.001 < cost) return false;
+    const choices = this.createCardWaveRewardChoices(event.wave);
+    if (!choices.length) return false;
     this.setSilver(this.getSilver() - cost);
     this.strategyRewardRerollCount = Math.max(0, (this.strategyRewardRerollCount ?? 0) + 1);
-    event.choices = this.createCardWaveRewardChoices(event.wave);
+    event.choices = choices;
     this.renderStrategyEvent();
     this.updateHud(0);
     return true;
@@ -3116,6 +3223,9 @@ export class Game {
       }) !== false;
     }
     if (!applied) return false;
+    if (choice.rewardSource === 'wave-reward-deck' && choice.action === 'add-card') {
+      this.consumeWaveRewardCard(choice.card);
+    }
     this.applyStrategyChoiceCost(choice);
     return true;
   }
@@ -3699,6 +3809,7 @@ export class Game {
       runShopPendingOffers: this.runShopPendingOffers,
       silver: this.silver,
       runCardsPlayedCount: this.runCardsPlayedCount,
+      waveRewardDeck: this.waveRewardDeck,
       teamGenericUpgradeCounts: this.teamGenericUpgradeCounts,
       teamSpecialUpgrades: this.teamSpecialUpgrades,
       teamSupportModifiersApplied: this.teamSupportModifiersApplied
@@ -3715,6 +3826,7 @@ export class Game {
     this.runShopPendingOffers = run.runShopPendingOffers;
     this.silver = run.silver;
     this.runCardsPlayedCount = run.runCardsPlayedCount ?? 0;
+    this.waveRewardDeck = run.waveRewardDeck;
     this.teamGenericUpgradeCounts = run.teamGenericUpgradeCounts;
     this.teamSpecialUpgrades = run.teamSpecialUpgrades;
     this.teamSupportModifiersApplied = run.teamSupportModifiersApplied;
@@ -3730,6 +3842,7 @@ export class Game {
       run.runShopPendingOffers = this.runShopPendingOffers;
       run.silver = this.silver;
       run.runCardsPlayedCount = this.runCardsPlayedCount;
+      run.waveRewardDeck = this.waveRewardDeck;
       run.teamGenericUpgradeCounts = this.teamGenericUpgradeCounts;
       run.teamSpecialUpgrades = this.teamSpecialUpgrades;
       run.teamSupportModifiersApplied = this.teamSupportModifiersApplied;
@@ -3745,6 +3858,7 @@ export class Game {
       this.runShopPendingOffers = previous.runShopPendingOffers;
       this.silver = previous.silver;
       this.runCardsPlayedCount = previous.runCardsPlayedCount;
+      this.waveRewardDeck = previous.waveRewardDeck;
       this.teamGenericUpgradeCounts = previous.teamGenericUpgradeCounts;
       this.teamSpecialUpgrades = previous.teamSpecialUpgrades;
       this.teamSupportModifiersApplied = previous.teamSupportModifiersApplied;
@@ -3811,12 +3925,18 @@ export class Game {
       && (unit.controllerPlayerId ?? unit.ownerPlayerId) === this.localPlayerSlot;
   }
 
+  canInspectUnit(unit) {
+    if (!unit?.alive) return false;
+    return unit.team === TEAMS.PLAYER || unit.team === TEAMS.ENEMY;
+  }
+
   commandSelectedUnitsToPoint(point) {
     if (!point) return false;
     return this.commandSelectedUnits(point);
   }
 
   handleUnitDeath(unit, source = null) {
+    this.queueRebirthForUnit(unit, source);
     const handled = this.unitRegistry.handleDeath(unit, source);
     if (!handled) return false;
     this.updateEndlessDifficultyForDeath(unit);
@@ -3830,31 +3950,224 @@ export class Game {
     return true;
   }
 
+  queueRebirthForUnit(unit, source = null) {
+    if (!this.canQueueRebirthForUnit(unit)) return false;
+    const enchantment = unit.enchantments.get(REBIRTH_TOTEM_ENCHANTMENT_ID);
+    const level = Math.max(1, Math.floor(enchantment?.level ?? 1));
+    const total = rebirthTotemDurationForLevel(level);
+    const entry = {
+      id: this.nextRebirthQueueId,
+      sourceUnitId: unit.id,
+      type: unit.type,
+      name: unit.name ?? UNIT_DEFINITIONS[unit.type]?.name ?? unit.type,
+      sourceCardId: unit.sourceCardId ?? null,
+      sourceCardEnergyCost: finiteNumber(unit.sourceCardEnergyCost, null),
+      ownerPlayerId: unit.ownerPlayerId ?? this.localPlayerSlot,
+      controllerPlayerId: unit.controllerPlayerId ?? unit.ownerPlayerId ?? this.localPlayerSlot,
+      playerColorIndex: this.playerColorIndexFor(unit.controllerPlayerId ?? unit.ownerPlayerId),
+      level,
+      total,
+      remaining: total,
+      queuedAt: this.elapsedTime,
+      sourceId: source?.id ?? null,
+      snapshot: this.createRebirthSnapshot(unit, level)
+    };
+    this.nextRebirthQueueId += 1;
+    this.rebirthQueue.push(entry);
+    unit.rebirthQueued = true;
+    this.playerBase.statusElement?.parts?.rebirthQueue?.removeAttribute('hidden');
+    return true;
+  }
+
+  canQueueRebirthForUnit(unit) {
+    return (
+      !this.networkClientMode &&
+      !this.levelFinished &&
+      unit &&
+      unit.deathHandled !== true &&
+      unit.team === TEAMS.PLAYER &&
+      unit.isSilentRemoval !== true &&
+      unit.isBuilding !== true &&
+      unit.underConstruction !== true &&
+      unit.rebirthQueued !== true &&
+      unit.hasEnchantment?.(REBIRTH_TOTEM_ENCHANTMENT_ID) === true &&
+      !this.rebirthQueue.some((entry) => entry.sourceUnitId === unit.id)
+    );
+  }
+
+  createRebirthSnapshot(unit, level = 1) {
+    return {
+      type: unit.type,
+      team: unit.team,
+      name: unit.name ?? UNIT_DEFINITIONS[unit.type]?.name ?? unit.type,
+      sourceCardId: unit.sourceCardId ?? null,
+      sourceCardEnergyCost: finiteNumber(unit.sourceCardEnergyCost, null),
+      ownerPlayerId: unit.ownerPlayerId ?? this.localPlayerSlot,
+      controllerPlayerId: unit.controllerPlayerId ?? unit.ownerPlayerId ?? this.localPlayerSlot,
+      factionId: unit.factionId ?? unit.team,
+      playerColorIndex: this.playerColorIndexFor(unit.controllerPlayerId ?? unit.ownerPlayerId),
+      maxEnchantmentSlots: Math.max(unit.enchantments?.size ?? 0, Math.floor(unit.maxEnchantmentSlots ?? 4)),
+      controlMode: unit.controlMode === 'guard' ? 'guard' : 'normal',
+      guardPoint: vectorSnapshot(unit.guardPoint),
+      guardRadius: Number.isFinite(unit.guardRadius) ? unit.guardRadius : null,
+      rebirthLevel: level,
+      attributes: captureRebirthAttributeSnapshot(unit),
+      enchantments: captureRebirthEnchantments(unit)
+    };
+  }
+
+  updateRebirthQueue(dt = 0) {
+    if (this.networkClientMode || !this.rebirthQueue.length) return;
+    const elapsed = Math.max(0, finiteNumber(dt, 0));
+    for (let index = this.rebirthQueue.length - 1; index >= 0; index -= 1) {
+      const entry = this.rebirthQueue[index];
+      entry.remaining = Math.max(0, finiteNumber(entry.remaining, 0) - elapsed);
+      if (entry.remaining > 0) continue;
+      this.rebirthQueue.splice(index, 1);
+      this.respawnRebirthEntry(entry);
+    }
+  }
+
+  respawnRebirthEntry(entry) {
+    const snapshot = entry?.snapshot;
+    if (!snapshot?.type || !UNIT_DEFINITIONS[snapshot.type] || this.playerBase?.alive === false) return null;
+    const position = this.resolveRebirthSpawnPoint(entry);
+    const unit = new UnitEntity({
+      type: snapshot.type,
+      team: TEAMS.PLAYER,
+      position
+    });
+    unit.ownerPlayerId = snapshot.ownerPlayerId ?? this.localPlayerSlot;
+    unit.controllerPlayerId = snapshot.controllerPlayerId ?? unit.ownerPlayerId;
+    unit.factionId = snapshot.factionId ?? unit.team;
+    unit.sourceCardId = snapshot.sourceCardId ?? entry.sourceCardId ?? null;
+    unit.sourceCardEnergyCost = finiteNumber(
+      snapshot.sourceCardEnergyCost ?? entry.sourceCardEnergyCost,
+      null
+    );
+    unit.maxEnchantmentSlots = Math.max(
+      Math.floor(snapshot.maxEnchantmentSlots ?? 4),
+      snapshot.enchantments?.length ?? 0
+    );
+    unit.controlMode = snapshot.controlMode === 'guard' ? 'guard' : 'normal';
+    unit.guardPoint = vectorFromSnapshot(snapshot.guardPoint);
+    unit.guardRadius = Number.isFinite(snapshot.guardRadius) ? snapshot.guardRadius : null;
+    this.attachUnitStatus(unit);
+    this.registerUnit(unit);
+    restoreRebirthEnchantments(unit, snapshot.enchantments);
+    restoreRebirthAttributes(unit, snapshot.attributes);
+    this.effects.spawnRing(unit.position, '#f1d97a', 1.05, 0.74);
+    this.effects.spawnDamageNumber(unit.position, 1, {
+      text: '复生',
+      color: '#f1d97a',
+      stroke: '#3c2b10',
+      height: unit.projectileHitHeight ?? 1.55,
+      duration: 0.9,
+      fontSize: 78,
+      baseHeight: 0.5
+    });
+    return unit;
+  }
+
+  resolveRebirthSpawnPoint(entry = null) {
+    const base = this.playerBase?.position ?? new THREE.Vector3(0, 0, BALANCE.playerBase.position.z);
+    const offsetIndex = Math.max(0, Math.floor(entry?.id ?? 0)) % 8;
+    const point = base.clone().add(polarOffset(offsetIndex, 8, 2.45));
+    const position = this.resolveWalkablePoint(point);
+    position.y = this.groundHeightAt(position);
+    return position;
+  }
+
+  serializeRebirthQueue() {
+    return this.rebirthQueue.map((entry) => serializeRebirthQueueEntry(entry));
+  }
+
+  applyNetworkRebirthQueue(queue = []) {
+    if (!this.networkClientMode) return;
+    this.rebirthQueue = (Array.isArray(queue) ? queue : []).map((entry, index) => ({
+      id: entry.id ?? index + 1,
+      sourceUnitId: entry.sourceUnitId ?? null,
+      type: entry.type,
+      name: entry.name ?? UNIT_DEFINITIONS[entry.type]?.name ?? entry.type ?? '单位',
+      ownerPlayerId: entry.ownerPlayerId ?? null,
+      controllerPlayerId: entry.controllerPlayerId ?? entry.ownerPlayerId ?? null,
+      playerColorIndex: Math.max(0, Math.min(3, Math.floor(entry.playerColorIndex ?? 0))),
+      level: Math.max(1, Math.floor(entry.level ?? 1)),
+      total: Math.max(0, finiteNumber(entry.total, 0)),
+      remaining: Math.max(0, finiteNumber(entry.remaining, 0))
+    }));
+  }
+
   markEndlessEnemySpawn(unit) {
     if (!this.isEndlessMode() || this.networkClientMode || unit?.team !== TEAMS.ENEMY) return;
     const enemyClass = endlessEnemyClass(unit);
-    unit.endlessSpawnedAt = this.elapsedTime;
+    unit.endlessCombatStartedAt = null;
+    unit.endlessFirstAttackerId = null;
     unit.endlessEnemyClass = enemyClass;
+    unit.endlessDifficultyBaseHealth = Math.max(0.01, unit.maxHealth ?? unit.definition?.maxHealth ?? 0);
     unit.endlessExpectedLifetime = endlessExpectedLifetime({
-      baseHealth: unit.definition?.maxHealth ?? unit.maxHealth,
+      baseHealth: unit.endlessDifficultyBaseHealth,
       enemyClass
     });
+  }
+
+  markEndlessEnemyCombatStarted(unit, source = null) {
+    if (
+      !this.isEndlessMode()
+      || this.networkClientMode
+      || unit?.team !== TEAMS.ENEMY
+      || unit.isSilentRemoval
+      || !source
+      || Number.isFinite(unit.endlessCombatStartedAt)
+    ) return;
+    if (source.team && unit.team && source.team === unit.team) return;
+    unit.endlessCombatStartedAt = this.elapsedTime;
+    unit.endlessFirstAttackerId = source.id ?? null;
   }
 
   updateEndlessDifficultyForDeath(unit) {
     if (
       !this.isEndlessMode()
       || this.networkClientMode
-      || unit?.team !== TEAMS.ENEMY
-      || unit.isSilentRemoval
-      || !Number.isFinite(unit.endlessSpawnedAt)
+      || unit?.isSilentRemoval
+    ) return;
+    if (unit?.team === TEAMS.ENEMY) {
+      this.updateEndlessDifficultyForEnemyDeath(unit);
+      return;
+    }
+    if (unit?.team === TEAMS.PLAYER) {
+      this.updateEndlessDifficultyForPlayerUnitDeath(unit);
+    }
+  }
+
+  updateEndlessDifficultyForEnemyDeath(unit) {
+    if (
+      !Number.isFinite(unit.endlessCombatStartedAt)
       || !Number.isFinite(unit.endlessExpectedLifetime)
     ) return;
     const delta = endlessDifficultyDelta({
-      lifetime: Math.max(0, this.elapsedTime - unit.endlessSpawnedAt),
+      baseHealth: unit.endlessDifficultyBaseHealth ?? unit.maxHealth ?? unit.definition?.maxHealth,
+      lifetime: Math.max(0, this.elapsedTime - unit.endlessCombatStartedAt),
       expectedLifetime: unit.endlessExpectedLifetime,
       enemyClass: unit.endlessEnemyClass ?? endlessEnemyClass(unit)
     });
+    this.applyEndlessDifficultyChange(delta);
+  }
+
+  updateEndlessDifficultyForPlayerUnitDeath(unit) {
+    if (
+      unit?.team !== TEAMS.PLAYER
+      || unit?.isSilentRemoval
+      || unit.underConstruction
+    ) return;
+    const cost = playerUnitDeathDifficultyCost(unit);
+    const delta = endlessPlayerUnitDeathDifficultyDelta(cost);
+    if (delta === 0) return;
+    this.applyEndlessDifficultyChange(delta);
+  }
+
+  applyEndlessDifficultyChange(delta) {
+    if (!Number.isFinite(Number(delta)) || Number(delta) === 0) return;
     this.endlessDifficulty = applyEndlessDifficulty(this.endlessDifficulty, delta);
     this.hudUpdateTimer = 0;
     this.updateHud(0);
@@ -3998,6 +4311,7 @@ export class Game {
       });
       unit.ownerPlayerId = options.ownerPlayerId ?? this.cardSystem?.playerSlot ?? this.localPlayerSlot;
       unit.controllerPlayerId = unit.ownerPlayerId;
+      assignUnitSourceCard(unit, options.sourceCard);
       this.applySummonCardLevel(unit, options.sourceCard);
       this.attachUnitStatus(unit);
       this.registerUnit(unit);
@@ -4019,6 +4333,7 @@ export class Game {
     });
     unit.ownerPlayerId = options.ownerPlayerId ?? this.cardSystem?.playerSlot ?? this.localPlayerSlot;
     unit.controllerPlayerId = unit.ownerPlayerId;
+    assignUnitSourceCard(unit, options.sourceCard);
     this.applySummonCardLevel(unit, options.sourceCard);
     this.abilitiesFor(unit)?.applyNewBuildingDurability(unit);
     this.attachUnitStatus(unit);
@@ -4324,13 +4639,17 @@ export class Game {
     if (index === 0) {
       const bossRank = Math.max(1, waveConfig.bossOrdinal ?? 1);
       const bossScale = BALANCE.waveScaling ?? {};
+      const bossHealthMultiplier =
+        ((bossScale.bossHealthBase ?? 2.5) + bossRank * (bossScale.bossHealthPerRank ?? 0.3))
+        * 0.7
+        * BOSS_HEALTH_MULTIPLIER;
       unit.isBoss = true;
       unit.name = `Boss ${unit.name}`;
       unit.attributes.addModifiers([
         {
           stat: 'maxHealth',
           type: 'multiply',
-          amount: ((bossScale.bossHealthBase ?? 2.5) + bossRank * (bossScale.bossHealthPerRank ?? 0.3)) * 0.7
+          amount: bossHealthMultiplier
         },
         {
           stat: 'maxShield',
@@ -5470,7 +5789,10 @@ export class Game {
       unit.statusUiDirty = true;
     });
     const filtered = units.filter((unit) => {
-      if (!unit?.alive || unique.has(unit.id) || !this.canControlUnit(unit)) return false;
+      const canSelect = mode === 'box'
+        ? this.canControlUnit(unit)
+        : this.canInspectUnit(unit);
+      if (!unit?.alive || unique.has(unit.id) || !canSelect) return false;
       unique.add(unit.id);
       return true;
     });
@@ -5487,7 +5809,9 @@ export class Game {
       }
     });
     this.selectedUnits.forEach((unit) => {
-      this.applyUnitSelectionState(unit, true, this.localPlayerSlot);
+      if (this.canControlUnit(unit)) {
+        this.applyUnitSelectionState(unit, true, this.localPlayerSlot);
+      }
     });
     this.sendNetworkSelectionState();
   }
@@ -5532,7 +5856,13 @@ export class Game {
 
   sendNetworkSelectionState() {
     if (!this.networkBridge?.shouldRouteLocalCommands?.()) return false;
-    return Boolean(this.networkBridge.commandSender?.selectionSet?.([...this.selectedUnitIds]));
+    return Boolean(this.networkBridge.commandSender?.selectionSet?.(this.selectedControllableUnitIds()));
+  }
+
+  selectedControllableUnitIds() {
+    return this.selectedUnits
+      .filter((unit) => this.canControlUnit(unit))
+      .map((unit) => unit.id);
   }
 
   applyUnitSelectionState(unit, selected, selectedByPlayerId = null) {
@@ -5559,6 +5889,7 @@ export class Game {
 
     if (event.pointerType === 'touch') {
       event.preventDefault();
+      this.resetTouchInteractionForPrimaryPointerDown(event);
       this.trackTouchPointer(event);
       if (this.activeTouchPointers.size >= 2) {
         this.beginTouchGesture(event);
@@ -5901,6 +6232,23 @@ export class Game {
     this.canvas.classList.remove('is-camera-dragging');
   }
 
+  resetTouchInteractionForPrimaryPointerDown(event) {
+    if (event.pointerType !== 'touch' || event.isPrimary !== true) return;
+    if (this.touchGesture) {
+      this.cancelTouchGesture();
+    }
+    if (this.cameraDrag?.mode === 'touch-pan') {
+      if (this.cameraDrag.pointerId != null) {
+        safeReleasePointerCapture(this.canvas, this.cameraDrag.pointerId);
+      }
+      this.cancelCameraDrag();
+    }
+    if (this.selectionDrag?.pointerId != null) {
+      this.cancelSelectionDrag();
+    }
+    this.activeTouchPointers.clear();
+  }
+
   trackTouchPointer(event) {
     if (event.pointerType !== 'touch' || event.pointerId == null) return;
     this.activeTouchPointers.set(event.pointerId, {
@@ -6054,7 +6402,7 @@ export class Game {
   hasMovablePlayerSelection() {
     return this.selectedUnits.some((unit) => (
       unit?.alive &&
-      unit.team === TEAMS.PLAYER &&
+      this.canControlUnit(unit) &&
       !unit.isBuilding &&
       unit.definition?.canMove !== false
     ));
@@ -6130,7 +6478,9 @@ export class Game {
     const point = this.groundPointFromClient(event.clientX, event.clientY);
     if (!point || !this.selectedUnits.length) return false;
     if (this.networkBridge?.shouldRouteLocalCommands?.()) {
-      return Boolean(this.networkBridge?.commandSender?.issueMove([...this.selectedUnitIds], point));
+      const unitIds = this.selectedControllableUnitIds();
+      if (!unitIds.length) return false;
+      return Boolean(this.networkBridge?.commandSender?.issueMove(unitIds, point));
     }
     return this.commandSelectedUnits(point);
   }
@@ -6203,7 +6553,8 @@ export class Game {
 
   stopSelectedUnits() {
     if (this.networkBridge?.shouldRouteLocalCommands?.()) {
-      this.networkBridge.commandSender?.issueStop?.([...this.selectedUnitIds]);
+      const unitIds = this.selectedControllableUnitIds();
+      if (unitIds.length) this.networkBridge.commandSender?.issueStop?.(unitIds);
       return;
     }
     const units = this.selectedUnits.filter((unit) => unit.alive && unit.team === TEAMS.PLAYER);
@@ -6228,7 +6579,8 @@ export class Game {
 
   guardSelectedUnits() {
     if (this.networkBridge?.shouldRouteLocalCommands?.()) {
-      this.networkBridge.commandSender?.issueGuard?.([...this.selectedUnitIds]);
+      const unitIds = this.selectedControllableUnitIds();
+      if (unitIds.length) this.networkBridge.commandSender?.issueGuard?.(unitIds);
       return;
     }
     const units = this.selectedUnits.filter((unit) => unit.alive && unit.team === TEAMS.PLAYER);
@@ -6509,11 +6861,62 @@ export class Game {
     if (element.parts.durability) {
       element.parts.durability.style.transform = `scaleX(${durabilityRatio})`;
     }
+    if (structure === this.playerBase) {
+      this.renderRebirthQueueStatus(element.parts.rebirthQueue);
+    } else if (element.parts.rebirthQueue) {
+      element.parts.rebirthQueue.hidden = true;
+    }
     updateHealthTicks(element.parts.ticks, structure.maxHealth);
     const screen = this.projectWorldUi(structure.position, structure.statusHeight ?? 2.8);
     element.hidden = !structure.alive || !screen.visible;
     if (element.hidden) return;
     element.style.transform = `translate3d(${screen.x}px, ${screen.y}px, 0) translate(-50%, -100%)`;
+  }
+
+  renderRebirthQueueStatus(container) {
+    if (!container) return;
+    const entries = (this.rebirthQueue ?? [])
+      .filter((entry) => entry && finiteNumber(entry.remaining, 0) > 0)
+      .sort((a, b) => finiteNumber(a.remaining, 0) - finiteNumber(b.remaining, 0));
+    if (!entries.length) {
+      container.hidden = true;
+      container.innerHTML = '';
+      container.dataset.rebirthSignature = '';
+      return;
+    }
+    container.hidden = false;
+    const visible = entries.slice(0, 5);
+    const overflow = Math.max(0, entries.length - visible.length);
+    const signature = [
+      ...visible.map((entry) => [
+        entry.id,
+        entry.type,
+        entry.ownerPlayerId,
+        Math.ceil(finiteNumber(entry.remaining, 0))
+      ].join(':')),
+      overflow > 0 ? `+${overflow}` : ''
+    ].join('|');
+    if (container.dataset.rebirthSignature === signature) return;
+    container.dataset.rebirthSignature = signature;
+    container.innerHTML = `${visible.map((entry) => {
+      const name = entry.name ?? UNIT_DEFINITIONS[entry.type]?.name ?? '单位';
+      const icon = rebirthUnitIconMarkup(entry.type, name);
+      const seconds = Math.ceil(finiteNumber(entry.remaining, 0));
+      const color = PLAYER_VISUAL_COLORS[
+        Math.max(0, Math.min(PLAYER_VISUAL_COLORS.length - 1, Math.floor(entry.playerColorIndex ?? 0)))
+      ] ?? this.playerVisualColor(entry.ownerPlayerId);
+      return `
+        <span class="world-rebirth-token" style="--rebirth-color: ${escapeHtml(color)}" title="${escapeHtml(`${name}复活中 ${seconds}s`)}">
+          <span class="world-rebirth-avatar">${icon}</span>
+          <span class="world-rebirth-time">${seconds}s</span>
+        </span>
+      `;
+    }).join('')}${overflow > 0 ? `
+      <span class="world-rebirth-token is-overflow" title="${escapeHtml(`还有 ${overflow} 个单位复活中`)}">
+        <span class="world-rebirth-avatar">+</span>
+        <span class="world-rebirth-time">${overflow}</span>
+      </span>
+    ` : ''}`;
   }
 
   spendStructureDurability(structure, amount = 1) {
@@ -6595,7 +6998,7 @@ export class Game {
         this.dom.selectedPanel.dataset.selection = 'group';
         this.dom.selectedPanel.dataset.team = 'player';
       }
-      const totalHealth = Math.round(
+      const totalHealth = formatDisplayedHealth(
         this.selectedUnits.reduce((sum, unit) => sum + unit.health, 0)
       );
       const totalDurability = Math.round(
@@ -6615,7 +7018,7 @@ export class Game {
         this.dom.selectedPanel.dataset.team = this.selectedUnit.team === TEAMS.PLAYER ? 'player' : 'enemy';
       }
       const unit = this.selectedUnit;
-      const hp = Math.round(unit.health);
+      const hp = formatDisplayedHealth(unit.health);
       const shield = Math.round(unit.shield);
       const durability = Math.round(unit.weapon.durability);
       const maxDurability = Math.round(unit.weapon.maxDurability);
@@ -6824,6 +7227,7 @@ export class Game {
         : null,
       baseHealth: Math.round(this.playerBase.health),
       enemyCampHealth: Math.round(this.enemyCamp.health),
+      rebirthQueue: this.serializeRebirthQueue(),
       selectedCount: this.selectedUnits.length,
       selectedIds: this.selectedUnits.map((unit) => unit.id),
       altars: this.altars.snapshot(),
@@ -6839,7 +7243,7 @@ export class Game {
             x: Number(this.selectedUnit.position.x.toFixed(2)),
             y: Number(this.selectedUnit.position.y.toFixed(2)),
             z: Number(this.selectedUnit.position.z.toFixed(2)),
-            hp: Math.round(this.selectedUnit.health),
+            hp: formatDisplayedHealth(this.selectedUnit.health),
             weapon: Math.round(this.selectedUnit.weapon.durability),
             enchantments: [...this.selectedUnit.enchantments.keys()],
             maxEnchantmentSlots: this.selectedUnit.maxEnchantmentSlots ?? 4,
@@ -6859,7 +7263,7 @@ export class Game {
         x: Number(unit.position.x.toFixed(2)),
         y: Number(unit.position.y.toFixed(2)),
         z: Number(unit.position.z.toFixed(2)),
-        hp: Math.round(unit.health),
+        hp: formatDisplayedHealth(unit.health),
         screen: this.worldToScreen(unit.position)
       })),
       enemySample: this.enemyUnits.slice(0, 8).map((enemy) => ({
@@ -6868,7 +7272,7 @@ export class Game {
         x: Number(enemy.position.x.toFixed(2)),
         y: Number(enemy.position.y.toFixed(2)),
         z: Number(enemy.position.z.toFixed(2)),
-        hp: Math.round(enemy.health),
+        hp: formatDisplayedHealth(enemy.health),
         screen: this.worldToScreen(enemy.position)
       })),
       goblinSample: this.enemyUnits
@@ -7588,6 +7992,23 @@ function runtimeUnitUpgradeDefinition(unitType, upgradeId) {
     null;
 }
 
+function specializationIconColor(unitType) {
+  const colors = [
+    '#d8c58d',
+    '#8fb6ff',
+    '#ffb45c',
+    '#7fd8b0',
+    '#caa7ff',
+    '#ffd166'
+  ];
+  const text = String(unitType ?? '');
+  let hash = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = (hash * 31 + text.charCodeAt(index)) >>> 0;
+  }
+  return colors[hash % colors.length];
+}
+
 function teamGenericUpgradeAmount(baseValue) {
   return Math.max(1, Math.round(Math.max(0, baseValue) * 0.1));
 }
@@ -7684,12 +8105,13 @@ function inheritUpgradeTurretAttributes(turret, owner) {
   if (!turret?.attributes || !owner?.attributes) return;
   const inherited = owner.attributes.snapshot();
   Object.entries(inherited).forEach(([name, entry]) => {
+    if (!UPGRADE_TURRET_INHERITED_STATS.has(name)) return;
     if (!Number.isFinite(entry?.value)) return;
-    if (name === 'projectileSpeed' && entry.value <= 0) return;
     const value = name === 'maxHealth' ? entry.value * 0.5 : entry.value;
     turret.attributes.setBase(name, value);
   });
   turret.definition.canMove = false;
+  turret.attributes.setBase('moveSpeed', 0);
   turret.health = turret.maxHealth;
   turret.shield = Math.min(turret.maxShield, Math.max(0, owner.shield ?? 0));
   turret.weapon.durability = turret.weapon.maxDurability;
@@ -7697,22 +8119,28 @@ function inheritUpgradeTurretAttributes(turret, owner) {
   turret.statusUiDirty = true;
 }
 
-const SUMMON_CARD_LEVEL_STAT_PERCENT = 0.25;
-const UNIT_SUMMON_LEVEL_STATS = [
+const UPGRADE_TURRET_INHERITED_STATS = new Set([
   'maxHealth',
   'maxShield',
-  'moveSpeed',
-  'attackRange',
-  'attackRate',
   'physicalAttack',
   'magicAttack',
   'armor',
   'magicResistance',
   'knockback',
   'knockbackResistance',
-  'aggroRange',
-  'projectileSpeed',
   'dodgeChance',
+  'maxDurability',
+  'durabilityCost'
+]);
+
+const SUMMON_CARD_LEVEL_STAT_PERCENT = 0.25;
+const UNIT_SUMMON_LEVEL_STATS = [
+  'maxHealth',
+  'maxShield',
+  'physicalAttack',
+  'magicAttack',
+  'armor',
+  'magicResistance',
   'maxDurability'
 ];
 
@@ -7816,6 +8244,12 @@ function formatSilverAmount(amount) {
   const value = Math.max(0, Number(amount) || 0);
   if (Math.abs(value - Math.round(value)) < 0.05) return String(Math.round(value));
   return value.toFixed(1);
+}
+
+function formatDisplayedHealth(health) {
+  const value = Number(health) || 0;
+  if (value <= 0) return 0;
+  return Math.max(1, Math.ceil(value));
 }
 
 function randomItem(items) {
@@ -8085,6 +8519,20 @@ function createInitialShopPrices() {
     prices[category.key] = basePrice;
   });
   return prices;
+}
+
+function createRewardDeckIds(deck = []) {
+  const seen = new Set();
+  const result = [];
+  (Array.isArray(deck) ? deck : []).forEach((entry) => {
+    const id = typeof entry === 'string'
+      ? entry
+      : (entry?.cardDefinitionId ?? entry?.id);
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    result.push(id);
+  });
+  return result;
 }
 
 function createRunShopUi() {
@@ -8921,6 +9369,28 @@ function finiteNumber(value, fallback) {
   return Number.isFinite(number) ? number : fallback;
 }
 
+function assignUnitSourceCard(unit, card) {
+  if (!unit || !card) return;
+  unit.sourceCardId = card.cardDefinitionId ?? card.id ?? unit.sourceCardId ?? null;
+  unit.sourceCardEnergyCost = Math.max(0, finiteNumber(cardEnergyCost(card), 0));
+}
+
+function playerUnitDeathDifficultyCost(unit) {
+  const recordedCost = finiteNumber(unit?.sourceCardEnergyCost, null);
+  if (recordedCost !== null) return Math.max(0, recordedCost);
+  const sourceCardId = unit?.sourceCardId;
+  const sourceCard = sourceCardId
+    ? CARD_DEFINITIONS.find((card) => card.id === sourceCardId)
+    : null;
+  if (sourceCard) return Math.max(0, finiteNumber(cardEnergyCost(sourceCard), 0));
+  const fallbackCard = CARD_DEFINITIONS.find((card) => (
+    (card.kind === 'summon' || card.kind === 'building') &&
+    card.unitType === unit?.type
+  ));
+  if (!fallbackCard) return 0;
+  return Math.max(0, finiteNumber(cardEnergyCost(fallbackCard), 0));
+}
+
 function smoothstep01(value, edge0 = 0, edge1 = 1) {
   if (edge0 === edge1) return value >= edge1 ? 1 : 0;
   const t = clamp((value - edge0) / (edge1 - edge0), 0, 1);
@@ -9524,6 +9994,207 @@ function formatEnchantmentList(unit) {
     .join('、');
 }
 
+function rebirthTotemDurationForLevel(level = 1) {
+  const resolvedLevel = Math.max(1, Math.floor(finiteNumber(level, 1)));
+  return Math.max(
+    REBIRTH_TOTEM_MIN_SECONDS,
+    REBIRTH_TOTEM_BASE_SECONDS - (resolvedLevel - 1) * REBIRTH_TOTEM_SECONDS_REDUCTION_PER_LEVEL
+  );
+}
+
+function captureRebirthAttributeSnapshot(unit) {
+  const result = {};
+  const context = { owner: unit, game: unit?.game };
+  unit?.attributes?.values?.forEach?.((entry, name) => {
+    const value = rebirthAttributeValue(entry, context, unit);
+    if (!Number.isFinite(value)) return;
+    result[name] = value;
+  });
+  return result;
+}
+
+function rebirthAttributeValue(entry, context, unit) {
+  const addValue = (entry?.add ?? [])
+    .filter((modifier) => shouldPreserveRebirthModifier(modifier, unit))
+    .reduce((sum, modifier) => sum + rebirthAddAmount(modifier, context), 0);
+  const multiplier = (entry?.multiply ?? [])
+    .filter((modifier) => shouldPreserveRebirthModifier(modifier, unit))
+    .reduce((product, modifier) => product * rebirthMultiplier(modifier, context), 1);
+  const value = (finiteNumber(entry?.base, 0) + addValue) * multiplier;
+  return Math.min(
+    Math.max(value, finiteNumber(entry?.min, 0)),
+    finiteNumber(entry?.max, Number.POSITIVE_INFINITY)
+  );
+}
+
+function shouldPreserveRebirthModifier(modifier, unit) {
+  const source = String(modifier?.source ?? '');
+  if (!source.startsWith('buff:')) return true;
+  const enchantmentId = source.slice(5).split(':')[0];
+  return unit?.enchantments?.has?.(enchantmentId) === true;
+}
+
+function captureRebirthEnchantments(unit) {
+  return [...(unit?.enchantments?.entries?.() ?? [])].map(([id, enchantment]) => ({
+    id,
+    level: Math.max(1, Math.floor(enchantment?.level ?? 1)),
+    sourceCard: enchantment?.sourceCard ?? null,
+    remaining: Number.isFinite(enchantment?.remaining) ? Math.max(0, enchantment.remaining) : null,
+    hidden: enchantment?.hidden === true
+  }));
+}
+
+function restoreRebirthEnchantments(unit, enchantments = []) {
+  if (!unit?.addBuff || !Array.isArray(enchantments)) return;
+  const unique = new Map();
+  enchantments.forEach((entry) => {
+    if (!entry?.id) return;
+    const previous = unique.get(entry.id);
+    unique.set(entry.id, {
+      ...entry,
+      level: Math.max(previous?.level ?? 1, Math.max(1, Math.floor(entry.level ?? 1)))
+    });
+  });
+  unit.maxEnchantmentSlots = Math.max(
+    Math.floor(unit.maxEnchantmentSlots ?? 4),
+    unique.size
+  );
+  unique.forEach((entry) => {
+    const overrides = {
+      level: Math.max(1, Math.floor(entry.level ?? 1)),
+      sourceCard: entry.sourceCard ?? undefined,
+      hidden: entry.hidden === true
+    };
+    if (Number.isFinite(entry.remaining)) overrides.duration = Math.max(0, entry.remaining);
+    const buff = unit.addBuff(entry.id, undefined, overrides);
+    if (buff && entry.hidden === true) buff.hidden = true;
+  });
+}
+
+function restoreRebirthAttributes(unit, attributes) {
+  if (!unit?.attributes || !attributes) return;
+  Object.entries(attributes).forEach(([name, value]) => {
+    if (!Number.isFinite(value)) return;
+    setAttributeFinalValue(unit, name, value);
+  });
+  unit.health = unit.maxHealth;
+  unit.shield = unit.maxShield;
+  if (unit.weapon) {
+    unit.weapon.durability = unit.weapon.maxDurability;
+  }
+  unit.clampToAttributeCaps?.();
+  unit.statusUiDirty = true;
+}
+
+function setAttributeFinalValue(unit, name, targetValue) {
+  const attributes = unit?.attributes;
+  if (!attributes?.setBase) return;
+  const entry = attributes.values?.get?.(name) ?? attributes.setBase(name, 0);
+  const context = { owner: unit, game: unit.game };
+  const addValue = (entry.add ?? []).reduce(
+    (sum, modifier) => sum + rebirthAddAmount(modifier, context),
+    0
+  );
+  const multiplier = (entry.multiply ?? []).reduce(
+    (product, modifier) => product * rebirthMultiplier(modifier, context),
+    1
+  );
+  const baseValue = Math.abs(multiplier) > 0.0001
+    ? (targetValue / multiplier) - addValue
+    : targetValue - addValue;
+  attributes.setBase(name, baseValue, {
+    min: entry.min,
+    max: entry.max
+  });
+}
+
+function rebirthAddAmount(modifier, context) {
+  const level = rebirthModifierLevel(modifier, context);
+  return finiteNumber(modifier.amount ?? modifier.value, 0) +
+    finiteNumber(modifier.amountPerLevel, 0) * level +
+    rebirthNearbyAllyCount(modifier, context) * finiteNumber(modifier.nearbyAllyAmountPerLevel, 0) * level;
+}
+
+function rebirthMultiplier(modifier, context) {
+  const level = rebirthModifierLevel(modifier, context);
+  if (Number.isFinite(modifier.factor) || Number.isFinite(modifier.factorPerLevel)) {
+    return finiteNumber(modifier.factor, 1) + finiteNumber(modifier.factorPerLevel, 0) * level;
+  }
+  const percent = finiteNumber(modifier.percent ?? modifier.percentage, null);
+  const percentPerLevel = finiteNumber(modifier.percentPerLevel, 0);
+  if (percent !== null || percentPerLevel !== 0) {
+    return 1 + finiteNumber(percent, 0) + percentPerLevel * level;
+  }
+  return finiteNumber(modifier.amount ?? modifier.value, 1);
+}
+
+function rebirthModifierLevel(modifier, context) {
+  return Math.max(1, finiteNumber(modifier.level ?? context.level, 1));
+}
+
+function rebirthNearbyAllyCount(modifier, context) {
+  if (!modifier?.nearbyAllyAmountPerLevel) return 0;
+  const owner = context.owner;
+  const game = context.game;
+  if (!owner?.position || !game) return 0;
+  const radius = Math.max(0, finiteNumber(modifier.radius, 6));
+  const units = owner.team === TEAMS.PLAYER ? game.friendlyUnits : game.enemyUnits;
+  return (units ?? []).filter((unit) => {
+    if (!unit.alive || unit === owner || unit.team !== owner.team) return false;
+    const dx = unit.position.x - owner.position.x;
+    const dz = unit.position.z - owner.position.z;
+    return Math.hypot(dx, dz) <= radius;
+  }).length;
+}
+
+function serializeRebirthQueueEntry(entry) {
+  return {
+    id: entry.id,
+    sourceUnitId: entry.sourceUnitId ?? null,
+    type: entry.type,
+    name: entry.name ?? UNIT_DEFINITIONS[entry.type]?.name ?? entry.type ?? '单位',
+    ownerPlayerId: entry.ownerPlayerId ?? null,
+    controllerPlayerId: entry.controllerPlayerId ?? entry.ownerPlayerId ?? null,
+    playerColorIndex: Math.max(0, Math.min(3, Math.floor(entry.playerColorIndex ?? 0))),
+    level: Math.max(1, Math.floor(entry.level ?? 1)),
+    total: roundRebirthSeconds(entry.total),
+    remaining: roundRebirthSeconds(entry.remaining)
+  };
+}
+
+function roundRebirthSeconds(value) {
+  return Math.round(Math.max(0, finiteNumber(value, 0)) * 10) / 10;
+}
+
+function vectorSnapshot(vector) {
+  if (!vector || !Number.isFinite(vector.x) || !Number.isFinite(vector.z)) return null;
+  return {
+    x: vector.x,
+    y: Number.isFinite(vector.y) ? vector.y : 0,
+    z: vector.z
+  };
+}
+
+function vectorFromSnapshot(snapshot) {
+  if (!snapshot || !Number.isFinite(snapshot.x) || !Number.isFinite(snapshot.z)) return null;
+  return new THREE.Vector3(
+    snapshot.x,
+    Number.isFinite(snapshot.y) ? snapshot.y : 0,
+    snapshot.z
+  );
+}
+
+function rebirthUnitIconMarkup(type, name) {
+  const card = CARD_DEFINITIONS.find((definition) => (
+    definition.kind === 'summon' && definition.unitType === type
+  ));
+  if (card) {
+    return createCardArtMarkup(card);
+  }
+  const text = String(name ?? UNIT_DEFINITIONS[type]?.name ?? '?').trim();
+  return `<span class="world-rebirth-avatar-fallback">${escapeHtml(Array.from(text)[0] ?? '?')}</span>`;
+}
+
 function ensureWorldUiElement() {
   let element = document.querySelector('#world-ui');
   if (element) return element;
@@ -9547,13 +10218,15 @@ function createStructureStatusElement(team) {
     <div class="world-durability-bar">
       <span class="world-durability-fill"></span>
     </div>
+    <div class="world-rebirth-queue" hidden></div>
   `;
   element.hidden = true;
   element.parts = {
     hp: element.querySelector('.world-health-fill'),
     healthLoss: element.querySelector('.world-health-loss-fill'),
     ticks: element.querySelector('.world-health-ticks'),
-    durability: element.querySelector('.world-durability-fill')
+    durability: element.querySelector('.world-durability-fill'),
+    rebirthQueue: element.querySelector('.world-rebirth-queue')
   };
   return element;
 }

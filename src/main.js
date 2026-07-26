@@ -215,6 +215,7 @@ try {
           selectedLevel: () => meta.selectedLevel(),
           cardWithLevel: (id) => meta.cardWithLevel(id),
           toggleLocalDeckCard: (id) => meta.toggleDeckCard(id),
+          setLocalDeckSelection: (ids) => meta.setDeckSelection(ids),
           onStartGame: (session, bridge) => startCoopSession(session, bridge),
           onNotice: (message) => {
             meta.setNotice(message);

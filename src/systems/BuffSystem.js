@@ -35,6 +35,10 @@ export class BuffSystem {
     this.runBuffEffects(context.target, 'beforeDamage', context);
   }
 
+  beforeShieldDamage(context) {
+    this.runBuffEffects(context.target, 'beforeShieldDamage', context);
+  }
+
   afterDamage(context) {
     const dealt = context.damageDealt ?? context.damage ?? 0;
     const attackConnected = context.isAttack === true && context.target?.alive !== false;
@@ -172,6 +176,15 @@ export class BuffSystem {
       target,
       source: source ?? target,
       shieldGain: amount
+    });
+  }
+
+  onOverheal(target, amount, source = null) {
+    if (!target?.alive || amount <= 0.001) return;
+    this.runBuffEffects(target, 'overheal', {
+      target,
+      source: source ?? target,
+      overhealAmount: amount
     });
   }
 
@@ -313,6 +326,17 @@ export class BuffSystem {
     if (effect.op === 'reduceDamageFlat') {
       const reduction = resolveEffectNumber(effect, 'amount', context, 0);
       context.damage = Math.max(0, context.damage - reduction);
+      return;
+    }
+
+    if (effect.op === 'reduceShieldDamageFlat') {
+      if (context.bypassShield || context.damageTypes?.has?.('true') || context.damageTypes?.has?.('directHealth')) return;
+      if ((context.target?.shield ?? 0) <= 0.001 || context.damage <= 0) return;
+      const reduction = resolveEffectNumber(effect, 'amount', context, 0);
+      if (reduction <= 0) return;
+      const reduced = Math.min(context.damage, reduction);
+      context.damage = Math.max(0, context.damage - reduced);
+      context.shieldDamageReduced = (context.shieldDamageReduced ?? 0) + reduced;
       return;
     }
 
@@ -572,34 +596,6 @@ export class BuffSystem {
       return;
     }
 
-    if (effect.op === 'plagueTick') {
-      if (!context.target?.alive) return;
-      const level = Math.max(1, Math.floor(context.buff.level ?? 1));
-      const percentPerLevel = effect.percentPerLevel ?? 0.01;
-      const tickInterval = context.buff.tickInterval ?? effect.tickInterval ?? 1;
-      const damage = Math.max(0, context.target.maxHealth ?? 0) * percentPerLevel * level * tickInterval
-        * (this.game.abilitiesFor?.(context.source)?.getDotDamageMultiplier?.(context.source) ?? 1);
-      if (damage > 0.001) {
-        this.game.combat.applyDamage(context.target, damage, context.source, 0, {
-          damage,
-          source: context.source,
-          target: context.target,
-          defenseDamageType: 'magic',
-          isAttack: false,
-          isDamageOverTime: true,
-          skipHitAnimation: true,
-          skipHitEffect: true,
-          damageNumberHeight: 1.48,
-          damageNumberDuration: 0.68
-        });
-      }
-      if (effect.vfx === 'poison') {
-        this.game.effects.spawnPoisonParticles(context.target, 3);
-      }
-      this.spreadPlague(context.target, context.buff, context.source, effect);
-      return;
-    }
-
     if (effect.op === 'damageOverTimeAndHealSource') {
       if (!context.target?.alive) return;
       const damagePerSecond = context.buff.damagePerSecond ?? effect.damagePerSecond ?? 0;
@@ -686,6 +682,27 @@ export class BuffSystem {
       if (!context.target?.alive) return;
       const amount = resolveEffectNumber(effect, 'amount', context, 0);
       context.target.restoreShield?.(amount);
+      return;
+    }
+
+    if (effect.op === 'convertOverhealToShield') {
+      if (!context.target?.alive) return;
+      const ratio = Math.max(0, resolveEffectNumber(effect, 'ratio', context, effect.ratio ?? 1));
+      const amount = Math.max(0, context.overhealAmount ?? 0) * ratio;
+      if (amount <= 0.001) return;
+      const gained = context.target.restoreShield?.(amount) ?? 0;
+      if (gained > 0.01 && effect.vfx === 'shield') {
+        this.game.effects.spawnRing(context.target.position, effect.color ?? '#aee7ff', 0.58, 0.34);
+        this.game.effects.spawnDamageNumber(context.target.position, 1, {
+          text: `护盾+${formatEffectAmount(gained)}`,
+          color: effect.color ?? '#aee7ff',
+          stroke: '#12303a',
+          height: context.target.projectileHitHeight ?? 1.45,
+          duration: 0.68,
+          fontSize: 76,
+          baseHeight: 0.48
+        });
+      }
       return;
     }
 
@@ -788,21 +805,6 @@ export class BuffSystem {
         duration,
         level,
         damagePerSecond
-      });
-    });
-  }
-
-  spreadPlague(target, buff, source, effect) {
-    if (!target?.alive || !target.position) return;
-    const radius = Math.max(0.8, effect.spreadRadius ?? 2.4);
-    const level = Math.max(1, Math.floor(buff.level ?? 1));
-    const duration = buff.duration ?? 99;
-    this.game.enemyUnits.forEach((enemy) => {
-      if (!enemy.alive || enemy === target) return;
-      if (distance2D(enemy.position, target.position) > radius) return;
-      this.applyBuff(enemy, 'plague', source, {
-        duration,
-        level
       });
     });
   }

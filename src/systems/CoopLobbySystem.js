@@ -1,8 +1,6 @@
-import { LEVEL_DEFINITIONS } from '../data/gameData.js';
+import { DECK_SIZE, LEVEL_DEFINITIONS } from '../data/gameData.js';
 import { GAME_VERSION } from '../version.js';
 import { CHALLENGE_MODE, isEndlessMode, normalizeChallengeMode } from './endlessMode.js';
-
-const DECK_SIZE = 36;
 
 export class CoopLobbySystem {
   constructor({ controller, getSelectedLevelId, getSelectedDifficulty, getSelectedChallengeMode, selectedLevel, getOwnedCardIds, cardWithLevel, availableDifficulty, renderDeckCard, onBack }) {
@@ -119,6 +117,14 @@ export class CoopLobbySystem {
       this.controller.changeDeckCard(button.dataset.cardId);
       return;
     }
+    if (action === 'deck-select-all') {
+      this.controller.replaceDeckSelection?.((this.getOwnedCardIds?.() ?? []).slice(0, DECK_SIZE));
+      return;
+    }
+    if (action === 'deck-clear-all') {
+      this.controller.replaceDeckSelection?.([]);
+      return;
+    }
     if (action === 'reconnect-confirm') {
       this.controller.confirmReconnect?.();
       return;
@@ -231,10 +237,10 @@ export class CoopLobbySystem {
             </label>
             `}
             <p class="coop-lobby-hint">${isEndlessMode(challengeMode)
-              ? '无尽模式双方卡牌入场统一为 Lv.1；难度从 0 开始并由 Host 按敌人存活时间调整，任一基地被摧毁都会结算胜利。'
+              ? '无尽模式所有玩家卡牌入场统一为 Lv.1；难度从 0 开始并由 Host 按敌人首次受伤后的交战时间调整，任一基地被摧毁都会结算胜利。'
               : `本关基础金币：<strong>${Math.max(0, Number(createLevel?.baseReward) || 0)}</strong>。胜利后会再按难度、用时和个人奖励能力结算。`}</p>
             <button type="button" class="meta-menu-button coop-create-button" data-coop-action="create">创建房间</button>
-            <p class="coop-lobby-hint">关卡、模式与普通难度会在创建时由 Host 锁定；创建后每位玩家各自选择并确认自己的 36 张出战牌。</p>
+            <p class="coop-lobby-hint">关卡、模式与普通难度会在创建时由 Host 锁定；创建后每位玩家各自选择并确认 ${DECK_SIZE} 张出战牌。</p>
             <div class="coop-lobby-divider" role="separator"><span>或加入好友房间</span></div>
             <label class="coop-join-field">
               <span>房间号</span>
@@ -243,7 +249,7 @@ export class CoopLobbySystem {
             <button type="button" class="meta-menu-button" data-coop-action="join">加入房间</button>
           </section>
         `}
-        <p class="coop-lobby-hint">当前游戏版本 v${escapeHtml(GAME_VERSION)} · 需先选满 ${DECK_SIZE} 张出战牌 · 联机服务自动连接</p>
+        <p class="coop-lobby-hint">当前游戏版本 v${escapeHtml(GAME_VERSION)} · 出战牌组 ${DECK_SIZE} 张 · 联机服务自动连接</p>
       </main>
       ${reconnect ? `
         <section class="coop-reconnect-backdrop" role="presentation">
@@ -266,7 +272,6 @@ export class CoopLobbySystem {
 
   renderDeckBuilder({ selfReady, locked }) {
     const deck = this.controller.getDeckSelection?.() ?? [];
-    const selected = new Set(deck);
     const ownedIds = this.getOwnedCardIds?.() ?? [];
     const selectedCount = deck.length;
     return `
@@ -277,17 +282,24 @@ export class CoopLobbySystem {
             <strong>选择牌组 ${selectedCount}/${DECK_SIZE}</strong>
           </div>
           <small>${selfReady ? '修改牌组会自动取消准备' : '只会发送你自己的牌组给 Host'}</small>
+          <div class="coop-deck-actions">
+            <button type="button" class="meta-menu-button" data-coop-action="deck-select-all" ${locked ? 'disabled' : ''}>全选</button>
+            <button type="button" class="meta-menu-button" data-coop-action="deck-clear-all" ${locked || selectedCount <= 0 ? 'disabled' : ''}>全部移除</button>
+          </div>
         </header>
-        <p class="coop-lobby-hint">双方独立选择牌组、能量、银币和奖励。奖励候选只从各自已确认的出战牌组生成。</p>
+        <p class="coop-lobby-hint">双方独立选择 ${DECK_SIZE} 张牌组、能量、银币和奖励。奖励候选只从各自已确认的出战牌组生成。</p>
         <div class="meta-card-grid coop-deck-card-grid">
           ${ownedIds.map((id) => {
             const card = this.cardWithLevel?.(id) ?? { id, name: id, kind: 'card', level: 1 };
-            const isSelected = selected.has(id);
-            const disabled = locked || (!isSelected && selectedCount >= DECK_SIZE);
+            const selectedIndex = deck.indexOf(id);
+            const isSelected = selectedIndex !== -1;
+            const addDisabled = !isSelected && selectedCount >= DECK_SIZE;
+            const disabled = locked || addDisabled;
             return this.renderDeckCard?.(card, {
               action: 'deck-card',
-              stateText: isSelected ? '移出' : '加入',
-              statusText: isSelected ? '已加入' : '',
+              stateText: isSelected ? '移出牌组' : (addDisabled ? '牌组已满' : '加入出战'),
+              statusText: isSelected ? `出战 #${selectedIndex + 1}` : '未入选',
+              deckState: isSelected ? 'in' : 'out',
               selected: isSelected,
               disabled
             }) ?? '';

@@ -12,12 +12,34 @@ export function pickAltarSpecializationChoices(
     : new Set(ownedUnitTypes ?? []);
   const preferred = [];
   const fallback = [];
+  const preferredByType = new Map();
   choices.forEach((choice) => {
-    if (owned.has(choice?.unitType)) preferred.push(choice);
-    else fallback.push(choice);
+    if (owned.has(choice?.unitType)) {
+      preferred.push(choice);
+      const typeChoices = preferredByType.get(choice.unitType) ?? [];
+      typeChoices.push(choice);
+      preferredByType.set(choice.unitType, typeChoices);
+    } else {
+      fallback.push(choice);
+    }
   });
 
-  const selected = takeRandom(preferred, limit, random);
+  const selected = [];
+  const selectedSet = new Set();
+  shuffle([...preferredByType.keys()], random).forEach((unitType) => {
+    if (selected.length >= limit) return;
+    const [choice] = takeRandom(preferredByType.get(unitType), 1, random);
+    if (!choice) return;
+    selected.push(choice);
+    selectedSet.add(choice);
+  });
+  if (selected.length < limit) {
+    selected.push(...takeRandom(
+      preferred.filter((choice) => !selectedSet.has(choice)),
+      limit - selected.length,
+      random
+    ));
+  }
   if (selected.length < limit) {
     selected.push(...takeRandom(fallback, limit - selected.length, random));
   }

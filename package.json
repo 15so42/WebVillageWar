@@ -13,6 +13,7 @@
     "test:player-base": "node scripts/test-player-base.mjs",
     "test:unit-resource-sync": "node scripts/test-unit-resource-sync.mjs",
     "test:dual-attack": "node scripts/test-dual-attack.mjs",
+    "test:card-effects": "node scripts/test-card-effects.mjs",
     "test:altar-specialization": "node scripts/test-altar-specialization-reward.mjs"
   },
   "dependencies": {

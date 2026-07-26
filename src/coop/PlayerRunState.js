@@ -1,9 +1,9 @@
 import { BALANCE } from '../data/gameData.js';
 
-const DEFAULT_SHOP_CATEGORIES = ['upgrade', 'enchant', 'tactic', 'building', 'energy'];
+const DEFAULT_SHOP_CATEGORIES = ['card', 'attribute', 'trait', 'copy', 'remove', 'upgrade', 'energy', 'temporary'];
 
 function createInitialShopPrices() {
-  const basePrice = Number(BALANCE.runCurrency?.shop?.basePrice ?? 8);
+  const basePrice = Number(BALANCE.runCurrency?.shop?.basePrice ?? 12);
   return Object.fromEntries(DEFAULT_SHOP_CATEGORIES.map((key) => [key, basePrice]));
 }
 
@@ -18,6 +18,7 @@ export function createPlayerRunState(playerId, deck = [], descriptor = {}) {
     flowState: descriptor.flowState ?? 'playing',
     runCardsPlayedCount: 0,
     deck: Array.isArray(deck) ? deck : [],
+    waveRewardDeck: createRewardDeckIds(deck),
     silver: Math.max(0, Number(BALANCE.runCurrency?.starting ?? 0)),
     pendingRewards: new Map(),
     pendingStrategyRewards: [],
@@ -33,6 +34,20 @@ export function createPlayerRunState(playerId, deck = [], descriptor = {}) {
     shopState: null,
     strategyEvent: null
   };
+}
+
+function createRewardDeckIds(deck = []) {
+  const seen = new Set();
+  const result = [];
+  (Array.isArray(deck) ? deck : []).forEach((entry) => {
+    const id = typeof entry === 'string'
+      ? entry
+      : (entry?.cardDefinitionId ?? entry?.id);
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    result.push(id);
+  });
+  return result;
 }
 
 export function getPlayerRunState(game, playerId) {
