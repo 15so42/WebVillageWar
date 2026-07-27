@@ -1,7 +1,6 @@
 import {
   CARD_DEFINITIONS,
   CARD_META,
-  DECK_SIZE,
   LEVEL_DEFINITIONS,
   STARTER_CARD_IDS
 } from '../data/gameData.js';
@@ -10,6 +9,7 @@ import { TEST_VERSION_LABEL } from '../version.js';
 import { cardEnergyCost, cardThemeColor, cardUseBarMarkup, createCardArtMarkup } from './CardSystem.js';
 import { calculateLevelReward } from '../utils/levelRewards.js';
 import { CHALLENGE_MODE, isEndlessMode, normalizeChallengeMode } from './endlessMode.js';
+import { deckValidationMessage, validateDeckSelection } from './deckRules.js';
 
 const STORAGE_KEY = 'village-war-meta-v1';
 const STARTING_COINS = 10000;
@@ -839,6 +839,30 @@ const DEVELOPMENT_CHANGELOG_ARCHIVE = [
 ];
 
 const CHANGELOG_ENTRIES = [
+  {
+    date: '2026-07-27',
+    title: '无尽结算与联机稳定性',
+    items: [
+      '修复无尽模式击败首领后，后续敌人、奖励或军需铺流程可能无法继续的问题。',
+      '联机状态同步恢复原有更新节奏；网络短暂停传恢复后仍只采用最新战场位置，避免补放过时的单位状态。',
+      '合作战斗新增网络状态面板，并尝试优先建立点对点直连；无法直连时会自动使用原有中继。',
+      '网络状态面板会持续显示当前路径的实时收包、间隔和延迟数据。',
+      '合作单位的位置同步调整为每秒 10 次，降低移动网络上的持续发包压力。',
+      '网络面板新增按消息类型拆分的实时流量统计，便于定位位置、状态或战斗事件的带宽来源。',
+      '网络面板进一步区分事件与状态的具体来源，便于排查空闲时的异常高频同步。',
+      '基地恢复改为持续循环的领域效果，并修复被限频的回血特效仍会重复发送联机事件的问题。',
+      '网络统计按实际采样时长计算，并显示单位状态的具体变更字段，避免开局数据造成误判。',
+      '合作战局计时改为每秒同步一次，减少空闲时重复发送的状态补丁。',
+      '合作同步移除重复的移动姿态与动画状态；祭坛进度按阶段更新，降低移动端卡顿。',
+      '复生倒计时改为按整秒同步，修复其反复发送整条战局状态的问题。',
+      '修复合作战斗中每个同步包都会重绘隐藏房间与牌组界面的问题；客户端改为逐帧集中应用同步，移动端相机与帧率更稳定。',
+      '合作状态条仅在数据变化时刷新，移除逐帧 DOM 重建；网络面板会标出位置、状态、事件等同步耗时峰值来源。',
+      '出战牌组取消固定张数限制，至少选择 1 张且必须包含单位卡即可开始；卡牌使用次数统一移到卡面底部横向显示，手机端文字区域不再被侧栏挤压。',
+      '军需铺移除随机三选一购置卡牌服务，卡牌构筑改由开局牌组、波次奖励与其他军需服务决定。',
+      '无尽波次奖励中的单位卡可在后续波次再次获得；其他奖励卡仍会按原规则移出奖励池。',
+      '退役卡牌不再出现在军需铺或旧存档的牌组可选列表中。'
+    ]
+  },
   {
     date: '2026-07-26',
     title: '野火伤害强化',
@@ -1726,13 +1750,15 @@ export class MetaGameSystem {
   renderDeckBuilder() {
     this.ensureDeckSelection();
     const selectedCount = this.deckSelection.length;
-    const deckReady = selectedCount === DECK_SIZE;
+    const deckValidation = validateDeckSelection(this.deckSelection);
+    const deckReady = deckValidation.valid;
     return `
       <main class="meta-deck">
         <section class="meta-panel meta-deck-summary">
           <div>
             <div class="meta-section-title">出战牌组</div>
-            <p>已选择 ${selectedCount}/${DECK_SIZE} 张。波次奖励会从这 ${DECK_SIZE} 张牌中发放，必须正好选满后才能进入关卡。</p>
+            <p>已选择 ${selectedCount} 张。牌组数量不再要求固定，但至少选择 1 张，并且必须包含单位卡；波次奖励会从已确认牌组中发放。</p>
+            ${deckReady ? '' : `<p class="meta-deck-note">${deckValidationMessage(deckValidation)}</p>`}
             <p class="meta-deck-note">能量不会自动恢复，战斗中靠击杀敌人充能。</p>
           </div>
           <div class="meta-deck-actions">
@@ -1749,14 +1775,13 @@ export class MetaGameSystem {
             const card = this.cardWithLevel(id);
             const selectedIndex = this.deckSelection.indexOf(id);
             const isSelected = selectedIndex !== -1;
-            const addDisabled = !isSelected && selectedCount >= DECK_SIZE;
             return this.renderMetaCard(card, {
               action: 'toggle-deck-card',
-              stateText: isSelected ? '移出牌组' : (addDisabled ? '牌组已满' : '加入出战'),
+              stateText: isSelected ? '移出牌组' : '加入出战',
               statusText: isSelected ? `出战 #${selectedIndex + 1}` : '未入选',
               deckState: isSelected ? 'in' : 'out',
               selected: isSelected,
-              disabled: addDisabled
+              disabled: false
             });
           }).join('')}
         </section>
@@ -1766,13 +1791,13 @@ export class MetaGameSystem {
 
   renderShop() {
     const unowned = CARD_DEFINITIONS.filter((card) => (
-      !card.lootOnly && !this.progress.ownedCards.includes(card.id)
+      !card.lootOnly && !card.retired && !this.progress.ownedCards.includes(card.id)
     ));
     return `
       <main class="meta-deck">
         <section class="meta-panel">
           <div class="meta-section-title">卡牌商店</div>
-          <p>购买后会进入局外卡牌库，并可加入 ${DECK_SIZE} 张出战牌组。</p>
+          <p>购买后会进入局外卡牌库，并可自由加入出战牌组。</p>
           <button class="meta-secondary-button" type="button" data-action="upgrades">升级已有卡牌</button>
         </section>
         <section class="meta-card-grid">
@@ -1794,7 +1819,7 @@ export class MetaGameSystem {
       <main class="meta-page meta-guide-page">
         <section class="meta-panel meta-guide-panel">
           <div class="meta-section-title">核心流程</div>
-          <p>先在选关页面选择关卡和难度，再配置 ${DECK_SIZE} 张出战卡牌进入战斗。战斗中通过出牌、移动、驻守和三选一奖励推进基地。</p>
+          <p>先在选关页面选择关卡和难度，再配置任意数量的出战卡牌，并确保至少包含 1 张单位卡。战斗中通过出牌、移动、驻守和三选一奖励推进基地。</p>
         </section>
         <section class="meta-guide-grid">
           <article class="meta-panel">
@@ -2039,10 +2064,6 @@ export class MetaGameSystem {
       this.persistPreferences();
       return;
     }
-    if (this.deckSelection.length >= DECK_SIZE) {
-      this.setNotice(`出战牌组最多 ${DECK_SIZE} 张。`);
-      return;
-    }
     this.deckSelection.push(id);
     this.persistPreferences();
   }
@@ -2055,7 +2076,7 @@ export class MetaGameSystem {
   }
 
   selectAllDeckCards() {
-    this.setDeckSelection(this.progress.ownedCards.slice(0, DECK_SIZE));
+    this.setDeckSelection(this.progress.ownedCards);
   }
 
   clearDeckCards() {
@@ -2065,6 +2086,7 @@ export class MetaGameSystem {
   buyCard(id) {
     if (this.progress.ownedCards.includes(id)) return;
     const card = CARD_DEFINITIONS.find((definition) => definition.id === id);
+    if (!card || card.retired) return;
     const cost = CARD_META[id]?.buyCost ?? 80;
     if (this.progress.coins < cost) return;
     this.progress.coins -= cost;
@@ -2088,8 +2110,9 @@ export class MetaGameSystem {
 
   startLevel() {
     this.ensureDeckSelection();
-    if (this.deckSelection.length !== DECK_SIZE) {
-      this.setNotice(`请正好选择 ${DECK_SIZE} 张卡牌后开始关卡。`);
+    const deckValidation = validateDeckSelection(this.deckSelection);
+    if (!deckValidation.valid) {
+      this.setNotice(deckValidationMessage(deckValidation));
       this.show('deck', { preserveScroll: true, keepNotice: true });
       return;
     }
@@ -2248,14 +2271,12 @@ function normalizeLevelId(levelId) {
 
 function normalizeDeckSelection(rawDeckSelection, ownedCards, options = {}) {
   const defaultToOwned = options.defaultToOwned !== false;
-  const limit = Math.max(0, Math.floor(options.limit ?? DECK_SIZE));
   const source = Array.isArray(rawDeckSelection)
     ? rawDeckSelection
     : defaultToOwned ? ownedCards : [];
   const owned = new Set(ownedCards);
   const result = [];
   source.forEach((id) => {
-    if (result.length >= limit) return;
     if (!owned.has(id) || result.includes(id)) return;
     result.push(id);
   });
@@ -2264,7 +2285,7 @@ function normalizeDeckSelection(rawDeckSelection, ownedCards, options = {}) {
 
 function normalizeOwnedCards(rawOwnedCards) {
   const validIds = new Set(
-    CARD_DEFINITIONS.filter((card) => !card.lootOnly).map((card) => card.id)
+    CARD_DEFINITIONS.filter((card) => !card.lootOnly && !card.retired).map((card) => card.id)
   );
   const result = [];
   [...STARTER_CARD_IDS, ...(rawOwnedCards ?? [])].forEach((id) => {

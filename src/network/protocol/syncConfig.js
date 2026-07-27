@@ -1,7 +1,7 @@
 /** Multiplayer stream rates and quantization. Persistent state is change-driven. */
 
 export const SYNC = {
-  transformHz: 20,
+  transformHz: 10,
   heartbeatSec: 12,
   clientReconnectGraceSec: 90,
   hostLeaseSec: 60,

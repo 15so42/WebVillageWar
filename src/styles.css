@@ -473,6 +473,95 @@ body.is-meta-open .mobile-box-select-hint {
   display: none;
 }
 
+.network-analysis-button {
+  position: fixed;
+  top: 14px;
+  right: 204px;
+  z-index: 12;
+  min-width: 52px;
+  height: 42px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 8px;
+  color: #dff8ee;
+  background: rgba(18, 28, 29, 0.76);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(12px);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 1000;
+}
+
+.network-analysis-button:hover,
+.network-analysis-button[aria-pressed="true"] {
+  border-color: rgba(158, 238, 219, 0.62);
+  background: rgba(54, 91, 86, 0.9);
+}
+
+.network-analysis-button[hidden],
+.network-analysis-panel[hidden] {
+  display: none;
+}
+
+.network-analysis-panel {
+  position: fixed;
+  top: 66px;
+  right: 18px;
+  z-index: 32;
+  width: min(430px, calc(100vw - 36px));
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(158, 238, 219, 0.28);
+  border-radius: 8px;
+  color: rgba(247, 244, 232, 0.92);
+  background: rgba(15, 22, 23, 0.9);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.36);
+  backdrop-filter: blur(14px);
+}
+
+.network-analysis-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.network-analysis-panel header div {
+  display: grid;
+  gap: 2px;
+}
+
+.network-analysis-panel header strong { color: #fff2c7; font-size: 15px; }
+.network-analysis-panel header span { color: #9eeedb; font-size: 12px; font-weight: 900; }
+.network-analysis-panel header button {
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  color: #fff2c7;
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  font: inherit;
+  font-size: 18px;
+}
+
+.network-analysis-content { display: grid; gap: 6px; }
+.network-analysis-row {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+  padding: 7px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.045);
+  font-size: 12px;
+}
+.network-analysis-row span { color: rgba(247, 244, 232, 0.62); font-weight: 900; }
+.network-analysis-row strong { color: rgba(247, 244, 232, 0.92); font-weight: 900; overflow-wrap: anywhere; }
+
 .fps-meter {
   position: static;
   min-width: 68px;
@@ -2317,20 +2406,37 @@ body.is-run-shop-open .card-pile-dock {
 
 .pile-card-use-bar {
   position: absolute;
-  top: 42px;
-  bottom: 10px;
+  top: auto;
+  right: 8px;
+  bottom: 9px;
   left: 7px;
   z-index: 2;
-  width: 7px;
+  width: auto;
+  height: 9px;
   display: flex;
-  flex-direction: column-reverse;
-  gap: 3px;
+  flex-direction: row;
+  gap: 2px;
+  padding-left: 23px;
   pointer-events: none;
+}
+
+.pile-card-use-bar::before,
+.loot-card-use-bar::before {
+  content: attr(data-remaining) "/" attr(data-max);
+  position: absolute;
+  inset: 0 auto 0 2px;
+  width: 19px;
+  font-size: 7px;
+  font-weight: 900;
+  line-height: 9px;
+  text-align: center;
 }
 
 .pile-card-use-bar span {
   flex: 1;
-  min-height: 9px;
+  min-width: 5px;
+  min-height: 0;
+  height: 6px;
   border: 1px solid rgba(255, 255, 255, 0.28);
   border-radius: 999px;
   background: rgba(10, 18, 18, 0.48);
@@ -2347,20 +2453,25 @@ body.is-run-shop-open .card-pile-dock {
 
 .loot-card-use-bar {
   position: absolute;
-  top: 44px;
-  bottom: 12px;
+  top: auto;
+  right: 10px;
+  bottom: 10px;
   left: 8px;
   z-index: 2;
-  width: 7px;
+  width: auto;
+  height: 10px;
   display: flex;
-  flex-direction: column-reverse;
-  gap: 3px;
+  flex-direction: row;
+  gap: 2px;
+  padding-left: 24px;
   pointer-events: none;
 }
 
 .loot-card-use-bar span {
   flex: 1;
-  min-height: 10px;
+  min-width: 6px;
+  min-height: 0;
+  height: 6px;
   border: 1px solid rgba(255, 255, 255, 0.28);
   border-radius: 999px;
   background: rgba(10, 18, 18, 0.48);
@@ -2501,6 +2612,10 @@ body.is-run-shop-open .card-pile-dock {
   box-shadow:
     0 18px 36px rgba(0, 0, 0, 0.3),
     0 0 24px color-mix(in srgb, var(--card-color) 48%, transparent);
+}
+
+.loot-confirm-card:has(> .loot-card-use-bar) {
+  padding-bottom: 27px;
 }
 
 .loot-confirm-card::after {
@@ -3057,20 +3172,30 @@ body.is-run-shop-open .card-pile-dock {
 
 .card-use-bar {
   position: absolute;
-  top: 43px;
-  bottom: 10px;
-  left: 7px;
+  top: auto;
+  right: 8px;
+  bottom: 8px;
+  left: 8px;
   z-index: 2;
-  width: 7px;
+  width: auto;
+  height: 9px;
   display: flex;
-  flex-direction: column-reverse;
-  gap: 3px;
+  flex-direction: row;
+  gap: 2px;
+  padding-left: 23px;
   pointer-events: none;
+}
+
+.card-use-bar::before,
+.meta-card-use-bar::before {
+  content: attr(data-remaining) "/" attr(data-max);
 }
 
 .card-use-bar span {
   flex: 1;
-  min-height: 10px;
+  min-width: 5px;
+  min-height: 0;
+  height: 6px;
   border: 1px solid rgba(255, 255, 255, 0.28);
   border-radius: 999px;
   background: rgba(10, 18, 18, 0.48);
@@ -4325,20 +4450,25 @@ body:not(.is-game-active) .mobile-action-dock {
 
 .meta-card-use-bar {
   position: absolute;
-  top: 48px;
-  bottom: 52px;
-  left: 10px;
+  top: auto;
+  right: 12px;
+  bottom: 58px;
+  left: 12px;
   z-index: 2;
-  width: 7px;
+  width: auto;
+  height: 10px;
   display: flex;
-  flex-direction: column-reverse;
-  gap: 3px;
+  flex-direction: row;
+  gap: 2px;
+  padding-left: 26px;
   pointer-events: none;
 }
 
 .meta-card-use-bar span {
   flex: 1;
-  min-height: 10px;
+  min-width: 6px;
+  min-height: 0;
+  height: 6px;
   border: 1px solid rgba(255, 255, 255, 0.28);
   border-radius: 999px;
   background: rgba(10, 18, 18, 0.48);
@@ -4906,6 +5036,23 @@ body:not(.is-game-active) .mobile-action-dock {
     font-size: 19px;
   }
 
+  .network-analysis-button {
+    top: 10px;
+    right: 102px;
+    min-width: 48px;
+    height: 38px;
+    padding: 0 8px;
+    font-size: 11px;
+  }
+
+  .network-analysis-panel {
+    top: 58px;
+    right: 10px;
+    width: calc(100vw - 20px);
+    max-height: calc(100vh - 76px);
+    overflow: auto;
+  }
+
   .render-tuning-panel {
     top: 58px;
     right: 10px;
@@ -5155,6 +5302,24 @@ body:not(.is-game-active) .mobile-action-dock {
     width: 34px;
     height: 34px;
     font-size: 17px;
+  }
+
+  .network-analysis-button {
+    top: auto;
+    right: auto;
+    bottom: 68px;
+    left: 88px;
+    min-width: 44px;
+    height: 34px;
+    font-size: 10px;
+  }
+
+  .network-analysis-panel {
+    top: 8px;
+    right: 8px;
+    width: min(390px, calc(100vw - 16px));
+    max-height: calc(100vh - 16px);
+    overflow: auto;
   }
 
   .hud-primary {}
@@ -6975,10 +7140,11 @@ button:active, .btn:active, .run-shop-toggle:active {
 /* Fix CardUseBar layout inside the new card */
 .card-use-bar {
   position: absolute;
-  bottom: 0;
-  left: 0;
-  width: 100%;
-  height: 4px;
+  right: 8px;
+  bottom: 8px;
+  left: 8px;
+  width: auto;
+  height: 9px;
   z-index: 10;
 }
 

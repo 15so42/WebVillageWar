@@ -2536,6 +2536,14 @@ export const BUFF_DEFINITIONS = {
     category: 'enchantment',
     color: '#f1d97a',
     duration: 999,
+    level: 1,
+    retired: true
+  },
+  selfDestruct: {
+    name: '自爆',
+    category: 'enchantment',
+    color: '#ff784f',
+    duration: 999,
     level: 1
   },
   spiritWeapon: {
@@ -3252,6 +3260,7 @@ export const ENCHANTMENTS = {
   focus: BUFF_DEFINITIONS.focus,
   phoenix: BUFF_DEFINITIONS.phoenix,
   rebirthTotem: BUFF_DEFINITIONS.rebirthTotem,
+  selfDestruct: BUFF_DEFINITIONS.selfDestruct,
   spiritWeapon: BUFF_DEFINITIONS.spiritWeapon,
   soulEater: BUFF_DEFINITIONS.soulEater,
   lifesteal: BUFF_DEFINITIONS.lifesteal,
@@ -3274,6 +3283,13 @@ export const ENCHANTMENTS = {
 };
 
 export const PLAYER_ABILITY_DEFINITIONS = {
+  baseRecoveryPact: {
+    id: 'baseRecoveryPact',
+    name: '血契要塞',
+    label: '契',
+    color: '#c96857',
+    summary: '基地最大生命 -40%，每 3 秒恢复 1 点生命与 1 点耐久'
+  },
   exhaustEnergy: {
     id: 'exhaustEnergy',
     name: '节能术',
@@ -4149,6 +4165,25 @@ export const CARD_DEFINITIONS = [
     color: '#d8c58d'
   },
   {
+    id: 'base-recovery-pact-ability',
+    name: '血契要塞',
+    kind: 'ability',
+    label: '契',
+    artKey: 'abilityBuildingDurability',
+    summary: '基地最大生命 -40%，每 3 秒恢复 1 点生命与 1 点耐久',
+    target: 'none',
+    radius: 1,
+    cooldown: 0,
+    energyCost: 3,
+    effect: {
+      type: 'acquire-ability',
+      abilityId: 'baseRecoveryPact',
+      stacksBase: 1,
+      stacksPerLevel: 0
+    },
+    color: '#c96857'
+  },
+  {
     id: 'random-heal-ability',
     name: '生机回流',
     kind: 'ability',
@@ -4623,11 +4658,30 @@ export const CARD_DEFINITIONS = [
     cooldown: 0,
     energyCost: 3,
     enchantmentId: 'rebirthTotem',
+    retired: true,
     effect: {
       type: 'apply-buff',
       buffId: 'rebirthTotem'
     },
     color: '#f1d97a'
+  },
+  {
+    id: 'self-destruct-enchant',
+    name: '自爆附加',
+    kind: 'enchant',
+    label: '爆',
+    artKey: 'explosion',
+    summary: '死亡时自爆：造成等级 ×5 范围伤害，并触发自身毒、火、爆炸等攻击特效；每级复活时间 -4 秒，最低 4 秒',
+    target: 'friendly-unit',
+    radius: 1.1,
+    cooldown: 0,
+    energyCost: 3,
+    enchantmentId: 'selfDestruct',
+    effect: {
+      type: 'apply-buff',
+      buffId: 'selfDestruct'
+    },
+    color: '#ff784f'
   },
   {
     id: 'spirit-weapon-enchant',
@@ -5216,6 +5270,10 @@ export const CARD_META = {
     buyCost: 170,
     upgradeBaseCost: 110
   },
+  'base-recovery-pact-ability': {
+    buyCost: 175,
+    upgradeBaseCost: 115
+  },
   'victory-gold-ability': {
     buyCost: 175,
     upgradeBaseCost: 115
@@ -5288,6 +5346,10 @@ export const CARD_META = {
   'rebirth-totem-enchant': {
     buyCost: 160,
     upgradeBaseCost: 46
+  },
+  'self-destruct-enchant': {
+    buyCost: 170,
+    upgradeBaseCost: 48
   },
   'spirit-weapon-enchant': {
     buyCost: 105,

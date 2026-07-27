@@ -1,6 +1,7 @@
-import { DECK_SIZE, LEVEL_DEFINITIONS } from '../data/gameData.js';
+import { LEVEL_DEFINITIONS } from '../data/gameData.js';
 import { GAME_VERSION } from '../version.js';
 import { CHALLENGE_MODE, isEndlessMode, normalizeChallengeMode } from './endlessMode.js';
+import { deckValidationMessage, validateDeckSelection } from './deckRules.js';
 
 export class CoopLobbySystem {
   constructor({ controller, getSelectedLevelId, getSelectedDifficulty, getSelectedChallengeMode, selectedLevel, getOwnedCardIds, cardWithLevel, availableDifficulty, renderDeckCard, onBack }) {
@@ -118,7 +119,7 @@ export class CoopLobbySystem {
       return;
     }
     if (action === 'deck-select-all') {
-      this.controller.replaceDeckSelection?.((this.getOwnedCardIds?.() ?? []).slice(0, DECK_SIZE));
+      this.controller.replaceDeckSelection?.(this.getOwnedCardIds?.() ?? []);
       return;
     }
     if (action === 'deck-clear-all') {
@@ -240,7 +241,7 @@ export class CoopLobbySystem {
               ? '无尽模式所有玩家卡牌入场统一为 Lv.1；难度从 0 开始并由 Host 按敌人首次受伤后的交战时间调整，任一基地被摧毁都会结算胜利。'
               : `本关基础金币：<strong>${Math.max(0, Number(createLevel?.baseReward) || 0)}</strong>。胜利后会再按难度、用时和个人奖励能力结算。`}</p>
             <button type="button" class="meta-menu-button coop-create-button" data-coop-action="create">创建房间</button>
-            <p class="coop-lobby-hint">关卡、模式与普通难度会在创建时由 Host 锁定；创建后每位玩家各自选择并确认 ${DECK_SIZE} 张出战牌。</p>
+            <p class="coop-lobby-hint">关卡、模式与普通难度会在创建时由 Host 锁定；创建后每位玩家各自选择任意数量的出战牌，并至少带 1 张单位卡。</p>
             <div class="coop-lobby-divider" role="separator"><span>或加入好友房间</span></div>
             <label class="coop-join-field">
               <span>房间号</span>
@@ -249,7 +250,7 @@ export class CoopLobbySystem {
             <button type="button" class="meta-menu-button" data-coop-action="join">加入房间</button>
           </section>
         `}
-        <p class="coop-lobby-hint">当前游戏版本 v${escapeHtml(GAME_VERSION)} · 出战牌组 ${DECK_SIZE} 张 · 联机服务自动连接</p>
+        <p class="coop-lobby-hint">当前游戏版本 v${escapeHtml(GAME_VERSION)} · 出战牌组至少 1 张且包含单位卡 · 联机服务自动连接</p>
       </main>
       ${reconnect ? `
         <section class="coop-reconnect-backdrop" role="presentation">
@@ -274,12 +275,13 @@ export class CoopLobbySystem {
     const deck = this.controller.getDeckSelection?.() ?? [];
     const ownedIds = this.getOwnedCardIds?.() ?? [];
     const selectedCount = deck.length;
+    const deckValidation = validateDeckSelection(deck);
     return `
       <section class="coop-deck-builder" aria-label="选择自己的出战牌组">
         <header class="coop-deck-builder-head">
           <div>
             <span>个人牌组</span>
-            <strong>选择牌组 ${selectedCount}/${DECK_SIZE}</strong>
+            <strong>已选 ${selectedCount} 张</strong>
           </div>
           <small>${selfReady ? '修改牌组会自动取消准备' : '只会发送你自己的牌组给 Host'}</small>
           <div class="coop-deck-actions">
@@ -287,17 +289,18 @@ export class CoopLobbySystem {
             <button type="button" class="meta-menu-button" data-coop-action="deck-clear-all" ${locked || selectedCount <= 0 ? 'disabled' : ''}>全部移除</button>
           </div>
         </header>
-        <p class="coop-lobby-hint">双方独立选择 ${DECK_SIZE} 张牌组、能量、银币和奖励。奖励候选只从各自已确认的出战牌组生成。</p>
+        <p class="coop-lobby-hint">${deckValidation.valid
+          ? '牌组已满足出战要求。'
+          : escapeHtml(deckValidationMessage(deckValidation))} 双方牌组、能量、银币和奖励相互独立；奖励候选只从各自已确认的出战牌组生成。</p>
         <div class="meta-card-grid coop-deck-card-grid">
           ${ownedIds.map((id) => {
             const card = this.cardWithLevel?.(id) ?? { id, name: id, kind: 'card', level: 1 };
             const selectedIndex = deck.indexOf(id);
             const isSelected = selectedIndex !== -1;
-            const addDisabled = !isSelected && selectedCount >= DECK_SIZE;
-            const disabled = locked || addDisabled;
+            const disabled = locked;
             return this.renderDeckCard?.(card, {
               action: 'deck-card',
-              stateText: isSelected ? '移出牌组' : (addDisabled ? '牌组已满' : '加入出战'),
+              stateText: isSelected ? '移出牌组' : '加入出战',
               statusText: isSelected ? `出战 #${selectedIndex + 1}` : '未入选',
               deckState: isSelected ? 'in' : 'out',
               selected: isSelected,

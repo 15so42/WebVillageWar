@@ -8,6 +8,7 @@ import { clamp, lerp } from '../utils/math.js';
 const MAX_ACTIVE_EFFECTS = 260;
 const MAX_POOLED_EFFECTS_PER_KEY = 56;
 const METEOR_TRAIL_AXIS = new THREE.Vector3(0, 1, 0);
+const RECOVERY_PULSE_INTERVAL_SECONDS = 1;
 
 export class EffectsSystem {
   constructor(scene) {
@@ -16,10 +17,12 @@ export class EffectsSystem {
     this.effectPools = new Map();
     this.damageNumberTextureCache = new Map();
     this.recoveryTimer = 0;
+    this.recoveryAura = null;
   }
 
   update(dt) {
     this.recoveryTimer -= dt;
+    this.updateRecoveryAura(dt);
     for (let i = this.effects.length - 1; i >= 0; i -= 1) {
       const effect = this.effects[i];
       effect.age += dt;
@@ -98,6 +101,7 @@ export class EffectsSystem {
   }
 
   destroy() {
+    this.clearRecoveryAura();
     while (this.effects.length > 0) {
       this.removeEffectAt(this.effects.length - 1);
     }
@@ -1045,8 +1049,8 @@ export class EffectsSystem {
   }
 
   spawnRecoveryPulse(center, radius) {
-    if (this.recoveryTimer > 0) return;
-    this.recoveryTimer = 0.11;
+    if (this.recoveryTimer > 0) return false;
+    this.recoveryTimer = RECOVERY_PULSE_INTERVAL_SECONDS;
     const group = new THREE.Group();
     const material = mat('#78e3d0', {
       transparent: true,
@@ -1087,6 +1091,114 @@ export class EffectsSystem {
     }, () => {
       material.dispose();
     });
+    return true;
+  }
+
+  ensureRecoveryAura(center, radius) {
+    const nextRadius = Math.max(0.5, Number(radius) || 1);
+    const nextCenter = new THREE.Vector3(center?.x ?? 0, center?.y ?? 0, center?.z ?? 0);
+    if (this.recoveryAura) {
+      const changed = Math.abs(this.recoveryAura.radius - nextRadius) > 0.02
+        || this.recoveryAura.center.distanceToSquared(nextCenter) > 0.0004;
+      this.recoveryAura.radius = nextRadius;
+      this.recoveryAura.center.copy(nextCenter);
+      return changed;
+    }
+
+    const group = new THREE.Group();
+    const outerMaterial = basicMat('#78e3d0', {
+      transparent: true,
+      opacity: 0.44,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    }).clone();
+    const innerMaterial = basicMat('#c9fff3', {
+      transparent: true,
+      opacity: 0.34,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    }).clone();
+    const outer = new THREE.Mesh(new THREE.RingGeometry(0.92, 1, 64), outerMaterial);
+    outer.rotation.x = -Math.PI / 2;
+    const inner = new THREE.Mesh(new THREE.RingGeometry(0.48, 0.51, 48), innerMaterial);
+    inner.rotation.x = -Math.PI / 2;
+    group.add(outer, inner);
+
+    const motes = [];
+    const moteMaterial = mat('#9affdd', {
+      emissive: '#4ae09a',
+      emissiveIntensity: 0.7,
+      transparent: true,
+      opacity: 0.78,
+      depthWrite: false
+    }).clone();
+    for (let index = 0; index < 10; index += 1) {
+      const mote = new THREE.Mesh(new THREE.DodecahedronGeometry(0.07, 0), moteMaterial);
+      mote.userData.phase = (index / 10) * Math.PI * 2;
+      group.add(mote);
+      motes.push(mote);
+    }
+    group.traverse((child) => child.layers.set(1));
+    this.scene.add(group);
+    this.recoveryAura = {
+      group,
+      center: nextCenter,
+      radius: nextRadius,
+      outer,
+      inner,
+      motes,
+      outerMaterial,
+      innerMaterial,
+      moteMaterial,
+      phase: 0
+    };
+    return true;
+  }
+
+  updateRecoveryAura(dt) {
+    const aura = this.recoveryAura;
+    if (!aura) return;
+    aura.phase += dt;
+    aura.group.position.copy(aura.center).addScaledVector(METEOR_TRAIL_AXIS, 0.055);
+    aura.group.rotation.y += dt * 0.16;
+    aura.outer.scale.setScalar(aura.radius);
+    aura.inner.scale.setScalar(aura.radius);
+    aura.outerMaterial.opacity = 0.36 + Math.sin(aura.phase * 2.2) * 0.08;
+    aura.innerMaterial.opacity = 0.24 + Math.sin(aura.phase * 2.8 + 1) * 0.07;
+    aura.motes.forEach((mote, index) => {
+      const angle = mote.userData.phase + aura.phase * (0.7 + (index % 3) * 0.09);
+      const distance = aura.radius * (0.42 + (index % 4) * 0.13);
+      mote.position.set(
+        Math.cos(angle) * distance,
+        0.13 + Math.sin(aura.phase * 1.7 + index) * 0.07,
+        Math.sin(angle) * distance
+      );
+      mote.scale.setScalar(0.72 + Math.sin(aura.phase * 2 + index) * 0.16);
+    });
+  }
+
+  clearRecoveryAura() {
+    const aura = this.recoveryAura;
+    if (!aura) return;
+    aura.group.parent?.remove(aura.group);
+    aura.group.traverse((child) => {
+      child.geometry?.dispose?.();
+    });
+    aura.outerMaterial.dispose();
+    aura.innerMaterial.dispose();
+    aura.moteMaterial.dispose();
+    this.recoveryAura = null;
+  }
+
+  getRecoveryAuraState() {
+    const aura = this.recoveryAura;
+    if (!aura) return null;
+    return {
+      x: aura.center.x,
+      y: aura.center.y,
+      z: aura.center.z,
+      radius: aura.radius
+    };
   }
 
   spawnFallingStar(position, radius, onImpact) {

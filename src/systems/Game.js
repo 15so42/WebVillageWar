@@ -56,7 +56,9 @@ import { PathfindingSystem } from './PathfindingSystem.js';
 import { TargetingSystem } from './TargetingSystem.js';
 import { UnitLogicSystem } from './UnitLogicSystem.js';
 import { UnitRegistry } from './UnitRegistry.js';
-import { clamp, polarOffset, seededRandom } from '../utils/math.js';
+import { shouldRestoreFreeRunShopUi } from './runShopUiState.js';
+import { isRunShopCategoryAvailable, RUN_SHOP_CATEGORIES } from './runShopCatalog.js';
+import { clamp, distance2D, polarOffset, seededRandom } from '../utils/math.js';
 import { calculateLevelReward } from '../utils/levelRewards.js';
 import { formatSupportAmount, targetCombatRadius } from './combatHelpers.js';
 import {
@@ -77,6 +79,8 @@ import {
   resolvePlayerBaseDamage
 } from './playerBaseRules.js';
 import { scaleResourceAfterMaximumChange } from './unitResourceSync.js';
+import { NetworkAnalysisUi } from './NetworkAnalysisUi.js';
+import { shouldConsumeWaveRewardCard } from './waveRewardPool.js';
 
 const ROUTE_REPATH_DISTANCE = 1.15;
 const ROUTE_REJOIN_DISTANCE = 2.2;
@@ -119,63 +123,6 @@ const OPENING_COMBAT_UNIT_CHOICES = 2;
 const ENEMY_CAMP_IDLE_SCAN_SECONDS = 0.18;
 const RUN_SHOP_BASE_PRICE = 12;
 const RUN_SHOP_PRICE_INCREMENT = 3;
-const RUN_SHOP_CATEGORIES = [
-  {
-    key: 'card',
-    title: '购置卡牌',
-    description: '随机 3 张出战牌，选 1 张加入抽牌堆。',
-    icon: '▣'
-  },
-  {
-    key: 'attribute',
-    title: '属性集训',
-    description: '三选一全队属性强化，立即生效。',
-    icon: '↑'
-  },
-  {
-    key: 'trait',
-    title: '特性专精',
-    description: '三选一兵种特性，每种仅一次。',
-    icon: '★'
-  },
-  {
-    key: 'copy',
-    title: '复制卡牌',
-    description: '从已有卡牌中选一张复制；手牌有空位则优先进手牌。',
-    icon: '⧉',
-    picker: true,
-    catalogPicker: true
-  },
-  {
-    key: 'remove',
-    title: '移除卡牌',
-    description: '从已有卡牌中选一张，移出本局全部同名卡牌。',
-    icon: '✕',
-    picker: true,
-    catalogPicker: true
-  },
-  {
-    key: 'upgrade',
-    title: '升级卡牌',
-    description: '从已有卡牌中选一张，该牌及同名牌等级 +1。',
-    icon: '⬆',
-    picker: true,
-    catalogPicker: true
-  },
-  {
-    key: 'energy',
-    title: '购买能量',
-    description: '立即获得 1 点能量。',
-    icon: '⚡',
-    fixedPrice: 4
-  },
-  {
-    key: 'temporary',
-    title: '临时咒印',
-    description: '购置一张本局可用的临时牌。',
-    icon: '⏱'
-  }
-];
 const WAVE_AFFIX_DEFINITIONS = {
   swarm: {
     id: 'swarm',
@@ -400,10 +347,16 @@ const MOBILE_PINCH_MIN_DISTANCE = 24;
 const STRUCTURE_HEALTH_LAG_DELAY = 0.4;
 const STRUCTURE_HEALTH_LAG_RAPID_DELAY = 0.08;
 const STRUCTURE_HEALTH_LAG_RAPID_WINDOW = 0.18;
-const REBIRTH_TOTEM_ENCHANTMENT_ID = 'rebirthTotem';
-const REBIRTH_TOTEM_BASE_SECONDS = 60;
-const REBIRTH_TOTEM_SECONDS_REDUCTION_PER_LEVEL = 5;
-const REBIRTH_TOTEM_MIN_SECONDS = 5;
+const SELF_DESTRUCT_ENCHANTMENT_ID = 'selfDestruct';
+const AUTO_REBIRTH_BASE_SECONDS = 60;
+const SELF_DESTRUCT_REBIRTH_SECONDS_REDUCTION_PER_LEVEL = 4;
+const AUTO_REBIRTH_MIN_SECONDS = 4;
+const SELF_DESTRUCT_DAMAGE_PER_LEVEL = 5;
+const SELF_DESTRUCT_RADIUS = 2.65;
+const BASE_RECOVERY_PACT_ABILITY_ID = 'baseRecoveryPact';
+const BASE_RECOVERY_PACT_SOURCE = 'ability:base-recovery-pact';
+const BASE_RECOVERY_PACT_MAX_HEALTH_FACTOR = 0.6;
+const BASE_RECOVERY_PACT_INTERVAL_SECONDS = 3;
 const PLAYER_VISUAL_COLORS = ['#62d56f', '#f2c94c', '#a970ff', '#55a7ff'];
 const PERF_HISTORY_LIMIT = 120;
 const PERF_CHART_UPDATE_INTERVAL = 0.25;
@@ -1057,6 +1010,10 @@ export class Game {
       mobileBoxSelectHint: document.querySelector('#mobile-box-select-hint')
     };
     this.renderTuningUi = createRenderTuningPanel();
+    this.networkAnalysisUi = new NetworkAnalysisUi({
+      getSnapshot: () => this.networkBridge?.getNetworkDiagnosticsSnapshot?.() ?? null
+    });
+    this.networkAnalysisUi.setEnabled(Boolean(this.coop?.enabled && this.networkBridge));
     if (this.dom.fpsMeter) this.dom.fpsMeter.hidden = false;
     this.strategyEventUi = createStrategyEventUi();
     this.runShopUi = createRunShopUi();
@@ -1200,12 +1157,13 @@ export class Game {
     this.pathWorker = null;
     this.pendingPathRequests.clear();
     this.networkBridge?.unbindGame();
+    this.networkAnalysisUi?.destroy();
+    this.networkAnalysisUi = null;
     this.disposeNavDebug();
     this.renderer.dispose();
     this.selectionBox?.remove();
     this.strategyEventUi?.root?.remove();
     this.runShopUi?.overlay?.remove();
-    this.runShopUi?.toggle?.remove();
     this.networkTerminatedOverlay?.remove();
     this.networkTerminatedOverlay = null;
     document.body.classList.remove('is-game-active', 'is-game-paused', 'is-strategy-event-open', 'is-run-shop-open');
@@ -1238,6 +1196,7 @@ export class Game {
     const timeScale = debugTimeScale * boxSelectTimeScale;
     const dt = Math.min(rawDt, 0.05) * timeScale;
     this.updateFpsMeter(rawDt);
+    this.networkAnalysisUi?.update();
     if (this.paused) {
       // 联机暂停（波次奖励/军需铺）时仍要处理远端命令与私有状态推送
       this.networkBridge?.beforeTick?.(0);
@@ -1272,6 +1231,7 @@ export class Game {
       runPerfStep('waveSpawn', () => this.updateWaveFlow());
       runPerfStep('card', () => this.updateCardSystems(dt));
       runPerfStep('abilities', () => this.updateAbilitySystems(dt));
+      runPerfStep('baseRecoveryPact', () => this.updateBaseRecoveryPact(dt));
       runPerfStep('playerBaseAttack', () => this.updatePlayerBaseAttack(dt));
       runPerfStep('enemyCampAttack', () => this.updateEnemyCampAttack(dt));
       runPerfStep('spiders', () => this.updateSpiderLifecycle(dt));
@@ -1300,6 +1260,7 @@ export class Game {
       runStep('waveSpawn', () => this.updateWaveFlow());
       runStep('card', () => this.updateCardSystems(dt));
       runStep('abilities', () => this.updateAbilitySystems(dt));
+      runStep('baseRecoveryPact', () => this.updateBaseRecoveryPact(dt));
       runStep('playerBaseAttack', () => this.updatePlayerBaseAttack(dt));
       runStep('enemyCampAttack', () => this.updateEnemyCampAttack(dt));
       runStep('spiders', () => this.updateSpiderLifecycle(dt));
@@ -1834,7 +1795,11 @@ export class Game {
       }));
       this.runShopNetworkOfferId = shopState.offerId ?? null;
       this.runShopNetworkRevision = shopState.revision ?? null;
-      if (this.runShopFreeReward && !this.runShopOpen) {
+      if (shouldRestoreFreeRunShopUi({
+        freeReward: this.runShopFreeReward,
+        runShopOpen: this.runShopOpen,
+        ui: this.runShopUi
+      })) {
         this.openRunShop({ freeReward: true, preserveState: true });
       } else if (wasFreeReward && !this.runShopFreeReward && this.runShopOpen) {
         this.closeRunShop({ localUiOnly: true });
@@ -1883,6 +1848,9 @@ export class Game {
   }
 
   canRunShopCategory(category) {
+    if (!isRunShopCategoryAvailable(category)) {
+      return { ok: false, reason: '该军需服务已下架' };
+    }
     if (category === 'copy' || category === 'remove' || category === 'upgrade') {
       if (!this.runShopOwnedCards().length) {
         return { ok: false, reason: '牌组中没有可操作的卡牌' };
@@ -1899,9 +1867,6 @@ export class Game {
     }
     if (category === 'trait' && !this.buildTraitUpgradeChoicePool().length) {
       return { ok: false, reason: '专精已满' };
-    }
-    if (category === 'card' && !this.selectedCardPool({ allowAllFallback: true }).length) {
-      return { ok: false, reason: '牌池为空' };
     }
     if (category === 'temporary') {
       const options = STRATEGY_REWARD_OPTION_DEFINITIONS
@@ -1936,7 +1901,13 @@ export class Game {
     if (this.levelFinished || this.levelSession.debug) return;
     if (this.strategyEvent) return;
     if (this.runShopFreeReward) {
-      if (this.runShopOpen) {
+      if (shouldRestoreFreeRunShopUi({
+        freeReward: true,
+        runShopOpen: this.runShopOpen,
+        ui: this.runShopUi
+      })) {
+        this.openRunShop({ freeReward: true, preserveState: true });
+      } else if (this.runShopOpen) {
         if (this.networkBridge?.shouldRouteLocalCommands?.()) {
           this.networkBridge.commandSender?.shopRewardSkip?.();
         } else {
@@ -2054,6 +2025,8 @@ export class Game {
   }
 
   selectRunShopCategory(category) {
+    const categoryMeta = RUN_SHOP_CATEGORIES.find((entry) => entry.key === category);
+    if (!categoryMeta) return;
     if (category === 'energy') {
       this.purchaseRunShopEnergy();
       return;
@@ -2066,7 +2039,6 @@ export class Game {
       this.cardSystem?.setHint?.('银币不足', 'run-shop');
       return;
     }
-    const categoryMeta = RUN_SHOP_CATEGORIES.find((entry) => entry.key === category);
     let choices = categoryMeta?.picker ? null : this.runShopPendingOffers[category];
     if (!choices?.length) {
       choices = this.createShopChoicesForCategory(category);
@@ -2084,7 +2056,7 @@ export class Game {
 
   completeRunShopPurchase(choice, options = {}) {
     const category = this.runShopActiveCategory;
-    if (!category || !choice) return false;
+    if (!category || !choice || !isRunShopCategoryAvailable(category)) return false;
     const isFree = this.runShopFreeReward;
     const price = this.shopPrice(category);
     if (!isFree && this.getSilver() + 0.001 < price) {
@@ -2146,7 +2118,6 @@ export class Game {
       const isPicker = Boolean(categoryMeta?.picker);
       const isCatalogPicker = Boolean(categoryMeta?.catalogPicker);
       const useCardFaceGrid = isPicker || isCatalogPicker
-        || this.runShopActiveCategory === 'card'
         || this.runShopActiveCategory === 'temporary';
       const useHorizontalRow = useCardFaceGrid && !isCatalogPicker;
       this.runShopUi.root.classList.add('is-detail');
@@ -2378,14 +2349,6 @@ export class Game {
   }
 
   createShopChoicesForCategory(category, wave = null) {
-    if (category === 'card') {
-      return this.weightedCardChoices({
-        pool: this.selectedCardPool({ allowAllFallback: true, excludeKinds: ['ability'] }),
-        action: 'add-card',
-        actionLabel: '获得卡牌',
-        wave
-      });
-    }
     if (category === 'attribute') {
       return this.createAttributeUpgradeChoices();
     }
@@ -2613,7 +2576,7 @@ export class Game {
         ? this.levelSession.deck
         : CARD_DEFINITIONS;
     const source = sourceDeck
-      .filter((card) => !card.lootOnly)
+      .filter((card) => !card.lootOnly && !card.retired)
       .filter((card) => !options.kind || card.kind === options.kind)
       .filter((card) => !options.excludeKinds?.includes(card.kind))
       .filter((card) => {
@@ -2629,7 +2592,7 @@ export class Game {
     }
     if ((hasSessionDeck || hasCoopDeck) && options.allowAllFallback !== true) return [];
     return CARD_DEFINITIONS
-      .filter((card) => !card.lootOnly)
+      .filter((card) => !card.lootOnly && !card.retired)
       .filter((card) => !options.kind || card.kind === options.kind)
       .filter((card) => !options.excludeKinds?.includes(card.kind))
       .map((card) => this.cardSystem?.applyRuntimeCardLevel?.(card) ?? card);
@@ -3223,7 +3186,7 @@ export class Game {
       }) !== false;
     }
     if (!applied) return false;
-    if (choice.rewardSource === 'wave-reward-deck' && choice.action === 'add-card') {
+    if (shouldConsumeWaveRewardCard(choice)) {
       this.consumeWaveRewardCard(choice.card);
     }
     this.applyStrategyChoiceCost(choice);
@@ -3765,6 +3728,38 @@ export class Game {
     this.abilities?.update?.(dt);
   }
 
+  updateBaseRecoveryPact(dt = 0) {
+    const base = this.playerBase;
+    if (!base?.attributes) return;
+    const active = this.coopPlayerSlots().some((slot) => (
+      this.getAbilityStacks(BASE_RECOVERY_PACT_ABILITY_ID, slot) > 0
+    ));
+    if (!active) {
+      if (base.baseRecoveryPactActive) {
+        base.attributes.removeModifiersBySource(BASE_RECOVERY_PACT_SOURCE);
+        base.baseRecoveryPactActive = false;
+        base.baseRecoveryPactTimer = 0;
+        this.updateStructureStatusElement(base, 0);
+      }
+      return;
+    }
+    if (!base.baseRecoveryPactActive) {
+      base.attributes.addModifiers([
+        { stat: 'maxHealth', type: 'multiply', amount: BASE_RECOVERY_PACT_MAX_HEALTH_FACTOR }
+      ], BASE_RECOVERY_PACT_SOURCE);
+      base.health = Math.min(base.health, base.maxHealth);
+      base.baseRecoveryPactActive = true;
+      base.baseRecoveryPactTimer = BASE_RECOVERY_PACT_INTERVAL_SECONDS;
+      this.updateStructureStatusElement(base, 0);
+    }
+    if (!base.alive || this.levelFinished) return;
+    base.baseRecoveryPactTimer = Math.max(0, (base.baseRecoveryPactTimer ?? BASE_RECOVERY_PACT_INTERVAL_SECONDS) - Math.max(0, dt));
+    while (base.baseRecoveryPactTimer <= 0) {
+      this.repairStructure(base, { health: 1, durability: 1 });
+      base.baseRecoveryPactTimer += BASE_RECOVERY_PACT_INTERVAL_SECONDS;
+    }
+  }
+
   getSilver(slot = this.activeEconomySlot ?? this.localPlayerSlot) {
     if (this.players?.[slot]) return this.players[slot].silver;
     return this.silver;
@@ -3936,6 +3931,8 @@ export class Game {
   }
 
   handleUnitDeath(unit, source = null) {
+    if (!unit || unit.deathHandled) return false;
+    this.triggerSelfDestructOnDeath(unit);
     this.queueRebirthForUnit(unit, source);
     const handled = this.unitRegistry.handleDeath(unit, source);
     if (!handled) return false;
@@ -3952,9 +3949,9 @@ export class Game {
 
   queueRebirthForUnit(unit, source = null) {
     if (!this.canQueueRebirthForUnit(unit)) return false;
-    const enchantment = unit.enchantments.get(REBIRTH_TOTEM_ENCHANTMENT_ID);
+    const enchantment = unit.enchantments.get(SELF_DESTRUCT_ENCHANTMENT_ID);
     const level = Math.max(1, Math.floor(enchantment?.level ?? 1));
-    const total = rebirthTotemDurationForLevel(level);
+    const total = autoRebirthDurationForLevel(level, Boolean(enchantment));
     const entry = {
       id: this.nextRebirthQueueId,
       sourceUnitId: unit.id,
@@ -3990,9 +3987,46 @@ export class Game {
       unit.isBuilding !== true &&
       unit.underConstruction !== true &&
       unit.rebirthQueued !== true &&
-      unit.hasEnchantment?.(REBIRTH_TOTEM_ENCHANTMENT_ID) === true &&
       !this.rebirthQueue.some((entry) => entry.sourceUnitId === unit.id)
     );
+  }
+
+  triggerSelfDestructOnDeath(unit) {
+    if (
+      unit?.isSilentRemoval === true ||
+      unit?.hasEnchantment?.(SELF_DESTRUCT_ENCHANTMENT_ID) !== true ||
+      !unit.position
+    ) return false;
+    const level = Math.max(1, Math.floor(unit.enchantments?.get(SELF_DESTRUCT_ENCHANTMENT_ID)?.level ?? 1));
+    const damage = level * SELF_DESTRUCT_DAMAGE_PER_LEVEL;
+    const targets = unit.team === TEAMS.PLAYER ? this.enemyUnits : this.friendlyUnits;
+    let hitCount = 0;
+    targets.forEach((target) => {
+      if (!target?.alive || !target.position) return;
+      if (distance2D(unit.position, target.position) > SELF_DESTRUCT_RADIUS) return;
+      const context = {
+        damage,
+        source: unit,
+        target,
+        defenseDamageType: 'physical',
+        damageTypes: new Set(),
+        isAttack: true,
+        isExplosionDamage: true,
+        allowDeadSource: true,
+        damageNumberHeight: target.projectileHitHeight ?? 1.45,
+        damageNumberDuration: 0.66
+      };
+      if (!this.combat.applyDamage(target, damage, unit, 0, context)) return;
+      hitCount += 1;
+      this.buffs?.runBuffEffects?.(unit, 'afterDamage', context);
+    });
+    this.effects.spawnRing(unit.position, '#ff784f', SELF_DESTRUCT_RADIUS, 0.52);
+    this.effects.spawnHit({
+      x: unit.position.x,
+      y: (unit.position.y ?? 0) + 0.82,
+      z: unit.position.z
+    }, '#ff784f');
+    return hitCount > 0;
   }
 
   createRebirthSnapshot(unit, level = 1) {
@@ -4006,7 +4040,7 @@ export class Game {
       controllerPlayerId: unit.controllerPlayerId ?? unit.ownerPlayerId ?? this.localPlayerSlot,
       factionId: unit.factionId ?? unit.team,
       playerColorIndex: this.playerColorIndexFor(unit.controllerPlayerId ?? unit.ownerPlayerId),
-      maxEnchantmentSlots: Math.max(unit.enchantments?.size ?? 0, Math.floor(unit.maxEnchantmentSlots ?? 4)),
+      maxEnchantmentSlots: Math.max(unit.enchantments?.size ?? 0, Math.floor(unit.maxEnchantmentSlots ?? 5)),
       controlMode: unit.controlMode === 'guard' ? 'guard' : 'normal',
       guardPoint: vectorSnapshot(unit.guardPoint),
       guardRadius: Number.isFinite(unit.guardRadius) ? unit.guardRadius : null,
@@ -4046,7 +4080,7 @@ export class Game {
       null
     );
     unit.maxEnchantmentSlots = Math.max(
-      Math.floor(snapshot.maxEnchantmentSlots ?? 4),
+      Math.floor(snapshot.maxEnchantmentSlots ?? 5),
       snapshot.enchantments?.length ?? 0
     );
     unit.controlMode = snapshot.controlMode === 'guard' ? 'guard' : 'normal';
@@ -4626,8 +4660,7 @@ export class Game {
       unit.attributes.addModifiers([
         { stat: 'maxHealth', type: 'multiply', amount: (eliteScale.eliteHealthMultiply ?? 1.45) * 0.5 },
         { stat: 'maxShield', type: 'multiply', amount: (eliteScale.eliteHealthMultiply ?? 1.45) * 0.5 },
-        { stat: 'attackPower', type: 'multiply', amount: eliteScale.eliteDamageMultiply ?? 1.16 },
-        { stat: 'knockbackResistance', type: 'add', amount: 0.14 }
+        { stat: 'attackPower', type: 'multiply', amount: eliteScale.eliteDamageMultiply ?? 1.16 }
       ], `force:${waveConfig.id ?? waveConfig.index ?? 0}:elite`);
       unit.health = unit.maxHealth;
       unit.shield = 0;
@@ -4660,9 +4693,7 @@ export class Game {
           stat: 'attackPower',
           type: 'multiply',
           amount: (bossScale.bossDamageBase ?? 1.22) + bossRank * (bossScale.bossDamagePerRank ?? 0.08)
-        },
-        { stat: 'knockback', type: 'multiply', amount: 1.12 },
-        { stat: 'knockbackResistance', type: 'add', amount: 0.22 + bossRank * 0.03 }
+        }
       ], `force:${waveConfig.id ?? waveConfig.index ?? 0}:boss`);
       const bossStatMultiply = bossScale.bossStatMultiply ?? 1;
       if (Math.abs(bossStatMultiply - 1) > 0.001) {
@@ -4685,8 +4716,7 @@ export class Game {
     }
     unit.attributes.addModifiers([
       { stat: 'maxHealth', type: 'multiply', amount: 1.18 },
-      { stat: 'attackPower', type: 'multiply', amount: 1.08 },
-      { stat: 'knockbackResistance', type: 'add', amount: 0.08 }
+      { stat: 'attackPower', type: 'multiply', amount: 1.08 }
     ], `force:${waveConfig.id ?? waveConfig.index ?? 0}:boss-support`);
     unit.health = unit.maxHealth;
     unit.shield = 0;
@@ -6928,11 +6958,16 @@ export class Game {
     );
   }
 
-  repairStructure(structure, { healthPercent = 0, durabilityPercent = 0 } = {}) {
+  repairStructure(structure, {
+    health = 0,
+    durability = 0,
+    healthPercent = 0,
+    durabilityPercent = 0
+  } = {}) {
     if (!structure?.alive) return { health: 0, durability: 0 };
     const previousHealth = structure.health;
-    const healthGain = Math.max(0, structure.maxHealth * healthPercent);
-    const durabilityGain = Math.max(0, structure.maxStructureDurability * durabilityPercent);
+    const healthGain = Math.max(0, health + structure.maxHealth * healthPercent);
+    const durabilityGain = Math.max(0, durability + structure.maxStructureDurability * durabilityPercent);
     if (healthGain > 0) {
       structure.health = Math.min(structure.maxHealth, structure.health + healthGain);
       registerStructureHealthLoss(structure, previousHealth, this.elapsedTime);
@@ -7034,7 +7069,7 @@ export class Game {
       this.dom.selectedStats.textContent =
         `HP ${hp}/${Math.round(unit.maxHealth)} / 护盾 ${shield}/${Math.round(unit.maxShield)} / 武器 ${unit.weapon.name} / 耐久 ${durability}/${maxDurability}`;
       this.dom.selectedEnchants.textContent =
-        `物攻 ${physicalAttack} / 魔攻 ${magicAttack} / 护甲 ${armor} / 魔抗 ${magicResistance} / 闪避 ${dodgeChance}% / 抗击退 ${knockbackResistance}% / 附魔槽 ${unit.enchantments.size}/${Math.max(0, Math.floor(unit.maxEnchantmentSlots ?? 4))} / 附魔 ${enchantments || '-'}`;
+        `物攻 ${physicalAttack} / 魔攻 ${magicAttack} / 护甲 ${armor} / 魔抗 ${magicResistance} / 闪避 ${dodgeChance}% / 抗击退 ${knockbackResistance}% / 附魔槽 ${unit.enchantments.size}/${Math.max(0, Math.floor(unit.maxEnchantmentSlots ?? 5))} / 附魔 ${enchantments || '-'}`;
     } else {
       if (this.dom.selectedPanel) {
         this.dom.selectedPanel.hidden = true;
@@ -7113,6 +7148,7 @@ export class Game {
     const frameMax = sections.frame?.maxMs ?? 0;
     const effectTotal = (counts.effects ?? 0) + (counts.projectiles ?? 0);
     const combatProfile = counts.combatProfile ?? {};
+    const network = this.networkBridge?.getNetworkDiagnosticsSnapshot?.() ?? null;
     const workerText = counts.pathWorkerReady ? 'worker' : 'sync';
     const workerError = this.pathWorkerError ? `<span class="is-bad">worker error</span>` : '';
     const topSections = profilerRowsFromSections(sections, PERF_TOP_SECTION_LIMIT, sectionPeakMap(this.perfHistory));
@@ -7135,10 +7171,12 @@ export class Game {
         perfStat('Sep', `${separationChecks}/${separationPushes}`),
         perfStat('Queue', counts.pendingPathRequests ?? 0),
         perfStat('Mode', workerText),
+        network ? perfStat('Net', networkSummary(network)) : '',
         workerError
       ].filter(Boolean).join('')}</div>`,
       profilerTableMarkup('Top Systems', topSections),
-      profilerTableMarkup('Combat Details', combatRows)
+      profilerTableMarkup('Combat Details', combatRows),
+      network ? networkDiagnosticsMarkup(network) : ''
     ].filter(Boolean).join('');
   }
 
@@ -7200,6 +7238,7 @@ export class Game {
         pending: this.pendingPathRequests?.size ?? 0,
         error: this.pathWorkerError
       },
+      network: this.networkBridge?.getNetworkDiagnosticsSnapshot?.() ?? null,
       perf: this.perfTracker?.snapshot() ?? null,
       perfHistory: this.perfHistory.slice(-8)
     };
@@ -7246,7 +7285,7 @@ export class Game {
             hp: formatDisplayedHealth(this.selectedUnit.health),
             weapon: Math.round(this.selectedUnit.weapon.durability),
             enchantments: [...this.selectedUnit.enchantments.keys()],
-            maxEnchantmentSlots: this.selectedUnit.maxEnchantmentSlots ?? 4,
+            maxEnchantmentSlots: this.selectedUnit.maxEnchantmentSlots ?? 5,
             commandMoveGoal: this.selectedUnit.commandMoveGoal
               ? {
                   x: Number(this.selectedUnit.commandMoveGoal.x.toFixed(2)),
@@ -7362,7 +7401,7 @@ function normalizeLevelSession(session) {
     targetTime: 180
   };
   const fallbackDeck = CARD_DEFINITIONS
-    .filter((card) => !card.lootOnly)
+    .filter((card) => !card.lootOnly && !card.retired)
     .slice(0, 5)
     .map((card, index) => ({
       ...card,
@@ -8557,7 +8596,11 @@ function ensureRunShopUi(existing = null) {
   } else {
     document.body.appendChild(overlay);
   }
-  const root = overlay.querySelector('#run-shop-panel');
+  let root = overlay.querySelector('#run-shop-panel');
+  if (!root) {
+    overlay.innerHTML = RUN_SHOP_OVERLAY_INNER_HTML;
+    root = overlay.querySelector('#run-shop-panel');
+  }
   return {
     overlay,
     root,
@@ -8992,6 +9035,7 @@ function initialPerfDebugEnabled() {
   try {
     const params = new URLSearchParams(window.location.search);
     if (params.has('perfdebug')) return params.get('perfdebug') !== '0';
+    if (params.has('netdebug')) return params.get('netdebug') !== '0';
     return false;
   } catch {
     return false;
@@ -9994,12 +10038,38 @@ function formatEnchantmentList(unit) {
     .join('、');
 }
 
-function rebirthTotemDurationForLevel(level = 1) {
+function autoRebirthDurationForLevel(level = 1, hasSelfDestruct = false) {
   const resolvedLevel = Math.max(1, Math.floor(finiteNumber(level, 1)));
+  if (!hasSelfDestruct) return AUTO_REBIRTH_BASE_SECONDS;
   return Math.max(
-    REBIRTH_TOTEM_MIN_SECONDS,
-    REBIRTH_TOTEM_BASE_SECONDS - (resolvedLevel - 1) * REBIRTH_TOTEM_SECONDS_REDUCTION_PER_LEVEL
+    AUTO_REBIRTH_MIN_SECONDS,
+    AUTO_REBIRTH_BASE_SECONDS - resolvedLevel * SELF_DESTRUCT_REBIRTH_SECONDS_REDUCTION_PER_LEVEL
   );
+}
+
+function networkSummary(network) {
+  const rtt = network.rtt?.latestMs == null ? '-' : `${network.rtt.latestMs}ms`;
+  const gap = network.transform?.maxGapMs ?? 0;
+  return `↓${network.received?.messagesPerSecond ?? 0}/s ${rtt} gap ${gap}ms`;
+}
+
+function networkDiagnosticsMarkup(network) {
+  const received = network.received ?? {};
+  const sent = network.sent ?? {};
+  const transform = network.transform ?? {};
+  const rtt = network.rtt ?? {};
+  return profilerTableMarkup('Network (10s window)', [
+    ['Receive', `${received.messagesPerSecond ?? 0}/s · ${formatNetworkRate(received.bytesPerSecond)} · max gap ${received.maxGapMs ?? 0}ms · >=200ms ${received.gapsOver200Ms ?? 0}`],
+    ['Send', `${sent.messagesPerSecond ?? 0}/s · ${formatNetworkRate(sent.bytesPerSecond)}`],
+    ['Transform', `${transform.streamsPerSecond ?? 0}/s · max gap ${transform.maxGapMs ?? 0}ms · latest ${transform.latestAgeMs ?? '-'}ms ago · ${transform.latestUnitCount ?? 0} units / ${transform.latestProjectileCount ?? 0} projectiles`],
+    ['RTT', rtt.latestMs == null ? 'waiting for time sync' : `latest ${rtt.latestMs}ms · avg ${rtt.avgMs}ms · max ${rtt.maxMs}ms`],
+    ['Recovery', `server sequence gaps ${network.serverSequenceGaps ?? 0} · resyncs ${network.resyncs ?? 0}`]
+  ]);
+}
+
+function formatNetworkRate(bytesPerSecond = 0) {
+  if (bytesPerSecond >= 1024) return `${(bytesPerSecond / 1024).toFixed(1)}KB/s`;
+  return `${Math.round(bytesPerSecond)}B/s`;
 }
 
 function captureRebirthAttributeSnapshot(unit) {
@@ -10056,7 +10126,7 @@ function restoreRebirthEnchantments(unit, enchantments = []) {
     });
   });
   unit.maxEnchantmentSlots = Math.max(
-    Math.floor(unit.maxEnchantmentSlots ?? 4),
+    Math.floor(unit.maxEnchantmentSlots ?? 5),
     unique.size
   );
   unique.forEach((entry) => {
@@ -10163,7 +10233,10 @@ function serializeRebirthQueueEntry(entry) {
 }
 
 function roundRebirthSeconds(value) {
-  return Math.round(Math.max(0, finiteNumber(value, 0)) * 10) / 10;
+  // Rebirth timing remains authoritative at full precision on the Host. The
+  // client UI displays whole seconds, so tenths only force a complete match
+  // state patch ten times per second while a unit is waiting to respawn.
+  return Math.ceil(Math.max(0, finiteNumber(value, 0)));
 }
 
 function vectorSnapshot(vector) {

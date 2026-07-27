@@ -1,8 +1,15 @@
 import assert from 'node:assert/strict';
-import { BUFF_DEFINITIONS } from '../src/data/gameData.js';
+import { BUFF_DEFINITIONS, CARD_DEFINITIONS } from '../src/data/gameData.js';
 import { CardEffectSystem } from '../src/systems/CardEffectSystem.js';
 import { AttributeSet } from '../src/systems/AttributeSet.js';
 import { BuffSystem } from '../src/systems/BuffSystem.js';
+import { cardMaxUses } from '../src/systems/CardSystem.js';
+
+assert(CARD_DEFINITIONS.filter((card) => card.kind === 'summon').every((card) => cardMaxUses(card) === 1));
+assert.equal(cardMaxUses({ kind: 'summon', uses: 9 }), 1);
+assert.equal(CARD_DEFINITIONS.find((card) => card.id === 'rebirth-totem-enchant')?.retired, true);
+assert.equal(CARD_DEFINITIONS.find((card) => card.id === 'self-destruct-enchant')?.enchantmentId, 'selfDestruct');
+assert.equal(BUFF_DEFINITIONS.rebirthTotem.retired, true);
 
 const applied = [];
 const targetUnit = {

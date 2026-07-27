@@ -341,7 +341,7 @@ export class EnemyEnchantmentSystem {
   }
 
   maxEnchantSlots(unit) {
-    const unitLimit = Math.max(0, Math.floor(unit?.maxEnchantmentSlots ?? 4));
+    const unitLimit = Math.max(0, Math.floor(unit?.maxEnchantmentSlots ?? 5));
     if (this.game.isEndlessMode?.()) {
       return Math.min(
         unitLimit,

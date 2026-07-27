@@ -111,7 +111,7 @@ export class CardEffectSystem {
     if (
       isEnchantment &&
       !targetUnit.enchantments?.has?.(buffId) &&
-      targetUnit.enchantments?.size >= Math.max(0, Math.floor(targetUnit.maxEnchantmentSlots ?? 4))
+      targetUnit.enchantments?.size >= Math.max(0, Math.floor(targetUnit.maxEnchantmentSlots ?? 5))
     ) {
       this.showEnchantmentSlotFailure(targetUnit);
       return false;
@@ -136,7 +136,7 @@ export class CardEffectSystem {
     if (!targetUnit) return false;
     const count = Math.max(1, Math.floor(resolveCardEffectNumber(card, effect, 'count', 1)));
     const enchantmentIds = Object.entries(BUFF_DEFINITIONS)
-      .filter(([, definition]) => definition.category === 'enchantment')
+      .filter(([, definition]) => definition.category === 'enchantment' && !definition.retired)
       .map(([id]) => id);
     if (!enchantmentIds.length) return false;
     const applyLevel = Math.max(1, Math.floor(resolveCardEffectNumber(card, effect, 'level', 1)));
@@ -169,7 +169,7 @@ export class CardEffectSystem {
     const amount = Math.max(1, Math.floor(resolveCardEffectNumber(card, effect, 'amount', 1)));
     targetUnit.maxEnchantmentSlots = Math.max(
       targetUnit.enchantments?.size ?? 0,
-      Math.floor(targetUnit.maxEnchantmentSlots ?? 4) + amount
+      Math.floor(targetUnit.maxEnchantmentSlots ?? 5) + amount
     );
     targetUnit.statusUiDirty = true;
     this.game.effects.spawnRing(targetUnit.position, card.color ?? '#63e0c4', 0.95, 0.72);

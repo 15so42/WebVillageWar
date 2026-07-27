@@ -76,7 +76,7 @@ export class UnitEntity {
     this.visualState = 'idle';
     this.buffs = new Map();
     this.enchantments = new Map();
-    this.maxEnchantmentSlots = 4;
+    this.maxEnchantmentSlots = 5;
     this.status = {
       burnTime: 0,
       burnDamagePerSecond: 0,
@@ -117,7 +117,7 @@ export class UnitEntity {
     if (
       isEnchantment &&
       !existing &&
-      this.enchantments.size >= Math.max(0, Math.floor(this.maxEnchantmentSlots ?? 4))
+      this.enchantments.size >= Math.max(0, Math.floor(this.maxEnchantmentSlots ?? 5))
     ) {
       return null;
     }

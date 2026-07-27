@@ -8,7 +8,7 @@ export function createDebugSession() {
     ?? LEVEL_DEFINITIONS[0]
     ?? {};
   const deck = CARD_DEFINITIONS
-    .filter((card) => !card.lootOnly)
+    .filter((card) => !card.lootOnly && !card.retired)
     .map((card, index) => ({
       ...card,
       level: card.level ?? 1,

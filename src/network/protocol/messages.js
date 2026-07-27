@@ -1,5 +1,5 @@
-export const RELAY_VERSION = 2;
-export const GAME_PROTOCOL_VERSION = 'multiplayer-v4';
+export const RELAY_VERSION = 3;
+export const GAME_PROTOCOL_VERSION = 'multiplayer-v6';
 export const CATALOG_VERSION = 'cards-v1';
 
 export const MATCH_PHASE = Object.freeze({
@@ -27,7 +27,8 @@ export const MSG = Object.freeze({
   NET_FORWARD: 'net_forward',
   ERROR: 'error',
 
-  // End-to-end game protocol. These values are opaque to the relay.
+  // End-to-end game protocol. The relay treats only transform_stream as a
+  // replaceable transport class; game rules remain opaque to it.
   COMMAND: 'command',
   COMMAND_ACCEPTED: 'command_accepted',
   COMMAND_REJECTED: 'command_rejected',
@@ -45,6 +46,10 @@ export const MSG = Object.freeze({
   MOTION_EVENT: 'motion_event',
   TIME_SYNC_REQUEST: 'time_sync_request',
   TIME_SYNC_RESPONSE: 'time_sync_response',
+  WEBRTC_READY: 'webrtc_ready',
+  WEBRTC_OFFER: 'webrtc_offer',
+  WEBRTC_ANSWER: 'webrtc_answer',
+  WEBRTC_ICE: 'webrtc_ice',
   FULL_SNAPSHOT: 'full_snapshot',
   RESYNC_REQUEST: 'resync_request',
   MATCH_FINISHED: 'match_finished',

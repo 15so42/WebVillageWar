@@ -407,7 +407,7 @@ export class BuffSystem {
     }
 
     if (effect.op === 'explodeOnHit') {
-      if (!context.source?.alive || !context.target?.position || !context.isAttack) return;
+      if ((!context.source?.alive && !context.allowDeadSource) || !context.target?.position || !context.isAttack) return;
       const damage = resolveEffectNumber(effect, 'damage', context, 0);
       const radius = Math.max(0, resolveEffectNumber(effect, 'radius', context, effect.radius ?? 2.4));
       if (damage <= 0 || radius <= 0) return;

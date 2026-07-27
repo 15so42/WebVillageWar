@@ -218,7 +218,7 @@ Host 本地 UI 也构造相同命令对象并进入同一队列。
 2. `transaction`：一次命令或战斗结算产生的有序结果，可包含多个补丁和表现事件，Client 原子应用。
 3. `ui_state`：只发给对应玩家的手牌、奖励、商店和流程 UI 状态。
 
-所有下行消息至少带 `matchId`、`serverSeq`、`serverTick`。实体补丁还带 `entityRevision`；事务中每个产生持久变化的 result 也要带对应实体的结果 revision。Client 发现序号缺口或 revision 不连续时请求局部或完整重同步，不猜测中间结果。
+可靠下行消息带 `matchId`、`serverSeq`、`serverTick`。`transform_stream` 是只保留最新状态的可替换流，使用自己的 `sampleSeq`，不占用 `serverSeq`；中继或发送端在积压时可以以新样本替换旧样本。实体补丁还带 `entityRevision`；事务中每个产生持久变化的 result 也要带对应实体的结果 revision。Client 发现可靠消息序号缺口或 revision 不连续时请求局部或完整重同步，不猜测中间结果。
 
 网络事件不作为重连后的历史恢复来源。重连以 Host 当前完整状态为准；断线前或断线期间已经发生、且已被快照吸收的网络事件不补发、不重播。
 

@@ -73,6 +73,9 @@ export function applyNetworkFx(game, event) {
     case 'fx_recovery':
       effects.spawnRecoveryPulse(vecFrom(event), event.radius ?? 4.8);
       break;
+    case 'fx_recovery_aura':
+      effects.ensureRecoveryAura(vecFrom(event), event.radius ?? 4.8);
+      break;
     case 'fx_enemy_camp_blast':
       effects.spawnEnemyCampBlast(vecFrom(event.start), vecFrom(event.end), event.options ?? {});
       break;
@@ -215,6 +218,15 @@ const EFFECT_RELAY_SPECS = [
     })
   },
   {
+    method: 'ensureRecoveryAura',
+    name: 'fx_recovery_aura',
+    serialize: ([center, radius]) => ({
+      name: 'fx_recovery_aura',
+      ...vec3(center),
+      radius
+    })
+  },
+  {
     method: 'spawnLavaEruption',
     name: 'fx_lava_eruption',
     serialize: ([position, radius]) => ({
@@ -252,6 +264,10 @@ export function installHostEffectsRelay(game, emitEvent) {
     originals.set(method, original);
     game.effects[method] = (...args) => {
       const result = original(...args);
+      // Some visual emitters rate-limit themselves. Never put a suppressed
+      // local effect on the wire, otherwise one harmless per-frame attempt
+      // becomes dozens of remote events each second.
+      if (result === false) return result;
       try {
         const payload = serialize(args);
         if (payload) emitEvent(payload);

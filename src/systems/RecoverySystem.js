@@ -16,7 +16,7 @@ export class RecoverySystem {
     const healthPerSecond = this.game.modifiers.getStructureHealthPerSecond(base);
     const durabilityPerSecond = this.game.modifiers.getStructureDurabilityPerSecond(base);
     this.center.copy(base.position);
-    this.game.effects.spawnRecoveryPulse(this.center, recoveryRadius);
+    this.game.effects.ensureRecoveryAura(this.center, recoveryRadius);
 
     this.tickTimer += dt;
     if (this.tickTimer < RECOVERY_TICK_SECONDS) return;

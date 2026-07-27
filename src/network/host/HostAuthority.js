@@ -116,6 +116,10 @@ export class HostAuthority {
     });
     this.lastPrivateByPlayer.set(playerId, snapshot.privateState);
     this.dirtyPrivatePlayers.delete(playerId);
+    const recoveryAura = this.game.effects?.getRecoveryAuraState?.();
+    if (recoveryAura) {
+      this.emitEvent({ name: 'fx_recovery_aura', ...recoveryAura }, { toPlayerId: playerId });
+    }
   }
 
   emitEvent(event, { toPlayerId = null } = {}) {
@@ -299,15 +303,20 @@ export class HostAuthority {
 
   send(playerId, payload) {
     if (!playerId) return false;
-    const serverSeq = (this.serverSeqByPlayer.get(playerId) ?? 0) + 1;
-    this.serverSeqByPlayer.set(playerId, serverSeq);
     const message = {
       ...payload,
       gameProtocolVersion: GAME_PROTOCOL_VERSION,
       matchId: this.matchId,
-      serverSeq,
       serverTick: this.builder.tick
     };
+    // Transform snapshots carry their own sampleSeq and are intentionally
+    // replaceable. Do not make a dropped stale pose create a false gap in the
+    // reliable event/state sequence.
+    if (payload.type !== MSG.TRANSFORM_STREAM) {
+      const serverSeq = (this.serverSeqByPlayer.get(playerId) ?? 0) + 1;
+      this.serverSeqByPlayer.set(playerId, serverSeq);
+      message.serverSeq = serverSeq;
+    }
     if (playerId === this.localPlayerId) return true;
     return this.sendToPlayer?.(playerId, message) ?? false;
   }

@@ -14,6 +14,17 @@
     "test:unit-resource-sync": "node scripts/test-unit-resource-sync.mjs",
     "test:dual-attack": "node scripts/test-dual-attack.mjs",
     "test:card-effects": "node scripts/test-card-effects.mjs",
+    "test:run-shop": "node scripts/test-run-shop-recovery.mjs",
+    "test:run-shop-catalog": "node scripts/test-run-shop-catalog.mjs",
+    "test:network-diagnostics": "node scripts/test-network-diagnostics.mjs",
+    "test:relay-backpressure": "node scripts/test-relay-backpressure.mjs",
+    "test:relay-transform-flow": "node scripts/test-relay-transform-flow.mjs",
+    "test:webrtc-direct": "node scripts/test-webrtc-direct-transport.mjs",
+    "test:network-fx-relay": "node scripts/test-network-fx-relay.mjs",
+    "test:network-inbound-queue": "node scripts/test-network-inbound-queue.mjs",
+    "test:deck-rules": "node scripts/test-deck-rules.mjs",
+    "test:recovery-aura": "node scripts/test-recovery-aura.mjs",
+    "test:wave-reward-pool": "node scripts/test-wave-reward-pool.mjs",
     "test:altar-specialization": "node scripts/test-altar-specialization-reward.mjs"
   },
   "dependencies": {

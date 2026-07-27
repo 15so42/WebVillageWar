@@ -107,7 +107,7 @@ export class ClientMirror {
     if ('shield' in state) unit.shield = state.shield;
     if ('maxShield' in state) unit.attributes?.setBase?.('maxShield', state.maxShield);
     if ('maxEnchantmentSlots' in state) {
-      unit.maxEnchantmentSlots = Math.max(0, Math.floor(state.maxEnchantmentSlots ?? 4));
+      unit.maxEnchantmentSlots = Math.max(0, Math.floor(state.maxEnchantmentSlots ?? 5));
     }
     if ('maxDurability' in state) unit.attributes?.setBase?.('maxDurability', state.maxDurability);
     if ('durability' in state && unit.weapon) {
@@ -211,6 +211,10 @@ export class ClientMirror {
 
   applyMatchPatch(patch) {
     const changes = patch.changes ?? {};
+    const shouldRefreshWavePreview = 'waveIndex' in changes
+      || 'waveScheduleIndex' in changes
+      || 'currentWave' in changes
+      || 'levelFinished' in changes;
     if ('waveIndex' in changes) this.game.wave = changes.waveIndex;
     if ('waveScheduleIndex' in changes) this.game.waveIndex = changes.waveScheduleIndex;
     if ('elapsedTime' in changes) this.game.elapsedTime = changes.elapsedTime;
@@ -229,14 +233,14 @@ export class ClientMirror {
       this.game.currentWave = scheduledWave ?? incomingWave;
     }
     if ('levelFinished' in changes) this.game.levelFinished = Boolean(changes.levelFinished);
-    this.game.updateWavePreview?.();
+    if (shouldRefreshWavePreview) this.game.updateWavePreview?.();
     this.game.hudUpdateTimer = 0;
-    this.game.updateHud?.(0);
     return true;
   }
 
   applyTransformStream(stream, { snap = false } = {}) {
     const receivedAtMs = performance.now();
+    this.game.networkBridge?.recordNetworkTransformStream?.(stream, { snap });
     (stream?.transforms ?? []).forEach((transform) => {
       const record = this.records.get(transform.unitId);
       if (!record) return;
@@ -311,6 +315,7 @@ export class ClientMirror {
     if (!Number.isFinite(clientSentAtMs)) return;
     const rttMs = receivedAtMs - clientSentAtMs;
     if (rttMs < 0 || rttMs > 5_000) return;
+    this.game.networkBridge?.recordNetworkRtt?.(rttMs);
     if (!Number.isFinite(this.estimatedRttMs)) {
       this.estimatedRttMs = rttMs;
       return;

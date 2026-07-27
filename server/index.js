@@ -1,8 +1,14 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { randomBytes, randomUUID } from 'node:crypto';
+import {
+  TRANSFORM_FLUSH_INTERVAL_MS,
+  flushLatestTransform,
+  isReplaceableTransform,
+  queueLatestTransform
+} from './relayBackpressure.js';
 
 const PORT = Number(process.env.COOP_PORT ?? 8787);
-const RELAY_VERSION = 2;
+const RELAY_VERSION = 3;
 const HOST_LEASE_MS = 60_000;
 const CLIENT_RECONNECT_GRACE_MS = 90_000;
 const MAX_MESSAGE_BYTES = 256 * 1024;
@@ -104,7 +110,9 @@ function bindConnection(socket, roomId, player) {
     connectionId: randomUUID(),
     reconnectToken: player.reconnectToken,
     rateWindowStartedAt: Date.now(),
-    rateCount: 0
+    rateCount: 0,
+    pendingTransform: null,
+    nextTransformSendAt: 0
   });
 }
 
@@ -266,7 +274,7 @@ function forwardMessage(socket, message) {
     const peerInfo = connections.get(peer);
     if (!peerInfo) return;
     if (target !== 'broadcast' && target !== 'all' && peerInfo.playerId !== target) return;
-    send(peer, {
+    const forwarded = {
       type: MSG.NET_FORWARD,
       relayVersion: RELAY_VERSION,
       roomId: room.id,
@@ -275,7 +283,15 @@ function forwardMessage(socket, message) {
       to: target,
       channel: message.channel ?? 'game',
       payload: message.payload
-    });
+    };
+    if (isReplaceableTransform(forwarded)) {
+      // Never let a slow radio/browser turn position snapshots into a FIFO.
+      // A later transform supersedes an earlier one; reliable game messages
+      // continue through the ordinary ordered path below.
+      queueLatestTransform(peerInfo, forwarded);
+      return;
+    }
+    send(peer, forwarded);
   });
 }
 
@@ -349,6 +365,15 @@ function consumeRateBudget(socket) {
 
 const wss = new WebSocketServer({ port: PORT, maxPayload: MAX_MESSAGE_BYTES });
 console.log(`[multiplayer-relay] listening on ws://0.0.0.0:${PORT}`);
+
+const transformFlushTimer = setInterval(() => {
+  const now = Date.now();
+  connections.forEach((connection, socket) => {
+    if (socket.readyState !== WebSocket.OPEN) return;
+    flushLatestTransform(socket, connection, now, send);
+  });
+}, TRANSFORM_FLUSH_INTERVAL_MS);
+transformFlushTimer.unref?.();
 
 wss.on('connection', (socket) => {
   socket.on('message', (raw) => {

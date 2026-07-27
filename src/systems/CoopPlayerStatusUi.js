@@ -1,10 +1,13 @@
 const MAX_ENERGY = 12;
+const STATUS_REFRESH_INTERVAL = 0.25;
 
 export class CoopPlayerStatusUi {
   constructor(game) {
     this.game = game;
     this.playersPublic = [];
     this.expandedPlayerId = null;
+    this.refreshTimer = 0;
+    this.lastMarkup = '';
     this.root = document.querySelector('#coop-player-status');
     if (!this.root) {
       this.root = document.createElement('section');
@@ -14,6 +17,7 @@ export class CoopPlayerStatusUi {
     }
     this.root.hidden = false;
     this.root.addEventListener('click', (event) => this.onClick(event));
+    this.render();
   }
 
   destroy() {
@@ -42,15 +46,25 @@ export class CoopPlayerStatusUi {
     this.render();
   }
 
+  update(dt = 0) {
+    this.refreshTimer -= Math.max(0, Number(dt) || 0);
+    if (this.refreshTimer > 0) return;
+    this.refreshTimer = STATUS_REFRESH_INTERVAL;
+    this.render();
+  }
+
   render() {
     if (!this.root) return;
     const rows = this.buildRows();
-    this.root.innerHTML = `
+    const markup = `
       <div class="coop-player-status-row">
         ${rows.map((row) => this.renderChip(row)).join('')}
       </div>
       ${this.expandedPlayerId ? this.renderDetail(rows.find((row) => row.playerId === this.expandedPlayerId)) : ''}
     `;
+    if (markup === this.lastMarkup) return;
+    this.lastMarkup = markup;
+    this.root.innerHTML = markup;
   }
 
   buildRows() {

@@ -30,19 +30,19 @@ assert.equal(endlessDifficultyDelta({
   lifetime: 0.01,
   expectedLifetime: 5,
   enemyClass: 'normal'
-}), 0.24);
+}), 0.168);
 assert.equal(endlessDifficultyDelta({
   baseHealth: 90,
   lifetime: 0.01,
   expectedLifetime: 5,
   enemyClass: 'normal'
-}), 1.2);
+}), 0.84);
 assert.equal(endlessDifficultyDelta({
   baseHealth: 150,
   lifetime: 0.01,
   expectedLifetime: 17.5,
   enemyClass: 'boss'
-}), 10);
+}), 7);
 assert(endlessDifficultyDelta({
   baseHealth: 18,
   lifetime: 10,

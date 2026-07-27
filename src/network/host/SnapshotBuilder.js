@@ -226,7 +226,10 @@ export class SnapshotBuilder {
       waveIndex: this.game.wave ?? 0,
       waveScheduleIndex: this.game.waveIndex ?? 0,
       waveLabel: this.game.currentWave?.label ?? '',
-      elapsedTime: Math.floor((this.game.elapsedTime ?? 0) * 4) / 4,
+      // The displayed match clock only needs second precision. At quarter-second
+      // precision it alone forced a full reliable match patch four times per
+      // second even while the battlefield was otherwise idle.
+      elapsedTime: Math.floor(this.game.elapsedTime ?? 0),
       endlessDifficulty: Number(this.game.endlessDifficulty ?? 0),
       rebirthQueue: this.game.serializeRebirthQueue?.() ?? [],
       currentWave: this.game.currentWave ? {
@@ -312,7 +315,7 @@ export class SnapshotBuilder {
           waveIndex: this.game.wave ?? 0,
           waveScheduleIndex: this.game.waveIndex ?? 0,
           waveLabel: this.game.currentWave?.label ?? '',
-          elapsedTime: Math.floor((this.game.elapsedTime ?? 0) * 4) / 4,
+          elapsedTime: Math.floor(this.game.elapsedTime ?? 0),
           endlessDifficulty: Number(this.game.endlessDifficulty ?? 0),
           rebirthQueue: this.game.serializeRebirthQueue?.() ?? [],
           currentWave: this.game.currentWave ? {
@@ -353,14 +356,16 @@ export class SnapshotBuilder {
       maxHealth: round(unit.maxHealth),
       physicalAttack: round(this.game.modifiers?.getPhysicalAttack?.(unit) ?? unit.physicalAttack ?? 0),
       magicAttack: round(this.game.modifiers?.getMagicAttack?.(unit) ?? unit.magicAttack ?? 0),
-      shield: round(unit.shield ?? 0),
-      maxShield: round(unit.maxShield ?? 0),
-      maxEnchantmentSlots: Math.max(0, Math.floor(unit.maxEnchantmentSlots ?? 4)),
+      // Shield regeneration can advance in tiny fractional steps. Sending
+      // hundredths produces a reliable patch nearly every render tick, while
+      // tenths are visually indistinguishable in the client status bar.
+      shield: round(unit.shield ?? 0, 1),
+      maxShield: round(unit.maxShield ?? 0, 1),
+      maxEnchantmentSlots: Math.max(0, Math.floor(unit.maxEnchantmentSlots ?? 5)),
       durability: round(unit.weapon?.durability ?? 0),
       maxDurability: round(unit.weapon?.maxDurability ?? 0),
       underConstruction: Boolean(unit.underConstruction),
       buildProgress: round(unit.buildProgress ?? (unit.underConstruction ? 0 : 1), 2),
-      visualState: unit.visualState ?? 'idle',
       selected: Boolean(unit.selected),
       selectedByPlayerId: unit.selected ? (unit.selectedByPlayerId ?? null) : null,
       isGuarding: unit.controlMode === 'guard',
@@ -371,8 +376,7 @@ export class SnapshotBuilder {
           key,
           name: enchantment?.name ?? key,
           level: Math.max(1, Math.floor(enchantment?.level ?? 1))
-        })),
-      animation: serializeAnimation(unit)
+        }))
     };
     if (includeTransform) {
       state.position = [
@@ -582,17 +586,6 @@ function serializeEffects(unit) {
     endTick: buff.networkEndTick ?? null,
     params: buff.color ? { color: buff.color } : {}
   }));
-}
-
-function serializeAnimation(unit) {
-  const animation = unit.visualRoot?.userData?.animation;
-  return {
-    animationKey: animation?.name ?? unit.visualState ?? 'idle',
-    startTick: animation?.networkStartTick ?? 0,
-    duration: animation?.duration,
-    playbackRate: animation?.playbackRate ?? 1,
-    loop: animation?.loop ?? false
-  };
 }
 
 function serializeStructure(structure) {

@@ -1431,7 +1431,7 @@ export class CardSystem {
       TEMPORARY_CARD_LIMIT,
       Math.floor(options.temporaryLimit ?? defaultLimit)
     );
-    const candidates = shuffleCards(pool.filter((card) => card && !card.lootOnly));
+    const candidates = shuffleCards(pool.filter((card) => card && !card.lootOnly && !card.retired));
     const overflowCards = [];
     let created = 0;
     while (created < targetCount && candidates.length > 0) {
@@ -1861,8 +1861,10 @@ export class CardSystem {
 function normalizeDeck(cards) {
   const source = Array.isArray(cards)
     ? cards
-    : CARD_DEFINITIONS.filter((card) => !card.lootOnly);
-  return source.map((card, index) => createCardInstance(card, `deck-${index}`));
+    : CARD_DEFINITIONS.filter((card) => !card.lootOnly && !card.retired);
+  return source
+    .filter((card) => !card?.retired)
+    .map((card, index) => createCardInstance(card, `deck-${index}`));
 }
 
 function createCardInstance(card, prefix = 'card') {
@@ -1881,6 +1883,7 @@ function withoutLegacyUseFields(card) {
 }
 
 export function cardMaxUses(card) {
+  if (card?.kind === 'summon') return 1;
   if (Number.isFinite(card?.uses) && card.uses > 0) return Math.floor(card.uses);
   if (card?.exhaust === true || card?.kind === 'ability') return 1;
   return 0;
@@ -1906,7 +1909,7 @@ export function cardUseBarMarkup(card, className = 'card-use-bar') {
   for (let index = 0; index < max; index += 1) {
     segments.push(`<span${index < remaining ? ' class="is-filled"' : ''}></span>`);
   }
-  return `<div class="${className}" aria-hidden="true">${segments.join('')}</div>`;
+  return `<div class="${className}" data-remaining="${remaining}" data-max="${max}" aria-label="剩余使用次数 ${remaining}/${max}">${segments.join('')}</div>`;
 }
 
 function cardCooldownOverlayMarkup(cardSystem, card) {

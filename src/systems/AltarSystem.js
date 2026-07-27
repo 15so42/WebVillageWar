@@ -338,7 +338,9 @@ export class AltarSystem {
       type: altar.type,
       owner: altar.owner ?? 'neutral',
       captureTeam: altar.captureTeam,
-      progress: Number(altar.progress.toFixed(2)),
+      // Capture progress is only presentation. Ten-percent steps avoid
+      // broadcasting the complete altar array for every simulation frame.
+      progress: Math.round(altar.progress * 10) / 10,
       contested: altar.contested
     }));
   }

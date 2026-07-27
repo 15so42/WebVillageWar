@@ -1,9 +1,10 @@
-import { DECK_SIZE, LEVEL_DEFINITIONS } from '../data/gameData.js';
+import { LEVEL_DEFINITIONS } from '../data/gameData.js';
 import { GAME_VERSION } from '../version.js';
 import { RoomClient } from './session/RoomClient.js';
 import { buildMatchDeck, normalizeMultiplayerSession } from './session/MultiplayerSession.js';
 import { GameNetworkBridge } from './bridge/GameNetworkBridge.js';
 import { normalizeChallengeMode } from '../systems/endlessMode.js';
+import { deckValidationMessage, validateDeckSelection } from '../systems/deckRules.js';
 import {
   CATALOG_VERSION,
   COMMAND,
@@ -184,8 +185,9 @@ export class CoopMatchController {
 
   hasValidLocalDeck() {
     const deck = this.getDeckSelection?.() ?? [];
-    if (deck.length !== DECK_SIZE) {
-      this.onNotice?.(`牌组需要正好 ${DECK_SIZE} 张卡牌`);
+    const validation = validateDeckSelection(deck);
+    if (!validation.valid) {
+      this.onNotice?.(deckValidationMessage(validation));
       return false;
     }
     return true;
@@ -309,6 +311,13 @@ export class CoopMatchController {
       this.onNotice?.(state.reason === 'host_lease_expired' ? '房主断线超过 60 秒，房间已释放' : '房间已关闭');
       return;
     }
+    if (state.event === MSG.NET_FORWARD) {
+      // In-match packets are also consumed by GameNetworkBridge. Re-rendering
+      // the hidden lobby here rebuilt the entire deck builder for every state,
+      // event and transform packet, which severely stalled mobile clients.
+      this.handleGamePayload(state.forward?.payload, state.forward?.fromPlayerId);
+      return;
+    }
     if (state.event === MSG.ROOM_CREATE || state.event === MSG.ROOM_JOIN) {
       this.onNotice?.('');
     }
@@ -326,9 +335,6 @@ export class CoopMatchController {
       this.activeBridge.handleRelayRoomState?.(state.room);
     }
     this.onLobbyVisible?.(this.viewState(state));
-    if (state.event === MSG.NET_FORWARD) {
-      this.handleGamePayload(state.forward?.payload, state.forward?.fromPlayerId);
-    }
     // The active GameNetworkBridge owns in-match resync. Keeping the request
     // here as well produced two consecutive full snapshots on reconnect and
     // could replace the hand DOM while the player started dragging a card.
@@ -587,11 +593,11 @@ export class CoopMatchController {
     if (command.payload?.catalogVersion !== CATALOG_VERSION) {
       return this.rejectLobbyCommand(command, 'catalog_version_mismatch');
     }
-    if (command.payload?.ready && deck.length !== DECK_SIZE) {
-      return this.rejectLobbyCommand(command, 'deck_requires_exact_size');
-    }
-    if (command.payload?.ready && deck.some((card) => !card?.id)) {
-      return this.rejectLobbyCommand(command, 'invalid_card_definition');
+    if (command.payload?.ready) {
+      const validation = validateDeckSelection(deck);
+      if (!validation.valid) {
+        return this.rejectLobbyCommand(command, validation.reason);
+      }
     }
     player.ready = Boolean(command.payload?.ready);
     player.deck = deck.map((card) => ({ id: card.id, level: card.level ?? 1 }));

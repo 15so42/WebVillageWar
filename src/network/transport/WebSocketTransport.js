@@ -1,4 +1,8 @@
 import { MSG, RELAY_VERSION } from '../protocol/messages.js';
+import { NetworkDiagnostics } from '../NetworkDiagnostics.js';
+
+const TRANSFORM_BUFFER_LIMIT_BYTES = 32 * 1024;
+const TRANSFORM_FLUSH_INTERVAL_MS = 50;
 
 export class WebSocketTransport {
   constructor(url) {
@@ -10,6 +14,12 @@ export class WebSocketTransport {
     this.reconnectSession = null;
     this.manualClose = false;
     this.connectPromise = null;
+    // The in-game network panel is available in every co-op match. Keep a
+    // small rolling sample even without the URL debug flag so its values are
+    // live for players rather than permanently empty.
+    this.diagnostics = new NetworkDiagnostics();
+    this.pendingTransforms = new Map();
+    this.transformFlushTimer = null;
   }
 
   connect() {
@@ -56,6 +66,7 @@ export class WebSocketTransport {
         } catch {
           return;
         }
+        this.diagnostics?.recordInbound(event.data, payload);
         // Dispatch against a snapshot. A reconnect handler may construct the
         // in-match bridge and subscribe while RECONNECT_OK is being handled;
         // iterating the live Set would deliver that same message to the new
@@ -97,12 +108,34 @@ export class WebSocketTransport {
 
   send(payload) {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return false;
-    this.socket.send(JSON.stringify({ relayVersion: RELAY_VERSION, ...payload }));
+    if (isReplaceableTransform(payload)) {
+      const key = `${payload.roomId ?? ''}:${payload.to ?? 'broadcast'}`;
+      // If a previous snapshot was held during backpressure, a new one makes
+      // it obsolete even if the socket has recovered in the meantime.
+      this.pendingTransforms.delete(key);
+      if (this.socket.bufferedAmount >= TRANSFORM_BUFFER_LIMIT_BYTES) {
+        this.pendingTransforms.set(key, payload);
+        this.scheduleTransformFlush();
+        return true;
+      }
+    }
+    return this.sendNow(payload);
+  }
+
+  sendNow(payload) {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return false;
+    const message = { relayVersion: RELAY_VERSION, ...payload };
+    const serialized = JSON.stringify(message);
+    this.diagnostics?.recordOutbound(serialized, message);
+    this.socket.send(serialized);
     return true;
   }
 
   close() {
     this.manualClose = true;
+    this.pendingTransforms.clear();
+    clearTimeout(this.transformFlushTimer);
+    this.transformFlushTimer = null;
     this.socket?.close();
     this.socket = null;
     this.connectPromise = null;
@@ -151,6 +184,26 @@ export class WebSocketTransport {
   sendHeartbeat() {
     this.send({ type: MSG.HEARTBEAT, sentAt: Date.now() });
   }
+
+  scheduleTransformFlush() {
+    if (this.transformFlushTimer) return;
+    this.transformFlushTimer = setTimeout(() => {
+      this.transformFlushTimer = null;
+      if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
+      if (this.socket.bufferedAmount < TRANSFORM_BUFFER_LIMIT_BYTES) {
+        const queued = [...this.pendingTransforms.values()];
+        this.pendingTransforms.clear();
+        queued.forEach((payload) => this.sendNow(payload));
+      }
+      if (this.pendingTransforms.size) this.scheduleTransformFlush();
+    }, TRANSFORM_FLUSH_INTERVAL_MS);
+  }
+}
+
+function isReplaceableTransform(payload) {
+  return payload?.type === MSG.NET_FORWARD
+    && (payload.channel ?? 'game') === 'game'
+    && payload.payload?.type === MSG.TRANSFORM_STREAM;
 }
 
 export function defaultCoopWsUrl() {
