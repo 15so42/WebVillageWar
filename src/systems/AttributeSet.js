@@ -131,17 +131,18 @@ function resolveAddAmount(modifier, context) {
 function resolveMultiplier(modifier, context) {
   if (!modifierAppliesToOwner(modifier, context.owner)) return 1;
   const level = resolveLevel(modifier, context);
+  const levelScale = modifier.levelCurve === 'sqrt' ? Math.sqrt(level) : level;
   if (Number.isFinite(modifier.factor) || Number.isFinite(modifier.factorPerLevel)) {
     return (
       toFiniteNumber(modifier.factor, 1) +
-      toFiniteNumber(modifier.factorPerLevel, 0) * level
+      toFiniteNumber(modifier.factorPerLevel, 0) * levelScale
     );
   }
 
   const percent = toFiniteNumber(modifier.percent ?? modifier.percentage, null);
   const percentPerLevel = toFiniteNumber(modifier.percentPerLevel, 0);
   if (percent !== null || percentPerLevel !== 0) {
-    return 1 + toFiniteNumber(percent, 0) + percentPerLevel * level;
+  return 1 + toFiniteNumber(percent, 0) + percentPerLevel * levelScale;
   }
 
   return toFiniteNumber(modifier.amount ?? modifier.value, 1);

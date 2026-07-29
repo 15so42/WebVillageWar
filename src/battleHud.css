@@ -3565,6 +3565,112 @@ body.is-game-active .run-shop-choice-list.is-horizontal-row .run-shop-reward-opt
   max-width: 242px;
 }
 
+/* Existing-card pickers already identify the service in the panel header.
+   Keep their card faces dense: no repeated metadata, a short action label,
+   and a fixed description window that reveals long text automatically. */
+body.is-game-active .run-shop-choice-card.is-compact-shop-picker {
+  height: 196px !important;
+  min-height: 196px !important;
+  display: grid !important;
+  grid-template-rows: minmax(0, 1fr) 27px;
+  overflow: hidden !important;
+  touch-action: pan-y;
+}
+
+body.is-game-active .run-shop-choice-card.is-compact-shop-picker .card-face {
+  display: grid;
+  grid-template-rows: 23px 66px 19px 34px;
+  gap: 3px;
+  min-height: 0;
+  padding: 6px 7px 0;
+  box-sizing: border-box;
+}
+
+body.is-game-active .run-shop-choice-card.is-compact-shop-picker .card-header {
+  min-height: 23px;
+  grid-template-columns: 23px minmax(0, 1fr);
+  gap: 5px;
+  padding-right: 31px;
+}
+
+body.is-game-active .run-shop-choice-card.is-compact-shop-picker .card-rune {
+  width: 23px;
+  height: 23px;
+  font-size: 13px;
+}
+
+body.is-game-active .run-shop-choice-card.is-compact-shop-picker .card-art {
+  min-height: 0;
+  height: 66px;
+}
+
+body.is-game-active .run-shop-choice-card.is-compact-shop-picker .card-name {
+  min-height: 0;
+  overflow: hidden;
+  font-size: 11px !important;
+  line-height: 19px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+body.is-game-active .run-shop-choice-card.is-compact-shop-picker .card-text {
+  height: 34px;
+  min-height: 34px;
+  max-height: 34px;
+  margin: 0;
+  padding: 3px 4px;
+  overflow: hidden;
+  touch-action: pan-y;
+  scrollbar-width: none;
+  font-size: 8px !important;
+  line-height: 1.2;
+}
+
+body.is-game-active .run-shop-choice-card.is-compact-shop-picker .card-text::-webkit-scrollbar {
+  display: none;
+}
+
+body.is-game-active .run-shop-choice-card.is-compact-shop-picker .card-text-content {
+  display: block;
+  will-change: transform;
+}
+
+body.is-game-active .run-shop-choice-card.is-compact-shop-picker.has-auto-scroll-text .card-text-content {
+  animation: compact-shop-card-text-scroll 4.8s ease-in-out 0.8s infinite alternate;
+}
+
+body.is-game-active .run-shop-choice-card.is-compact-shop-picker .card-use-bar {
+  right: 7px;
+  bottom: 31px;
+  left: 7px;
+}
+
+body.is-game-active .run-shop-choice-card.is-compact-shop-picker .run-shop-choice-action {
+  align-self: stretch;
+  min-width: 0;
+  min-height: 0;
+  margin: 0 6px 4px;
+  padding: 5px 4px !important;
+  font-size: 9px;
+  line-height: 1;
+}
+
+@keyframes compact-shop-card-text-scroll {
+  0%, 18% {
+    transform: translateY(0);
+  }
+
+  82%, 100% {
+    transform: translateY(calc(-1 * var(--card-text-scroll-y, 0px)));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.is-game-active .run-shop-choice-card.is-compact-shop-picker.has-auto-scroll-text .card-text-content {
+    animation: none;
+  }
+}
+
 @media (min-width: 901px) {
   /* The energy toolbar can add a second row. Keep temporary cards clear of
      both the compact and expanded panel instead of letting the lower edges overlap. */

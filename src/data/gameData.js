@@ -2803,7 +2803,8 @@ export const BUFF_DEFINITIONS = {
         stat: 'moveSpeed',
         type: 'multiply',
         factor: 1.02,
-        factorPerLevel: 0.02
+        factorPerLevel: 0.02,
+        levelCurve: 'sqrt'
       }
     ]
   },
@@ -5028,7 +5029,7 @@ export const CARD_DEFINITIONS = [
     kind: 'enchant',
     label: '群',
     artKey: 'waveSwarm',
-    summary: '1级：生命 -10%、攻击 -4.5%、攻速 +9%、移速 +4%；每级额外生命 -2%、攻击 -1.5%、攻速 +3%、移速 +2%；敌军移速最高 3.2',
+    summary: '1级：生命 -10%、攻击 -4.5%、攻速 +9%、移速 +4%；移速累计加成为 2% + 2% ×√等级，无上限但每级收益递减；每级额外生命 -2%、攻击 -1.5%、攻速 +3%',
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,

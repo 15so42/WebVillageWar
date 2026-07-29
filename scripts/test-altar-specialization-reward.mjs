@@ -43,6 +43,14 @@ assert.equal(needsFallback.length, 3);
 assert.equal(needsFallback.filter((choice) => choice.unitType === 'archer').length, 1);
 assert.equal(new Set(needsFallback.map((choice) => choice.upgrade.id)).size, 3);
 
+const acquiredSpearman = pickAltarSpecializationChoices(
+  choices,
+  new Set(['spearman']),
+  3,
+  fixedRandom
+);
+assert.ok(acquiredSpearman.some((choice) => choice.unitType === 'spearman'));
+
 const noOwnedTypes = pickAltarSpecializationChoices(
   choices,
   new Set(),

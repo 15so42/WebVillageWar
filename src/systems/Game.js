@@ -130,7 +130,7 @@ const WAVE_AFFIX_DEFINITIONS = {
     id: 'swarm',
     name: '集群',
     preview: '数量 +1 · 攻速 +9%',
-    description: '1级：敌军数量 +1（首波除外）；生命 -10%、攻击 -4.5%、攻速 +9%、移速 +4%。每级额外生命 -2%、攻击 -1.5%、攻速 +3%、移速 +2%；移速最高为 3.2。',
+    description: '1级：敌军数量 +1（首波除外）；生命 -10%、攻击 -4.5%、攻速 +9%、移速 +4%。移速累计加成为 2% + 2% ×√等级，无上限但每级收益递减；每级额外生命 -2%、攻击 -1.5%、攻速 +3%。',
     buffId: 'waveSwarm',
     countBonus: 1,
     preferredTypes: ['goblinSoldier', 'spider', 'enemyRaider']
@@ -2464,7 +2464,7 @@ export class Game {
         type,
         kicker: `首次占领 ${altarName}`,
         title: '选择兵种专精',
-        summary: '每位玩家根据自己的兵种独立三选一。优先出现当前已有兵种的专精，不足时由其他兵种补足。',
+        summary: '每位玩家根据本局已获得的单位卡独立三选一。优先出现已获得兵种的专精，不足时由其他兵种补足。',
         choices: this.createAltarSpecializationRewardChoices()
       };
     }
@@ -2517,7 +2517,7 @@ export class Game {
         type,
         kicker: '兵种特性',
         title: '选择特性强化',
-        summary: '三选一：从本局出战兵种中随机出现特性专精，每种仅可获得一次。',
+        summary: '三选一：优先从本局已获得的单位卡中出现特性专精，不足时由其他兵种补足；每种仅可获得一次。',
         choices: this.createTraitUpgradeChoices()
       };
     }
@@ -2698,7 +2698,7 @@ export class Game {
     const choices = this.buildTraitUpgradeChoicePool({ includeAllUnitTypes: true });
     return pickAltarSpecializationChoices(
       choices,
-      this.ownedUnitTypes(),
+      this.acquiredUnitTypes(),
       STRATEGY_CHOICE_COUNT
     );
   }
@@ -2716,10 +2716,10 @@ export class Game {
 
   buildTraitUpgradeChoicePool({ includeAllUnitTypes = false } = {}) {
     const choices = [];
-    const ownedTypes = this.ownedUnitTypes();
+    const acquiredTypes = this.acquiredUnitTypes();
     const deckTypes = this.deckUnitTypes();
     const allTypes = includeAllUnitTypes ? Object.keys(UNIT_SPECIAL_UPGRADES) : [];
-    const orderedTypes = [...new Set([...ownedTypes, ...deckTypes, ...allTypes])];
+    const orderedTypes = [...new Set([...acquiredTypes, ...deckTypes, ...allTypes])];
     orderedTypes.forEach((unitType) => {
       const owned = this.teamSpecialUpgrades.get(unitType) ?? new Set();
       (UNIT_SPECIAL_UPGRADES[unitType] ?? []).forEach((upgrade) => {
@@ -2741,25 +2741,15 @@ export class Game {
     return [...types];
   }
 
-  ownedUnitTypes() {
+  acquiredUnitTypes() {
     const types = new Set();
     const addCardUnitType = (card) => {
       if (card?.unitType) types.add(card.unitType);
     };
-    const slot = this.activeEconomySlot ?? this.localPlayerSlot;
-    const coopDeck = this.levelSession?.players?.[slot]?.deck;
-    if (Array.isArray(coopDeck)) {
-      coopDeck.forEach(addCardUnitType);
-    } else if (Array.isArray(this.levelSession?.deck)) {
-      this.levelSession.deck.forEach(addCardUnitType);
-    }
-    this.cardSystem?.allDeckCards?.().forEach((card) => {
+    // The pre-battle deck is only a potential card pool. A specialization
+    // should favor unit cards that this player has actually acquired this run.
+    this.cardSystem?.activeRunCards?.().forEach((card) => {
       addCardUnitType(card);
-    });
-    this.friendlyUnits?.forEach((unit) => {
-      if (unit?.alive && !unit.isWildlife && unit.type && this.unitBelongsToPlayer(unit)) {
-        types.add(unit.type);
-      }
     });
     return types;
   }
@@ -2952,11 +2942,10 @@ export class Game {
     if (!pool.length) {
       return this.createAttributeUpgradeChoices();
     }
-    const ownedTypes = this.ownedUnitTypes();
-    return pickWeightedCardItems(
+    return pickAltarSpecializationChoices(
       pool,
-      Math.min(STRATEGY_CHOICE_COUNT, pool.length),
-      (choice) => (ownedTypes.has(choice.unitType) ? 12 : 0.35)
+      this.acquiredUnitTypes(),
+      Math.min(STRATEGY_CHOICE_COUNT, pool.length)
     );
   }
 
@@ -2974,13 +2963,13 @@ export class Game {
 
   createRunShopOwnedPickerChoices(action, actionLabel, descriptionSuffix) {
     return this.runShopOwnedCards().map((card) => {
-      const inDeck = this.cardSystem?.countDeckCardsById?.(card.id) ?? 0;
-      const location = cardRunLocationLabel(this, card);
       return {
         action,
         actionLabel,
+        compactActionLabel: actionLabel.replace('卡牌', ''),
         title: card.name,
-        description: `${location} · 牌组 ×${inDeck} · Lv.${card.level ?? 1} · ${descriptionSuffix}`,
+        compactPicker: true,
+        description: '',
         card,
         targetCard: card
       };
@@ -8731,7 +8720,7 @@ function runShopCardFaceInnerMarkup(card) {
       </div>
       ${createCardArtMarkup(card)}
       <div class="card-name">${escapeHtml(card.name ?? '')}</div>
-      <div class="card-text">${escapeHtml(card.summary ?? '')}</div>
+      <div class="card-text"><span class="card-text-content">${escapeHtml(card.summary ?? '')}</span></div>
     </div>
   `;
 }
@@ -8746,8 +8735,9 @@ function runShopChoiceMarkup(choice, index, options = {}) {
   }
   if (runShopChoiceUsesCardFace(choice)) {
     const visual = strategyRewardVisualMeta(choice);
-    const description = choice.description ?? '';
-    const location = options.game ? cardRunLocationLabel(options.game, card) : '';
+    const isCompactPicker = choice.compactPicker === true;
+    const description = isCompactPicker ? '' : choice.description ?? '';
+    const location = isCompactPicker ? '' : options.game ? cardRunLocationLabel(options.game, card) : '';
     const locationBadge = location && location !== '卡牌'
       ? `<span class="run-shop-choice-location">${escapeHtml(location)}</span>`
       : '';
@@ -8756,7 +8746,7 @@ function runShopChoiceMarkup(choice, index, options = {}) {
       : '';
     return `
       <button
-        class="run-shop-choice-card strategy-reward-card card is-${visual.kindKey}${choice.disabled ? ' is-disabled' : ''}"
+        class="run-shop-choice-card strategy-reward-card card is-${visual.kindKey}${isCompactPicker ? ' is-compact-shop-picker' : ''}${choice.disabled ? ' is-disabled' : ''}"
         type="button"
         data-run-shop-choice-index="${index}"
         style="--card-color:${cardThemeColor(card)}"
@@ -8765,7 +8755,7 @@ function runShopChoiceMarkup(choice, index, options = {}) {
         ${locationBadge}
         ${runShopCardFaceInnerMarkup(card)}
         ${meta}
-        <span class="run-shop-choice-action">${escapeHtml(choice.actionLabel ?? visual.actionLabel)}</span>
+        <span class="run-shop-choice-action">${escapeHtml(choice.compactActionLabel ?? choice.actionLabel ?? visual.actionLabel)}</span>
       </button>
     `;
   }

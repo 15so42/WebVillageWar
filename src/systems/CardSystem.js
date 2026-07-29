@@ -3009,13 +3009,16 @@ export function fitStrategyRewardCards(root) {
 
 function fitCardElementText(element) {
   window.requestAnimationFrame(() => {
-    fitTextBlock(element.querySelector('.card-name'), 15, 11);
+    const isCompactShopPicker = element.classList.contains('is-compact-shop-picker');
+    if (!isCompactShopPicker) fitTextBlock(element.querySelector('.card-name'), 15, 11);
     const text = element.querySelector('.card-text');
-    fitTextBlock(text, 11, 8);
-    element.classList.toggle(
-      'has-scrollable-text',
-      Boolean(text && text.scrollHeight > text.clientHeight + 1)
-    );
+    if (!isCompactShopPicker) fitTextBlock(text, 11, 8);
+    const overflowDistance = text
+      ? Math.max(0, Math.ceil(text.scrollHeight - text.clientHeight))
+      : 0;
+    element.classList.toggle('has-scrollable-text', overflowDistance > 0);
+    element.classList.toggle('has-auto-scroll-text', isCompactShopPicker && overflowDistance > 0);
+    if (text) text.style.setProperty('--card-text-scroll-y', `${overflowDistance}px`);
   });
 }
 

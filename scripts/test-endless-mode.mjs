@@ -85,14 +85,23 @@ assert.equal(calculateEndlessReward(7.9, 1.5), 71);
 assert.equal(calculateEndlessReward(7.9, 600, 1.5), 75);
 assert.equal(calculateEndlessReward(7.9, 7200, 1.5), 92);
 
-const swarmSpeedAttributes = new AttributeSet({ moveSpeed: 4.6 });
+const swarmSpeedAttributes = new AttributeSet({ moveSpeed: 2.75 });
+swarmSpeedAttributes.addModifier({
+  stat: 'moveSpeed',
+  type: 'multiply',
+  factor: 1.02,
+  factorPerLevel: 0.02,
+  levelCurve: 'sqrt'
+}, 'test:swarm', { level: 100 });
 const swarmEnemy = {
   team: 'enemy',
   definition: { speed: 2.75 },
   attributes: swarmSpeedAttributes,
   hasEnchantment: (id) => id === 'waveSwarm'
 };
-assert.equal(new ModifierSystem({}).getMoveSpeed(swarmEnemy), 3.2);
+const swarmSpeed = new ModifierSystem({}).getMoveSpeed(swarmEnemy);
+assert(Math.abs(swarmSpeed - 3.355) < 1e-9);
+assert(swarmSpeed > 3.2);
 
 const upgradedDeck = [
   { id: 'militia', level: 5, instanceId: 'card-1' },
