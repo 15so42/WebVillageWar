@@ -1,5 +1,6 @@
 import { BUFF_DEFINITIONS, TEAMS } from '../data/gameData.js';
 import { distance2D } from '../utils/math.js';
+import { shouldConsumeWaveRewardCard } from './waveRewardPool.js';
 
 export class CardEffectSystem {
   constructor(game) {
@@ -271,14 +272,23 @@ export class CardEffectSystem {
       temporaryLimit: effect.temporaryLimit,
       overflowToDrawTop: true
     });
-    if (drawn < amount && effect.fallbackPool === 'selected-deck') {
+    if (drawn < amount && effect.fallbackPool === 'wave-reward-pool') {
       drawn += this.game.cardSystem.addTemporaryCardsFromPool(
-        this.game.selectedCardPool?.() ?? [],
+        this.game.waveRewardCardPool?.() ?? [],
         amount - drawn,
         {
           temporaryLimit: effect.temporaryLimit,
           overflowToDrawTop: true,
-          prefix: `tactic-${card.id}-${Date.now()}`
+          prefix: `tactic-${card.id}-${Date.now()}`,
+          onCardCreated: (definition) => {
+            if (shouldConsumeWaveRewardCard({
+              rewardSource: 'wave-reward-deck',
+              action: 'add-card',
+              card: definition
+            })) {
+              this.game.consumeWaveRewardCard?.(definition);
+            }
+          }
         }
       );
     }

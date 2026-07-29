@@ -281,8 +281,32 @@ body.is-meta-open .mobile-box-select-hint {
 }
 
 .ability-icon:hover .ability-icon-tooltip,
-.ability-icon:focus-visible .ability-icon-tooltip {
+.ability-icon:focus-visible .ability-icon-tooltip,
+.ability-icon.is-tooltip-open .ability-icon-tooltip {
   display: block;
+}
+
+.energy-panel .ability-icon-tooltip {
+  display: none !important;
+}
+
+.energy-ability-tooltip {
+  position: fixed;
+  z-index: 100;
+  width: max-content;
+  max-width: min(280px, calc(100vw - 24px));
+  padding: 7px 9px;
+  border: 1px solid rgba(255, 242, 199, 0.3);
+  border-radius: 7px;
+  background: rgba(18, 28, 29, 0.97);
+  color: rgba(255, 248, 232, 0.96);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.42);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+  white-space: pre-line;
+  pointer-events: none;
+  transform: translate(-50%, -100%);
 }
 
 .unit-status {
@@ -1022,6 +1046,8 @@ body.is-run-shop-open .card-pile-dock {
   overflow-x: auto;
   overflow-y: visible;
   padding: 4px 6px 10px;
+  touch-action: pan-x pan-y;
+  overscroll-behavior: contain;
   grid-template-columns: unset;
 }
 
@@ -1034,6 +1060,11 @@ body.is-run-shop-open .card-pile-dock {
 
 .run-shop-choice-list.is-horizontal-row .run-shop-choice {
   min-height: 128px;
+}
+
+.run-shop-choice-list.is-horizontal-row .run-shop-choice-card,
+.run-shop-choice-list.is-horizontal-row .run-shop-choice {
+  touch-action: pan-x pan-y;
 }
 
 .run-shop-choice-list.is-catalog-picker {
@@ -1944,7 +1975,14 @@ body.is-run-shop-open .card-pile-dock {
   align-items: center;
   gap: 6px;
   margin: 0;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 3px 5px;
+  scroll-snap-type: x proximity;
+  scroll-padding-inline: 3px;
+  touch-action: pan-x pan-y;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
 }
 
 .ability-icon-row[hidden] {
@@ -2428,6 +2466,8 @@ body.is-run-shop-open .card-pile-dock {
   width: 19px;
   font-size: 7px;
   font-weight: 900;
+  scroll-snap-align: start;
+  touch-action: pan-x pan-y;
   line-height: 9px;
   text-align: center;
 }
@@ -4619,6 +4659,24 @@ body:not(.is-game-active) .mobile-action-dock {
 .meta-card-action:disabled {
   cursor: not-allowed;
   filter: grayscale(0.45) brightness(0.72);
+}
+
+.strategy-reward-option.meta-card {
+  grid-template-rows: minmax(0, 1fr) auto auto;
+}
+
+.strategy-reward-option.meta-card .meta-card-action {
+  margin-bottom: 5px;
+}
+
+.strategy-reward-option.meta-card .meta-card-use-bar {
+  position: relative;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  left: auto;
+  width: calc(100% - 28px);
+  margin: 0 12px 12px 16px;
 }
 
 .meta-empty {

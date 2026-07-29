@@ -3,6 +3,7 @@ import { BUFF_DEFINITIONS, ENCHANTMENTS, TEAMS, UNIT_DEFINITIONS } from '../data
 import { basicMat, mat } from '../art/lowpoly.js';
 import { createUnitModel, updateUnitAnimation } from '../art/visualRegistry.js';
 import { AttributeSet, bindAttributeGetter } from '../systems/AttributeSet.js';
+import { scaleResourceAfterMaximumChange } from '../systems/unitResourceSync.js';
 import { clamp } from '../utils/math.js';
 
 let nextUnitId = 1;
@@ -140,6 +141,8 @@ export class UnitEntity {
       overrides
     );
     const healPerSecond = resolveBuffNumber('healPerSecond', definition, overrides);
+    const runtimeState = preserveEnchantmentRuntimeState(existing, id, isEnchantment);
+    const previousMaxDurability = this.weapon?.maxDurability ?? 0;
     this.attributes.removeModifiersBySource(buffModifierSource(id));
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:focus-range`);
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:nearby`);
@@ -147,6 +150,7 @@ export class UnitEntity {
     const instance = {
       ...definition,
       ...overrides,
+      ...runtimeState,
       id,
       level,
       ...(damagePerSecond !== null ? { damagePerSecond } : {}),
@@ -164,6 +168,8 @@ export class UnitEntity {
       buff: instance,
       owner: this
     });
+    restoreEnchantmentRuntimeModifiers(this, instance, isEnchantment);
+    syncWeaponDurabilityAfterMaximumChange(this, previousMaxDurability);
     this.clampToAttributeCaps();
 
     if (isEnchantment) {
@@ -177,12 +183,14 @@ export class UnitEntity {
   removeBuff(id) {
     const buff = this.buffs.get(id);
     if (!buff) return;
+    const previousMaxDurability = this.weapon?.maxDurability ?? 0;
     this.buffs.delete(id);
     this.attributes.removeModifiersBySource(buffModifierSource(id));
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:soul-bonus`);
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:focus-range`);
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:nearby`);
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:advantage`);
+    syncWeaponDurabilityAfterMaximumChange(this, previousMaxDurability);
     this.clampToAttributeCaps();
     if (this.enchantments.has(id)) {
       this.enchantments.delete(id);
@@ -418,6 +426,52 @@ function resolveBuffSource(existing, overrides) {
     return overrides.source;
   }
   return existing?.source ?? null;
+}
+
+function preserveEnchantmentRuntimeState(existing, id, isEnchantment) {
+  if (!existing || !isEnchantment) return {};
+  const preserved = {};
+  copyFiniteRuntimeValue(preserved, existing, 'soulBonus');
+  copyFiniteRuntimeValue(preserved, existing, 'focusRangeBonus');
+  copyFiniteRuntimeValue(preserved, existing, `deathCooldown:${id}`);
+  return preserved;
+}
+
+function restoreEnchantmentRuntimeModifiers(unit, buff, isEnchantment) {
+  if (!isEnchantment || !unit?.attributes || !buff) return;
+
+  if (buff.soulBonus > 0) {
+    const source = `${buffModifierSource(buff.id)}:soul-bonus`;
+    unit.attributes.removeModifiersBySource(source);
+    unit.attributes.addModifier({
+      stat: 'maxHealth',
+      type: 'add',
+      amount: buff.soulBonus
+    }, source);
+  }
+
+  if (buff.focusRangeBonus > 0) {
+    unit.attributes.addModifier({
+      stat: 'attackRange',
+      type: 'add',
+      amount: buff.focusRangeBonus
+    }, `${buffModifierSource(buff.id)}:focus-range`);
+  }
+}
+
+function copyFiniteRuntimeValue(target, source, key) {
+  if (Number.isFinite(source?.[key])) {
+    target[key] = source[key];
+  }
+}
+
+function syncWeaponDurabilityAfterMaximumChange(unit, previousMaxDurability) {
+  if (!unit?.weapon || !Number.isFinite(previousMaxDurability)) return;
+  unit.weapon.durability = scaleResourceAfterMaximumChange(
+    unit.weapon.durability,
+    previousMaxDurability,
+    unit.weapon.maxDurability
+  );
 }
 
 function refreshBuffSource(buff, overrides) {

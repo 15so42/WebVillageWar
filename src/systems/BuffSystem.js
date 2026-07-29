@@ -50,6 +50,11 @@ export class BuffSystem {
     }
   }
 
+  afterAttack(context) {
+    if (!context?.isAttack || context.source?.alive === false) return;
+    this.runBuffEffects(context.source, 'afterAttack', context);
+  }
+
   unitDeath(deadUnit) {
     this.getActiveUnits().forEach((unit) => {
       this.runBuffEffects(unit, 'unitDeath', {
@@ -313,6 +318,52 @@ export class BuffSystem {
         fontSize: 76,
         baseHeight: 0.48
       });
+      return;
+    }
+
+    if (effect.op === 'swordSaintStrike') {
+      if (!context.isAttack || !context.source?.weapon) return;
+      const maxDurability = Math.max(0, context.source.weapon.maxDurability ?? 0);
+      const currentDurability = Math.max(0, context.source.weapon.durability ?? 0);
+      const minimumRatio = Math.max(0, Math.min(1, effect.minimumDurabilityRatio ?? 0.3));
+      if (maxDurability <= 0 || currentDurability / maxDurability <= minimumRatio) return;
+      const spendRatio = Math.max(0, Math.min(1, effect.spendDurabilityRatio ?? 0.7));
+      const spent = currentDurability * spendRatio;
+      if (spent <= 0.001) return;
+      context.source.spendDurability?.(spent);
+      context.damage += spent;
+      context.swordSaintBuffId = context.buff?.id;
+      context.swordSaintSpentDurability = spent;
+      this.game.effects.spawnRing(context.source.position, effect.color ?? '#ffd166', 0.66, 0.38);
+      this.game.effects.spawnDamageNumber(context.source.position, spent, {
+        text: `剑圣+${formatEffectAmount(spent)}`,
+        color: effect.color ?? '#ffd166',
+        stroke: '#55320b',
+        height: context.source.projectileHitHeight ?? 1.55,
+        duration: 0.68,
+        fontSize: 78,
+        baseHeight: 0.48
+      });
+      return;
+    }
+
+    if (effect.op === 'restoreSwordSaintDurability') {
+      if (!context.isAttack || context.swordSaintBuffId !== context.buff?.id || !context.source?.alive) return;
+      const level = Math.max(1, Math.floor(context.buff?.level ?? 1));
+      const percentPerLevel = Math.max(0, effect.maxDurabilityPercentPerLevel ?? 0.02);
+      const amount = Math.max(0, context.source.weapon?.maxDurability ?? 0) * percentPerLevel * level;
+      const restored = context.source.restoreDurability?.(amount) ?? 0;
+      if (restored > 0.01) {
+        this.game.effects.spawnDamageNumber(context.source.position, restored, {
+          text: `耐久+${formatEffectAmount(restored)}`,
+          color: effect.color ?? '#ffd166',
+          stroke: '#55320b',
+          height: context.source.projectileHitHeight ?? 1.55,
+          duration: 0.62,
+          fontSize: 74,
+          baseHeight: 0.46
+        });
+      }
       return;
     }
 

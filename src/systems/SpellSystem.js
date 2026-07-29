@@ -1,4 +1,5 @@
 import { distance2D } from '../utils/math.js';
+import { targetCombatRadius } from './combatHelpers.js';
 
 export class SpellSystem {
   constructor(game) {
@@ -88,10 +89,17 @@ export class SpellSystem {
     const damage = cardsPlayedIncludingThis;
     const impactPoint = point.clone();
     impactPoint.y = this.game.groundHeightAt(impactPoint);
+    // Lock valid victims when the spell is cast. The visual has a short
+    // eruption lead-in; without this snapshot an enemy can be visibly inside
+    // the targeted area yet cross its centre-point boundary before impact.
+    const targets = this.game.enemyUnits.filter((unit) => (
+      unit.alive &&
+      !unit.underConstruction &&
+      distance2D(unit.position, impactPoint) <= radius + targetCombatRadius(unit)
+    ));
     this.game.effects.spawnLavaEruption(impactPoint, radius, () => {
-      this.game.enemyUnits.forEach((unit) => {
-        if (!unit.alive || unit.underConstruction) return;
-        if (distance2D(unit.position, impactPoint) > radius) return;
+      targets.forEach((unit) => {
+        if (!unit.alive) return;
         this.game.combat.applyDamage(unit, damage, null, 0, {
           damage,
           source: null,

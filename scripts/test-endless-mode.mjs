@@ -11,6 +11,8 @@ import {
   normalizeChallengeMode,
   resetEndlessDeckLevels
 } from '../src/systems/endlessMode.js';
+import { AttributeSet } from '../src/systems/AttributeSet.js';
+import { ModifierSystem } from '../src/systems/ModifierSystem.js';
 
 assert.equal(normalizeChallengeMode('endless'), 'endless');
 assert.equal(normalizeChallengeMode('unknown'), 'standard');
@@ -63,13 +65,34 @@ assert.equal(applyEndlessDifficulty(2, endlessPlayerUnitDeathDifficultyDelta(3))
 
 assert.deepEqual(endlessEnemyStatFactors(0), { health: 1, damage: 1 });
 assert.deepEqual(endlessEnemyStatFactors(-100), { health: 0.1, damage: 0.1 });
-assert.equal(endlessEnchantCount(-2), 1);
-assert.equal(endlessEnchantCount(3), 2);
-assert.equal(endlessEnchantCount(7), 3);
-assert.equal(endlessEnchantLevel(-2), 1);
-assert.equal(endlessEnchantLevel(7), 4);
+for (const seed of [1, 7, 31, 99, 707]) {
+  assert.match(String(endlessEnchantCount(100, { enemyClass: 'normal', seed })), /^[01]$/);
+  assert.match(String(endlessEnchantCount(100, { enemyClass: 'elite', seed })), /^[12]$/);
+  assert.match(String(endlessEnchantCount(100, { enemyClass: 'boss', seed })), /^[23]$/);
+}
+const normalLevels = [1, 7, 31, 99, 707].map((seed) => endlessEnchantLevel(20, {
+  enemyClass: 'normal',
+  slotIndex: 0,
+  seed
+}));
+assert(new Set(normalLevels).size > 1);
+assert(normalLevels.every((level) => level >= 1 && level <= 3));
+assert(endlessEnchantLevel(100, { enemyClass: 'normal', seed: 1 }) <= 4);
+assert(endlessEnchantLevel(100, { enemyClass: 'elite', seed: 1 }) <= 5);
+assert(endlessEnchantLevel(100, { enemyClass: 'boss', seed: 1 }) <= 6);
 assert.equal(calculateEndlessReward(-3, 2), 0);
 assert.equal(calculateEndlessReward(7.9, 1.5), 71);
+assert.equal(calculateEndlessReward(7.9, 600, 1.5), 75);
+assert.equal(calculateEndlessReward(7.9, 7200, 1.5), 92);
+
+const swarmSpeedAttributes = new AttributeSet({ moveSpeed: 4.6 });
+const swarmEnemy = {
+  team: 'enemy',
+  definition: { speed: 2.75 },
+  attributes: swarmSpeedAttributes,
+  hasEnchantment: (id) => id === 'waveSwarm'
+};
+assert.equal(new ModifierSystem({}).getMoveSpeed(swarmEnemy), 3.2);
 
 const upgradedDeck = [
   { id: 'militia', level: 5, instanceId: 'card-1' },

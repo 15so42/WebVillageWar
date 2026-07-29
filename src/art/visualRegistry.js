@@ -29,6 +29,7 @@ import {
   createHolyBoltModel,
   createIceShardModel,
   createKnightModel,
+  createLightningMageModel,
   createLanternBoltModel,
   createSpearmanModel,
   createSwordsmanModel,
@@ -71,6 +72,7 @@ const UNIT_FACTORIES = {
   archer: ({ team }) => createArcherModel(team),
   crossbowman: ({ team }) => createCrossbowmanModel(team),
   waterMage: ({ team }) => createWaterMageModel(team),
+  lightningMage: ({ team }) => createLightningMageModel(team),
   rogue: ({ team }) => createRogueModel(team),
   engineer: ({ team }) => createEngineerModel(team),
   physician: ({ team }) => createPhysicianModel(team),
@@ -415,7 +417,8 @@ function applyAttackPose(unit, root, t, pulse, variant = null) {
     unit.type === 'purifier' ||
     unit.type === 'goblinShaman' ||
     unit.type === 'wizard' ||
-    unit.type === 'waterMage'
+    unit.type === 'waterMage' ||
+    unit.type === 'lightningMage'
   ) {
     applyCasterAttack(root, t, pulse);
     return;

@@ -79,6 +79,7 @@ export class CardSystem {
     this.energyParts = collectEnergyPanel(this.energyPanel);
     this.abilityIcons = this.energyParts.abilities;
     this.coreIcons = this.energyParts.cores;
+    this.abilityTooltip = createAbilityTooltip(this.mountUi);
     this.hintPanel = createGameHintPanel(this.energyPanel, this.mountUi);
     this.hintOwner = null;
     this.activePileViewer = null;
@@ -1451,6 +1452,7 @@ export class CardSystem {
       } else {
         break;
       }
+      options.onCardCreated?.(definition, card);
       created += 1;
     }
     if (overflowCards.length) {
@@ -1653,6 +1655,7 @@ export class CardSystem {
 
   updateAbilityIcons(abilities = [], specializations = []) {
     if (!this.abilityIcons) return;
+    this.hideAbilityTooltip();
     this.abilityIcons.innerHTML = '';
     const entries = [
       ...specializations.map((specialization) => ({
@@ -1665,6 +1668,8 @@ export class CardSystem {
     entries.forEach((ability) => {
       const icon = document.createElement('div');
       icon.className = ability.isSpecialization ? 'ability-icon specialization-icon' : 'ability-icon';
+      icon.tabIndex = 0;
+      icon.setAttribute('role', 'button');
       icon.style.setProperty('--ability-color', ability.color ?? '#9dd8ff');
       const remainingSeconds = !ability.isSpecialization && Number.isFinite(ability.expiresAt)
         ? Math.max(0, Math.ceil(ability.expiresAt - (this.game.elapsedTime ?? 0)))
@@ -1674,15 +1679,40 @@ export class CardSystem {
       const stackText = ability.badge ?? ability.stacks;
       const stackSuffix = ability.isSpecialization || stackText == null ? '' : ` x${stackText}`;
       const title = `${ability.name ?? ''}${stackSuffix}${durationText}${summary ? ` - ${summary}` : ''}`;
+      const tooltipText = `${ability.name ?? ''}${stackSuffix}${durationText}${summary ? `\n${summary}` : ''}`;
       icon.innerHTML = `
         <span>${escapeHtml(ability.label ?? ability.name?.slice?.(0, 1) ?? '?')}</span>
         ${stackText == null ? '' : `<strong>${escapeHtml(stackText)}</strong>`}
-        <span class="ability-icon-tooltip">${escapeHtml(`${ability.name ?? ''}${stackSuffix}${durationText}${summary ? `\n${summary}` : ''}`)}</span>
+        <span class="ability-icon-tooltip">${escapeHtml(tooltipText)}</span>
       `;
       icon.title = title;
+      icon.setAttribute('aria-label', title);
+      bindAbilityIconTooltip(icon, {
+        onShow: () => this.showAbilityTooltip(icon, tooltipText),
+        onHide: () => this.hideAbilityTooltip()
+      });
       this.abilityIcons.appendChild(icon);
     });
     this.syncEnergyPanelToolbar();
+  }
+
+  showAbilityTooltip(icon, text) {
+    if (!this.abilityTooltip || !text) return;
+    const iconBounds = icon.getBoundingClientRect();
+    const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+    const horizontalInset = 12;
+    const x = Math.min(
+      viewportWidth - horizontalInset,
+      Math.max(horizontalInset, iconBounds.left + iconBounds.width / 2)
+    );
+    this.abilityTooltip.textContent = text;
+    this.abilityTooltip.style.left = `${x}px`;
+    this.abilityTooltip.style.top = `${Math.max(horizontalInset, iconBounds.top - 8)}px`;
+    this.abilityTooltip.hidden = false;
+  }
+
+  hideAbilityTooltip() {
+    if (this.abilityTooltip) this.abilityTooltip.hidden = true;
   }
 
   updateCoreIcons(cores = []) {
@@ -2089,6 +2119,17 @@ const CARD_ART_RENDERERS = {
     <circle fill="#e5fbff" opacity="0.85" cx="76" cy="12" r="3" />
     <circle fill="#66dcff" opacity="0.65" cx="64" cy="38" r="9" />
     <path fill="none" stroke="#f2fbff" stroke-width="1.8" d="M59 38 C64 33 70 34 73 39" />
+  `),
+  lightningMage: () => symbolicUnitSvg(`
+    <ellipse fill="#10231f" opacity="0.24" cx="48" cy="56" rx="31" ry="6" />
+    <circle fill="#a995ff" opacity="0.15" cx="65" cy="31" r="23" />
+    <polygon fill="#30345f" points="29,54 36,29 48,17 62,29 69,54 56,61 40,61" />
+    <polygon fill="#535792" points="38,32 48,22 58,32 56,50 48,57 40,50" />
+    <polygon fill="#d8a978" points="43,30 48,23 54,30 52,37 44,37" />
+    <path fill="#d9bf62" d="M37 27 L42 15 L46 23 L49 9 L53 23 L59 15 L60 29 L54 32 L48 28 L42 33 Z" />
+    <rect fill="#453927" x="70" y="9" width="5" height="51" rx="2" transform="rotate(8 72.5 34)" />
+    <path fill="none" stroke="#e8e2ff" stroke-width="2.5" d="M76 11 L69 26 L79 27 L70 44 L84 29 L76 28 L84 11" />
+    <path fill="none" stroke="#bba8ff" stroke-width="2.2" d="M52 39 L63 34 L59 44 L74 40 L68 52" />
   `),
   rogue: () => symbolicUnitSvg(`
     <ellipse fill="#10231f" opacity="0.25" cx="48" cy="56" rx="31" ry="6" />
@@ -2877,6 +2918,18 @@ function createEnergyPanel(hand, mountUi = true) {
   return panel;
 }
 
+function createAbilityTooltip(mountUi = true) {
+  const existing = document.querySelector('#energy-ability-tooltip');
+  if (existing) return existing;
+  const tooltip = document.createElement('div');
+  tooltip.id = 'energy-ability-tooltip';
+  tooltip.className = 'energy-ability-tooltip';
+  tooltip.setAttribute('role', 'tooltip');
+  tooltip.hidden = true;
+  if (mountUi) document.body.appendChild(tooltip);
+  return tooltip;
+}
+
 function createTemporaryCardSlot(anchor, mountUi = true) {
   const existing = mountUi ? document.querySelector('#temporary-card-slot') : null;
   if (existing) return existing;
@@ -2976,6 +3029,66 @@ function bindScrollableCardText(element) {
     if (!shouldScrollText()) return;
     event.stopPropagation();
   }, { passive: true });
+}
+
+function bindAbilityIconTooltip(icon, { onShow, onHide } = {}) {
+  let pressTimer = null;
+  let openedByLongPress = false;
+  const showTooltip = () => {
+    icon.classList.add('is-tooltip-open');
+    onShow?.();
+  };
+  const hideTooltip = () => {
+    icon.classList.remove('is-tooltip-open');
+    onHide?.();
+  };
+  const cancelPress = () => {
+    if (pressTimer != null) {
+      window.clearTimeout(pressTimer);
+      pressTimer = null;
+    }
+  };
+  icon.addEventListener('pointerdown', (event) => {
+    if (event.pointerType === 'mouse') return;
+    openedByLongPress = false;
+    cancelPress();
+    pressTimer = window.setTimeout(() => {
+      pressTimer = null;
+      openedByLongPress = true;
+      showTooltip();
+    }, 500);
+  });
+  icon.addEventListener('pointerenter', (event) => {
+    if (event.pointerType !== 'touch') showTooltip();
+  });
+  icon.addEventListener('pointerup', cancelPress);
+  icon.addEventListener('pointercancel', () => {
+    cancelPress();
+    if (!openedByLongPress) hideTooltip();
+  });
+  icon.addEventListener('pointerleave', () => {
+    cancelPress();
+    if (!openedByLongPress) hideTooltip();
+  });
+  icon.addEventListener('click', () => {
+    if (!openedByLongPress) return;
+    hideTooltip();
+    openedByLongPress = false;
+  });
+  icon.addEventListener('focus', showTooltip);
+  icon.addEventListener('blur', () => {
+    if (!openedByLongPress) hideTooltip();
+  });
+  icon.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    if (icon.classList.contains('is-tooltip-open')) {
+      openedByLongPress = false;
+      hideTooltip();
+      return;
+    }
+    showTooltip();
+  });
 }
 
 function scheduleDrawnClassCleanup(element) {

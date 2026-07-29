@@ -22,7 +22,13 @@ export class ModifierSystem {
   }
 
   getMoveSpeed(unit) {
-    return this.getAttribute(unit, 'moveSpeed', unit.definition.speed);
+    const speed = this.getAttribute(unit, 'moveSpeed', unit.definition.speed);
+    // 群集词缀的数量压力不应让敌人以不可反应的速度穿过整张战场。
+    // 只约束带有该词缀的敌军，保留原本快单位及冲锋词缀的独立定位。
+    if (unit?.team === 'enemy' && unit.hasEnchantment?.('waveSwarm')) {
+      return Math.min(speed, 3.2);
+    }
+    return speed;
   }
 
   getAttackRange(unit) {

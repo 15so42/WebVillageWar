@@ -3411,7 +3411,7 @@ body.is-game-active .strategy-event-action:disabled {
     min-height: 0 !important;
     aspect-ratio: 116 / 179;
     display: grid !important;
-    grid-template-rows: minmax(0, 1fr) auto !important;
+    grid-template-rows: minmax(0, 1fr) auto auto !important;
     gap: 0 !important;
     padding: 0 !important;
     overflow: hidden !important;
@@ -3468,18 +3468,20 @@ body.is-game-active .strategy-event-action:disabled {
   }
 
   body.is-game-active .strategy-reward-option.meta-card .meta-card-use-bar {
+    position: relative;
     top: auto;
-    right: 7px;
-    bottom: 34px;
-    left: 7px;
-    width: auto;
+    right: auto;
+    bottom: auto;
+    left: auto;
+    width: calc(100% - 14px);
     height: 7px;
+    margin: 0 6px 6px 8px;
   }
 
   body.is-game-active .strategy-reward-option.meta-card .meta-card-action {
     width: calc(100% - 14px) !important;
     min-height: 22px;
-    margin: 0 6px 6px 8px !important;
+    margin: 0 6px 3px 8px !important;
     padding: 4px 3px 5px !important;
     font-size: 7px !important;
   }

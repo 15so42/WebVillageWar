@@ -52,6 +52,7 @@ export class UnitLogicSystem {
     this.updatePendingSupportEffects(dt);
     this.game.attacks.updateProjectiles(dt, profile);
     mark = recordStep(profile, 'projectilesMs', mark);
+    this.game.attacks.updateThunderClouds(dt);
     if (profile) {
       profile.units = units.length;
       profile.separationChecks = this.game.movement.stats.checks;
@@ -74,6 +75,7 @@ export class UnitLogicSystem {
     this.game.buffs.updateUnitBuffs(unit, dt);
     mark = recordUnitStep(profile, 'unitBookkeepingMs', mark);
     if (!unit.alive) return;
+    this.game.attacks.tryLightningSiphon(unit);
 
     if (unit.hasBuff?.('stunned')) {
       unit.aiState = 'stunned';

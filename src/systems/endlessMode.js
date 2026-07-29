@@ -32,6 +32,9 @@ const LIFETIME_PROFILES = Object.freeze({
 
 const DIFFICULTY_GAIN_MULTIPLIER = 0.42;
 const ENDLESS_REWARD_PER_DIFFICULTY = 6;
+const ENDLESS_REWARD_TIME_STEP_SECONDS = 600;
+const ENDLESS_REWARD_TIME_STEP_BONUS = 0.05;
+const ENDLESS_REWARD_MAX_TIME_MULTIPLIER = 1.3;
 const PLAYER_UNIT_DEATH_DIFFICULTY_LOSS_PER_COST = 0.24;
 const DIFFICULTY_DELTA_REFERENCE_HEALTH = 90;
 const MIN_DIFFICULTY_HEALTH_WEIGHT = 0.05;
@@ -116,22 +119,64 @@ export function endlessEnemyStatFactors(difficulty) {
   };
 }
 
-export function endlessEnchantCount(difficulty) {
-  const value = Number.isFinite(Number(difficulty)) ? Number(difficulty) : 0;
-  if (value >= 7) return 3;
-  if (value >= 3) return 2;
-  return 1;
+export function endlessEnchantCount(difficulty, {
+  enemyClass = 'normal',
+  seed = 0
+} = {}) {
+  const value = Math.max(0, Number(difficulty) || 0);
+  const roll = endlessEnchantRoll(seed, enemyClass, 0);
+  if (enemyClass === 'boss') {
+    // Bosses carry a small, reliable package instead of inheriting the full
+    // normal-wave quota. The third slot remains an occasional late-game twist.
+    const thirdSlotChance = Math.min(0.52, 0.18 + value * 0.025);
+    return roll < thirdSlotChance ? 3 : 2;
+  }
+  if (enemyClass === 'elite') {
+    const secondSlotChance = Math.min(0.58, 0.2 + value * 0.03);
+    return roll < secondSlotChance ? 2 : 1;
+  }
+
+  // Most regular troops stay readable. Difficulty raises the chance of one
+  // defining enchantment, never the number of stacked enchantments.
+  const singleSlotChance = Math.min(0.62, 0.28 + value * 0.025);
+  return roll < singleSlotChance ? 1 : 0;
 }
 
-export function endlessEnchantLevel(difficulty) {
-  const value = Number.isFinite(Number(difficulty)) ? Number(difficulty) : 0;
-  return 1 + Math.floor(Math.max(0, value) / 2);
+export function endlessEnchantLevel(difficulty, {
+  enemyClass = 'normal',
+  slotIndex = 0,
+  seed = 0
+} = {}) {
+  const value = Math.max(0, Number(difficulty) || 0);
+  const minimum = enemyClass === 'boss' ? 2 : 1;
+  const softCap = enemyClass === 'boss'
+    ? 4
+    : enemyClass === 'elite'
+      ? 3
+      : 2;
+  const rawLevel = minimum + Math.floor(value / 5);
+  const softCappedLevel = rawLevel <= softCap
+    ? rawLevel
+    : softCap + Math.floor(Math.log2(rawLevel - softCap + 1) / 2);
+  const roll = endlessEnchantRoll(seed, enemyClass, slotIndex + 1);
+  const variation = roll < 0.2 ? -1 : roll > 0.84 ? 1 : 0;
+  return Math.max(1, softCappedLevel + variation);
 }
 
-export function calculateEndlessReward(difficulty, rewardMultiplier = 1) {
+export function calculateEndlessReward(difficulty, elapsedTimeOrMultiplier = 0, maybeRewardMultiplier = 1) {
+  // Keep the old two-argument form for saved/network results while allowing
+  // the authoritative finish calculation to account for time invested.
+  const usesLegacySignature = arguments.length < 3;
+  const elapsedTime = usesLegacySignature ? 0 : elapsedTimeOrMultiplier;
+  const rewardMultiplier = usesLegacySignature ? elapsedTimeOrMultiplier : maybeRewardMultiplier;
   const baseReward = Math.max(0, Number(difficulty) || 0) * ENDLESS_REWARD_PER_DIFFICULTY;
   const multiplier = Math.max(0, Number(rewardMultiplier) || 0);
-  return Math.round(baseReward * multiplier);
+  const elapsedSeconds = Math.max(0, Number(elapsedTime) || 0);
+  const timeMultiplier = Math.min(
+    ENDLESS_REWARD_MAX_TIME_MULTIPLIER,
+    1 + Math.floor(elapsedSeconds / ENDLESS_REWARD_TIME_STEP_SECONDS) * ENDLESS_REWARD_TIME_STEP_BONUS
+  );
+  return Math.round(baseReward * timeMultiplier * multiplier);
 }
 
 function clamp(value, min, max) {
@@ -141,4 +186,17 @@ function clamp(value, min, max) {
 function roundTo(value, digits) {
   const factor = 10 ** digits;
   return Math.round((value + Number.EPSILON) * factor) / factor;
+}
+
+function endlessEnchantRoll(seed, enemyClass, salt) {
+  const classSalt = enemyClass === 'boss'
+    ? 0x45d9f3b
+    : enemyClass === 'elite'
+      ? 0x27d4eb2d
+      : 0x165667b1;
+  let value = (Math.floor(Number(seed) || 0) ^ classSalt ^ Math.imul(salt + 1, 0x9e3779b1)) >>> 0;
+  value = Math.imul(value ^ (value >>> 16), 0x7feb352d) >>> 0;
+  value = Math.imul(value ^ (value >>> 15), 0x846ca68b) >>> 0;
+  value = (value ^ (value >>> 16)) >>> 0;
+  return value / 0x100000000;
 }

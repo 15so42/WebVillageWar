@@ -3,13 +3,28 @@ import { BUFF_DEFINITIONS, CARD_DEFINITIONS } from '../src/data/gameData.js';
 import { CardEffectSystem } from '../src/systems/CardEffectSystem.js';
 import { AttributeSet } from '../src/systems/AttributeSet.js';
 import { BuffSystem } from '../src/systems/BuffSystem.js';
+import { CombatSystem } from '../src/systems/CombatSystem.js';
 import { cardMaxUses } from '../src/systems/CardSystem.js';
+import { UnitEntity } from '../src/entities/UnitEntity.js';
 
 assert(CARD_DEFINITIONS.filter((card) => card.kind === 'summon').every((card) => cardMaxUses(card) === 1));
 assert.equal(cardMaxUses({ kind: 'summon', uses: 9 }), 1);
 assert.equal(CARD_DEFINITIONS.find((card) => card.id === 'rebirth-totem-enchant')?.retired, true);
 assert.equal(CARD_DEFINITIONS.find((card) => card.id === 'self-destruct-enchant')?.enchantmentId, 'selfDestruct');
 assert.equal(BUFF_DEFINITIONS.rebirthTotem.retired, true);
+assert.match(CARD_DEFINITIONS.find((card) => card.id === 'self-destruct-enchant')?.summary ?? '', /等级 ×4/);
+assert.equal(CARD_DEFINITIONS.find((card) => card.id === 'high-explosive-ability')?.effect?.abilityId, 'highExplosive');
+
+const highExplosiveCombat = new CombatSystem({
+  getAbilityStacks: (abilityId) => abilityId === 'highExplosive' ? 1 : 0
+});
+const highExplosiveContext = {
+  source: { alive: false, team: 'player' },
+  damage: 4,
+  isExplosionDamage: true
+};
+highExplosiveCombat.applyAbilityOffense(highExplosiveContext);
+assert.equal(highExplosiveContext.damage, 6);
 
 const applied = [];
 const targetUnit = {
@@ -59,6 +74,29 @@ try {
   Math.random = previousRandom;
 }
 
+const consumedWaveRewardCards = [];
+const tacticalFallback = new CardEffectSystem({
+  cardSystem: {
+    drawTemporaryCards: () => 0,
+    addTemporaryCardsFromPool(pool, count, options) {
+      assert.equal(count, 1);
+      assert.deepEqual(pool.map((entry) => entry.id), ['once-only-ability']);
+      options.onCardCreated(pool[0], { ...pool[0] });
+      return 1;
+    }
+  },
+  waveRewardCardPool: () => [{ id: 'once-only-ability', kind: 'ability' }],
+  consumeWaveRewardCard(card) {
+    consumedWaveRewardCards.push(card.id);
+    return true;
+  }
+});
+assert.equal(tacticalFallback.drawTemporaryCards({
+  card: { id: 'field-upgrade' },
+  effect: { amount: 1, fallbackPool: 'wave-reward-pool' }
+}), true);
+assert.deepEqual(consumedWaveRewardCards, ['once-only-ability']);
+
 const buffGame = {
   friendlyUnits: [],
   enemyUnits: [],
@@ -102,7 +140,99 @@ buffGame.buffs.applyBuff(plagueTarget, 'plague', null, { level: 3, duration: 3 }
 assert.equal(plagueTarget.armor, 3);
 assert.equal(plagueTarget.magicResistance, 2);
 
+const upgradeTarget = createEnchantmentUpgradeUnit();
+const initialSoulEater = upgradeTarget.addBuff('soulEater');
+initialSoulEater.soulBonus = 7;
+initialSoulEater['deathCooldown:soulEater'] = 12;
+upgradeTarget.attributes.addModifier({ stat: 'maxHealth', type: 'add', amount: 7 }, 'buff:soulEater:soul-bonus');
+upgradeTarget.health = 47;
+const upgradedSoulEater = upgradeTarget.addBuff('soulEater');
+assert.equal(upgradedSoulEater.level, 2);
+assert.equal(upgradedSoulEater.soulBonus, 7);
+assert.equal(upgradedSoulEater['deathCooldown:soulEater'], 12);
+assert.equal(upgradeTarget.maxHealth, 47);
+assert.equal(upgradeTarget.health, 47);
+
+const initialFocus = upgradeTarget.addBuff('focus');
+initialFocus.focusRangeBonus = 1.2;
+upgradeTarget.attributes.addModifier({ stat: 'attackRange', type: 'add', amount: 1.2 }, 'buff:focus:focus-range');
+const upgradedFocus = upgradeTarget.addBuff('focus');
+assert.equal(upgradedFocus.level, 2);
+assert.equal(upgradedFocus.focusRangeBonus, 1.2);
+assert.equal(upgradeTarget.attributes.get('attackRange'), 5.2);
+
+const spiritWeapon = upgradeTarget.addBuff('spiritWeapon');
+assert.equal(spiritWeapon.level, 1);
+assert.equal(upgradeTarget.weapon.maxDurability, 3);
+assert.equal(upgradeTarget.weapon.durability, 3);
+const upgradedSpiritWeapon = upgradeTarget.addBuff('spiritWeapon');
+assert.equal(upgradedSpiritWeapon.level, 2);
+assert.equal(upgradeTarget.weapon.maxDurability, 5);
+assert.equal(upgradeTarget.weapon.durability, 5);
+
+const swordSaintSource = createEnchantmentUpgradeUnit({ maxDurability: 40 });
+const swordSaint = swordSaintSource.addBuff('swordSaint');
+const swordSaintEffects = new BuffSystem({
+  effects: {
+    spawnRing() {},
+    spawnDamageNumber() {}
+  }
+});
+const swordSaintContext = {
+  isAttack: true,
+  source: swordSaintSource,
+  target: { alive: true },
+  damage: 6,
+  damageTypes: new Set()
+};
+swordSaintEffects.modifyAttack(swordSaintContext);
+assert.equal(swordSaintContext.swordSaintBuffId, swordSaint.id);
+assert.equal(swordSaintContext.damage, 34);
+assert.equal(swordSaintSource.weapon.durability, 12);
+swordSaintEffects.afterAttack(swordSaintContext);
+assert.equal(swordSaintSource.weapon.durability, 12.8);
+
 console.log('card effect tests passed');
+
+function createEnchantmentUpgradeUnit({ maxDurability = 1 } = {}) {
+  const attributes = new AttributeSet({
+    maxHealth: 40,
+    maxShield: 0,
+    attackRange: 4,
+    physicalAttack: 0,
+    magicAttack: 0,
+    maxDurability,
+    durabilityCost: 0
+  });
+  const unit = {
+    attributes,
+    buffs: new Map(),
+    enchantments: new Map(),
+    enchantHalo: { children: [] },
+    maxEnchantmentSlots: 5,
+    alive: true,
+    health: 40,
+    shield: 0,
+    weapon: { durability: maxDurability },
+    statusUiDirty: false,
+    get maxHealth() {
+      return this.attributes.get('maxHealth');
+    },
+    get maxShield() {
+      return this.attributes.get('maxShield');
+    },
+    addBuff: UnitEntity.prototype.addBuff,
+    clampToAttributeCaps: UnitEntity.prototype.clampToAttributeCaps,
+    restoreDurability: UnitEntity.prototype.restoreDurability,
+    spendDurability: UnitEntity.prototype.spendDurability
+  };
+  Object.defineProperty(unit.weapon, 'maxDurability', {
+    get() {
+      return attributes.get('maxDurability');
+    }
+  });
+  return unit;
+}
 
 function createBuffUnit({
   armor,

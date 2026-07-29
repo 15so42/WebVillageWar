@@ -49,6 +49,7 @@ export class CombatSystem {
       scratch.copy(source.position);
       scratch.y += 0.8;
       this.game.effects.spawnHit(scratch);
+      this.game.buffs.afterAttack(context);
       return true;
     }
     if (target === this.game.enemyCamp) {
@@ -56,14 +57,17 @@ export class CombatSystem {
       scratch.copy(target.position);
       scratch.y += 1.6;
       this.game.effects.spawnHit(scratch);
+      this.game.buffs.afterAttack(context);
       return true;
     }
 
     if (this.applyDamage(target, context.damage, source, context.knockback, context)) {
       this.game.buffs.afterDamage(context);
       this.applyPostAttackRuntimeTraits(context);
+      this.game.buffs.afterAttack(context);
       return true;
     }
+    this.game.buffs.afterAttack(context);
     return false;
   }
 
@@ -309,7 +313,16 @@ export class CombatSystem {
 
   applyAbilityOffense(context) {
     const source = context.source;
-    if (!source?.alive || source.team !== TEAMS.PLAYER) return;
+    if (!source || source.team !== TEAMS.PLAYER) return;
+
+    const highExplosiveStacks = this.game.getAbilityStacks?.('highExplosive', source)
+      ?? this.game.abilities?.getStacks?.('highExplosive')
+      ?? 0;
+    if (highExplosiveStacks > 0 && context.isExplosionDamage) {
+      context.damage *= 1 + highExplosiveStacks * 0.5;
+    }
+
+    if (!source.alive) return;
 
     const volleyStacks = this.game.getAbilityStacks?.('rangedVolley', source)
       ?? this.game.abilities?.getStacks?.('rangedVolley')

@@ -2156,6 +2156,87 @@ export function createWaterMageModel(team) {
   return group;
 }
 
+export function createLightningMageModel(team) {
+  const group = createPriestModel(team, {
+    hideHood: true,
+    robeColor: team === 'player' ? '#36365f' : '#4b3a64',
+    trimColor: '#e2c665',
+    hoodColor: '#252541',
+    focusColor: '#e9e3ff',
+    focusEmissive: '#9c7cff',
+    legColor: '#202237'
+  });
+  const { projectileSocket, focusGem } = group.userData.parts ?? {};
+  const darkMetal = mat('#2a3045', { metalness: 0.38, roughness: 0.45 });
+  const brass = mat('#c9a952', { metalness: 0.3, roughness: 0.4 });
+  const violetGlow = basicMat('#c9b8ff', {
+    transparent: true,
+    opacity: 0.78,
+    depthWrite: false
+  });
+
+  const mantle = mesh(
+    new THREE.CylinderGeometry(0.5, 0.36, 0.22, 6),
+    darkMetal,
+    new THREE.Vector3(0, 1.16, 0.03),
+    new THREE.Vector3(1, 0.9, 1)
+  );
+  const chestRune = mesh(
+    new THREE.ConeGeometry(0.115, 0.3, 4),
+    brass,
+    new THREE.Vector3(0, 0.95, 0.43),
+    new THREE.Vector3(0.72, 1, 0.25)
+  );
+  chestRune.rotation.x = Math.PI / 2;
+  const crownBand = mesh(
+    new THREE.CylinderGeometry(0.29, 0.3, 0.08, 6),
+    brass,
+    new THREE.Vector3(0, 1.72, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const crownProngs = [-0.18, 0, 0.18].map((x, index) => {
+    const prong = mesh(
+      new THREE.ConeGeometry(index === 1 ? 0.075 : 0.055, index === 1 ? 0.42 : 0.3, 4),
+      brass,
+      new THREE.Vector3(x, index === 1 ? 2.0 : 1.91, 0.02),
+      new THREE.Vector3(1, 1, 0.72)
+    );
+    prong.rotation.z = index === 0 ? 0.22 : index === 2 ? -0.22 : 0;
+    return prong;
+  });
+  const shoulderLeft = mesh(
+    new THREE.ConeGeometry(0.18, 0.34, 4),
+    darkMetal,
+    new THREE.Vector3(-0.42, 1.2, 0.04),
+    new THREE.Vector3(1, 0.7, 1)
+  );
+  shoulderLeft.rotation.z = -0.72;
+  const shoulderRight = shoulderLeft.clone();
+  shoulderRight.position.x = 0.42;
+  shoulderRight.rotation.z = 0.72;
+
+  if (focusGem) {
+    focusGem.scale.setScalar(1.28);
+  }
+  if (projectileSocket) {
+    const forkLeft = mesh(
+      new THREE.BoxGeometry(0.035, 0.32, 0.035),
+      brass,
+      new THREE.Vector3(-0.1, 0.13, 0),
+      new THREE.Vector3(1, 1, 1)
+    );
+    forkLeft.rotation.z = 0.52;
+    const forkRight = forkLeft.clone();
+    forkRight.position.x = 0.1;
+    forkRight.rotation.z = -0.52;
+    const arcRing = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.014, 4, 20), violetGlow);
+    arcRing.rotation.y = Math.PI / 2;
+    projectileSocket.add(forkLeft, forkRight, arcRing);
+  }
+  group.add(mantle, chestRune, crownBand, ...crownProngs, shoulderLeft, shoulderRight);
+  return enableShadows(group);
+}
+
 export function createWizardModel() {
   const group = createPriestModel('enemy', {
     skinColor: '#8f6aa8',

@@ -385,6 +385,71 @@ export const UNIT_DEFINITIONS = {
       durabilityCost: 1.5
     }
   },
+  lightningMage: {
+    name: '电法师',
+    role: 'ranged',
+    art: {
+      modelKey: 'unit.lightningMage',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Walk',
+        attack: 'Lightning_Cast',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 1.16,
+          events: {
+            release: 0.54
+          }
+        },
+        hit: {
+          duration: 0.24
+        }
+      }
+    },
+    maxHealth: 15,
+    maxShield: 7,
+    speed: 2.55,
+    attackRange: 8.6,
+    attackRate: 1 / 5,
+    damage: 20,
+    attackDamageType: 'magic',
+    armor: 0,
+    magicResistance: 4,
+    dodgeChance: 0.03,
+    knockback: 0.8,
+    aggroRange: 15.2,
+    attackBehavior: {
+      type: 'chainLightning',
+      jumpRange: 4.4,
+      color: '#bba8ff'
+    },
+    specialAbilities: {
+      thunderCloud: {
+        cooldown: 15,
+        duration: 10,
+        strikeInterval: 1.25,
+        strikeRadius: 2.2,
+        damageMultiplier: 0.7,
+        driftRadius: 0.85,
+        height: 5.1
+      },
+      lightningSiphon: {
+        cooldown: 3,
+        triggerDurability: 10,
+        amount: 10,
+        range: 4.5
+      }
+    },
+    weapon: {
+      name: '雷鸣法杖',
+      maxDurability: 18,
+      durabilityCost: 1.6
+    }
+  },
   rogue: {
     name: '盗贼',
     role: 'melee',
@@ -2552,6 +2617,13 @@ export const BUFF_DEFINITIONS = {
     color: '#dff8ff',
     duration: 999,
     level: 1,
+    modifiers: [
+      {
+        stat: 'maxDurability',
+        type: 'add',
+        amountPerLevel: 2
+      }
+    ],
     tickInterval: 5,
     effects: [
       {
@@ -2559,6 +2631,28 @@ export const BUFF_DEFINITIONS = {
         op: 'restoreDurability',
         amountPerLevel: 2,
         color: '#dff8ff'
+      }
+    ]
+  },
+  swordSaint: {
+    name: '剑圣附魔',
+    category: 'enchantment',
+    color: '#ffd166',
+    duration: 999,
+    level: 1,
+    effects: [
+      {
+        event: 'modifyAttack',
+        op: 'swordSaintStrike',
+        minimumDurabilityRatio: 0.3,
+        spendDurabilityRatio: 0.7,
+        color: '#ffd166'
+      },
+      {
+        event: 'afterAttack',
+        op: 'restoreSwordSaintDurability',
+        maxDurabilityPercentPerLevel: 0.02,
+        color: '#ffd166'
       }
     ]
   },
@@ -3262,6 +3356,7 @@ export const ENCHANTMENTS = {
   rebirthTotem: BUFF_DEFINITIONS.rebirthTotem,
   selfDestruct: BUFF_DEFINITIONS.selfDestruct,
   spiritWeapon: BUFF_DEFINITIONS.spiritWeapon,
+  swordSaint: BUFF_DEFINITIONS.swordSaint,
   soulEater: BUFF_DEFINITIONS.soulEater,
   lifesteal: BUFF_DEFINITIONS.lifesteal,
   drain: BUFF_DEFINITIONS.drain,
@@ -3317,6 +3412,13 @@ export const PLAYER_ABILITY_DEFINITIONS = {
     label: '爆',
     color: '#ffb45c',
     summary: '友方单位死亡时爆炸，每层 +15 伤害并略增范围'
+  },
+  highExplosive: {
+    id: 'highExplosive',
+    name: '高爆',
+    label: '爆',
+    color: '#ff8d55',
+    summary: '所有友方单位的爆炸伤害 +50%/层'
   },
   fortificationDoctrine: {
     id: 'fortificationDoctrine',
@@ -3642,6 +3744,26 @@ export const CARD_DEFINITIONS = [
     color: '#4f9fbd'
   },
   {
+    id: 'lightning-mages',
+    name: '派遣电法师',
+    kind: 'summon',
+    label: '电',
+    artKey: 'lightningMage',
+    summary: '每 5 秒释放可无限连锁的闪电链；每次只会命中同一敌人一次',
+    target: 'ground',
+    radius: 1.15,
+    cooldown: 9,
+    energyCost: 5,
+    unitType: 'lightningMage',
+    count: 1,
+    effect: {
+      type: 'spawn-units',
+      unitType: 'lightningMage',
+      count: 1
+    },
+    color: '#7566c7'
+  },
+  {
     id: 'rogues',
     name: '派遣盗贼',
     kind: 'summon',
@@ -3727,7 +3849,7 @@ export const CARD_DEFINITIONS = [
     kind: 'building',
     label: '修',
     artKey: 'repairStation',
-    summary: '15 秒建成；消耗自身耐久，缓慢恢复周围单位武器耐久',
+    summary: '15 秒建成；消耗自身耐久，缓慢修复周围单位与建筑的血量、耐久；基地在范围内也会受益',
     target: 'ground',
     radius: 1.45,
     cooldown: 18,
@@ -4036,7 +4158,7 @@ export const CARD_DEFINITIONS = [
     kind: 'tactic',
     label: '调',
     artKey: 'tacticUpgrade',
-    summary: '从本局出战牌组调度 2 张临时牌；临时位满时排到抽牌堆顶',
+    summary: '从抽牌堆顶调度 2 张临时牌；牌堆不足时从波次奖励池补足，临时位满时排到抽牌堆顶',
     target: 'none',
     radius: 1,
     cooldown: 0,
@@ -4046,7 +4168,7 @@ export const CARD_DEFINITIONS = [
       amountBase: 2,
       amountPerLevel: 1,
       temporaryLimit: 6,
-      fallbackPool: 'selected-deck'
+      fallbackPool: 'wave-reward-pool'
     },
     color: '#8a6fc4'
   },
@@ -4144,6 +4266,25 @@ export const CARD_DEFINITIONS = [
       stacksPerLevel: 1
     },
     color: '#ffb45c'
+  },
+  {
+    id: 'high-explosive-ability',
+    name: '高爆',
+    kind: 'ability',
+    label: '爆',
+    artKey: 'abilityDeathExplosion',
+    summary: '所有友方单位的爆炸伤害 +50%/层',
+    target: 'none',
+    radius: 1,
+    cooldown: 0,
+    energyCost: 4,
+    effect: {
+      type: 'acquire-ability',
+      abilityId: 'highExplosive',
+      stacksBase: 1,
+      stacksPerLevel: 1
+    },
+    color: '#ff8d55'
   },
   {
     id: 'building-durability-ability',
@@ -4671,7 +4812,7 @@ export const CARD_DEFINITIONS = [
     kind: 'enchant',
     label: '爆',
     artKey: 'explosion',
-    summary: '死亡时自爆：造成等级 ×5 范围伤害，并触发自身毒、火、爆炸等攻击特效；每级复活时间 -4 秒，最低 4 秒',
+    summary: '死亡时爆炸：对周围单位造成等级 ×4 范围伤害，视作普通攻击并触发自身毒、火、爆炸等攻击特效；每级复活时间 -5%，最多 -90%',
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,
@@ -4689,7 +4830,7 @@ export const CARD_DEFINITIONS = [
     kind: 'enchant',
     label: '灵',
     artKey: 'spiritWeapon',
-    summary: '每 5 秒恢复等级 x2 的武器耐久',
+    summary: '每 5 秒恢复等级×2 武器耐久；武器耐久上限 +等级×2',
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,
@@ -4700,6 +4841,24 @@ export const CARD_DEFINITIONS = [
       buffId: 'spiritWeapon'
     },
     color: '#dff8ff'
+  },
+  {
+    id: 'sword-saint-enchant',
+    name: '剑圣附魔',
+    kind: 'enchant',
+    label: '剑',
+    artKey: 'critical',
+    summary: '耐久高于 30% 时：本次攻击消耗当前耐久的 70%，伤害增加等量耐久；攻击后恢复等级×2%耐久上限',
+    target: 'friendly-unit',
+    radius: 1.1,
+    cooldown: 0,
+    energyCost: 3,
+    enchantmentId: 'swordSaint',
+    effect: {
+      type: 'apply-buff',
+      buffId: 'swordSaint'
+    },
+    color: '#ffd166'
   },
   {
     id: 'soul-eater-enchant',
@@ -4869,7 +5028,7 @@ export const CARD_DEFINITIONS = [
     kind: 'enchant',
     label: '群',
     artKey: 'waveSwarm',
-    summary: '1级：生命 -10%、攻击 -4.5%、攻速 +9%、移速 +4%；每级额外生命 -2%、攻击 -1.5%、攻速 +3%、移速 +2%',
+    summary: '1级：生命 -10%、攻击 -4.5%、攻速 +9%、移速 +4%；每级额外生命 -2%、攻击 -1.5%、攻速 +3%、移速 +2%；敌军移速最高 3.2',
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,
@@ -4923,7 +5082,7 @@ export const CARD_DEFINITIONS = [
     kind: 'enchant',
     label: '远',
     artKey: 'waveRanged',
-    summary: '提高射程、弹速与少量伤害',
+    summary: '1级：射程 +0.73、弹速 +9%、攻击 +5%；每级额外射程 +0.18、弹速 +3%、攻击 +2%',
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,
@@ -4941,7 +5100,7 @@ export const CARD_DEFINITIONS = [
     kind: 'enchant',
     label: '城',
     artKey: 'waveSiege',
-    summary: '提高伤害、击退和少量生命',
+    summary: '1级：生命 +10.5%、攻击 +18%、击退 +9%、抗击退 +10%；每级额外生命 +2.5%、攻击 +4%、击退 +3%、抗击退 +2%',
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,
@@ -5265,6 +5424,10 @@ export const CARD_META = {
   'death-explosion-ability': {
     buyCost: 185,
     upgradeBaseCost: 120
+  },
+  'high-explosive-ability': {
+    buyCost: 190,
+    upgradeBaseCost: 125
   },
   'building-durability-ability': {
     buyCost: 170,

@@ -65,6 +65,7 @@ import {
   applyEndlessDifficulty,
   calculateEndlessReward,
   endlessDifficultyDelta,
+  endlessEnchantCount,
   endlessEnchantLevel,
   endlessEnemyClass,
   endlessEnemyStatFactors,
@@ -81,6 +82,7 @@ import {
 import { scaleResourceAfterMaximumChange } from './unitResourceSync.js';
 import { NetworkAnalysisUi } from './NetworkAnalysisUi.js';
 import { shouldConsumeWaveRewardCard } from './waveRewardPool.js';
+import { autoRebirthDurationFor } from './rebirthRules.js';
 
 const ROUTE_REPATH_DISTANCE = 1.15;
 const ROUTE_REJOIN_DISTANCE = 2.2;
@@ -127,8 +129,8 @@ const WAVE_AFFIX_DEFINITIONS = {
   swarm: {
     id: 'swarm',
     name: '集群',
-    preview: '数量压迫',
-    description: '数量更多，但单体略脆',
+    preview: '数量 +1 · 攻速 +9%',
+    description: '1级：敌军数量 +1（首波除外）；生命 -10%、攻击 -4.5%、攻速 +9%、移速 +4%。每级额外生命 -2%、攻击 -1.5%、攻速 +3%、移速 +2%；移速最高为 3.2。',
     buffId: 'waveSwarm',
     countBonus: 1,
     preferredTypes: ['goblinSoldier', 'spider', 'enemyRaider']
@@ -136,8 +138,8 @@ const WAVE_AFFIX_DEFINITIONS = {
   armored: {
     id: 'armored',
     name: '重甲',
-    preview: '护盾厚',
-    description: '生命和护盾更高',
+    preview: '生命 +12.5% · 护盾 +43%',
+    description: '1级：生命 +12.5%、护盾 +43%、护甲 +2.05、抗击退 +19.5%。每级额外生命 +2.5%、护盾 +8%、护甲 +0.45、抗击退 +3.5%。',
     buffId: 'waveArmored',
     countBonus: 0,
     preferredTypes: ['skeletonSoldier', 'shieldBearer', 'goblinShaman', 'goblinTroll', 'ogre', 'scorpion']
@@ -145,8 +147,8 @@ const WAVE_AFFIX_DEFINITIONS = {
   rush: {
     id: 'rush',
     name: '冲锋',
-    preview: '速度快',
-    description: '移动和攻击更快',
+    preview: '数量 +1 · 移速 +24%',
+    description: '1级：敌军数量 +1（首波除外）；移速 +24%、攻速 +8.5%。每级额外移速 +4%、攻速 +2.5%。',
     buffId: 'waveRush',
     countBonus: 1,
     preferredTypes: ['enemyRaider', 'goblinHunter', 'spider', 'goblinSoldier']
@@ -154,8 +156,8 @@ const WAVE_AFFIX_DEFINITIONS = {
   ranged: {
     id: 'ranged',
     name: '远射',
-    preview: '远程多',
-    description: '更容易出现远程单位',
+    preview: '射程 +0.73 · 远程权重 ×4',
+    description: '1级：射程 +0.73、弹速 +9%、攻击 +5%；每级额外射程 +0.18、弹速 +3%、攻击 +2%。远程偏好单位的抽取权重 ×4。',
     buffId: 'waveRanged',
     countBonus: 0,
     preferredTypes: ['goblinArcher', 'goblinHunter', 'elfSniper', 'skeletonArcher', 'venomArcher', 'goblinShaman', 'wizard', 'frostAcolyte']
@@ -163,8 +165,8 @@ const WAVE_AFFIX_DEFINITIONS = {
   siege: {
     id: 'siege',
     name: '攻城',
-    preview: '高伤害',
-    description: '伤害更高，压迫基地',
+    preview: '攻击 +18% · 攻城权重 ×4',
+    description: '1级：生命 +10.5%、攻击 +18%、击退 +9%、抗击退 +10%。每级额外生命 +2.5%、攻击 +4%、击退 +3%、抗击退 +2%。攻城偏好单位的抽取权重 ×4。',
     buffId: 'waveSiege',
     countBonus: 0,
     preferredTypes: ['ogre', 'goblinTroll', 'shieldBearer', 'goblinShaman', 'goblinBomber', 'scorpion']
@@ -348,10 +350,7 @@ const STRUCTURE_HEALTH_LAG_DELAY = 0.4;
 const STRUCTURE_HEALTH_LAG_RAPID_DELAY = 0.08;
 const STRUCTURE_HEALTH_LAG_RAPID_WINDOW = 0.18;
 const SELF_DESTRUCT_ENCHANTMENT_ID = 'selfDestruct';
-const AUTO_REBIRTH_BASE_SECONDS = 60;
-const SELF_DESTRUCT_REBIRTH_SECONDS_REDUCTION_PER_LEVEL = 4;
-const AUTO_REBIRTH_MIN_SECONDS = 4;
-const SELF_DESTRUCT_DAMAGE_PER_LEVEL = 5;
+const SELF_DESTRUCT_DAMAGE_PER_LEVEL = 4;
 const SELF_DESTRUCT_RADIUS = 2.65;
 const BASE_RECOVERY_PACT_ABILITY_ID = 'baseRecoveryPact';
 const BASE_RECOVERY_PACT_SOURCE = 'ability:base-recovery-pact';
@@ -1039,6 +1038,16 @@ export class Game {
       this.cancelTouchGesture();
       this.setMobileBoxSelectMode(false);
       this.activeTouchPointers.clear();
+    }, { signal });
+    canvas.addEventListener('webglcontextlost', (event) => {
+      // 手机通话/切后台时浏览器可能回收 WebGL 上下文。阻止默认永久丢失，
+      // 并等待恢复事件重新分配后处理的渲染目标。
+      event.preventDefault();
+      this.webglContextLost = true;
+    }, { signal });
+    canvas.addEventListener('webglcontextrestored', () => this.restoreWebglContext(), { signal });
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) this.restoreWebglContext();
     }, { signal });
     canvas.addEventListener('wheel', (event) => this.onCanvasWheel(event), { passive: false, signal });
     window.addEventListener('pointermove', (event) => this.onWindowPointerMove(event), { signal });
@@ -3562,7 +3571,21 @@ export class Game {
     this.updateWavePreview();
   }
 
+  restoreWebglContext() {
+    if (this.destroyed || document.hidden || this.renderer?.getContext?.().isContextLost?.()) return;
+    this.webglContextLost = false;
+    this.lastAnimationFrameTime = null;
+    this.clock?.getDelta?.();
+    this.renderer.setPixelRatio(this.renderQuality?.pixelRatio ?? this.renderer.getPixelRatio());
+    this.resize();
+    // EffectComposer owns off-screen buffers which are not reliable after a
+    // mobile browser has suspended or restored WebGL. A resized first frame
+    // forces every pass to recreate them before the regular loop resumes.
+    this.renderScene();
+  }
+
   renderScene() {
+    if (this.webglContextLost || this.renderer?.getContext?.().isContextLost?.()) return;
     if (this.composer) {
       this.composer.render();
     } else {
@@ -3951,7 +3974,7 @@ export class Game {
     if (!this.canQueueRebirthForUnit(unit)) return false;
     const enchantment = unit.enchantments.get(SELF_DESTRUCT_ENCHANTMENT_ID);
     const level = Math.max(1, Math.floor(enchantment?.level ?? 1));
-    const total = autoRebirthDurationForLevel(level, Boolean(enchantment));
+    const total = autoRebirthDurationFor(this.elapsedTime, enchantment ? level : 0);
     const entry = {
       id: this.nextRebirthQueueId,
       sourceUnitId: unit.id,
@@ -4021,6 +4044,7 @@ export class Game {
       this.buffs?.runBuffEffects?.(unit, 'afterDamage', context);
     });
     this.effects.spawnRing(unit.position, '#ff784f', SELF_DESTRUCT_RADIUS, 0.52);
+    this.effects.spawnDeathBurst(unit.position, SELF_DESTRUCT_RADIUS * 0.72);
     this.effects.spawnHit({
       x: unit.position.x,
       y: (unit.position.y ?? 0) + 0.82,
@@ -4603,7 +4627,7 @@ export class Game {
         position
       });
       unit.enemyForce = waveConfig ?? null;
-      this.applyEnemyDifficulty(unit, waveIndex, difficulty);
+      this.applyEnemyDifficulty(unit, waveIndex, difficulty, waveConfig, i);
       this.applyOpeningForceScaling(unit, waveConfig);
       this.applyEnemyForceModifiers(unit, waveConfig, i);
       this.applyEnemyForceAffixModifiers(unit, waveConfig);
@@ -4746,7 +4770,7 @@ export class Game {
     return this.effectiveDifficulty() + Math.max(0, Math.floor(threatTier) - 1);
   }
 
-  applyEnemyDifficulty(unit, threatTier, difficulty) {
+  applyEnemyDifficulty(unit, threatTier, difficulty, waveConfig = null, indexInWave = 0) {
     const scale = BALANCE.waveScaling ?? {};
     const endlessFactors = this.isEndlessMode()
       ? endlessEnemyStatFactors(difficulty)
@@ -4782,7 +4806,7 @@ export class Game {
         amount: damageFactor
       }
     ], 'level:difficulty');
-    this.applyEnemyStartingBuffs(unit, threatTier, difficulty);
+    this.applyEnemyStartingBuffs(unit, threatTier, difficulty, waveConfig, indexInWave);
     unit.health = unit.maxHealth;
     unit.clampToAttributeCaps();
   }
@@ -4800,13 +4824,28 @@ export class Game {
     unit.shield = Math.min(unit.shield, unit.maxShield);
   }
 
-  applyEnemyStartingBuffs(unit, threatTier, difficulty) {
+  applyEnemyStartingBuffs(unit, threatTier, difficulty, waveConfig = null, indexInWave = 0) {
     const startingBuffs = unit.definition.startingBuffs ?? [];
+    const endlessClass = endlessEnemyClassForWave(waveConfig, indexInWave);
+    const endlessSeed = stableEnemyRoll(threatTier, indexInWave + unit.id * 17, difficulty);
+    if (this.isEndlessMode()) {
+      unit.endlessEnchantBudget = endlessEnchantCount(difficulty, {
+        enemyClass: endlessClass,
+        seed: endlessSeed
+      });
+    }
     if (!startingBuffs.length) return;
-    const scalingLevel = this.isEndlessMode()
-      ? endlessEnchantLevel(difficulty)
-      : enemyEnchantmentLevel(threatTier, difficulty);
-    startingBuffs.forEach((entry) => {
+    const buffLimit = this.isEndlessMode()
+      ? Math.min(startingBuffs.length, unit.endlessEnchantBudget)
+      : startingBuffs.length;
+    startingBuffs.slice(0, buffLimit).forEach((entry, slotIndex) => {
+      const scalingLevel = this.isEndlessMode()
+        ? endlessEnchantLevel(difficulty, {
+          enemyClass: endlessClass,
+          slotIndex,
+          seed: endlessSeed
+        })
+        : enemyEnchantmentLevel(threatTier, difficulty);
       const level = (entry.level ?? 1) + (entry.scalesWithDifficulty ? scalingLevel - 1 : 0);
       this.buffs.applyBuff(unit, entry.buffId, unit, {
         level,
@@ -4818,9 +4857,14 @@ export class Game {
   applySpiderSpawnTraits(unit, threatTier, difficulty, seedIndex = 0) {
     if (unit.type !== 'spider') return;
     if (stableEnemyRoll(threatTier, seedIndex + unit.id * 17, difficulty) % 3 !== 0) return;
+    if (this.isEndlessMode() && unit.enchantments.size >= (unit.endlessEnchantBudget ?? 0)) return;
     this.buffs.applyBuff(unit, 'poison', unit, {
       level: this.isEndlessMode()
-        ? endlessEnchantLevel(difficulty)
+        ? endlessEnchantLevel(difficulty, {
+          enemyClass: endlessEnemyClass(unit),
+          slotIndex: unit.enchantments.size,
+          seed: stableEnemyRoll(threatTier, seedIndex + unit.id * 17, difficulty)
+        })
         : enemyEnchantmentLevel(threatTier, difficulty),
       sourceUnitType: unit.type
     });
@@ -5657,7 +5701,7 @@ export class Game {
       rewardMultiplier,
       authoritativeReward: victory
         ? (endless
-          ? calculateEndlessReward(this.endlessDifficulty, rewardMultiplier)
+          ? calculateEndlessReward(this.endlessDifficulty, this.elapsedTime, rewardMultiplier)
           : calculateLevelReward({
             level: this.levelSession.level,
             difficulty: this.levelSession.difficulty,
@@ -8314,7 +8358,6 @@ function strategyRewardMarkup(choice, index, options = {}) {
     >
       <span class="meta-card-cost" aria-label="费用 ${cardEnergyCost(card)}">${cardEnergyCost(card)}</span>
       <span class="meta-card-level">Lv.${card.level ?? 1}</span>
-      ${cardUseBarMarkup(card, 'meta-card-use-bar')}
       <div class="meta-card-face">
         <div class="meta-card-header">
           <span class="meta-card-rune">${escapeHtml(card.label ?? '')}</span>
@@ -8326,6 +8369,7 @@ function strategyRewardMarkup(choice, index, options = {}) {
         ${meta}
       </div>
       <span class="meta-card-action">${escapeHtml(choice.actionLabel ?? visual.actionLabel)}</span>
+      ${cardUseBarMarkup(card, 'meta-card-use-bar')}
     </button>
   `;
 }
@@ -8861,6 +8905,12 @@ function touchGestureMetrics(points) {
 
 function enemyEnchantmentLevel(threatTier, difficulty) {
   return 1 + Math.floor((Math.max(1, difficulty) - 1) / 2) + Math.floor((Math.max(1, threatTier) - 1) / 3);
+}
+
+function endlessEnemyClassForWave(waveConfig, indexInWave) {
+  if (indexInWave === 0 && waveConfig?.kind === 'boss') return 'boss';
+  if (indexInWave === 0 && waveConfig?.kind === 'elite') return 'elite';
+  return 'normal';
 }
 
 function selectEnemyFromPool(pool, threatTier, index, difficulty, preferredTypes = null) {
@@ -10036,15 +10086,6 @@ function formatEnchantmentList(unit) {
       `${enchantment.name}${Math.max(1, Math.floor(enchantment.level ?? 1))}`
     ))
     .join('、');
-}
-
-function autoRebirthDurationForLevel(level = 1, hasSelfDestruct = false) {
-  const resolvedLevel = Math.max(1, Math.floor(finiteNumber(level, 1)));
-  if (!hasSelfDestruct) return AUTO_REBIRTH_BASE_SECONDS;
-  return Math.max(
-    AUTO_REBIRTH_MIN_SECONDS,
-    AUTO_REBIRTH_BASE_SECONDS - resolvedLevel * SELF_DESTRUCT_REBIRTH_SECONDS_REDUCTION_PER_LEVEL
-  );
 }
 
 function networkSummary(network) {

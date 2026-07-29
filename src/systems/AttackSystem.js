@@ -23,6 +23,7 @@ const projectileTrailTargetPosition = new THREE.Vector3();
 const projectileForward = new THREE.Vector3(0, 0, 1);
 const linearProjectileDirection = new THREE.Vector3();
 const PROJECTILE_TARGET_QUERY_PADDING = 3.2;
+const CHAIN_LIGHTNING_COLOR = '#bba8ff';
 
 export class AttackSystem {
   constructor(game) {
@@ -31,6 +32,7 @@ export class AttackSystem {
     this.pendingAttacks = [];
     this.activeAttackBySourceId = new Map();
     this.projectilePools = new Map();
+    this.thunderClouds = [];
     this.nextProjectileNetworkId = 1;
     this.profile = null;
   }
@@ -235,12 +237,160 @@ export class AttackSystem {
       if (distance2D(source.position, target.position) > allowedRange) return;
     }
 
+    if (source.definition.attackBehavior?.type === 'chainLightning') {
+      this.syncSourcePoseForAttackEvent(attack);
+      this.resolveChainLightningAttack(source, target, source.definition.attackBehavior);
+      this.trySpawnThunderCloud(source, target);
+      return;
+    }
+
     if (attack.projectileOverride || (source.definition.role === 'ranged' && target?.alive !== false)) {
       this.syncSourcePoseForAttackEvent(attack);
       this.spawnProjectile(source, target, attack.projectileOverride);
       return;
     }
     this.game.combat.applyAttack(source, target);
+  }
+
+  resolveChainLightningAttack(source, initialTarget, behavior = {}) {
+    if (!initialTarget?.position) return;
+    const jumpRange = Math.max(0.1, behavior.jumpRange ?? 4);
+    const hitTargetIds = new Set();
+    let target = initialTarget;
+    let start = this.getProjectileLaunchPosition(source).clone();
+
+    while (target?.alive && target.position) {
+      const targetId = chainTargetId(target);
+      if (hitTargetIds.has(targetId)) break;
+      hitTargetIds.add(targetId);
+      const end = chainLightningPoint(target);
+      this.game.effects.spawnLightningChain(start, end, {
+        color: behavior.color ?? CHAIN_LIGHTNING_COLOR
+      });
+      this.game.combat.applyAttack(source, target, {
+        attackDamageType: 'magic',
+        knockback: Math.min(1, this.game.modifiers.getKnockback(source))
+      });
+      const candidates = this.unitsNear(
+        source.team === TEAMS.PLAYER ? TEAMS.ENEMY : TEAMS.PLAYER,
+        target.position,
+        jumpRange
+      );
+      target = findNextChainLightningTarget(candidates, target.position, hitTargetIds, jumpRange);
+      start = end;
+    }
+  }
+
+  trySpawnThunderCloud(source, target) {
+    if (!hasRuntimeTrait(source, 'thunderCloud') || !target?.position) return false;
+    const ability = source.definition.specialAbilities?.thunderCloud;
+    if (!ability) return false;
+    const key = 'thunderCloud';
+    if ((source.abilityCooldowns.get(key) ?? 0) > 0) return false;
+    source.abilityCooldowns.set(key, Math.max(0.1, ability.cooldown ?? 15));
+    const anchor = target.position.clone();
+    const cloud = {
+      source,
+      anchor,
+      position: anchor.clone(),
+      age: 0,
+      strikeTimer: Math.min(0.55, ability.strikeInterval ?? 1.25),
+      ability
+    };
+    this.thunderClouds.push(cloud);
+    this.game.effects.spawnThunderCloud(cloud);
+    this.spawnMonsterAbilityText(source, '雷云', '#c9b8ff');
+    return true;
+  }
+
+  updateThunderClouds(dt) {
+    for (let index = this.thunderClouds.length - 1; index >= 0; index -= 1) {
+      const cloud = this.thunderClouds[index];
+      const ability = cloud.ability ?? {};
+      cloud.age += dt;
+      const duration = Math.max(0.1, ability.duration ?? 10);
+      if (cloud.age >= duration) {
+        this.thunderClouds.splice(index, 1);
+        continue;
+      }
+      const driftRadius = Math.max(0, ability.driftRadius ?? 0.85);
+      const phase = cloud.age * 0.78 + (cloud.source.id ?? 0) * 0.37;
+      cloud.position.set(
+        cloud.anchor.x + Math.cos(phase) * driftRadius,
+        cloud.anchor.y ?? 0,
+        cloud.anchor.z + Math.sin(phase * 1.31) * driftRadius
+      );
+      cloud.strikeTimer -= dt;
+      if (cloud.strikeTimer > 0) continue;
+      cloud.strikeTimer += Math.max(0.25, ability.strikeInterval ?? 1.25);
+      this.strikeThunderCloud(cloud);
+    }
+  }
+
+  strikeThunderCloud(cloud) {
+    const { source, ability, position } = cloud;
+    const targetTeam = source.team === TEAMS.PLAYER ? TEAMS.ENEMY : TEAMS.PLAYER;
+    const targets = this.unitsNear(targetTeam, position, Math.max(3.5, ability.strikeRadius ?? 2.2));
+    const strikeTarget = findNearestTarget(targets, position);
+    if (!strikeTarget?.position) return;
+    const damage = Math.max(
+      1,
+      this.game.modifiers.getAttackDamage(source, 'magic') * Math.max(0, ability.damageMultiplier ?? 0.7)
+    );
+    const strikeRadius = Math.max(0.1, ability.strikeRadius ?? 2.2);
+    const skyPosition = position.clone();
+    skyPosition.y += Math.max(2.6, ability.height ?? 5.1);
+    this.unitsNear(targetTeam, strikeTarget.position, strikeRadius).forEach((target) => {
+      if (!target?.alive || !target.position) return;
+      this.game.combat.applyDamage(target, damage, source, 0, {
+        damage,
+        source,
+        target,
+        defenseDamageType: 'magic',
+        isAttack: false,
+        isExplosionDamage: false,
+        damageNumberHeight: target.projectileHitHeight ?? 1.45,
+        damageNumberDuration: 0.72
+      });
+      this.game.effects.spawnLightningChain(skyPosition, chainLightningPoint(target), {
+        color: '#e8e2ff',
+        duration: 0.28
+      });
+    });
+  }
+
+  tryLightningSiphon(unit) {
+    if (!hasRuntimeTrait(unit, 'lightningSiphon')) return false;
+    const ability = unit.definition.specialAbilities?.lightningSiphon;
+    if (!ability || (unit.weapon?.durability ?? 0) >= (ability.triggerDurability ?? 10)) return false;
+    const key = 'lightningSiphon';
+    if ((unit.abilityCooldowns.get(key) ?? 0) > 0) return false;
+    const targetTeam = unit.team === TEAMS.PLAYER ? TEAMS.ENEMY : TEAMS.PLAYER;
+    const target = findNearestTarget(
+      this.unitsNear(targetTeam, unit.position, Math.max(0.1, ability.range ?? 4.5))
+        .filter((candidate) => (candidate.weapon?.durability ?? 0) > 0.01),
+      unit.position
+    );
+    if (!target) return false;
+    const missing = Math.max(0, unit.weapon.maxDurability - unit.weapon.durability);
+    const amount = Math.min(ability.amount ?? 10, missing, target.weapon.durability);
+    if (amount <= 0.01) return false;
+    target.spendDurability(amount);
+    const restored = unit.restoreDurability(amount);
+    if (restored <= 0.01) return false;
+    unit.abilityCooldowns.set(key, Math.max(0.1, ability.cooldown ?? 3));
+    this.game.effects.spawnLightningChain(chainLightningPoint(target), chainLightningPoint(unit), {
+      color: '#d8c7ff',
+      duration: 0.32
+    });
+    this.game.effects.spawnDamageNumber(unit.position, restored, {
+      text: `+${Math.round(restored)} 耐久`,
+      color: '#d8c7ff',
+      stroke: '#27213e',
+      height: unit.projectileHitHeight ?? 1.55,
+      duration: 0.68
+    });
+    return true;
   }
 
   resolveMonsterAbility(attack) {
@@ -733,6 +883,7 @@ export class AttackSystem {
       pool.forEach((object) => disposeObject3D(object));
     });
     this.projectilePools.clear();
+    this.thunderClouds.length = 0;
     this.pendingAttacks.length = 0;
     this.activeAttackBySourceId.clear();
   }
@@ -753,6 +904,37 @@ function isPendingAttackActive(attack) {
 
 function hasRuntimeTrait(unit, trait) {
   return unit?.runtimeTraits?.has?.(trait) === true;
+}
+
+export function findNextChainLightningTarget(targets, origin, hitTargetIds, jumpRange) {
+  let closest = null;
+  let closestDistance = Math.max(0, jumpRange) ** 2;
+  for (const target of targets ?? []) {
+    if (!target?.alive || !target.position || hitTargetIds?.has(chainTargetId(target))) continue;
+    const dx = target.position.x - origin.x;
+    const dz = target.position.z - origin.z;
+    const distanceSq = dx * dx + dz * dz;
+    if (distanceSq > closestDistance) continue;
+    closest = target;
+    closestDistance = distanceSq;
+  }
+  return closest;
+}
+
+function findNearestTarget(targets, origin) {
+  return findNextChainLightningTarget(targets, origin, new Set(), Number.POSITIVE_INFINITY);
+}
+
+function chainTargetId(target) {
+  return target?.id ?? target;
+}
+
+function chainLightningPoint(target) {
+  return new THREE.Vector3(
+    target.position.x,
+    (target.position.y ?? 0) + (target.projectileHitHeight ?? 1.1),
+    target.position.z
+  );
 }
 
 function shieldRatio(unit) {

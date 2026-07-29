@@ -137,6 +137,118 @@ export class EffectsSystem {
     }, () => this.releasePooledEffect(poolKey, ring));
   }
 
+  spawnLightningChain(start, end, options = {}) {
+    if (!start || !end) return;
+    const distance = start.distanceTo(end);
+    if (distance < 0.05) return;
+    const color = options.color ?? '#bba8ff';
+    const duration = Math.max(0.08, options.duration ?? 0.2);
+    const points = lightningPoints(start, end, distance);
+    const group = new THREE.Group();
+    const haloMaterial = new THREE.LineBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.3,
+      depthWrite: false,
+      depthTest: false
+    });
+    const coreMaterial = new THREE.LineBasicMaterial({
+      color: '#f7f2ff',
+      transparent: true,
+      opacity: 0.98,
+      depthWrite: false,
+      depthTest: false
+    });
+    const halo = new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), haloMaterial);
+    const core = new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), coreMaterial);
+    halo.scale.setScalar(1.018);
+    halo.renderOrder = 1880;
+    core.renderOrder = 1881;
+    const impact = new THREE.Mesh(
+      new THREE.OctahedronGeometry(0.11, 0),
+      basicMat('#ffffff', {
+        transparent: true,
+        opacity: 0.95,
+        depthWrite: false,
+        depthTest: false
+      })
+    );
+    impact.position.copy(end);
+    impact.renderOrder = 1882;
+    group.add(halo, core, impact);
+    this.addEffect(group, duration, (_, t) => {
+      const fade = Math.max(0, 1 - t);
+      haloMaterial.opacity = 0.3 * fade;
+      coreMaterial.opacity = 0.98 * fade;
+      impact.material.opacity = 0.95 * fade;
+      impact.scale.setScalar(1 + t * 2.2);
+      impact.rotation.y += 0.24;
+    });
+    if (options.impactRadius > 0) {
+      this.spawnRing(end, color, options.impactRadius, Math.min(0.42, duration + 0.12));
+    }
+  }
+
+  spawnThunderCloud(state) {
+    if (!state?.position) return;
+    const ability = state.ability ?? {};
+    const duration = Math.max(0.1, ability.duration ?? 10);
+    const height = Math.max(2.6, ability.height ?? 5.1);
+    const group = new THREE.Group();
+    const cloudMaterial = mat('#303a58', {
+      transparent: true,
+      opacity: 0.9,
+      emissive: '#222a48',
+      emissiveIntensity: 0.28,
+      depthWrite: false
+    }).clone();
+    const cloudLightMaterial = mat('#58618c', {
+      transparent: true,
+      opacity: 0.8,
+      emissive: '#8072bc',
+      emissiveIntensity: 0.3,
+      depthWrite: false
+    }).clone();
+    const lobes = [
+      [-0.48, 0.04, 0.1, 0.7],
+      [0, 0.12, 0.02, 0.92],
+      [0.5, 0.02, -0.06, 0.68],
+      [-0.08, -0.12, 0.35, 0.6]
+    ].map(([x, y, z, scale], index) => {
+      const lobe = new THREE.Mesh(
+        new THREE.DodecahedronGeometry(0.58, 0),
+        index % 2 === 0 ? cloudMaterial : cloudLightMaterial
+      );
+      lobe.position.set(x, height + y, z);
+      lobe.scale.setScalar(scale);
+      lobe.renderOrder = 1870;
+      return lobe;
+    });
+    const glow = new THREE.Mesh(
+      new THREE.CircleGeometry(0.52, 16),
+      basicMat('#bba8ff', {
+        transparent: true,
+        opacity: 0.14,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        depthTest: false
+      })
+    );
+    glow.rotation.x = -Math.PI / 2;
+    glow.position.y = height - 0.38;
+    glow.renderOrder = 1869;
+    group.add(glow, ...lobes);
+    this.addEffect(group, duration, (_, progress) => {
+      group.position.copy(state.position);
+      const pulse = 0.78 + Math.sin((state.age ?? 0) * 5.5) * 0.14;
+      glow.scale.setScalar(pulse);
+      glow.material.opacity = 0.1 + Math.max(0, Math.sin((state.age ?? 0) * 3.7)) * 0.12;
+      const fade = Math.min(1, (1 - progress) * 2.4);
+      cloudMaterial.opacity = 0.9 * fade;
+      cloudLightMaterial.opacity = 0.8 * fade;
+    });
+  }
+
   spawnNetworkAreaEffect(state) {
     if (!state?.id || !Array.isArray(state.position)) return false;
     if (this.effects.some((effect) => effect.networkAreaEffectId === state.id)) return true;
@@ -1753,6 +1865,30 @@ function damageNumberColor(damageType) {
   if (damageType === 'true') return '#ffffff';
   if (damageType === 'magic') return '#9bdcff';
   return '#ff9b35';
+}
+
+function lightningPoints(start, end, distance) {
+  const segmentCount = Math.max(3, Math.min(9, Math.ceil(distance * 1.35)));
+  const direction = new THREE.Vector3().subVectors(end, start).normalize();
+  const side = new THREE.Vector3(-direction.z, 0, direction.x);
+  if (side.lengthSq() < 0.001) side.set(1, 0, 0);
+  side.normalize();
+  const up = new THREE.Vector3().crossVectors(direction, side).normalize();
+  const points = [start.clone()];
+  for (let index = 1; index < segmentCount; index += 1) {
+    const t = index / segmentCount;
+    const width = Math.sin(Math.PI * t) * Math.min(0.52, distance * 0.12);
+    const sideOffset = (Math.random() - 0.5) * width * 2;
+    const upOffset = (Math.random() - 0.5) * width * 1.2;
+    points.push(
+      new THREE.Vector3()
+        .lerpVectors(start, end, t)
+        .addScaledVector(side, sideOffset)
+        .addScaledVector(up, upOffset)
+    );
+  }
+  points.push(end.clone());
+  return points;
 }
 
 function formatResourceAmount(value) {

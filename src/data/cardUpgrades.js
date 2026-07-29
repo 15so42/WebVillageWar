@@ -185,6 +185,22 @@ export const UNIT_SPECIAL_UPGRADES = {
       trait: 'greatWaterOrb'
     }
   ],
+  lightningMage: [
+    {
+      id: 'lightning-mage-thunder-cloud',
+      kind: 'unit-special',
+      name: '雷云',
+      summary: '攻击时在目标区域召唤雷云；雷云持续 10 秒，每 1.25 秒降下落雷，对 2.2 范围造成 70% 魔法攻击的魔法伤害。冷却 15 秒。',
+      trait: 'thunderCloud'
+    },
+    {
+      id: 'lightning-mage-durability-siphon',
+      kind: 'unit-special',
+      name: '耐久汲取',
+      summary: '自身武器耐久低于 10 时，吸取 4.5 范围内最近敌方单位至多 10 点武器耐久并恢复等量耐久。冷却 3 秒。',
+      trait: 'lightningSiphon'
+    }
+  ],
   rogue: [
     {
       id: 'rogue-backstab',

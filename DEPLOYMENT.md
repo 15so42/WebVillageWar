@@ -20,7 +20,7 @@ npm run build -- --base=/web-village-war/
 ## 上传
 
 ```powershell
-scp -i C:\Users\A\.ssh\id_rsa -o BatchMode=yes -o StrictHostKeyChecking=accept-new -r .\dist\* deploy@47.100.215.224:/var/www/web-village-war/
+scp -i C:\Users\12930\.ssh\webvillagewar_deploy -o BatchMode=yes -o StrictHostKeyChecking=accept-new -r .\dist\* deploy@47.100.215.224:/var/www/web-village-war/
 ```
 
 ## 验证
