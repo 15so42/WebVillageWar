@@ -21,6 +21,8 @@ const MSG = Object.freeze({
   ROOM_CREATE: 'room_create',
   ROOM_JOIN: 'room_join',
   ROOM_LEAVE: 'room_leave',
+  ROOM_KICK: 'room_kick',
+  ROOM_KICKED: 'room_kicked',
   ROOM_STATE: 'room_state',
   ROOM_CLOSED: 'room_closed',
   HEARTBEAT: 'heartbeat',
@@ -295,6 +297,41 @@ function forwardMessage(socket, message) {
   });
 }
 
+function kickPlayer(socket, message) {
+  const info = connections.get(socket);
+  const room = info ? rooms.get(info.roomId) : null;
+  if (!room || !room.players.has(info.playerId)) return;
+  if (info.playerId !== room.hostPlayerId) {
+    return send(socket, { type: MSG.ERROR, message: '只有房主可以移出玩家' });
+  }
+  const targetPlayerId = String(message.playerId ?? message.targetPlayerId ?? '');
+  if (!targetPlayerId || targetPlayerId === room.hostPlayerId) {
+    return send(socket, { type: MSG.ERROR, message: '不能移出该玩家' });
+  }
+  const targetPlayer = room.players.get(targetPlayerId);
+  if (!targetPlayer) {
+    broadcastRoom(room);
+    return;
+  }
+  clearTimeout(targetPlayer.disconnectTimer);
+  targetPlayer.disconnectTimer = null;
+  room.players.delete(targetPlayerId);
+  room.playerOrder = room.playerOrder.filter((id) => id !== targetPlayerId);
+  room.sockets.forEach((peer) => {
+    const peerInfo = connections.get(peer);
+    if (peerInfo?.playerId !== targetPlayerId) return;
+    send(peer, {
+      type: MSG.ROOM_KICKED,
+      roomId: room.id,
+      playerId: targetPlayerId,
+      reason: 'kicked_by_host'
+    });
+    connections.delete(peer);
+    room.sockets.delete(peer);
+  });
+  broadcastRoom(room);
+}
+
 function detachSocket(socket, { explicit = false, notify = true } = {}) {
   const info = connections.get(socket);
   if (!info) return;
@@ -404,6 +441,9 @@ wss.on('connection', (socket) => {
           break;
         case MSG.ROOM_LEAVE:
           detachSocket(socket, { explicit: true });
+          break;
+        case MSG.ROOM_KICK:
+          kickPlayer(socket, message);
           break;
         case MSG.RECONNECT:
           handleReconnect(socket, message);

@@ -118,6 +118,7 @@ const MAX_LEVEL_DIFFICULTY = 10;
 const TOTAL_WAVES = 21;
 const BOSS_WAVES_TO_WIN = 3;
 const WAVES_PER_BOSS = 7;
+const COOP_REWARD_AUTO_SELECT_SECONDS = 30;
 const BOSS_HEALTH_MULTIPLIER = 0.6;
 const ELITE_WAVE_INTERVAL = 3;
 const WAVE_DIFFICULTY_STEP_WAVES = 3;
@@ -643,6 +644,9 @@ export class Game {
     this.activeEconomySlot = this.localPlayerSlot;
     this.coopRewardWaitSlots = null;
     this.coopRewardKind = null;
+    this.coopRewardDeadlineAtMs = null;
+    this.coopRewardLastPublishedSecond = null;
+    this.coopRewardAutoSelectSecondsRemaining = null;
     this.networkBridge = networkBridge ?? null;
     this.networkClientMode = this.networkRole === 'client';
     this.networkStrategySelectionRequired = false;
@@ -827,6 +831,7 @@ export class Game {
     this.runShopActiveCategory = null;
     this.runShopChoices = [];
     this.runShopFreeReward = false;
+    this.runShopAutoSelectSecondsRemaining = null;
     this.levelTestMode = false;
     this.debugTimeScale = 1;
     this.strategyEvent = null;
@@ -1198,6 +1203,7 @@ export class Game {
     this.networkBridge?.unbindGame();
     this.networkAnalysisUi?.destroy();
     this.networkAnalysisUi = null;
+    this.clearCoopRewardAutoSelectTimer();
     this.disposeNavDebug();
     this.renderer.dispose();
     this.selectionBox?.remove();
@@ -1239,6 +1245,7 @@ export class Game {
     if (this.paused) {
       // 联机暂停（波次奖励/军需铺）时仍要处理远端命令与私有状态推送
       this.networkBridge?.beforeTick?.(0);
+      this.updateCoopRewardAutoResolve();
       this.updateCamera(0);
       this.world.update?.(0, this.cameraTarget, this.camera, { forceStaticCulling: true });
       this.updateHud(0);
@@ -1258,6 +1265,7 @@ export class Game {
       return;
     }
     this.networkBridge?.beforeTick(dt);
+    this.updateCoopRewardAutoResolve();
     const perf = this.perfTracker;
     if (perf) {
       perf.beginFrame(dt);
@@ -1511,6 +1519,155 @@ export class Game {
     this.continueAfterStrategyFlow(shouldStartFirstWave);
   }
 
+  isCoopPlayerConnected(slot) {
+    return this.players?.[slot]?.connected !== false;
+  }
+
+  startCoopRewardAutoSelectTimer() {
+    if (!this.coop?.enabled || this.networkClientMode) return;
+    const now = globalThis.performance?.now?.() ?? Date.now();
+    this.coopRewardDeadlineAtMs = now + COOP_REWARD_AUTO_SELECT_SECONDS * 1000;
+    this.coopRewardLastPublishedSecond = null;
+    this.publishCoopRewardCountdown(true);
+  }
+
+  clearCoopRewardAutoSelectTimer() {
+    this.coopRewardDeadlineAtMs = null;
+    this.coopRewardLastPublishedSecond = null;
+    this.setCoopRewardCountdownSeconds(null, { force: true, render: true });
+  }
+
+  coopRewardSecondsRemaining() {
+    if (!Number.isFinite(this.coopRewardDeadlineAtMs) || !this.coopRewardWaitSlots?.size) return null;
+    const now = globalThis.performance?.now?.() ?? Date.now();
+    return Math.max(0, Math.ceil((this.coopRewardDeadlineAtMs - now) / 1000));
+  }
+
+  setCoopRewardCountdownSeconds(seconds, options = {}) {
+    const normalized = Number.isFinite(seconds) ? Math.max(0, Math.ceil(seconds)) : null;
+    if (!options.force && this.coopRewardAutoSelectSecondsRemaining === normalized) return false;
+    this.coopRewardAutoSelectSecondsRemaining = normalized;
+    this.runShopAutoSelectSecondsRemaining = normalized;
+    if (this.strategyEvent) {
+      this.strategyEvent.autoSelectSecondsRemaining = normalized;
+    }
+    if (options.render) {
+      if (this.strategyEvent && this.strategyEventUi?.root && !this.strategyEventUi.root.hidden) {
+        this.renderStrategyEvent();
+      } else {
+        this.updateCoopRewardWaitingSummary();
+      }
+      if (this.runShopOpen) this.renderRunShop();
+    }
+    return true;
+  }
+
+  publishCoopRewardCountdown(force = false) {
+    const seconds = this.coopRewardSecondsRemaining();
+    this.setCoopRewardCountdownSeconds(seconds, { force, render: true });
+    if (!force && this.coopRewardLastPublishedSecond === seconds) return false;
+    this.coopRewardLastPublishedSecond = seconds;
+    this.networkBridge?.markPrivateStateDirty?.();
+    return true;
+  }
+
+  updateCoopRewardAutoResolve() {
+    if (this.networkClientMode || !this.coop?.enabled || !this.coopRewardWaitSlots?.size) return;
+    if (!Number.isFinite(this.coopRewardDeadlineAtMs)) {
+      this.startCoopRewardAutoSelectTimer();
+    }
+    this.resolveDisconnectedCoopRewardSlots();
+    if (!this.coopRewardWaitSlots?.size) return;
+    const seconds = this.coopRewardSecondsRemaining();
+    this.publishCoopRewardCountdown();
+    if (seconds > 0) return;
+    [...this.coopRewardWaitSlots].forEach((slot) => {
+      if (this.coopRewardWaitSlots?.has(slot)) this.autoCompleteCoopRewardSlot(slot, 'timeout');
+    });
+  }
+
+  resolveDisconnectedCoopRewardSlots() {
+    if (this.networkClientMode || !this.coopRewardWaitSlots?.size) return false;
+    let changed = false;
+    [...this.coopRewardWaitSlots].forEach((slot) => {
+      if (this.players?.[slot]?.connected !== false) return;
+      changed = this.autoCompleteCoopRewardSlot(slot, 'disconnect') || changed;
+    });
+    return changed;
+  }
+
+  autoCompleteCoopRewardSlot(slot, reason = 'timeout') {
+    if (!this.coopRewardWaitSlots?.has(slot)) return false;
+    if (this.coopRewardKind === 'strategy') {
+      return this.autoChooseCoopStrategyReward(slot);
+    }
+    if (this.coopRewardKind === 'run-shop') {
+      if (reason === 'disconnect' || this.players?.[slot]?.connected === false) {
+        return this.skipCoopRunShopForSlot(slot);
+      }
+      return this.autoChooseCoopRunShop(slot);
+    }
+    return false;
+  }
+
+  autoChooseCoopStrategyReward(slot) {
+    this.withPlayerContext(slot, () => {
+      const choices = Array.isArray(this.strategyEvent?.choices)
+        ? this.strategyEvent.choices
+        : [];
+      for (const choice of choices) {
+        if (choice && this.applyStrategyChoice(choice)) break;
+      }
+    });
+    this.finishCoopStrategyReward(slot);
+    return true;
+  }
+
+  autoChooseCoopRunShop(slot) {
+    this.withPlayerContext(slot, () => {
+      this.completeRunShopAutoSelection();
+    });
+    this.finishCoopRunShop(slot);
+    return true;
+  }
+
+  skipCoopRunShopForSlot(slot) {
+    this.withPlayerContext(slot, () => {
+      this.runShopFreeReward = false;
+      this.runShopActiveCategory = null;
+      this.runShopChoices = [];
+    });
+    this.finishCoopRunShop(slot);
+    return true;
+  }
+
+  completeRunShopAutoSelection() {
+    if (!this.runShopFreeReward) return false;
+    const tryCurrentSelection = () => {
+      if (this.runShopActiveCategory === 'energy') {
+        return this.purchaseRunShopEnergy({ deferFreeRewardClose: true });
+      }
+      const choice = (this.runShopChoices ?? []).find((entry) => entry && !entry.disabled);
+      return choice
+        ? this.completeRunShopPurchase(choice, { deferFreeRewardClose: true })
+        : false;
+    };
+    if (tryCurrentSelection()) return true;
+    for (const category of RUN_SHOP_CATEGORIES) {
+      if (!category?.key) continue;
+      const availability = this.canRunShopCategory(category.key);
+      if (!availability.ok) continue;
+      if (category.key === 'energy') {
+        if (this.purchaseRunShopEnergy({ deferFreeRewardClose: true })) return true;
+        continue;
+      }
+      this.selectRunShopCategory(category.key);
+      if (tryCurrentSelection()) return true;
+    }
+    this.clearRunShopSelection();
+    return false;
+  }
+
   openCoopStrategyEventForAll(type, options = {}) {
     if (!this.players) {
       return this.openStrategyEvent(type, options);
@@ -1539,9 +1696,13 @@ export class Game {
     if (!this.coopRewardWaitSlots.size) {
       this.coopRewardWaitSlots = null;
       this.coopRewardKind = null;
+      this.clearCoopRewardAutoSelectTimer();
       this.continueAfterStrategyFlow(false);
       return false;
     }
+    this.startCoopRewardAutoSelectTimer();
+    this.resolveDisconnectedCoopRewardSlots();
+    if (!this.coopRewardWaitSlots?.size) return true;
     this.showLocalCoopStrategyUi();
     this.networkBridge?.markPrivateStateDirty?.();
     return true;
@@ -1568,7 +1729,7 @@ export class Game {
     this.strategyEventUi.kicker.textContent = '联机奖励';
     this.strategyEventUi.kicker.hidden = false;
     this.strategyEventUi.title.textContent = '等待其他玩家';
-    this.strategyEventUi.summary.textContent = '你的奖励已经选择完成，所有玩家完成选择后将继续游戏。';
+    this.strategyEventUi.summary.textContent = this.coopRewardWaitingSummary();
     this.strategyEventUi.summary.hidden = false;
     this.strategyEventUi.choices.innerHTML = '';
     this.strategyEventUi.actions.hidden = true;
@@ -1602,7 +1763,7 @@ export class Game {
     this.strategyEventUi.kicker.textContent = '联机军需铺';
     this.strategyEventUi.kicker.hidden = false;
     this.strategyEventUi.title.textContent = '等待队友完成军需铺';
-    this.strategyEventUi.summary.textContent = '你的免费军需奖励已经处理完成，所有玩家完成后会继续战斗。';
+    this.strategyEventUi.summary.textContent = this.coopRunShopWaitingSummary();
     this.strategyEventUi.summary.hidden = false;
     this.strategyEventUi.choices.innerHTML = '';
     this.strategyEventUi.actions.hidden = true;
@@ -1621,6 +1782,33 @@ export class Game {
     document.body.classList.remove('is-strategy-event-open');
     this.cardSystem?.clearHint?.('coop-wait-shop');
     return true;
+  }
+
+  coopRewardWaitingSummary() {
+    return appendCoopRewardCountdown(
+      '你的奖励已经选择完成，所有玩家完成选择后将继续游戏。',
+      this.coopRewardAutoSelectSecondsRemaining,
+      '超时将自动为未选择玩家选择一项。'
+    );
+  }
+
+  coopRunShopWaitingSummary() {
+    return appendCoopRewardCountdown(
+      '你的免费军需奖励已经处理完成，所有玩家完成后会继续战斗。',
+      this.coopRewardAutoSelectSecondsRemaining,
+      '超时将自动处理未完成玩家。'
+    );
+  }
+
+  updateCoopRewardWaitingSummary() {
+    const eventType = this.strategyEventUi?.root?.dataset?.eventType;
+    if (eventType === 'waiting' && this.strategyEventUi?.summary) {
+      this.strategyEventUi.summary.textContent = this.coopRewardWaitingSummary();
+      this.strategyEventUi.summary.hidden = false;
+    } else if (eventType === 'run-shop-waiting' && this.strategyEventUi?.summary) {
+      this.strategyEventUi.summary.textContent = this.coopRunShopWaitingSummary();
+      this.strategyEventUi.summary.hidden = false;
+    }
   }
 
   syncNetworkStrategyEventUi() {
@@ -1673,6 +1861,9 @@ export class Game {
         this.strategyEvent = null;
       });
     }
+    if (this.players?.[resolvedSlot]) {
+      this.players[resolvedSlot].strategyEvent = null;
+    }
     this.coopRewardWaitSlots?.delete(resolvedSlot);
     if (resolvedSlot === this.localPlayerSlot) {
       this.strategyEvent = null;
@@ -1686,6 +1877,7 @@ export class Game {
     if (this.coopRewardWaitSlots?.size) return;
     this.coopRewardWaitSlots = null;
     this.coopRewardKind = null;
+    this.clearCoopRewardAutoSelectTimer();
     // The final choice may come from a remote player. In that case the Host's
     // local waiting dialog is still open and must be closed here as part of
     // the shared completion path, not only in the local-player branch above.
@@ -1704,16 +1896,31 @@ export class Game {
     if (!this.players) {
       return this.openRunShop(options);
     }
-    this.coopRewardWaitSlots = new Set(this.coopPlayerSlots());
+    this.coopRewardWaitSlots = new Set();
     this.coopRewardKind = 'run-shop';
     this.coopPlayerSlots().forEach((slot) => {
       const run = this.players[slot];
-      run.runShopFreeReward = options.freeReward === true;
+      const canUseShop = this.isCoopPlayerConnected(slot);
+      run.runShopFreeReward = options.freeReward === true && canUseShop;
       run.runShopActiveCategory = null;
       run.runShopChoices = [];
-      run.runShopPendingOffers = options.freeReward === true ? {} : (run.runShopPendingOffers ?? {});
+      run.runShopPendingOffers = options.freeReward === true && canUseShop ? {} : (run.runShopPendingOffers ?? {});
+      if (run.runShopFreeReward) this.coopRewardWaitSlots.add(slot);
     });
-    this.openRunShop(options);
+    if (!this.coopRewardWaitSlots.size) {
+      this.coopRewardWaitSlots = null;
+      this.coopRewardKind = null;
+      this.clearCoopRewardAutoSelectTimer();
+      this.networkBridge?.markPrivateStateDirty?.();
+      this.continueAfterStrategyFlow(false);
+      return false;
+    }
+    this.startCoopRewardAutoSelectTimer();
+    if (this.coopRewardWaitSlots.has(this.localPlayerSlot)) {
+      this.openRunShop(options);
+    } else {
+      this.showCoopRunShopWaitingUi();
+    }
     this.networkBridge?.markPrivateStateDirty?.();
     return true;
   }
@@ -1724,18 +1931,33 @@ export class Game {
       this.runShopFreeReward = false;
       this.runShopActiveCategory = null;
       this.runShopChoices = [];
+      this.runShopPendingOffers = {};
+      this.runShopAutoSelectSecondsRemaining = null;
     };
     if (this.activeEconomySlot === resolvedSlot) closeShopState();
     else this.withPlayerContext(resolvedSlot, closeShopState);
+    const run = this.players?.[resolvedSlot];
+    if (run) {
+      run.runShopFreeReward = false;
+      run.runShopActiveCategory = null;
+      run.runShopChoices = [];
+      run.runShopPendingOffers = {};
+      run.runShopAutoSelectSecondsRemaining = null;
+    }
     this.coopRewardWaitSlots?.delete(resolvedSlot);
     if (resolvedSlot === this.localPlayerSlot) {
       if (this.runShopUi?.overlay) {
         this.runShopUi.overlay.hidden = true;
         this.runShopUi.overlay.setAttribute('hidden', '');
       }
+      if (this.runShopUi?.choices) this.runShopUi.choices.hidden = true;
+      this.runShopUi?.root?.classList.remove('is-free-reward');
+      this.runShopUi?.toggle?.classList.remove('is-active');
       document.body.classList.remove('is-run-shop-open');
       this.runShopOpen = false;
       this.runShopFreeReward = false;
+      this.runShopCausedPause = false;
+      this.cardSystem?.clearHint?.('boss-shop');
       if (this.coopRewardWaitSlots?.size) {
         this.showCoopRunShopWaitingUi();
       }
@@ -1744,6 +1966,7 @@ export class Game {
     if (this.coopRewardWaitSlots?.size) return;
     this.coopRewardWaitSlots = null;
     this.coopRewardKind = null;
+    this.clearCoopRewardAutoSelectTimer();
     this.hideCoopRunShopWaitingUi();
     this.cardSystem?.clearHint?.('coop-wait-shop');
     document.body.classList.remove('is-game-paused', 'is-run-shop-open');
@@ -1779,10 +2002,7 @@ export class Game {
   }
 
   applyNetworkShopCategory(slot, category) {
-    return this.withPlayerContext(slot, () => {
-      this.selectRunShopCategory(category);
-      return true;
-    });
+    return this.withPlayerContext(slot, () => this.selectRunShopCategory(category));
   }
 
   applyNetworkShopChoice(slot, index) {
@@ -1821,10 +2041,29 @@ export class Game {
     });
   }
 
+  isLocalCoopRunShopWaiting() {
+    if (!this.coop?.enabled || this.runShopFreeReward) return false;
+    if (this.strategyEventUi?.root?.dataset?.eventType === 'run-shop-waiting') return true;
+    return Boolean(
+      this.coopRewardKind === 'run-shop'
+      && this.coopRewardWaitSlots?.size
+      && !this.coopRewardWaitSlots.has(this.localPlayerSlot)
+    );
+  }
+
   applyNetworkPrivateUi(state) {
     if (!this.networkClientMode || !state) return;
+    let receivedRewardCountdown = false;
     if ('strategySelectionRequired' in state) {
       this.networkStrategySelectionRequired = Boolean(state.strategySelectionRequired);
+    }
+    if ('coopRewardAutoSelectSecondsRemaining' in state) {
+      const seconds = Number(state.coopRewardAutoSelectSecondsRemaining);
+      const normalizedSeconds = Number.isFinite(seconds) ? Math.max(0, Math.ceil(seconds)) : null;
+      this.coopRewardAutoSelectSecondsRemaining = normalizedSeconds;
+      this.runShopAutoSelectSecondsRemaining = normalizedSeconds;
+      if (this.strategyEvent) this.strategyEvent.autoSelectSecondsRemaining = normalizedSeconds;
+      receivedRewardCountdown = true;
     }
     if (state.strategyWaiting) {
       this.strategyEvent = null;
@@ -1847,6 +2086,8 @@ export class Game {
           kicker: state.strategyUi.kicker,
           title: state.strategyUi.title,
           summary: state.strategyUi.summary,
+          autoSelectSecondsRemaining: state.strategyUi.autoSelectSecondsRemaining
+            ?? this.coopRewardAutoSelectSecondsRemaining,
           wave: state.strategyUi.wave,
           choices: state.strategyUi.choices.map((choice) => ({
             ...choice,
@@ -1875,6 +2116,8 @@ export class Game {
       }));
       this.runShopNetworkOfferId = shopState.offerId ?? null;
       this.runShopNetworkRevision = shopState.revision ?? null;
+      this.runShopAutoSelectSecondsRemaining = shopState.autoSelectSecondsRemaining
+        ?? this.coopRewardAutoSelectSecondsRemaining;
       if (shouldRestoreFreeRunShopUi({
         freeReward: this.runShopFreeReward,
         runShopOpen: this.runShopOpen,
@@ -1895,6 +2138,13 @@ export class Game {
           this.onNetworkMatchPhaseChanged(this.networkBridge?.phase);
         }
       }
+    }
+    if (receivedRewardCountdown) {
+      if (this.strategyEvent && this.strategyEventUi?.root && !this.strategyEventUi.root.hidden) {
+        this.renderStrategyEvent();
+      }
+      if (this.runShopOpen) this.renderRunShop();
+      this.updateCoopRewardWaitingSummary();
     }
   }
 
@@ -1989,6 +2239,10 @@ export class Game {
   toggleRunShop() {
     if (this.levelFinished || this.levelSession.debug) return;
     if (this.strategyEvent) return;
+    if (!this.runShopFreeReward && this.isLocalCoopRunShopWaiting()) {
+      this.showCoopRunShopWaitingUi();
+      return;
+    }
     if (this.runShopFreeReward) {
       if (shouldRestoreFreeRunShopUi({
         freeReward: true,
@@ -2013,6 +2267,10 @@ export class Game {
   }
 
   openRunShop(options = {}) {
+    if (!options.freeReward && this.isLocalCoopRunShopWaiting()) {
+      this.showCoopRunShopWaitingUi();
+      return false;
+    }
     this.runShopUi = ensureRunShopUi(this.runShopUi);
     this.bindRunShopUi();
     if (this.strategyEventUi?.root) {
@@ -2058,6 +2316,7 @@ export class Game {
     }
     this.renderRunShop();
     this.runShopUi.root?.focus?.();
+    return true;
   }
 
   closeRunShop(options = {}) {
@@ -2115,23 +2374,22 @@ export class Game {
 
   selectRunShopCategory(category) {
     const categoryMeta = RUN_SHOP_CATEGORIES.find((entry) => entry.key === category);
-    if (!categoryMeta) return;
+    if (!categoryMeta) return false;
     if (category === 'energy') {
-      this.purchaseRunShopEnergy();
-      return;
+      return this.purchaseRunShopEnergy();
     }
     const availability = this.canRunShopCategory(category);
-    if (!availability.ok) return;
+    if (!availability.ok) return false;
     const isFree = this.runShopFreeReward;
     const price = this.shopPrice(category);
     if (!isFree && this.getSilver() + 0.001 < price) {
       this.cardSystem?.setHint?.('银币不足', 'run-shop');
-      return;
+      return false;
     }
     let choices = categoryMeta?.picker ? null : this.runShopPendingOffers[category];
     if (!choices?.length) {
       choices = this.createShopChoicesForCategory(category);
-      if (!choices.length) return;
+      if (!choices.length) return false;
       if (!categoryMeta?.picker) {
         choices = choices.slice(0, STRATEGY_CHOICE_COUNT);
         this.runShopPendingOffers[category] = choices;
@@ -2141,6 +2399,7 @@ export class Game {
     this.runShopChoices = choices;
     if (this.isLocalEconomyContext() && this.runShopUi?.choices) this.runShopUi.choices.hidden = false;
     this.renderRunShop();
+    return true;
   }
 
   completeRunShopPurchase(choice, options = {}) {
@@ -2213,7 +2472,7 @@ export class Game {
       this.runShopUi.root.classList.toggle('is-wave-card-picker', useHorizontalRow);
       if (this.runShopUi.kicker) {
         this.runShopUi.kicker.textContent = this.runShopFreeReward
-          ? `Boss 战利 #${this.bossesDefeated} · 免费一次`
+          ? `Boss 战利 #${this.bossesDefeated} · 免费一次${formatCoopRewardCountdownSuffix(this.runShopAutoSelectSecondsRemaining)}`
           : isCatalogPicker
             ? '军需铺 · 已有卡牌 · 选定后立即购买'
             : '军需铺 · 选定后立即购买';
@@ -2239,7 +2498,7 @@ export class Game {
     this.runShopUi.root.classList.remove('is-detail', 'is-wave-card-picker');
     if (this.runShopUi.kicker) {
       this.runShopUi.kicker.textContent = this.runShopFreeReward
-        ? `Boss 战利 #${this.bossesDefeated} · 免费一次`
+        ? `Boss 战利 #${this.bossesDefeated} · 免费一次${formatCoopRewardCountdownSuffix(this.runShopAutoSelectSecondsRemaining)}`
         : '营地军需 · B';
     }
     if (this.runShopUi.title) {
@@ -3149,8 +3408,13 @@ export class Game {
       this.strategyEventUi.title.textContent = event.title ?? '选择奖励';
     }
     if (this.strategyEventUi.summary) {
-      this.strategyEventUi.summary.textContent = event.summary ?? '';
-      this.strategyEventUi.summary.hidden = !event.summary;
+      const summary = appendCoopRewardCountdown(
+        event.summary ?? '',
+        event.autoSelectSecondsRemaining ?? this.coopRewardAutoSelectSecondsRemaining,
+        '超时将自动选择一项。'
+      );
+      this.strategyEventUi.summary.textContent = summary;
+      this.strategyEventUi.summary.hidden = !summary;
     }
     this.strategyEventUi.choices.innerHTML = event.choices
       .map((choice, index) => strategyRewardMarkup(choice, index))
@@ -8516,6 +8780,23 @@ function formatSilverAmount(amount) {
   const value = Math.max(0, Number(amount) || 0);
   if (Math.abs(value - Math.round(value)) < 0.05) return String(Math.round(value));
   return value.toFixed(1);
+}
+
+function normalizeCoopRewardSeconds(seconds) {
+  const value = Number(seconds);
+  return Number.isFinite(value) ? Math.max(0, Math.ceil(value)) : null;
+}
+
+function formatCoopRewardCountdownSuffix(seconds) {
+  const value = normalizeCoopRewardSeconds(seconds);
+  return value === null ? '' : ` · 剩余 ${value} 秒`;
+}
+
+function appendCoopRewardCountdown(text, seconds, timeoutText) {
+  const value = normalizeCoopRewardSeconds(seconds);
+  const base = String(text ?? '').trim();
+  if (value === null) return base;
+  return [base, `剩余 ${value} 秒，${timeoutText}`].filter(Boolean).join(' ');
 }
 
 function formatDisplayedHealth(health) {

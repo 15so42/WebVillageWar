@@ -1895,8 +1895,8 @@ export class CardSystem {
   }
 
   findCardByInstanceId(instanceId) {
-    return this.handCards.find((card) => card.instanceId === instanceId)
-      ?? this.temporaryCards.find((card) => card.instanceId === instanceId)
+    return this.handCards.find((card) => card?.instanceId === instanceId)
+      ?? this.temporaryCards.find((card) => card?.instanceId === instanceId)
       ?? null;
   }
 
@@ -1908,7 +1908,7 @@ export class CardSystem {
       ? this.game.friendlyUnits.find((unit) => unit.id === payload.targetUnitId)
       : null;
     const targetCard = payload.targetCardInstanceId
-      ? this.handCards.find((entry) => entry.instanceId === payload.targetCardInstanceId)
+      ? this.handCards.find((entry) => entry?.instanceId === payload.targetCardInstanceId)
       : null;
     return {
       card,

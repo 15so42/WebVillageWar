@@ -6624,7 +6624,37 @@ body.is-coop-lobby-open #meta-root {
 
 .coop-player-list {
   margin: 12px 0 0;
-  padding-left: 18px;
+  padding-left: 0;
+  list-style: none;
+}
+
+.coop-player-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 34px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(164, 198, 220, 0.1);
+}
+
+.coop-player-row strong {
+  color: #f4ead2;
+}
+
+.coop-kick-button {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border: 1px solid rgba(238, 126, 103, 0.45);
+  border-radius: 6px;
+  background: rgba(83, 31, 27, 0.72);
+  color: #ffd9cc;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.coop-kick-button:hover {
+  background: rgba(122, 41, 32, 0.86);
 }
 
 .coop-room-actions {

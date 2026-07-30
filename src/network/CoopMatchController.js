@@ -26,6 +26,7 @@ export class CoopMatchController {
     getSelectedLevelId,
     getSelectedDifficulty,
     getSelectedChallengeMode,
+    getPlayerName = null,
     selectedLevel,
     cardWithLevel,
     toggleLocalDeckCard,
@@ -39,6 +40,7 @@ export class CoopMatchController {
     this.getSelectedLevelId = getSelectedLevelId;
     this.getSelectedDifficulty = getSelectedDifficulty;
     this.getSelectedChallengeMode = getSelectedChallengeMode;
+    this.getPlayerName = getPlayerName;
     this.selectedLevel = selectedLevel;
     this.cardWithLevel = cardWithLevel;
     this.toggleLocalDeckCard = toggleLocalDeckCard;
@@ -64,6 +66,7 @@ export class CoopMatchController {
     this.reconnectProbeSession = null;
     this.reconnectProbePending = false;
     this.reconnectRequestSession = null;
+    this.kickedLobbyPlayers = new Set();
   }
 
   destroy() {
@@ -72,7 +75,7 @@ export class CoopMatchController {
     this.roomClient.leaveRoom();
   }
 
-  createRoom(options = {}, playerName = '玩家 1') {
+  createRoom(options = {}, playerName = null) {
     if (typeof options === 'string') {
       playerName = options;
       options = {};
@@ -80,17 +83,27 @@ export class CoopMatchController {
     this.resetMatchState();
     this.lobbyConfig = this.resolveLobbyConfig(options);
     this.onNotice?.('正在创建房间…');
-    this.roomClient.createRoom(playerName).catch((error) => {
+    this.roomClient.createRoom(this.resolvePlayerName(playerName, '玩家 1')).catch((error) => {
       this.onNotice?.(error?.message ?? '连接服务器失败');
     });
   }
 
-  joinRoom(roomId, playerName = '玩家') {
+  joinRoom(roomId, playerName = null) {
     this.resetMatchState();
     this.onNotice?.('正在加入房间…');
-    this.roomClient.joinRoom(roomId, playerName).catch((error) => {
+    this.roomClient.joinRoom(roomId, this.resolvePlayerName(playerName, '玩家')).catch((error) => {
       this.onNotice?.(error?.message ?? '连接服务器失败');
     });
+  }
+
+  resolvePlayerName(playerName, fallback = '玩家') {
+    const value = playerName ?? this.getPlayerName?.();
+    const normalized = String(value ?? '')
+      .normalize('NFKC')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 16);
+    return normalized || fallback;
   }
 
   restoreSession() {
@@ -250,6 +263,41 @@ export class CoopMatchController {
     this.resetMatchState();
   }
 
+  kickPlayer(playerId) {
+    if (
+      !this.roomClient.isHost
+      || !playerId
+      || playerId === this.roomClient.playerId
+      || playerId === this.roomClient.room?.hostPlayerId
+      || this.phase === MATCH_PHASE.MATCH_LOADING
+      || this.phase === MATCH_PHASE.OPENING_SELECTION
+      || this.phase === MATCH_PHASE.RUNNING
+    ) return false;
+    const player = this.lobbyPlayers.get(playerId);
+    const noticeSent = this.sendKickNotice(playerId);
+    const relaySent = this.roomClient.kickPlayer?.(playerId) ?? false;
+    const sent = noticeSent || relaySent;
+    if (sent) {
+      this.kickedLobbyPlayers.add(playerId);
+      this.lobbyPlayers.delete(playerId);
+      this.phaseRevision += 1;
+      this.publishLobbyState();
+      this.onNotice?.(`${player?.name ?? '玩家'} 已移出房间`);
+    } else {
+      this.onNotice?.('移出玩家失败：中继未连接');
+    }
+    return sent;
+  }
+
+  sendKickNotice(playerId) {
+    if (!playerId || !this.roomClient.room?.id) return false;
+    return this.roomClient.forward({
+      type: MSG.ROOM_KICKED,
+      roomId: this.roomClient.room.id,
+      reason: 'kicked_by_host'
+    }, playerId);
+  }
+
   resetMatchState() {
     this.phase = MATCH_PHASE.LOBBY_EDITING;
     this.phaseRevision = 1;
@@ -263,6 +311,7 @@ export class CoopMatchController {
     this.reconnectProbeSession = null;
     this.reconnectProbePending = false;
     this.reconnectRequestSession = null;
+    this.kickedLobbyPlayers.clear();
   }
 
   createLobbyCommand(name, payload) {
@@ -309,6 +358,10 @@ export class CoopMatchController {
     if (state.event === MSG.ROOM_CLOSED) {
       this.activeBridge?.handleRoomClosed?.(state.reason);
       this.onNotice?.(state.reason === 'host_lease_expired' ? '房主断线超过 60 秒，房间已释放' : '房间已关闭');
+      return;
+    }
+    if (state.event === MSG.ROOM_KICKED) {
+      this.handleKickedFromRoom(state);
       return;
     }
     if (state.event === MSG.NET_FORWARD) {
@@ -398,6 +451,10 @@ export class CoopMatchController {
     const activeIds = new Set(room.playerOrder ?? Object.keys(room.players ?? {}));
     activeIds.forEach((playerId) => {
       const relayPlayer = room.players?.[playerId];
+      if (this.kickedLobbyPlayers.has(playerId)) {
+        if (relayPlayer?.connected !== false) this.sendKickNotice(playerId);
+        return;
+      }
       const current = this.lobbyPlayers.get(playerId) ?? {
         playerId,
         ready: false,
@@ -421,7 +478,12 @@ export class CoopMatchController {
       this.lobbyPlayers.set(playerId, current);
     });
     [...this.lobbyPlayers.keys()].forEach((playerId) => {
-      if (!activeIds.has(playerId)) this.lobbyPlayers.delete(playerId);
+      if (!activeIds.has(playerId) || this.kickedLobbyPlayers.has(playerId)) {
+        this.lobbyPlayers.delete(playerId);
+      }
+    });
+    [...this.kickedLobbyPlayers].forEach((playerId) => {
+      if (!activeIds.has(playerId)) this.kickedLobbyPlayers.delete(playerId);
     });
     if (this.phase === MATCH_PHASE.LOBBY_EDITING || this.phase === MATCH_PHASE.READY_CHECK) {
       this.publishLobbyState();
@@ -431,6 +493,12 @@ export class CoopMatchController {
 
   handleGamePayload(payload, fromPlayerId) {
     if (!payload) return;
+    if (payload.type === MSG.ROOM_KICKED) {
+      if (fromPlayerId === this.roomClient.hostPlayerId) this.handleKickedFromRoom(payload);
+      return;
+    }
+    if (!this.roomClient.room?.id) return;
+    if (this.kickedLobbyPlayers.has(fromPlayerId)) return;
     if (this.roomClient.isHost && payload.type === MSG.VERSION_HELLO) {
       this.handleVersionHello(payload, fromPlayerId);
       return;
@@ -555,6 +623,15 @@ export class CoopMatchController {
     this.resetMatchState();
     this.onNotice?.(message);
     this.onLobbyVisible?.(this.viewState({ event: MSG.VERSION_RESULT }));
+  }
+
+  handleKickedFromRoom() {
+    this.activeBridge?.unbindGame();
+    this.activeBridge = null;
+    this.roomClient.leaveRoom();
+    this.resetMatchState();
+    this.onNotice?.('已被房主移出房间');
+    this.onLobbyVisible?.(this.viewState({ event: MSG.ROOM_KICKED }));
   }
 
   ingestLobbyCommand(command, fromPlayerId) {

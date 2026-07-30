@@ -16,6 +16,8 @@ export const MSG = Object.freeze({
   ROOM_CREATE: 'room_create',
   ROOM_JOIN: 'room_join',
   ROOM_LEAVE: 'room_leave',
+  ROOM_KICK: 'room_kick',
+  ROOM_KICKED: 'room_kicked',
   ROOM_STATE: 'room_state',
   ROOM_CLOSED: 'room_closed',
   HEARTBEAT: 'heartbeat',

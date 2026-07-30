@@ -451,9 +451,18 @@ export class GameNetworkBridge {
 
   updateConnections(room) {
     if (this.role !== 'host' || !this.game?.players) return;
+    let changed = false;
     Object.entries(room?.players ?? {}).forEach(([playerId, relayPlayer]) => {
-      if (this.game.players[playerId]) this.game.players[playerId].connected = relayPlayer.connected !== false;
+      const run = this.game.players[playerId];
+      if (!run) return;
+      const nextConnected = relayPlayer.connected !== false;
+      if (run.connected !== nextConnected) changed = true;
+      run.connected = nextConnected;
     });
+    if (changed) {
+      this.game.resolveDisconnectedCoopRewardSlots?.();
+      this.markPrivateStateDirty?.();
+    }
   }
 
   handleRelayRoomState(room) {

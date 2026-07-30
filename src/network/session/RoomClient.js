@@ -110,6 +110,15 @@ export class RoomClient {
     this.resetLocalRoom();
   }
 
+  kickPlayer(playerId) {
+    if (!this.room?.id || !playerId) return false;
+    return this.transport.send({
+      type: MSG.ROOM_KICK,
+      roomId: this.room.id,
+      playerId
+    });
+  }
+
   forward(payload, to = 'broadcast') {
     if (!this.room?.id) return false;
     return this.transport.send(relayEnvelope(this.room.id, to, payload));
@@ -197,6 +206,17 @@ export class RoomClient {
         this.emit({ event: MSG.ROOM_CLOSED, reason: message.reason });
         this.resetLocalRoom({ notify: false });
         break;
+      case MSG.ROOM_KICKED: {
+        const kickedPlayerId = message.playerId ?? this.playerId;
+        this.resetLocalRoom({ notify: false });
+        this.emit({
+          event: MSG.ROOM_KICKED,
+          roomId: message.roomId,
+          kickedPlayerId,
+          reason: message.reason ?? 'kicked_by_host'
+        });
+        break;
+      }
       case MSG.ERROR:
         this.emit({ event: MSG.ERROR, message: message.message });
         break;

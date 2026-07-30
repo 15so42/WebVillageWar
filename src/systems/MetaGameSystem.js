@@ -16,6 +16,8 @@ const STARTING_COINS = 10000;
 const STARTING_COINS_VERSION = 1;
 const MAX_LEVEL_DIFFICULTY = 10;
 const WAVE_DIFFICULTY_GROWTH_PER_SELECTED_DIFFICULTY = 0.16;
+const DEFAULT_PLAYER_NAME = '玩家';
+const MAX_PLAYER_NAME_LENGTH = 16;
 // 保留开发期记录供内部追溯；玩家界面只展示下方整理后的版本纪要。
 const DEVELOPMENT_CHANGELOG_ARCHIVE = [
   {
@@ -853,7 +855,12 @@ const CHANGELOG_ENTRIES = [
       '移动端下达「驻守」命令后会自动取消当前单位选择。',
       '修复合作战斗同步私有手牌、牌堆或军需选择时，异常空卡牌可能导致客户端崩溃的问题。',
       '修复合作战斗中一名玩家刷新波次奖励时，可能影响另一名玩家奖励选项的问题。',
-      '合作免费军需铺中，已完成选择的玩家会看到等待队友完成军需铺的明确提示。'
+      '合作免费军需铺中，已完成选择的玩家会看到等待队友完成军需铺的明确提示。',
+      '联机房间新增主机踢人功能，并同步更新中继协议支持被移出房间的玩家提示。',
+      '主菜单底部新增玩家名字设置，创建或加入联机房间时会使用当前名字显示在房间列表中。',
+      '合作波次奖励与免费军需铺新增 30 秒倒计时；超时会由 Host 自动选择，掉线玩家会立即处理且不再等待军需铺。',
+      '修复联机无尽模式击败 Boss 后免费军需铺可能显示普通初始价格、点击无效并卡住后续波次的问题。',
+      '修复 Host 完成免费军需铺后仍可能再次打开并免费选择的问题，并补充联机军需铺回归测试。'
     ]
   },
   {
@@ -1117,12 +1124,14 @@ export class MetaGameSystem {
     this.selectedDifficulty = this.selectedDifficultyForLevel(this.selectedLevelId);
     this.selectedChallengeMode = normalizeChallengeMode(this.progress.preferences.challengeMode);
     this.deckSelection = this.progress.preferences.deckSelection.slice();
+    this.playerName = normalizePlayerName(this.progress.preferences.playerName);
     this.lastResult = null;
     this.notice = null;
     this.noticeTimer = null;
     this.root = createMetaRoot();
     this.onDebugKeyDown = (event) => this.handleDebugKeyDown(event);
     this.root.addEventListener('click', (event) => this.onClick(event));
+    this.root.addEventListener('input', (event) => this.onInput(event));
     this.root.addEventListener('pointerdown', stopMetaEvent);
     this.root.addEventListener('contextmenu', stopMetaEvent);
     document.addEventListener('keydown', this.onDebugKeyDown);
@@ -1189,6 +1198,7 @@ export class MetaGameSystem {
     this.selectedDifficulty = this.selectedDifficultyForLevel(this.selectedLevelId);
     this.selectedChallengeMode = normalizeChallengeMode(this.progress.preferences.challengeMode);
     this.deckSelection = this.progress.preferences.deckSelection.slice();
+    this.playerName = normalizePlayerName(this.progress.preferences.playerName);
     this.lastResult = null;
     this.setNotice('本地存档已清除，已恢复为初始进度。');
     this.show('menu', { keepNotice: true });
@@ -1325,6 +1335,13 @@ export class MetaGameSystem {
     if (action === 'upgrade-card') {
       this.upgradeCard(actionTarget.dataset.cardId);
     }
+  }
+
+  onInput(event) {
+    if (event.target?.id !== 'meta-player-name') return;
+    const nextName = normalizePlayerName(event.target.value);
+    this.playerName = nextName;
+    this.persistPreferences();
   }
 
   handleDebugKeyDown(event) {
@@ -1670,6 +1687,17 @@ export class MetaGameSystem {
                   <span>焚毁盟约（清档）</span>
               </button>
             </nav>
+            <label class="mw-player-name-field" for="meta-player-name">
+              <span>指挥官名</span>
+              <input
+                id="meta-player-name"
+                type="text"
+                maxlength="${MAX_PLAYER_NAME_LENGTH}"
+                value="${escapeHtml(this.playerName)}"
+                autocomplete="nickname"
+                spellcheck="false"
+              />
+            </label>
           </div>
         </div>
         <div class="med-version-mark mw-menu-version">${TEST_VERSION_LABEL}</div>
@@ -2080,6 +2108,7 @@ export class MetaGameSystem {
       selectedLevelId,
       selectedDifficulties,
       challengeMode: normalizeChallengeMode(this.selectedChallengeMode),
+      playerName: normalizePlayerName(this.playerName),
       deckSelection: this.deckSelection.slice()
     };
     saveProgress(this.progress);
@@ -2306,8 +2335,18 @@ function normalizePreferences(rawPreferences, ownedCards, levelDifficulties) {
     selectedLevelId,
     selectedDifficulties,
     challengeMode: normalizeChallengeMode(rawPreferences?.challengeMode),
+    playerName: normalizePlayerName(rawPreferences?.playerName),
     deckSelection
   };
+}
+
+function normalizePlayerName(value) {
+  const normalized = String(value ?? '')
+    .normalize('NFKC')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, MAX_PLAYER_NAME_LENGTH);
+  return normalized || DEFAULT_PLAYER_NAME;
 }
 
 function normalizeLevelId(levelId) {

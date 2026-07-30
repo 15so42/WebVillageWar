@@ -114,6 +114,14 @@ export class CoopLobbySystem {
       this.controller.toggleReady(!currentlyReady);
       return;
     }
+    if (action === 'kick-player') {
+      const playerId = button.dataset.playerId;
+      const playerName = button.dataset.playerName ?? '玩家';
+      if (playerId && window.confirm(`确定要将 ${playerName} 移出房间吗？`)) {
+        this.controller.kickPlayer?.(playerId);
+      }
+      return;
+    }
     if (action === 'deck-card') {
       this.controller.changeDeckCard(button.dataset.cardId);
       return;
@@ -168,6 +176,9 @@ export class CoopLobbySystem {
       .filter(Boolean);
     const selfReady = Boolean(players?.[slot]?.ready);
     const selfVersionVerified = players?.[slot]?.versionVerified === true;
+    const roomLocked = room?.phase === 'MATCH_LOADING'
+      || room?.phase === 'OPENING_SELECTION'
+      || room?.phase === 'RUNNING';
     const allReady = playerRows.length >= 2 && playerRows.every((player) => (
       player.ready
       && player.connected !== false
@@ -202,7 +213,18 @@ export class CoopLobbySystem {
               <span>身份 ${isHost ? '房主 (Host)' : '队友'}</span>
             </div>
             <ul class="coop-player-list">
-              ${playerRows.map((player) => `<li>${escapeHtml(player.name ?? '玩家')} · ${player.playerId === room.hostPlayerId ? 'Host · ' : ''}${player.ready ? '已准备' : '未准备'} · ${player.connected === false ? '断线' : '在线'} · ${player.versionVerified ? `v${escapeHtml(player.gameVersion)}` : '版本校验中'}</li>`).join('')}
+              ${playerRows.map((player) => {
+                const isSelf = player.playerId === slot;
+                const isRoomHost = player.playerId === room.hostPlayerId;
+                const canKick = isHost && !roomLocked && !isSelf && !isRoomHost;
+                const status = `${isRoomHost ? 'Host · ' : ''}${player.ready ? '已准备' : '未准备'} · ${player.connected === false ? '断线' : '在线'} · ${player.versionVerified ? `v${escapeHtml(player.gameVersion)}` : '版本校验中'}`;
+                return `
+                  <li class="coop-player-row">
+                    <span><strong>${escapeHtml(player.name ?? '玩家')}</strong> · ${status}</span>
+                    ${canKick ? `<button type="button" class="coop-kick-button" data-coop-action="kick-player" data-player-id="${escapeHtml(player.playerId)}" data-player-name="${escapeHtml(player.name ?? '玩家')}">踢出</button>` : ''}
+                  </li>
+                `;
+              }).join('')}
               ${playerRows.length < 2 ? '<li>等待其他玩家加入…</li>' : ''}
             </ul>
             <div class="coop-room-actions">
@@ -210,7 +232,7 @@ export class CoopLobbySystem {
             </div>
             <p class="coop-lobby-hint">${!selfVersionVerified ? '正在与主机校验游戏版本…' : (allReady ? '全员已准备，Host 正在创建权威对局…' : `至少 2 人且全员准备后开始 · 当前阶段 ${escapeHtml(room.phase ?? 'LOBBY_EDITING')}`)}</p>
           </section>
-          ${this.renderDeckBuilder({ selfReady, locked: room.phase === 'MATCH_LOADING' || room.phase === 'OPENING_SELECTION' || room.phase === 'RUNNING' })}
+          ${this.renderDeckBuilder({ selfReady, locked: roomLocked })}
         ` : `
           <section class="coop-lobby-entry">
             <label class="coop-level-field">

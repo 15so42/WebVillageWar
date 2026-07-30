@@ -212,6 +212,7 @@ try {
           getSelectedLevelId: () => meta.selectedLevelId,
           getSelectedDifficulty: () => meta.selectedDifficulty,
           getSelectedChallengeMode: () => meta.selectedChallengeMode,
+          getPlayerName: () => meta.playerName,
           selectedLevel: () => meta.selectedLevel(),
           cardWithLevel: (id) => meta.cardWithLevel(id),
           toggleLocalDeckCard: (id) => meta.toggleDeckCard(id),

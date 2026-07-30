@@ -65,6 +65,15 @@ export class CommandValidator {
       case COMMAND.SHOP_CHOOSE:
         result = this.validateShopChoice(sourcePlayerId, payload);
         break;
+      case COMMAND.SHOP_CATEGORY:
+        result = this.validateShopCategory(sourcePlayerId, payload);
+        break;
+      case COMMAND.SHOP_ENERGY:
+        result = this.validateShopCategory(sourcePlayerId, { category: 'energy' });
+        break;
+      case COMMAND.SHOP_BACK:
+        result = this.validateShopState(sourcePlayerId, payload);
+        break;
       case COMMAND.SHOP_REWARD_SKIP:
         result = this.validateShopReward(sourcePlayerId);
         break;
@@ -177,18 +186,61 @@ export class CommandValidator {
   }
 
   validateShopChoice(playerId, payload) {
-    const run = this.game.players?.[playerId];
-    const choices = playerId === this.game.localPlayerSlot ? this.game.runShopChoices : run?.runShopChoices;
+    const state = this.validateShopState(playerId, payload);
+    if (!state.ok) return state;
+    const shop = state.shop;
+    if (
+      payload.offerId
+      && shop.networkInteractionId
+      && payload.offerId !== shop.networkInteractionId
+    ) return reject('stale_shop');
+    if (
+      payload.revision
+      && Number.isFinite(Number(shop.networkShopRevision))
+      && Number(payload.revision) !== Number(shop.networkShopRevision)
+    ) return reject('stale_shop_revision');
+    const choices = shop.runShopChoices;
     const choiceIndex = (choices ?? []).findIndex((choice) => choice?.choiceId === payload.choiceId);
     if (choiceIndex < 0 || choices[choiceIndex]?.disabled) return reject('shop_choice_not_found');
     return { ok: true, payload: { ...payload, choiceIndex } };
   }
 
+  validateShopCategory(playerId, payload) {
+    const state = this.validateShopState(playerId, payload);
+    if (!state.ok) return state;
+    const category = String(payload.category ?? '');
+    if (!category) return reject('shop_category_not_found');
+    const available = this.game.withPlayerContext?.(playerId, () => this.game.canRunShopCategory?.(category))
+      ?? this.game.canRunShopCategory?.(category);
+    if (!available?.ok) return reject('shop_category_not_available');
+    return { ok: true, payload: { ...payload, category } };
+  }
+
+  validateShopState(playerId, payload = {}) {
+    const shop = this.shopStateForPlayer(playerId);
+    if (!shop) return reject('shop_not_available');
+    if (
+      this.game.coopRewardKind === 'run-shop'
+      && this.game.coopRewardWaitSlots?.size
+      && (
+        !this.game.coopRewardWaitSlots.has(playerId)
+        || shop.runShopFreeReward !== true
+      )
+    ) {
+      return reject('shop_reward_not_active');
+    }
+    return { ok: true, payload, shop };
+  }
+
+  shopStateForPlayer(playerId) {
+    if (playerId === this.game.localPlayerSlot) return this.game;
+    return this.game.players?.[playerId] ?? null;
+  }
+
   validateShopReward(playerId) {
-    const run = this.game.players?.[playerId];
-    const isLocal = playerId === this.game.localPlayerSlot;
-    const freeReward = isLocal ? this.game.runShopFreeReward : run?.runShopFreeReward;
-    return freeReward ? { ok: true, payload: {} } : reject('shop_reward_not_active');
+    const state = this.validateShopState(playerId);
+    if (!state.ok) return state;
+    return state.shop.runShopFreeReward ? { ok: true, payload: {} } : reject('shop_reward_not_active');
   }
 }
 

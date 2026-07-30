@@ -441,6 +441,8 @@ export class SnapshotBuilder {
       this.game.runShopNetworkOfferId = shopIdentity?.interactionId ?? null;
       this.game.runShopNetworkRevision = shopIdentity?.revision ?? null;
     }
+    const rewardSeconds = this.game.coopRewardSecondsRemaining?.() ?? null;
+    const rewardKind = this.game.coopRewardWaitSlots?.size ? this.game.coopRewardKind : null;
     return {
       playerId,
       energy: round(cards.energy),
@@ -453,14 +455,19 @@ export class SnapshotBuilder {
         exile: serializeCardZone(cards.exilePile)
       },
       silver: round(isLocal ? this.game.getSilver(playerId) : run.silver),
-      strategyUi: serializeStrategyUi(strategyEvent),
+      coopRewardAutoSelectSecondsRemaining: rewardSeconds,
+      strategyUi: serializeStrategyUi(strategyEvent, {
+        autoSelectSecondsRemaining: rewardKind === 'strategy' ? rewardSeconds : null
+      }),
       strategySelectionRequired: Boolean(strategyEvent),
       strategyWaiting: Boolean(
         this.game.coopRewardKind === 'strategy'
         && this.game.coopRewardWaitSlots?.size
         && !strategyEvent
       ),
-      runShopState: serializeRunShopState(shopRun),
+      runShopState: serializeRunShopState(shopRun, {
+        autoSelectSecondsRemaining: rewardKind === 'run-shop' ? rewardSeconds : null
+      }),
       runShopWaiting: Boolean(
         this.game.coopRewardKind === 'run-shop'
         && this.game.coopRewardWaitSlots?.size
@@ -538,7 +545,7 @@ function serializeCardZone(cards) {
   return (cards ?? []).map(serializeCard).filter(Boolean);
 }
 
-function serializeStrategyUi(event) {
+function serializeStrategyUi(event, options = {}) {
   if (!event) return null;
   return {
     rewardId: event.networkInteractionId,
@@ -548,6 +555,7 @@ function serializeStrategyUi(event) {
     kicker: event.kicker,
     title: event.title,
     summary: event.summary,
+    autoSelectSecondsRemaining: options.autoSelectSecondsRemaining ?? null,
     wave: event.wave ? { index: event.wave.index, kind: event.wave.kind } : null,
     choices: (event.choices ?? []).map((choice) => ({
       choiceId: choice.choiceId,
@@ -560,12 +568,13 @@ function serializeStrategyUi(event) {
   };
 }
 
-function serializeRunShopState(run) {
+function serializeRunShopState(run, options = {}) {
   return {
     offerId: run.networkInteractionId,
     revision: run.networkRevision,
     freeReward: Boolean(run.runShopFreeReward),
     activeCategory: run.runShopActiveCategory,
+    autoSelectSecondsRemaining: options.autoSelectSecondsRemaining ?? null,
     choices: (run.runShopChoices ?? []).map((choice) => ({
       choiceId: choice.choiceId,
       action: choice.action,
