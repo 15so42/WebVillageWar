@@ -842,6 +842,13 @@ const DEVELOPMENT_CHANGELOG_ARCHIVE = [
 
 const CHANGELOG_ENTRIES = [
   {
+    date: '2026-07-31',
+    title: '主菜单启动热修',
+    items: [
+      '修复玩家名字输入框上线后主菜单初始化缺少文本转义函数，导致公网只能显示背景、菜单无法打开的问题。'
+    ]
+  },
+  {
     date: '2026-07-30',
     title: '战术调度、镜头跟随与联机稳定性修复',
     items: [
@@ -2347,6 +2354,15 @@ function normalizePlayerName(value) {
     .trim()
     .slice(0, MAX_PLAYER_NAME_LENGTH);
   return normalized || DEFAULT_PLAYER_NAME;
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
 
 function normalizeLevelId(levelId) {
