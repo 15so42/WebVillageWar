@@ -386,7 +386,7 @@ export const UNIT_DEFINITIONS = {
     }
   },
   lightningMage: {
-    name: '电法师',
+    name: '雷法师',
     role: 'ranged',
     art: {
       modelKey: 'unit.lightningMage',
@@ -824,6 +824,11 @@ export const UNIT_DEFINITIONS = {
     projectileColor: '#dff8ff',
     projectileHitHeight: 1.5,
     collisionRadius: 0.38,
+    ownerRecall: {
+      maxDistance: 12,
+      returnRadius: 1.45,
+      checkInterval: 0.25
+    },
     weapon: {
       name: '尖弹匣',
       maxDurability: 16,
@@ -907,7 +912,7 @@ export const UNIT_DEFINITIONS = {
     collisionRadius: 0.72,
     buildingAura: {
       type: 'restoreHealthFromDurability',
-      radius: 4.1,
+      radius: 8.2,
       durabilityPerSecond: 2,
       healthPerDurability: 1
     },
@@ -3746,7 +3751,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'lightning-mages',
-    name: '派遣电法师',
+    name: '派遣雷法师',
     kind: 'summon',
     label: '电',
     artKey: 'lightningMage',
@@ -4159,11 +4164,11 @@ export const CARD_DEFINITIONS = [
     kind: 'tactic',
     label: '调',
     artKey: 'tacticUpgrade',
-    summary: '从抽牌堆顶调度 2 张临时牌；牌堆不足时从波次奖励池补足，临时位满时排到抽牌堆顶',
+    summary: '从抽牌堆顶调度 2 张牌，优先填入手牌空位；牌堆不足时从波次奖励池补足，手牌与临时位满时排到抽牌堆顶',
     target: 'none',
     radius: 1,
     cooldown: 0,
-    energyCost: 2,
+    energyCost: 3,
     effect: {
       type: 'draw-temporary-cards',
       amountBase: 2,

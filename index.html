@@ -47,10 +47,12 @@
         </div>
         <div class="control-hints">
           <span class="desktop-hint">滚轮缩放</span>
-          <span class="desktop-hint">中键平移</span>
+          <span class="desktop-hint">中键拖动镜头</span>
+          <span class="desktop-hint">WASD 移动镜头</span>
+          <span class="desktop-hint">F 跟随选中单位</span>
           <span class="desktop-hint">右键移动</span>
-          <span class="desktop-hint">S停 Z守</span>
-          <span class="desktop-hint">B军需铺</span>
+          <span class="desktop-hint">X 停止 · Z 驻守</span>
+          <span class="desktop-hint">B 军需铺</span>
         </div>
         <button id="run-shop-toggle" class="run-shop-toggle" type="button" title="军需铺 (B)" hidden>
           <span class="run-shop-toggle-icon" aria-hidden="true">
@@ -96,6 +98,7 @@
           <div id="selected-stats">HP - / 武器 -</div>
           <div id="selected-enchants">附魔 -</div>
         </div>
+        <button id="selected-camera-follow" class="selected-camera-follow" type="button" aria-pressed="false" hidden>跟随镜头</button>
       </section>
 
       <section id="card-hand" class="card-hand" aria-label="card hand"></section>

@@ -76,6 +76,7 @@ export class UnitLogicSystem {
     mark = recordUnitStep(profile, 'unitBookkeepingMs', mark);
     if (!unit.alive) return;
     this.game.attacks.tryLightningSiphon(unit);
+    this.updateOwnerRecall(unit, dt);
 
     if (unit.hasBuff?.('stunned')) {
       unit.aiState = 'stunned';
@@ -560,6 +561,51 @@ export class UnitLogicSystem {
     if (remaining > 0) return;
     const turret = this.game.spawnUpgradeTurret(unit, ability);
     unit.supportCooldowns.set(key, turret ? ability.cooldown : 2.5);
+  }
+
+  updateOwnerRecall(unit, dt) {
+    const recall = unit.definition?.ownerRecall;
+    if (!recall || unit.ownerUnitId == null) return false;
+    const interval = Math.max(0.05, Number(recall.checkInterval) || 0.25);
+    unit.ownerRecallCheckTimer = Math.max(
+      0,
+      (unit.ownerRecallCheckTimer ?? 0) - Math.max(0, Number(dt) || 0)
+    );
+    if (unit.ownerRecallCheckTimer > 0) return false;
+    unit.ownerRecallCheckTimer = interval;
+
+    const owner = this.game.unitRegistry?.byId?.get(unit.ownerUnitId);
+    if (!owner?.alive || owner.team !== unit.team) return false;
+    const maxDistance = Math.max(0.1, Number(recall.maxDistance) || 12);
+    if (distance2D(unit.position, owner.position) <= maxDistance) return false;
+
+    const previousPosition = unit.position.clone();
+    const returnRadius = Math.max(0.35, Number(recall.returnRadius) || 1.45);
+    const angle = (unit.id * 2.399963229728653) % (Math.PI * 2);
+    const desiredPosition = owner.position.clone();
+    desiredPosition.x += Math.cos(angle) * returnRadius;
+    desiredPosition.z += Math.sin(angle) * returnRadius;
+    const destination = this.game.resolveWalkablePoint(desiredPosition);
+    if (!destination) return false;
+    destination.y = this.game.groundHeightAt(destination);
+
+    this.game.attacks.cancelPendingAttacksFor?.([unit]);
+    unit.position.copy(destination);
+    unit.target = null;
+    unit.moveGoal = null;
+    unit.commandMoveGoal = null;
+    unit.attackRangeHoldTargetId = null;
+    unit.knockbackVelocity?.set?.(0, 0, 0);
+    unit.verticalVelocity = 0;
+    unit.grounded = true;
+    if (unit.guardPoint?.copy) {
+      unit.guardPoint.copy(destination);
+    } else {
+      unit.guardPoint = destination.clone();
+    }
+    this.game.effects.spawnRing?.(previousPosition, '#9dd8ff', 0.52, 0.28);
+    this.game.effects.spawnRing?.(destination, '#dff8ff', 0.72, 0.42);
+    return true;
   }
 
   queueSupportEffect(unit, target, type, apply) {

@@ -270,7 +270,8 @@ export class CardEffectSystem {
     const amount = Math.max(1, Math.floor(resolveCardEffectNumber(card, effect, 'amount', 1)));
     let drawn = this.game.cardSystem.drawTemporaryCards(amount, {
       temporaryLimit: effect.temporaryLimit,
-      overflowToDrawTop: true
+      overflowToDrawTop: true,
+      preferHandSlots: true
     });
     if (drawn < amount && effect.fallbackPool === 'wave-reward-pool') {
       drawn += this.game.cardSystem.addTemporaryCardsFromPool(
@@ -279,6 +280,7 @@ export class CardEffectSystem {
         {
           temporaryLimit: effect.temporaryLimit,
           overflowToDrawTop: true,
+          preferHandSlots: true,
           prefix: `tactic-${card.id}-${Date.now()}`,
           onCardCreated: (definition) => {
             if (shouldConsumeWaveRewardCard({

@@ -5,6 +5,7 @@ import {
   endlessDifficultyDelta,
   endlessEnchantCount,
   endlessEnchantLevel,
+  endlessEnemyClass,
   endlessEnemyStatFactors,
   endlessExpectedLifetime,
   endlessPlayerUnitDeathDifficultyDelta,
@@ -13,9 +14,13 @@ import {
 } from '../src/systems/endlessMode.js';
 import { AttributeSet } from '../src/systems/AttributeSet.js';
 import { ModifierSystem } from '../src/systems/ModifierSystem.js';
+import { EnemyEnchantmentSystem } from '../src/systems/EnemyEnchantmentSystem.js';
+import { BUFF_DEFINITIONS, TEAMS } from '../src/data/gameData.js';
 
 assert.equal(normalizeChallengeMode('endless'), 'endless');
 assert.equal(normalizeChallengeMode('unknown'), 'standard');
+assert.equal(endlessEnemyClass({ isElite: true }), 'elite');
+assert.equal(endlessEnemyClass({ isBoss: true }), 'boss');
 
 assert.equal(endlessExpectedLifetime({ baseHealth: 18 }), 5);
 assert.equal(endlessExpectedLifetime({ baseHealth: 64, enemyClass: 'elite' }), 8.75);
@@ -112,5 +117,53 @@ assert.deepEqual(endlessDeck.map((card) => card.level), [1, 1]);
 assert.deepEqual(upgradedDeck.map((card) => card.level), [5, 3]);
 assert.notEqual(endlessDeck[0], upgradedDeck[0]);
 assert.deepEqual(resetEndlessDeckLevels(null), []);
+
+const eliteUnit = {
+  id: 101,
+  alive: true,
+  team: TEAMS.ENEMY,
+  type: 'goblinSoldier',
+  definition: { role: 'melee' },
+  isElite: true,
+  endlessEnchantBudget: 1,
+  maxEnchantmentSlots: 5,
+  enchantments: new Map(),
+  buffs: new Map(),
+  maxHealth: 100,
+  health: 100,
+  maxShield: 0,
+  shield: 0,
+  weapon: { maxDurability: 20, durability: 20 },
+  addBuff(id, definition, overrides = {}) {
+    const buff = { ...definition, ...overrides, id, level: overrides.level ?? 1 };
+    this.buffs.set(id, buff);
+    if (definition.category === 'enchantment') this.enchantments.set(id, buff);
+    return buff;
+  }
+};
+const eliteSpawnGame = {
+  isEndlessMode: () => true,
+  endlessDifficulty: 0,
+  friendlyUnits: [],
+  enemyUnits: [eliteUnit],
+  buffs: {
+    applyBuff(target, id, source, overrides) {
+      return target.addBuff(id, BUFF_DEFINITIONS[id], { ...overrides, source });
+    }
+  },
+  enemyEnergyAvailableForEnchant: () => 0,
+  spendEnemyEnergy: () => false,
+  grantEnemyEnergy: () => {},
+  effects: { spawnDamageNumber: () => {} }
+};
+new EnemyEnchantmentSystem(eliteSpawnGame).enchantSpawnWave([eliteUnit], {
+  id: 3,
+  index: 3,
+  kind: 'elite',
+  threatTier: 3,
+  effectiveDifficulty: 0
+});
+assert.equal(eliteUnit.enchantments.size, 1, 'endless elite spawn receives its guaranteed enchantment');
+assert.equal(eliteUnit.enchantments.values().next().value.level, 1);
 
 console.log('Endless mode logic checks passed.');

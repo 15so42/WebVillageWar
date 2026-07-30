@@ -1,5 +1,5 @@
 import { TEAMS } from '../data/gameData.js';
-import { endlessEnchantCount, endlessEnchantLevel } from './endlessMode.js';
+import { endlessEnchantCount, endlessEnchantLevel, endlessEnemyClass } from './endlessMode.js';
 
 const AFFIX_PRIMARY_BUFF = {
   swarm: 'waveSwarm',

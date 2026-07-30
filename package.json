@@ -28,7 +28,8 @@
     "test:deck-rules": "node scripts/test-deck-rules.mjs",
     "test:recovery-aura": "node scripts/test-recovery-aura.mjs",
     "test:wave-reward-pool": "node scripts/test-wave-reward-pool.mjs",
-    "test:altar-specialization": "node scripts/test-altar-specialization-reward.mjs"
+    "test:altar-specialization": "node scripts/test-altar-specialization-reward.mjs",
+    "test:unit-camera-controls": "node scripts/test-unit-camera-controls.mjs"
   },
   "dependencies": {
     "three": "^0.170.0",

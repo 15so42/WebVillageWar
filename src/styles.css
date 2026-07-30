@@ -1409,6 +1409,40 @@ body.is-run-shop-open .card-pile-dock {
   line-height: 1.45;
 }
 
+.selected-camera-follow {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  body.is-game-active .selected-camera-follow:not([hidden]) {
+    width: 100%;
+    min-height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 4px;
+    border: 2px solid #746b5e;
+    border-radius: 4px;
+    color: #403b34;
+    background: #e6d8bd;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.45),
+      0 3px 0 #746b5e;
+    font: inherit;
+    font-weight: 800;
+    touch-action: manipulation;
+  }
+
+  body.is-game-active .selected-camera-follow.is-active {
+    color: #edf8f5;
+    border-color: #3f706c;
+    background: #527d78;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.18),
+      0 3px 0 #345b58;
+  }
+}
+
 .card-hand {
   position: fixed;
   z-index: 5;

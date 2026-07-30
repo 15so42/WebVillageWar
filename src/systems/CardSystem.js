@@ -14,7 +14,7 @@ const DISCARD_DRAG_RATIO = 0.3;
 const PLAY_DRAG_MIN_DISTANCE = 24;
 const DISCARD_FALL_DELAY_MS = 500;
 const TEMPORARY_CARD_EFFECT_LIMIT = 6;
-const CARD_USAGE_HINT = '上滑使用 / 下滑丢弃';
+const CARD_USAGE_HINT = '拖出卡牌区域使用 / 正下方拖动丢弃';
 const CARD_KIND_COLORS = {
   summon: '#5d8b68',
   building: '#a27444',
@@ -316,6 +316,7 @@ export class CardSystem {
     this.cancelActiveDrag(event);
     event.preventDefault();
     event.stopPropagation();
+    const sourceRect = event.currentTarget.getBoundingClientRect();
     this.drag = {
       card,
       sourceLocation: event.currentTarget.dataset.cardLocation ?? 'hand',
@@ -326,7 +327,9 @@ export class CardSystem {
       mode: 'idle',
       startX: event.clientX,
       startY: event.clientY,
-      sourceHeight: event.currentTarget.getBoundingClientRect().height,
+      sourceHeight: sourceRect.height,
+      sourceLeft: sourceRect.left,
+      sourceRight: sourceRect.right,
       sourceElement: event.currentTarget
     };
     this.drag.playThreshold = this.drag.sourceHeight * PLAY_DRAG_RATIO;
@@ -412,7 +415,17 @@ export class CardSystem {
       this.enchantTargetRing.visible = false;
       this.ghost.hidden = true;
       this.ghost.classList.remove('is-valid');
-      this.clearHint('card-drag');
+      if (this.drag.mode === 'discard') {
+        const discardCost = discardEnergyCost(this.drag.card);
+        this.setHint(
+          this.drag.canPayDiscard
+            ? `松手丢弃（消耗 ${discardCost} 能量）`
+            : `能量不足：丢弃需要 ${discardCost} 能量`,
+          'card-drag'
+        );
+      } else {
+        this.clearHint('card-drag');
+      }
       return;
     }
 
@@ -739,7 +752,7 @@ export class CardSystem {
   resolveDragMode(event) {
     if (!this.drag) return 'idle';
     const deltaY = event.clientY - this.drag.startY;
-    if (deltaY >= this.drag.discardThreshold) return 'discard';
+    if (isCardDiscardDragIntent(this.drag, event)) return 'discard';
     const targetsHandCard = this.drag.card?.target === 'hand-card';
     const playIntent = deltaY <= -this.drag.playThreshold;
     const dragDistance = Math.hypot(
@@ -747,12 +760,15 @@ export class CardSystem {
       event.clientY - this.drag.startY
     );
     const fieldPlayIntent = !targetsHandCard && dragDistance >= PLAY_DRAG_MIN_DISTANCE && deltaY < 0;
-    if (!targetsHandCard && !playIntent && !fieldPlayIntent) {
+    const lateralPlayIntent = !targetsHandCard
+      && dragDistance >= PLAY_DRAG_MIN_DISTANCE
+      && (event.clientX < this.drag.sourceLeft || event.clientX > this.drag.sourceRight);
+    if (!targetsHandCard && !playIntent && !fieldPlayIntent && !lateralPlayIntent) {
       if (this.isPointerBlockedByCardUi(event.clientX, event.clientY)) {
         return 'idle';
       }
     }
-    if (playIntent) return 'play';
+    if (playIntent || lateralPlayIntent) return 'play';
     if (dragDistance < PLAY_DRAG_MIN_DISTANCE) return 'idle';
     if (targetsHandCard) return 'play';
     return 'play';
@@ -843,7 +859,7 @@ export class CardSystem {
     const fallingElement = sourceElement
       ? this.createDiscardFallingElement(sourceElement)
       : null;
-    this.temporaryCards.splice(index, 1);
+    this.moveTemporaryCardToDiscard(drag.card, index);
     this.renderTemporaryCards();
 
     let fallingAnimation = null;
@@ -864,7 +880,6 @@ export class CardSystem {
     const card = drag.card;
     this.handCards[index] = null;
     this.discardPile.push(card);
-    this.refillDrawPileFromDiscardIfNeeded();
     this.updatePileUi();
 
     const sourceElement = drag.sourceElement;
@@ -887,10 +902,9 @@ export class CardSystem {
     window.setTimeout(() => {
       fallingAnimation?.cancel();
       fallingElement?.remove();
-      const replacement = this.drawCard();
+      const replacement = this.refillHandSlot(index);
       let replacementElement = this.createEmptySlot();
       if (replacement) {
-        this.handCards[index] = replacement;
         replacementElement = this.createCardElement(replacement, index, { isDrawn: true });
       }
       if (!this.replaceHandSlot(index, replacementElement)) {
@@ -1027,16 +1041,17 @@ export class CardSystem {
   }
 
   moveCardToDiscard(card) {
+    const temporaryIndex = this.temporaryCards.indexOf(card);
     this.consumeCardUse(card);
     const exhausted = shouldExhaustAfterPlay(card);
     const spent = this.isCardSpent(card);
-    const temporaryIndex = this.temporaryCards.indexOf(card);
     if (temporaryIndex !== -1) {
-      this.temporaryCards.splice(temporaryIndex, 1);
       if (exhausted || spent) {
+        this.temporaryCards.splice(temporaryIndex, 1);
         this.game.abilitiesFor?.(this.playerSlot)?.onCardExhausted?.(card);
       } else {
         this.discardPile.push(card);
+        this.temporaryCards.splice(temporaryIndex, 1);
       }
       this.renderTemporaryCards();
       this.updatePileUi();
@@ -1044,21 +1059,23 @@ export class CardSystem {
     }
     const index = this.handCards.indexOf(card);
     if (index === -1) return false;
-    this.handCards.splice(index, 1);
+    this.handCards[index] = null;
     if (exhausted || spent) {
       this.game.abilitiesFor?.(this.playerSlot)?.onCardExhausted?.(card);
     } else {
       this.discardPile.push(card);
     }
-    this.refillDrawPileFromDiscardIfNeeded();
-    const replacement = this.drawCard();
-    if (replacement) {
-      this.pendingDrawAnimations.add(replacement);
-      this.handCards.splice(index, 0, replacement);
-    }
-    this.drawToFullHand({ animate: true });
+    this.refillHandSlot(index, { animate: true });
     this.renderHand();
     this.updatePileUi();
+    return true;
+  }
+
+  moveTemporaryCardToDiscard(card, index = this.temporaryCards.indexOf(card)) {
+    if (index < 0 || this.temporaryCards[index] !== card) return false;
+    this.temporaryCards.splice(index, 1);
+    this.discardPile.push(card);
+    this.refillDrawPileFromDiscardIfNeeded();
     return true;
   }
 
@@ -1314,6 +1331,7 @@ export class CardSystem {
   addLootCard(cardDefinition) {
     if (!cardDefinition) return { added: false, location: 'none' };
     const card = createCardInstance(this.applyRuntimeCardLevel(cardDefinition), `loot-${Date.now()}`);
+    this.game.recordAcquiredUnitCard?.(card, this.playerSlot);
     if (this.temporaryCards.length < TEMPORARY_CARD_LIMIT) {
       this.temporaryCards.push(card);
       this.pendingDrawAnimations.add(card);
@@ -1340,6 +1358,7 @@ export class CardSystem {
       this.applyRuntimeCardLevel(definition, options),
       options.prefix ?? `temporary-${Date.now()}`
     );
+    this.game.recordAcquiredUnitCard?.(card, this.playerSlot);
     this.temporaryCards.push(card);
     this.pendingDrawAnimations.add(card);
     this.renderTemporaryCards();
@@ -1354,6 +1373,7 @@ export class CardSystem {
       this.applyRuntimeCardLevel(cardDefinition, options),
       options.prefix ?? `reward-${Date.now()}`
     );
+    this.game.recordAcquiredUnitCard?.(card, this.playerSlot);
     if (options.top === false) {
       this.drawPile.push(card);
     } else {
@@ -1390,21 +1410,28 @@ export class CardSystem {
   drawTemporaryCards(count = 1, options = {}) {
     const targetCount = Math.max(1, Math.floor(count));
     const overflowToDrawTop = options.overflowToDrawTop === true;
+    const preferHandSlots = options.preferHandSlots === true;
     const defaultLimit = overflowToDrawTop ? TEMPORARY_CARD_EFFECT_LIMIT : TEMPORARY_CARD_LIMIT;
     const temporaryLimit = Math.max(
       TEMPORARY_CARD_LIMIT,
       Math.floor(options.temporaryLimit ?? defaultLimit)
     );
     const overflowCards = [];
-    let visibleDrawn = 0;
+    let handDrawn = 0;
+    let temporaryDrawn = 0;
     let resolved = 0;
     while (resolved < targetCount) {
       const card = this.drawCard();
       if (!card) break;
-      if (this.temporaryCards.length < temporaryLimit) {
+      const handSlot = preferHandSlots ? this.findEmptyHandSlotIndex() : -1;
+      if (handSlot >= 0) {
+        this.handCards[handSlot] = card;
+        this.pendingDrawAnimations.add(card);
+        handDrawn += 1;
+      } else if (this.temporaryCards.length < temporaryLimit) {
         this.temporaryCards.push(card);
         this.pendingDrawAnimations.add(card);
-        visibleDrawn += 1;
+        temporaryDrawn += 1;
       } else if (overflowToDrawTop) {
         overflowCards.push(card);
       } else {
@@ -1416,8 +1443,13 @@ export class CardSystem {
     if (overflowCards.length) {
       this.drawPile.unshift(...overflowCards);
     }
-    if (visibleDrawn > 0 || overflowCards.length) {
+    if (temporaryDrawn > 0) {
       this.renderTemporaryCards();
+    }
+    if (handDrawn > 0) {
+      this.renderHand();
+    }
+    if (handDrawn > 0 || temporaryDrawn > 0 || overflowCards.length) {
       this.updatePileUi();
     }
     return resolved;
@@ -1427,6 +1459,7 @@ export class CardSystem {
     if (!Array.isArray(pool) || pool.length === 0) return 0;
     const targetCount = Math.max(1, Math.floor(count));
     const overflowToDrawTop = options.overflowToDrawTop === true;
+    const preferHandSlots = options.preferHandSlots === true;
     const defaultLimit = overflowToDrawTop ? TEMPORARY_CARD_EFFECT_LIMIT : TEMPORARY_CARD_LIMIT;
     const temporaryLimit = Math.max(
       TEMPORARY_CARD_LIMIT,
@@ -1434,6 +1467,8 @@ export class CardSystem {
     );
     const candidates = shuffleCards(pool.filter((card) => card && !card.lootOnly && !card.retired));
     const overflowCards = [];
+    let handCreated = 0;
+    let temporaryCreated = 0;
     let created = 0;
     while (created < targetCount && candidates.length > 0) {
       const definition = candidates.shift();
@@ -1444,9 +1479,16 @@ export class CardSystem {
         }),
         options.prefix ?? `temporary-${Date.now()}`
       );
-      if (this.temporaryCards.length < temporaryLimit) {
+      this.game.recordAcquiredUnitCard?.(card, this.playerSlot);
+      const handSlot = preferHandSlots ? this.findEmptyHandSlotIndex() : -1;
+      if (handSlot >= 0) {
+        this.handCards[handSlot] = card;
+        this.pendingDrawAnimations.add(card);
+        handCreated += 1;
+      } else if (this.temporaryCards.length < temporaryLimit) {
         this.temporaryCards.push(card);
         this.pendingDrawAnimations.add(card);
+        temporaryCreated += 1;
       } else if (overflowToDrawTop) {
         overflowCards.push(card);
       } else {
@@ -1458,8 +1500,13 @@ export class CardSystem {
     if (overflowCards.length) {
       this.drawPile.unshift(...overflowCards);
     }
-    if (created > 0) {
+    if (temporaryCreated > 0) {
       this.renderTemporaryCards();
+    }
+    if (handCreated > 0) {
+      this.renderHand();
+    }
+    if (created > 0) {
       this.updatePileUi();
     }
     return created;
@@ -1489,14 +1536,21 @@ export class CardSystem {
   }
 
   drawToFullHand({ animate = false } = {}) {
-    while (this.handCards.length < HAND_SIZE) {
-      const card = this.drawCard();
-      if (!card) break;
-      if (animate) {
-        this.pendingDrawAnimations.add(card);
-      }
-      this.handCards.push(card);
+    for (let index = 0; index < HAND_SIZE; index += 1) {
+      if (this.handCards[index]) continue;
+      if (!this.refillHandSlot(index, { animate })) break;
     }
+  }
+
+  refillHandSlot(index, { animate = false } = {}) {
+    if (index < 0 || index >= HAND_SIZE || this.handCards[index]) return null;
+    const card = this.drawCard();
+    if (!card) return null;
+    this.handCards[index] = card;
+    if (animate) {
+      this.pendingDrawAnimations.add(card);
+    }
+    return card;
   }
 
   drawCard() {
@@ -1886,6 +1940,20 @@ export class CardSystem {
     this.pileUi?.root?.remove();
     this.pileUi?.viewer?.remove();
   }
+}
+
+export function isCardDiscardDragIntent(drag, event) {
+  if (!drag || !event) return false;
+  const deltaY = Number(event.clientY) - Number(drag.startY);
+  if (!Number.isFinite(deltaY) || deltaY < Number(drag.discardThreshold)) return false;
+  const pointerX = Number(event.clientX);
+  const sourceLeft = Number(drag.sourceLeft);
+  const sourceRight = Number(drag.sourceRight);
+  return Number.isFinite(pointerX)
+    && Number.isFinite(sourceLeft)
+    && Number.isFinite(sourceRight)
+    && pointerX >= sourceLeft
+    && pointerX <= sourceRight;
 }
 
 function normalizeDeck(cards) {

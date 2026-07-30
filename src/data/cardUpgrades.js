@@ -234,7 +234,7 @@ export const UNIT_SPECIAL_UPGRADES = {
       id: 'engineer-mini-turret',
       kind: 'unit-special',
       name: '便携炮台',
-      summary: '周期性部署 1 个小炮台，继承工匠生命、攻击、双抗与耐久成长，但保留炮台自己的远程射程与索敌。',
+      summary: '周期性部署 1 个小炮台，继承工匠生命、攻击、双抗与耐久成长，保留炮台自己的远程射程与索敌；距离工匠超过 12 时瞬移回其身边。',
       trait: 'miniTurret'
     }
   ],

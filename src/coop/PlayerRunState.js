@@ -23,6 +23,7 @@ export function createPlayerRunState(playerId, deck = [], descriptor = {}) {
     pendingRewards: new Map(),
     pendingStrategyRewards: [],
     strategyRewardRerollCount: 0,
+    acquiredUnitCardTypes: new Set(),
     teamGenericUpgradeCounts: new Map(),
     teamSpecialUpgrades: new Map(),
     teamSupportModifiersApplied: new Set(),

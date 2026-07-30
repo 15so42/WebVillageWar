@@ -939,11 +939,20 @@ const WORLD_PRESETS = {
       sun: '#ffa852',
       sunIntensity: 2.12,
       sunPosition: { x: -88, y: 48, z: 48 },
+      shadowIntensity: 1,
       hemiSky: '#ac6262',
       hemiGround: '#ff8080',
       hemiIntensity: 1.52,
       realtimeShadows: false,
       bakedShadows: true
+    },
+    camera: {
+      initialPosition: { x: -1.571, y: 28.608, z: 59.673 }
+    },
+    materials: {
+      snow: '#eee8d8',
+      rock: '#969487',
+      tree: '#356747'
     },
     palette: {
       base: '#443e46',
@@ -1053,25 +1062,34 @@ const WORLD_PRESETS = {
     seed: 904,
     sky: {
       toneMapping: 'linear',
-      exposure: 1.1,
+      exposure: 0.89,
       background: '#ff8847',
       skyGradient: {
         top: '#ff8847',
         middle: '#ff8847',
         horizon: '#ff8847'
       },
-      fog: '#ffc87a',
+      fog: '#ffa27a',
       fogNear: 20,
-      fogFar: 117,
-      sun: '#fbb99d',
-      sunIntensity: 3.3,
+      fogFar: 245,
+      sun: '#ffdbcc',
+      sunIntensity: 8,
       sunPosition: { x: -88, y: 48, z: 48 },
+      shadowIntensity: 1,
       hemiSky: '#ffd79e',
       hemiGround: '#902c2c',
       hemiIntensity: 0.77,
       realtimeShadows: false,
       bakedShadows: true,
       shadowMapSize: 2048
+    },
+    camera: {
+      initialPosition: { x: -1.599, y: 33.002, z: 63.424 }
+    },
+    materials: {
+      snow: '#eee8d8',
+      rock: '#969487',
+      tree: '#356747'
     },
     palette: {
       base: '#b76245',

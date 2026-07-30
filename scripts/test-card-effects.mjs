@@ -4,10 +4,15 @@ import { CardEffectSystem } from '../src/systems/CardEffectSystem.js';
 import { AttributeSet } from '../src/systems/AttributeSet.js';
 import { BuffSystem } from '../src/systems/BuffSystem.js';
 import { CombatSystem } from '../src/systems/CombatSystem.js';
-import { cardMaxUses } from '../src/systems/CardSystem.js';
+import {
+  CardSystem,
+  cardMaxUses,
+  isCardDiscardDragIntent
+} from '../src/systems/CardSystem.js';
 import { UnitEntity } from '../src/entities/UnitEntity.js';
 
 assert(CARD_DEFINITIONS.filter((card) => card.kind === 'summon').every((card) => cardMaxUses(card) === 1));
+assert.equal(CARD_DEFINITIONS.find((card) => card.id === 'field-upgrade')?.energyCost, 3);
 assert.equal(cardMaxUses({ kind: 'summon', uses: 9 }), 1);
 assert.equal(CARD_DEFINITIONS.find((card) => card.id === 'rebirth-totem-enchant')?.retired, true);
 assert.equal(CARD_DEFINITIONS.find((card) => card.id === 'self-destruct-enchant')?.enchantmentId, 'selfDestruct');
@@ -74,28 +79,269 @@ try {
   Math.random = previousRandom;
 }
 
+const tacticalRewardPool = [
+  { id: 'once-only-ability', kind: 'ability' },
+  { id: 'once-only-summon', kind: 'summon' }
+];
 const consumedWaveRewardCards = [];
 const tacticalFallback = new CardEffectSystem({
   cardSystem: {
-    drawTemporaryCards: () => 0,
+    drawTemporaryCards(count, options) {
+      assert.equal(count, 2);
+      assert.equal(options.preferHandSlots, true);
+      return 0;
+    },
     addTemporaryCardsFromPool(pool, count, options) {
-      assert.equal(count, 1);
-      assert.deepEqual(pool.map((entry) => entry.id), ['once-only-ability']);
-      options.onCardCreated(pool[0], { ...pool[0] });
-      return 1;
+      assert.equal(count, 2);
+      assert.equal(options.preferHandSlots, true);
+      assert.deepEqual(
+        pool.map((entry) => entry.id),
+        ['once-only-ability', 'once-only-summon']
+      );
+      const createdDefinitions = pool.slice(0, count);
+      createdDefinitions.forEach((definition) => {
+        options.onCardCreated(definition, { ...definition });
+      });
+      return createdDefinitions.length;
     }
   },
-  waveRewardCardPool: () => [{ id: 'once-only-ability', kind: 'ability' }],
+  waveRewardCardPool: () => tacticalRewardPool,
   consumeWaveRewardCard(card) {
+    const index = tacticalRewardPool.findIndex((entry) => entry.id === card.id);
+    if (index < 0) return false;
+    tacticalRewardPool.splice(index, 1);
     consumedWaveRewardCards.push(card.id);
     return true;
   }
 });
 assert.equal(tacticalFallback.drawTemporaryCards({
   card: { id: 'field-upgrade' },
-  effect: { amount: 1, fallbackPool: 'wave-reward-pool' }
+  effect: { amount: 2, fallbackPool: 'wave-reward-pool' }
 }), true);
 assert.deepEqual(consumedWaveRewardCards, ['once-only-ability']);
+assert.deepEqual(tacticalRewardPool, [{ id: 'once-only-summon', kind: 'summon' }]);
+
+const dispatchedDrawCards = [
+  { id: 'drawn-unit-a', kind: 'summon' },
+  { id: 'drawn-unit-b', kind: 'summon' },
+  { id: 'still-in-draw-pile', kind: 'spell' }
+];
+const [firstDispatchedCard, secondDispatchedCard, remainingDrawCard] = dispatchedDrawCards;
+const dispatchDrawSystem = {
+  temporaryCards: [],
+  drawPile: dispatchedDrawCards,
+  drawCard() {
+    return this.drawPile.shift() ?? null;
+  },
+  pendingDrawAnimations: new Set(),
+  renderTemporaryCards() {},
+  updatePileUi() {}
+};
+assert.equal(CardSystem.prototype.drawTemporaryCards.call(dispatchDrawSystem, 2), 2);
+assert.deepEqual(dispatchDrawSystem.temporaryCards, [firstDispatchedCard, secondDispatchedCard]);
+assert.deepEqual(dispatchDrawSystem.drawPile, [remainingDrawCard]);
+
+const occupiedHandCards = [
+  { id: 'occupied-left' },
+  null,
+  { id: 'occupied-middle' },
+  { id: 'occupied-right' },
+  { id: 'occupied-far-right' }
+];
+const handFirstDrawCards = [
+  { id: 'hand-first-card', kind: 'summon' },
+  { id: 'temporary-second-card', kind: 'spell' }
+];
+let handFirstRenderCount = 0;
+let handFirstTemporaryRenderCount = 0;
+const handFirstDispatchSystem = {
+  handCards: [...occupiedHandCards],
+  temporaryCards: [],
+  drawPile: [...handFirstDrawCards],
+  pendingDrawAnimations: new Set(),
+  findEmptyHandSlotIndex: CardSystem.prototype.findEmptyHandSlotIndex,
+  drawCard() {
+    return this.drawPile.shift() ?? null;
+  },
+  renderHand() {
+    handFirstRenderCount += 1;
+    this.pendingDrawAnimations.clear();
+  },
+  renderTemporaryCards() {
+    handFirstTemporaryRenderCount += 1;
+  },
+  updatePileUi() {}
+};
+assert.equal(
+  CardSystem.prototype.drawTemporaryCards.call(handFirstDispatchSystem, 2, {
+    preferHandSlots: true
+  }),
+  2
+);
+assert.equal(handFirstDispatchSystem.handCards[1], handFirstDrawCards[0]);
+assert.deepEqual(handFirstDispatchSystem.temporaryCards, [handFirstDrawCards[1]]);
+assert.equal(handFirstRenderCount, 1);
+assert.equal(handFirstTemporaryRenderCount, 1);
+
+const poolHandFirstSystem = {
+  handCards: [...occupiedHandCards],
+  temporaryCards: [],
+  drawPile: [],
+  pendingDrawAnimations: new Set(),
+  playerSlot: 'p1',
+  game: { recordAcquiredUnitCard() {} },
+  findEmptyHandSlotIndex: CardSystem.prototype.findEmptyHandSlotIndex,
+  applyRuntimeCardLevel: (definition) => definition,
+  renderHand() {
+    this.pendingDrawAnimations.clear();
+  },
+  renderTemporaryCards() {},
+  updatePileUi() {}
+};
+assert.equal(
+  CardSystem.prototype.addTemporaryCardsFromPool.call(
+    poolHandFirstSystem,
+    [
+      { id: 'pool-card-a', kind: 'summon' },
+      { id: 'pool-card-b', kind: 'ability' }
+    ],
+    2,
+    { preferHandSlots: true }
+  ),
+  2
+);
+assert.ok(poolHandFirstSystem.handCards[1]);
+assert.equal(poolHandFirstSystem.temporaryCards.length, 1);
+assert.notEqual(poolHandFirstSystem.handCards[1], poolHandFirstSystem.temporaryCards[0]);
+
+const discardDrag = {
+  startY: 100,
+  discardThreshold: 50,
+  sourceLeft: 200,
+  sourceRight: 300
+};
+assert.equal(isCardDiscardDragIntent(discardDrag, { clientX: 250, clientY: 150 }), true);
+assert.equal(isCardDiscardDragIntent(discardDrag, { clientX: 199, clientY: 190 }), false);
+assert.equal(isCardDiscardDragIntent(discardDrag, { clientX: 301, clientY: 190 }), false);
+assert.equal(isCardDiscardDragIntent(discardDrag, { clientX: 250, clientY: 149 }), false);
+const lateralDragModeSystem = {
+  drag: {
+    ...discardDrag,
+    startX: 250,
+    sourceHeight: 200,
+    playThreshold: 100,
+    card: { target: 'ground' }
+  },
+  isPointerBlockedByCardUi: () => true
+};
+assert.equal(
+  CardSystem.prototype.resolveDragMode.call(lateralDragModeSystem, {
+    clientX: 199,
+    clientY: 190
+  }),
+  'play'
+);
+assert.equal(
+  CardSystem.prototype.resolveDragMode.call(lateralDragModeSystem, {
+    clientX: 301,
+    clientY: 190
+  }),
+  'play'
+);
+assert.equal(
+  CardSystem.prototype.resolveDragMode.call(lateralDragModeSystem, {
+    clientX: 250,
+    clientY: 190
+  }),
+  'discard'
+);
+
+const dispatchedUnitCard = {
+  id: 'dispatched-unit',
+  kind: 'summon',
+  maxUses: 1,
+  remainingUses: 1
+};
+let dispatchedUnitExhausted = 0;
+const dispatchedCardSystem = {
+  temporaryCards: [dispatchedUnitCard],
+  discardPile: [],
+  handCards: [],
+  game: { abilitiesFor: () => ({ onCardExhausted: () => { dispatchedUnitExhausted += 1; } }) },
+  consumeCardUse: CardSystem.prototype.consumeCardUse,
+  isCardSpent: CardSystem.prototype.isCardSpent,
+  moveTemporaryCardToDiscard: CardSystem.prototype.moveTemporaryCardToDiscard,
+  refillDrawPileFromDiscardIfNeeded: () => false,
+  renderTemporaryCards() {},
+  updatePileUi() {}
+};
+assert.equal(CardSystem.prototype.moveCardToDiscard.call(dispatchedCardSystem, dispatchedUnitCard), true);
+assert.deepEqual(dispatchedCardSystem.temporaryCards, []);
+assert.deepEqual(dispatchedCardSystem.discardPile, []);
+assert.equal(dispatchedUnitCard.remainingUses, 0);
+assert.equal(dispatchedUnitExhausted, 1);
+
+const leftHandCard = { id: 'left-card', kind: 'spell' };
+const middleHandCard = {
+  id: 'middle-card',
+  kind: 'summon',
+  maxUses: 1,
+  remainingUses: 1
+};
+const rightHandCard = { id: 'right-card', kind: 'spell' };
+let middleHandCardExhausted = 0;
+const emptyDeckHandSystem = {
+  temporaryCards: [],
+  handCards: [leftHandCard, middleHandCard, rightHandCard],
+  drawPile: [],
+  discardPile: [],
+  pendingDrawAnimations: new Set(),
+  game: { abilitiesFor: () => ({ onCardExhausted: () => { middleHandCardExhausted += 1; } }) },
+  consumeCardUse: CardSystem.prototype.consumeCardUse,
+  isCardSpent: CardSystem.prototype.isCardSpent,
+  refillDrawPileFromDiscardIfNeeded: CardSystem.prototype.refillDrawPileFromDiscardIfNeeded,
+  drawCard: CardSystem.prototype.drawCard,
+  refillHandSlot: CardSystem.prototype.refillHandSlot,
+  renderHand() {},
+  updatePileUi() {}
+};
+assert.equal(CardSystem.prototype.moveCardToDiscard.call(emptyDeckHandSystem, middleHandCard), true);
+assert.deepEqual(emptyDeckHandSystem.handCards, [leftHandCard, null, rightHandCard]);
+assert.deepEqual(emptyDeckHandSystem.discardPile, []);
+assert.equal(middleHandCardExhausted, 1);
+
+const recyclableHandCard = { id: 'recyclable-card', kind: 'tactic' };
+const recyclableHandSystem = {
+  temporaryCards: [],
+  handCards: [leftHandCard, recyclableHandCard, rightHandCard],
+  drawPile: [],
+  discardPile: [],
+  pendingDrawAnimations: new Set(),
+  game: { abilitiesFor: () => ({ onCardExhausted: () => assert.fail('recyclable card must not exhaust') }) },
+  consumeCardUse: CardSystem.prototype.consumeCardUse,
+  isCardSpent: CardSystem.prototype.isCardSpent,
+  refillDrawPileFromDiscardIfNeeded: CardSystem.prototype.refillDrawPileFromDiscardIfNeeded,
+  drawCard: CardSystem.prototype.drawCard,
+  refillHandSlot: CardSystem.prototype.refillHandSlot,
+  renderHand() {},
+  updatePileUi() {}
+};
+assert.equal(CardSystem.prototype.moveCardToDiscard.call(recyclableHandSystem, recyclableHandCard), true);
+assert.deepEqual(recyclableHandSystem.handCards, [leftHandCard, recyclableHandCard, rightHandCard]);
+assert.deepEqual(recyclableHandSystem.drawPile, []);
+assert.deepEqual(recyclableHandSystem.discardPile, []);
+
+const manuallyDiscardedTemporaryCard = { id: 'temporary-enchant', kind: 'enchant' };
+const temporaryDiscardSystem = {
+  temporaryCards: [manuallyDiscardedTemporaryCard],
+  discardPile: [],
+  refillDrawPileFromDiscardIfNeeded: () => false
+};
+assert.equal(
+  CardSystem.prototype.moveTemporaryCardToDiscard.call(temporaryDiscardSystem, manuallyDiscardedTemporaryCard),
+  true
+);
+assert.deepEqual(temporaryDiscardSystem.discardPile, [manuallyDiscardedTemporaryCard]);
 
 const buffGame = {
   friendlyUnits: [],

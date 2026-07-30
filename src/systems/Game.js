@@ -83,6 +83,11 @@ import { scaleResourceAfterMaximumChange } from './unitResourceSync.js';
 import { NetworkAnalysisUi } from './NetworkAnalysisUi.js';
 import { shouldConsumeWaveRewardCard } from './waveRewardPool.js';
 import { autoRebirthDurationFor } from './rebirthRules.js';
+import {
+  cameraFollowCenter,
+  cameraKeyboardPanDelta,
+  cameraMoveKeyForEvent
+} from './cameraKeyboardControls.js';
 
 const ROUTE_REPATH_DISTANCE = 1.15;
 const ROUTE_REJOIN_DISTANCE = 2.2;
@@ -483,6 +488,7 @@ const DUNGEON_HALLS_HEAD_RENDER_TUNING = Object.freeze({
   sunX: -88,
   sunY: 48,
   sunZ: 48,
+  shadowIntensity: 1,
   hemiIntensity: 1.52,
   hemiSky: '#ac6262',
   hemiGround: '#ff8080',
@@ -494,35 +500,42 @@ const DUNGEON_HALLS_HEAD_RENDER_TUNING = Object.freeze({
   aoScale: 2.6,
   aoKernelRadius: 24,
   aoBias: 0.08,
-  outlineThickness: 1.0,
+  snowColor: '#eee8d8',
+  rockColor: '#969487',
+  treeColor: '#356747',
+  outlineThickness: 0.3,
   outlineColor: '#221111',
   outlineThreshold: 0.18
 });
 const RED_DESERT_HEAD_RENDER_TUNING = Object.freeze({
   toneMapping: 'linear',
-  exposure: 1.1,
+  exposure: 0.89,
   brightness: 1,
   contrast: 1,
   saturation: 1,
   hue: 0,
   warmth: 0,
-  sunColor: '#fbb99d',
-  sunIntensity: 3.3,
+  sunColor: '#ffdbcc',
+  sunIntensity: 8,
   sunX: -88,
   sunY: 48,
   sunZ: 48,
+  shadowIntensity: 1,
   hemiIntensity: 0.77,
   hemiSky: '#ffd79e',
   hemiGround: '#902c2c',
   background: '#ff8847',
-  fogColor: '#ffc87a',
+  fogColor: '#ffa27a',
   fogNear: 20,
-  fogFar: 117,
+  fogFar: 245,
   aoIntensity: 0.01,
   aoScale: 2.6,
   aoKernelRadius: 32,
   aoBias: 0.08,
-  outlineThickness: 1.0,
+  snowColor: '#eee8d8',
+  rockColor: '#969487',
+  treeColor: '#356747',
+  outlineThickness: 0.3,
   outlineColor: '#442211',
   outlineThreshold: 0.18
 });
@@ -759,6 +772,8 @@ export class Game {
     this.pointerScreen = new THREE.Vector2(window.innerWidth * 0.5, window.innerHeight * 0.5);
     this.edgePanActive = false;
     this.cameraDrag = null;
+    this.cameraMoveKeys = new Set();
+    this.cameraFollowEnabled = false;
     this.activeTouchPointers = new Map();
     this.touchGesture = null;
     this.mobileBoxSelectMode = false;
@@ -791,6 +806,7 @@ export class Game {
     this.teamGenericUpgradeCounts = new Map();
     this.teamSpecialUpgrades = new Map();
     this.teamSupportModifiersApplied = new Set();
+    this.acquiredUnitCardTypes = new Set();
     this.bossesDefeated = 0;
     this.pendingWaveAdvance = false;
     if (this.players) {
@@ -990,6 +1006,7 @@ export class Game {
       selectedName: document.querySelector('#selected-name'),
       selectedStats: document.querySelector('#selected-stats'),
       selectedEnchants: document.querySelector('#selected-enchants'),
+      cameraFollowButton: document.querySelector('#selected-camera-follow'),
       settingsButton: document.querySelector('#game-settings-button'),
       commandDock: document.querySelector('#game-command-dock'),
       pauseOverlay: document.querySelector('#pause-overlay'),
@@ -1037,6 +1054,7 @@ export class Game {
       this.cancelCameraDrag();
       this.cancelTouchGesture();
       this.setMobileBoxSelectMode(false);
+      this.cameraMoveKeys.clear();
       this.activeTouchPointers.clear();
     }, { signal });
     canvas.addEventListener('webglcontextlost', (event) => {
@@ -1047,12 +1065,17 @@ export class Game {
     }, { signal });
     canvas.addEventListener('webglcontextrestored', () => this.restoreWebglContext(), { signal });
     document.addEventListener('visibilitychange', () => {
-      if (!document.hidden) this.restoreWebglContext();
+      if (document.hidden) {
+        this.cameraMoveKeys.clear();
+      } else {
+        this.restoreWebglContext();
+      }
     }, { signal });
     canvas.addEventListener('wheel', (event) => this.onCanvasWheel(event), { passive: false, signal });
     window.addEventListener('pointermove', (event) => this.onWindowPointerMove(event), { signal });
     window.addEventListener('contextmenu', (event) => this.onGameContextMenu(event), { capture: true, signal });
     window.addEventListener('keydown', (event) => this.onKeyDown(event), { signal });
+    window.addEventListener('keyup', (event) => this.onKeyUp(event), { signal });
     window.addEventListener('resize', () => this.resize(), { signal });
     window.addEventListener('popstate', (event) => this.onReturnNavigation(event), { signal });
     this.strategyEventUi.root.addEventListener('click', (event) => this.onStrategyEventClick(event), { signal });
@@ -1066,6 +1089,13 @@ export class Game {
     this.dom.commandDock?.addEventListener('click', (event) => this.onCommandDockClick(event), { signal });
     this.dom.commandDock?.addEventListener('pointerdown', stopUiEvent, { signal });
     this.dom.commandDock?.addEventListener('contextmenu', stopUiEvent, { signal });
+    this.dom.cameraFollowButton?.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      this.toggleCameraFollow();
+    }, { signal });
+    this.dom.cameraFollowButton?.addEventListener('pointerdown', stopUiEvent, { signal });
+    this.dom.cameraFollowButton?.addEventListener('contextmenu', stopUiEvent, { signal });
     this.dom.pauseOverlay?.addEventListener('click', (event) => this.onPauseOverlayClick(event), { signal });
     this.dom.pauseOverlay?.addEventListener('pointerdown', stopUiEvent, { signal });
     this.dom.pauseOverlay?.addEventListener('contextmenu', stopUiEvent, { signal });
@@ -2742,16 +2772,46 @@ export class Game {
   }
 
   acquiredUnitTypes() {
-    const types = new Set();
+    const slot = this.activeEconomySlot ?? this.localPlayerSlot;
+    const types = new Set(this.acquiredUnitCardTypesFor(slot));
     const addCardUnitType = (card) => {
-      if (card?.unitType) types.add(card.unitType);
+      if (!card?.unitType) return;
+      types.add(card.unitType);
+      this.recordAcquiredUnitCard(card, slot);
     };
-    // The pre-battle deck is only a potential card pool. A specialization
-    // should favor unit cards that this player has actually acquired this run.
-    this.cardSystem?.activeRunCards?.().forEach((card) => {
-      addCardUnitType(card);
+    // Include any cards still visible in this run, then persist them before a
+    // one-use summon leaves the deck. Existing living units are also recovered
+    // so runs started before the record existed receive the correct options.
+    this.cardSystem?.activeRunCards?.().forEach(addCardUnitType);
+    this.friendlyUnits?.forEach((unit) => {
+      if (!unit?.alive || unit.isWildlife || !unit.type) return;
+      if (!this.unitBelongsToPlayer(unit, slot)) return;
+      types.add(unit.type);
+      this.recordAcquiredUnitType(unit.type, slot);
     });
     return types;
+  }
+
+  acquiredUnitCardTypesFor(slot = this.activeEconomySlot ?? this.localPlayerSlot) {
+    const run = this.players?.[slot];
+    if (run) {
+      if (!(run.acquiredUnitCardTypes instanceof Set)) run.acquiredUnitCardTypes = new Set();
+      return run.acquiredUnitCardTypes;
+    }
+    if (!(this.acquiredUnitCardTypes instanceof Set)) this.acquiredUnitCardTypes = new Set();
+    return this.acquiredUnitCardTypes;
+  }
+
+  recordAcquiredUnitCard(card, slot = this.activeEconomySlot ?? this.localPlayerSlot) {
+    return this.recordAcquiredUnitType(card?.unitType, slot);
+  }
+
+  recordAcquiredUnitType(unitType, slot = this.activeEconomySlot ?? this.localPlayerSlot) {
+    if (!unitType) return false;
+    const types = this.acquiredUnitCardTypesFor(slot);
+    const before = types.size;
+    types.add(unitType);
+    return types.size !== before;
   }
 
   teamSpecialUpgradeMapForSlot(slot = this.activeEconomySlot ?? this.localPlayerSlot) {
@@ -3626,7 +3686,9 @@ export class Game {
   }
 
   updateCamera(dt) {
+    this.applyCameraFollowTarget();
     this.applyCameraDragDelta();
+    this.applyKeyboardCameraMovement(dt);
     this.cameraTarget.y = 4;
     this.camera.position.copy(this.cameraTarget).addScaledVector(
       this.cameraOffsetDirection,
@@ -3648,6 +3710,54 @@ export class Game {
     this.cameraTarget.x -= dx * dragScale;
     this.cameraTarget.z -= dy * dragScale;
     this.clampCameraTarget();
+  }
+
+  applyKeyboardCameraMovement(dt) {
+    const delta = cameraKeyboardPanDelta(
+      this.cameraMoveKeys,
+      this.cameraOffsetDirection,
+      this.cameraDistance,
+      dt
+    );
+    if (!delta) return;
+    this.cameraTarget.x += delta.x;
+    this.cameraTarget.z += delta.z;
+    this.clampCameraTarget();
+  }
+
+  applyCameraFollowTarget() {
+    if (!this.cameraFollowEnabled) return false;
+    const center = cameraFollowCenter(this.selectedUnits);
+    if (!center) {
+      this.setCameraFollowEnabled(false);
+      return false;
+    }
+    this.cameraTarget.x = center.x;
+    this.cameraTarget.z = center.z;
+    this.clampCameraTarget();
+    return true;
+  }
+
+  setCameraFollowEnabled(enabled) {
+    const next = Boolean(enabled && cameraFollowCenter(this.selectedUnits));
+    this.cameraFollowEnabled = next;
+    if (next) this.applyCameraFollowTarget();
+    this.syncCameraFollowUi();
+    return next;
+  }
+
+  toggleCameraFollow() {
+    return this.setCameraFollowEnabled(!this.cameraFollowEnabled);
+  }
+
+  syncCameraFollowUi() {
+    const button = this.dom?.cameraFollowButton;
+    if (!button) return;
+    const hasSelection = Boolean(cameraFollowCenter(this.selectedUnits));
+    button.hidden = !hasSelection;
+    button.classList.toggle('is-active', this.cameraFollowEnabled);
+    button.setAttribute('aria-pressed', this.cameraFollowEnabled ? 'true' : 'false');
+    button.textContent = this.cameraFollowEnabled ? '停止跟随' : '跟随镜头';
   }
 
   clampCameraTarget() {
@@ -3817,6 +3927,7 @@ export class Game {
       silver: this.silver,
       runCardsPlayedCount: this.runCardsPlayedCount,
       waveRewardDeck: this.waveRewardDeck,
+      acquiredUnitCardTypes: this.acquiredUnitCardTypes,
       teamGenericUpgradeCounts: this.teamGenericUpgradeCounts,
       teamSpecialUpgrades: this.teamSpecialUpgrades,
       teamSupportModifiersApplied: this.teamSupportModifiersApplied
@@ -3834,6 +3945,7 @@ export class Game {
     this.silver = run.silver;
     this.runCardsPlayedCount = run.runCardsPlayedCount ?? 0;
     this.waveRewardDeck = run.waveRewardDeck;
+    this.acquiredUnitCardTypes = run.acquiredUnitCardTypes;
     this.teamGenericUpgradeCounts = run.teamGenericUpgradeCounts;
     this.teamSpecialUpgrades = run.teamSpecialUpgrades;
     this.teamSupportModifiersApplied = run.teamSupportModifiersApplied;
@@ -3850,6 +3962,7 @@ export class Game {
       run.silver = this.silver;
       run.runCardsPlayedCount = this.runCardsPlayedCount;
       run.waveRewardDeck = this.waveRewardDeck;
+      run.acquiredUnitCardTypes = this.acquiredUnitCardTypes;
       run.teamGenericUpgradeCounts = this.teamGenericUpgradeCounts;
       run.teamSpecialUpgrades = this.teamSpecialUpgrades;
       run.teamSupportModifiersApplied = this.teamSupportModifiersApplied;
@@ -3866,6 +3979,7 @@ export class Game {
       this.silver = previous.silver;
       this.runCardsPlayedCount = previous.runCardsPlayedCount;
       this.waveRewardDeck = previous.waveRewardDeck;
+      this.acquiredUnitCardTypes = previous.acquiredUnitCardTypes;
       this.teamGenericUpgradeCounts = previous.teamGenericUpgradeCounts;
       this.teamSpecialUpgrades = previous.teamSpecialUpgrades;
       this.teamSupportModifiersApplied = previous.teamSupportModifiersApplied;
@@ -5876,6 +5990,11 @@ export class Game {
         this.applyUnitSelectionState(unit, true, this.localPlayerSlot);
       }
     });
+    if (this.cameraFollowEnabled && this.selectedUnits.length === 0) {
+      this.setCameraFollowEnabled(false);
+    } else {
+      this.syncCameraFollowUi();
+    }
     this.sendNetworkSelectionState();
   }
 
@@ -6018,11 +6137,19 @@ export class Game {
   }
 
   onKeyDown(event) {
-    if (event.repeat || isTextInputTarget(event.target)) return;
+    if (isTextInputTarget(event.target)) return;
     if (this.networkTerminated) {
       event.preventDefault();
       return;
     }
+    const cameraMoveKey = cameraMoveKeyForEvent(event);
+    if (cameraMoveKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault();
+      this.setCameraFollowEnabled(false);
+      this.cameraMoveKeys.add(cameraMoveKey);
+      return;
+    }
+    if (event.repeat) return;
     const key = event.key.toLowerCase();
     if (key === 'f2') {
       event.preventDefault();
@@ -6095,14 +6222,25 @@ export class Game {
       }
     }
     if (this.paused) return;
+    if (key === 'f') {
+      event.preventDefault();
+      this.toggleCameraFollow();
+      return;
+    }
     if (!this.selectedUnits.some((unit) => unit.alive && unit.team === TEAMS.PLAYER)) return;
-    if (key === 's') {
+    if (key === 'x') {
       event.preventDefault();
       this.stopSelectedUnits();
     } else if (key === 'z') {
       event.preventDefault();
       this.guardSelectedUnits();
     }
+  }
+
+  onKeyUp(event) {
+    const cameraMoveKey = cameraMoveKeyForEvent(event);
+    if (!cameraMoveKey) return;
+    this.cameraMoveKeys.delete(cameraMoveKey);
   }
 
   onCanvasPointerMove(event) {
@@ -6214,6 +6352,7 @@ export class Game {
     this.cameraDrag.lastY = event.clientY;
 
     if (dx !== 0 || dy !== 0) {
+      this.setCameraFollowEnabled(false);
       this.cameraDrag.pendingX += dx;
       this.cameraDrag.pendingY += dy;
       this.cameraDrag.totalDistance += Math.hypot(dx, dy);
@@ -6234,7 +6373,7 @@ export class Game {
     } else if (action === 'stop') {
       this.stopSelectedUnits();
     } else if (action === 'guard') {
-      this.guardSelectedUnits();
+      if (this.guardSelectedUnits()) this.selectUnit(null);
     }
   }
 
@@ -6643,11 +6782,12 @@ export class Game {
   guardSelectedUnits() {
     if (this.networkBridge?.shouldRouteLocalCommands?.()) {
       const unitIds = this.selectedControllableUnitIds();
-      if (unitIds.length) this.networkBridge.commandSender?.issueGuard?.(unitIds);
-      return;
+      if (!unitIds.length) return false;
+      this.networkBridge.commandSender?.issueGuard?.(unitIds);
+      return true;
     }
     const units = this.selectedUnits.filter((unit) => unit.alive && unit.team === TEAMS.PLAYER);
-    if (!units.length) return;
+    if (!units.length) return false;
     units.forEach((unit) => {
       unit.controlMode = 'guard';
       unit.guardPoint = unit.position.clone();
@@ -6665,6 +6805,7 @@ export class Game {
     });
     this.attacks.cancelPendingAttacksFor(units);
     this.effects.spawnRing(units[0].position, this.playerVisualColor(units[0]), 0.8, 0.52);
+    return true;
   }
 
   gameGuardRadiusFor(unit) {
@@ -6706,6 +6847,9 @@ export class Game {
       this.sendNetworkSelectionState();
     }
     this.selectedUnit = this.selectedUnits[0] ?? null;
+    if (this.cameraFollowEnabled && this.selectedUnits.length === 0) {
+      this.setCameraFollowEnabled(false);
+    }
   }
 
   updateGuardVisuals(dt) {
@@ -7113,6 +7257,7 @@ export class Game {
       this.dom.selectedStats.textContent = 'HP - / 武器 -';
       this.dom.selectedEnchants.textContent = '附魔 -';
     }
+    this.syncCameraFollowUi();
     if (this.perfJsonEnabled && this.dom.debug) {
       this.dom.debug.hidden = false;
       this.dom.debug.textContent = JSON.stringify(this.perfDebugSnapshot());
