@@ -511,12 +511,19 @@ export class ClientMirror {
 }
 
 function cloneCards(cards) {
-  return (cards ?? []).map((card) => ({
-    ...(CARD_DEFINITIONS.find((definition) => definition.id === (card.id ?? card.cardDefinitionId)) ?? {}),
+  return (cards ?? []).map(cloneCard).filter(Boolean);
+}
+
+function cloneCard(card) {
+  if (!card) return null;
+  const id = card.id ?? card.cardDefinitionId;
+  if (!id) return null;
+  return {
+    ...(CARD_DEFINITIONS.find((definition) => definition.id === id) ?? {}),
     ...card,
     instanceId: card.instanceId ?? card.cardInstanceId,
-    id: card.id ?? card.cardDefinitionId
-  }));
+    id
+  };
 }
 
 function updateNetworkMotion(record, dt, clientNowMs, oneWayLatencyMs) {
@@ -588,9 +595,9 @@ const extrapolatedPosition = new THREE.Vector3();
 const positionCorrection = new THREE.Vector3();
 
 function cloneChoices(choices) {
-  return (choices ?? []).map((choice) => ({
+  return (choices ?? []).filter(Boolean).map((choice) => ({
     ...choice,
-    card: choice.card ? cloneCards([choice.card])[0] : null
+    card: choice.card ? cloneCard(choice.card) : null
   }));
 }
 

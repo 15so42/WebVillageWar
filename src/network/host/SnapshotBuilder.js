@@ -414,7 +414,7 @@ export class SnapshotBuilder {
     const run = this.game.players?.[playerId];
     if (!cards || !run) return null;
     const isLocal = playerId === this.game.localPlayerSlot;
-    const strategyEvent = isLocal ? (this.game.strategyEvent ?? run.strategyEvent) : run.strategyEvent;
+    const strategyEvent = run.strategyEvent;
     const shopRun = isLocal ? this.game : run;
     ensureInteractionIdentity(strategyEvent, {
       matchId: this.matchId,
@@ -446,11 +446,11 @@ export class SnapshotBuilder {
       energy: round(cards.energy),
       cooldowns: cards.serializeCooldowns?.() ?? [],
       zones: {
-        hand: cards.handCards.map(serializeCard),
-        drawPile: cards.drawPile.map(serializeCard),
-        discardPile: cards.discardPile.map(serializeCard),
-        temporary: cards.temporaryCards.map(serializeCard),
-        exile: (cards.exilePile ?? []).map(serializeCard)
+        hand: serializeCardZone(cards.handCards),
+        drawPile: serializeCardZone(cards.drawPile),
+        discardPile: serializeCardZone(cards.discardPile),
+        temporary: serializeCardZone(cards.temporaryCards),
+        exile: serializeCardZone(cards.exilePile)
       },
       silver: round(isLocal ? this.game.getSilver(playerId) : run.silver),
       strategyUi: serializeStrategyUi(strategyEvent),
@@ -461,6 +461,11 @@ export class SnapshotBuilder {
         && !strategyEvent
       ),
       runShopState: serializeRunShopState(shopRun),
+      runShopWaiting: Boolean(
+        this.game.coopRewardKind === 'run-shop'
+        && this.game.coopRewardWaitSlots?.size
+        && !run.runShopFreeReward
+      ),
       abilities: serializeAbilities(this.game.abilitySystems?.[playerId] ?? (isLocal ? this.game.abilities : null))
     };
   }
@@ -507,11 +512,13 @@ export class SnapshotBuilder {
 
 function serializeCard(card) {
   if (!card) return null;
+  const id = card.id ?? card.cardDefinitionId;
+  if (!id) return null;
   return {
     cardInstanceId: card.cardInstanceId ?? card.instanceId,
     instanceId: card.instanceId ?? card.cardInstanceId,
-    cardDefinitionId: card.cardDefinitionId ?? card.id,
-    id: card.id ?? card.cardDefinitionId,
+    cardDefinitionId: id,
+    id,
     level: card.level ?? 1,
     runtimeOverrides: card.runtimeOverrides ?? null,
     resolvedPreview: card.resolvedPreview ?? null,
@@ -525,6 +532,10 @@ function serializeCard(card) {
     ...(Number.isFinite(card.remainingUses) ? { remainingUses: card.remainingUses } : {}),
     ...(Number.isFinite(card.cooldown) ? { cooldown: card.cooldown } : {})
   };
+}
+
+function serializeCardZone(cards) {
+  return (cards ?? []).map(serializeCard).filter(Boolean);
 }
 
 function serializeStrategyUi(event) {

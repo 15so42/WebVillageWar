@@ -1586,6 +1586,43 @@ export class Game {
     this.cardSystem?.clearHint?.('coop-wait-reward');
   }
 
+  showCoopRunShopWaitingUi() {
+    this.paused = true;
+    this.cancelCameraDrag();
+    this.cancelSelectionDrag();
+    if (this.runShopUi?.overlay) {
+      this.runShopUi.overlay.hidden = true;
+      this.runShopUi.overlay.setAttribute('hidden', '');
+    }
+    document.body.classList.remove('is-run-shop-open');
+    document.body.classList.add('is-game-paused', 'is-strategy-event-open');
+    this.strategyEventUi.root.hidden = false;
+    this.strategyEventUi.root.dataset.eventType = 'run-shop-waiting';
+    this.strategyEventUi.root.setAttribute('aria-label', '等待队友完成军需铺');
+    this.strategyEventUi.kicker.textContent = '联机军需铺';
+    this.strategyEventUi.kicker.hidden = false;
+    this.strategyEventUi.title.textContent = '等待队友完成军需铺';
+    this.strategyEventUi.summary.textContent = '你的免费军需奖励已经处理完成，所有玩家完成后会继续战斗。';
+    this.strategyEventUi.summary.hidden = false;
+    this.strategyEventUi.choices.innerHTML = '';
+    this.strategyEventUi.actions.hidden = true;
+    this.strategyEventUi.actions.innerHTML = '';
+    this.cardSystem?.clearHint?.('boss-shop');
+    this.cardSystem?.setHint?.('等待队友完成军需铺…', 'coop-wait-shop');
+  }
+
+  hideCoopRunShopWaitingUi() {
+    if (this.strategyEventUi.root.dataset.eventType !== 'run-shop-waiting') return false;
+    this.strategyEventUi.root.hidden = true;
+    this.strategyEventUi.choices.innerHTML = '';
+    this.strategyEventUi.actions.hidden = true;
+    this.strategyEventUi.actions.innerHTML = '';
+    delete this.strategyEventUi.root.dataset.eventType;
+    document.body.classList.remove('is-strategy-event-open');
+    this.cardSystem?.clearHint?.('coop-wait-shop');
+    return true;
+  }
+
   syncNetworkStrategyEventUi() {
     const waitingForNetwork = Boolean(
       this.networkBridge
@@ -1700,13 +1737,14 @@ export class Game {
       this.runShopOpen = false;
       this.runShopFreeReward = false;
       if (this.coopRewardWaitSlots?.size) {
-        this.cardSystem?.setHint?.('等待队友完成军需铺…', 'coop-wait-shop');
+        this.showCoopRunShopWaitingUi();
       }
     }
     this.networkBridge?.markPrivateStateDirty?.();
     if (this.coopRewardWaitSlots?.size) return;
     this.coopRewardWaitSlots = null;
     this.coopRewardKind = null;
+    this.hideCoopRunShopWaitingUi();
     this.cardSystem?.clearHint?.('coop-wait-shop');
     document.body.classList.remove('is-game-paused', 'is-run-shop-open');
     this.paused = false;
@@ -1727,7 +1765,10 @@ export class Game {
   }
 
   applyNetworkStrategyReroll(slot) {
-    return this.withPlayerContext(slot, () => this.rerollStrategyRewardChoices());
+    const shouldRenderLocalUi = slot === this.localPlayerSlot;
+    return this.withPlayerContext(slot, () => this.rerollStrategyRewardChoices({
+      render: shouldRenderLocalUi
+    }));
   }
 
   applyNetworkStrategySkip(slot) {
@@ -1844,6 +1885,15 @@ export class Game {
         this.closeRunShop({ localUiOnly: true });
       } else if (this.runShopOpen) {
         this.renderRunShop();
+      }
+    }
+    if ('runShopWaiting' in state) {
+      if (state.runShopWaiting) {
+        this.showCoopRunShopWaitingUi();
+      } else {
+        if (this.hideCoopRunShopWaitingUi()) {
+          this.onNetworkMatchPhaseChanged(this.networkBridge?.phase);
+        }
       }
     }
   }
@@ -3113,7 +3163,8 @@ export class Game {
     return STRATEGY_REWARD_REROLL_BASE_COST * (2 ** Math.max(0, this.strategyRewardRerollCount ?? 0));
   }
 
-  rerollStrategyRewardChoices() {
+  rerollStrategyRewardChoices(options = {}) {
+    const shouldRender = options.render !== false;
     const event = this.strategyEvent;
     if (!event || event.type !== 'wave-reward') return false;
     const cost = this.getStrategyRewardRerollCost();
@@ -3123,8 +3174,10 @@ export class Game {
     this.setSilver(this.getSilver() - cost);
     this.strategyRewardRerollCount = Math.max(0, (this.strategyRewardRerollCount ?? 0) + 1);
     event.choices = choices;
-    this.renderStrategyEvent();
-    this.updateHud(0);
+    if (shouldRender) {
+      this.renderStrategyEvent();
+      this.updateHud(0);
+    }
     return true;
   }
 
@@ -3984,6 +4037,8 @@ export class Game {
       this.teamSpecialUpgrades = previous.teamSpecialUpgrades;
       this.teamSupportModifiersApplied = previous.teamSupportModifiersApplied;
       if (slot === this.localPlayerSlot) {
+        this.strategyEvent = run.strategyEvent;
+        this.strategyRewardRerollCount = run.strategyRewardRerollCount;
         this.shopPrices = run.shopPrices;
         this.runShopFreeReward = run.runShopFreeReward;
         this.runShopActiveCategory = run.runShopActiveCategory;

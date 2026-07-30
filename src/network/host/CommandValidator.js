@@ -155,9 +155,9 @@ export class CommandValidator {
 
   validateRewardState(playerId, payload) {
     const run = this.game.players?.[playerId];
-    const event = playerId === this.game.localPlayerSlot
-      ? (this.game.strategyEvent ?? run?.strategyEvent)
-      : run?.strategyEvent;
+    const event = run
+      ? run.strategyEvent
+      : (playerId === this.game.localPlayerSlot ? this.game.strategyEvent : null);
     if (!event) return reject('reward_not_open');
     if (payload.rewardId && event.networkInteractionId !== payload.rewardId) return reject('stale_reward');
     if (payload.revision && event.networkRevision !== payload.revision) return reject('stale_reward_revision');
@@ -168,9 +168,9 @@ export class CommandValidator {
     const state = this.validateRewardState(playerId, payload);
     if (!state.ok) return state;
     const run = this.game.players?.[playerId];
-    const event = playerId === this.game.localPlayerSlot
-      ? (this.game.strategyEvent ?? run?.strategyEvent)
-      : run?.strategyEvent;
+    const event = run
+      ? run.strategyEvent
+      : (playerId === this.game.localPlayerSlot ? this.game.strategyEvent : null);
     const choiceIndex = findChoiceIndex(event, payload.choiceId);
     if (choiceIndex < 0) return reject('reward_choice_not_found');
     return { ok: true, payload: { ...payload, choiceIndex } };

@@ -58,7 +58,7 @@ export class GameNetworkBridge {
       matchId: this.matchId,
       getPhaseRevision: () => this.phaseRevision,
       getInteractionState: () => ({
-        strategyEvent: game.strategyEvent,
+        strategyEvent: game.players?.[this.localPlayerId]?.strategyEvent ?? game.strategyEvent,
         runShop: {
           offerId: game.runShopNetworkOfferId,
           revision: game.runShopNetworkRevision,
