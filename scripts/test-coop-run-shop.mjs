@@ -77,6 +77,19 @@ function makeCommand({ playerId, seq, name, payload = {} }) {
 }
 
 {
+  const game = Object.assign(Object.create(Game.prototype), {
+    coopRewardAutoSelectSecondsRemaining: 7,
+    runShopAutoSelectSecondsRemaining: 7,
+    strategyEvent: null,
+    runShopOpen: false
+  });
+
+  assert.equal(game.setCoopRewardCountdownSeconds(null, { force: true }), true);
+  assert.equal(game.coopRewardAutoSelectSecondsRemaining, null);
+  assert.equal(game.runShopAutoSelectSecondsRemaining, null);
+}
+
+{
   let waitingShown = 0;
   const hostRun = makeRun();
   const guestRun = makeRun();

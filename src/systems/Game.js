@@ -8783,6 +8783,7 @@ function formatSilverAmount(amount) {
 }
 
 function normalizeCoopRewardSeconds(seconds) {
+  if (seconds == null || seconds === '') return null;
   const value = Number(seconds);
   return Number.isFinite(value) ? Math.max(0, Math.ceil(value)) : null;
 }
