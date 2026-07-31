@@ -2257,6 +2257,9 @@ export class Game {
         return { ok: false, reason: '牌组中没有可操作的卡牌' };
       }
     }
+    if (category === 'unit' && !this.runShopOwnedCards().some((card) => card.kind === 'summon')) {
+      return { ok: false, reason: '牌组中没有可获取的单位卡' };
+    }
     if (category === 'energy') {
       const maxEnergy = Number(BALANCE.playerEnergy?.max) || 12;
       if ((this.cardSystem?.energy ?? 0) + 0.001 >= maxEnergy) {
@@ -2773,6 +2776,19 @@ export class Game {
     }
     if (category === 'copy') {
       return this.createRunShopOwnedPickerChoices('copy-card', '复制卡牌', '复制一张加入牌组。');
+    }
+    if (category === 'unit') {
+      // 从已有单位卡中选一张，复制加入抽牌堆；与普通单位卡一样只能召唤一次。
+      return this.runShopOwnedCards()
+        .filter((card) => card.kind === 'summon')
+        .map((card) => ({
+          action: 'add-card',
+          actionLabel: '获得单位',
+          title: card.name,
+          description: card.summary ?? '',
+          card,
+          targetCard: card
+        }));
     }
     if (category === 'remove') {
       return this.createRunShopOwnedPickerChoices('remove-card', '移除卡牌', '移出本局全部同名卡牌。');
@@ -3578,7 +3594,12 @@ export class Game {
           if (!sent) this.cardSystem?.setHint?.('刷新请求未发送，请等待联机状态同步后重试', 'network-command');
         } else if (action === 'skip') {
           const sent = this.networkBridge?.commandSender?.strategySkip?.();
-          if (!sent) this.cardSystem?.setHint?.('跳过请求未发送，请等待联机状态同步后重试', 'network-command');
+          if (sent) {
+            // 本地乐观反馈：立即进入等待，不等 Host 回执
+            this.showCoopRewardWaitingUi();
+          } else {
+            this.cardSystem?.setHint?.('跳过请求未发送，请等待联机状态同步后重试', 'network-command');
+          }
         }
         return;
       }
@@ -3595,7 +3616,14 @@ export class Game {
     event.stopPropagation();
     const index = Number(button.dataset.strategyChoiceIndex);
     if (this.networkBridge?.shouldRouteLocalCommands?.()) {
-      this.networkBridge?.commandSender?.strategyChoose?.(index);
+      const sent = this.networkBridge?.commandSender?.strategyChoose?.(index);
+      if (sent) {
+        // 本地乐观反馈：选完立即进入等待，不等 Host 回执（Host 确认后由
+        // ui_state 同步最终状态；若命令被拒会收到提示并可重新选择）。
+        this.showCoopRewardWaitingUi();
+      } else {
+        this.cardSystem?.setHint?.('选择请求未发送，请等待联机状态同步后重试', 'network-command');
+      }
       return;
     }
     const choice = this.strategyEvent.choices[index];

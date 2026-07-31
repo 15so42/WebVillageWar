@@ -6,6 +6,14 @@ export const RUN_SHOP_CATEGORIES = [
     icon: '↑'
   },
   {
+    key: 'unit',
+    title: '购买单位',
+    description: '从已有卡牌中选一张单位卡，复制一张加入抽牌堆；和普通单位卡一样只能使用一次。',
+    icon: '⚔',
+    picker: true,
+    catalogPicker: true
+  },
+  {
     key: 'trait',
     title: '特性专精',
     description: '三选一兵种特性，每种仅一次。',

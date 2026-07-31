@@ -1,6 +1,6 @@
 import { BALANCE } from '../data/gameData.js';
 
-const DEFAULT_SHOP_CATEGORIES = ['card', 'attribute', 'trait', 'copy', 'remove', 'upgrade', 'energy', 'temporary'];
+const DEFAULT_SHOP_CATEGORIES = ['unit', 'card', 'attribute', 'trait', 'copy', 'remove', 'upgrade', 'energy', 'temporary'];
 
 function createInitialShopPrices() {
   const basePrice = Number(BALANCE.runCurrency?.shop?.basePrice ?? 12);
