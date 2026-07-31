@@ -176,6 +176,9 @@ export class CoopLobbySystem {
       .filter(Boolean);
     const selfReady = Boolean(players?.[slot]?.ready);
     const selfVersionVerified = players?.[slot]?.versionVerified === true;
+    const selfVersionMismatch = !selfVersionVerified
+      && Boolean(players?.[slot]?.gameVersion)
+      && players[slot].gameVersion !== GAME_VERSION;
     const roomLocked = room?.phase === 'MATCH_LOADING'
       || room?.phase === 'OPENING_SELECTION'
       || room?.phase === 'RUNNING';
@@ -230,7 +233,11 @@ export class CoopLobbySystem {
             <div class="coop-room-actions">
               <button type="button" class="meta-menu-button" data-coop-action="ready" ${selfVersionVerified ? '' : 'disabled'}>${selfReady ? '取消准备' : '准备'}</button>
             </div>
-            <p class="coop-lobby-hint">${!selfVersionVerified ? '正在与主机校验游戏版本…' : (allReady ? '全员已准备，Host 正在创建权威对局…' : `至少 2 人且全员准备后开始 · 当前阶段 ${escapeHtml(room.phase ?? 'LOBBY_EDITING')}`)}</p>
+            <p class="coop-lobby-hint">${!selfVersionVerified
+              ? (selfVersionMismatch
+                ? `版本不一致：主机 v${escapeHtml(players[slot].gameVersion)}，当前 v${GAME_VERSION}，无法加入`
+                : '正在与主机校验游戏版本…')
+              : (allReady ? '全员已准备，Host 正在创建权威对局…' : `至少 2 人且全员准备后开始 · 当前阶段 ${escapeHtml(room.phase ?? 'LOBBY_EDITING')}`)}</p>
           </section>
           <section class="coop-deck-builder" aria-label="出战牌组说明">
             <header class="coop-deck-builder-head">

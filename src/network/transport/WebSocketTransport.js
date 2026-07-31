@@ -212,7 +212,10 @@ function isReplaceableTransform(payload) {
 }
 
 export function defaultCoopWsUrl() {
-  const configured = import.meta.env.VITE_COOP_WS_URL;
+  // import.meta.env is injected by Vite in browsers; guard for non-Vite
+  // (e.g. node test) environments.
+  const env = import.meta.env;
+  const configured = env && env.VITE_COOP_WS_URL;
   if (configured) return configured;
   // Local default matches `npm run server:coop` (server/index.js, COOP_PORT
   // default 8787). Public deployments must set VITE_COOP_WS_URL to their own

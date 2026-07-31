@@ -659,11 +659,13 @@ export class CoopMatchController {
       && payload.catalogVersion === CATALOG_VERSION
     ) {
       this.pendingReconnectSession = null;
-      const local = this.lobbyPlayers.get(this.roomClient.playerId);
-      if (local) {
-        local.gameVersion = GAME_VERSION;
-        local.versionVerified = true;
-      }
+      // 自我验证兜底：即使 LOBBY_STATE 晚到或丢失，本端也应确认校验通过，
+      // 否则界面会一直停留在「正在与主机校验游戏版本」。
+      const local = this.lobbyPlayers.get(this.roomClient.playerId)
+        ?? { playerId: this.roomClient.playerId, deck: [] };
+      local.gameVersion = GAME_VERSION;
+      local.versionVerified = true;
+      this.lobbyPlayers.set(this.roomClient.playerId, local);
       this.onNotice?.(this.awaitingReconnectResume
         ? '版本校验通过，继续等待 Host 恢复当前对局…'
         : '');
