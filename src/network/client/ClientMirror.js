@@ -25,11 +25,20 @@ export class ClientMirror {
   applyFullSnapshot(snapshot) {
     if (!snapshot?.world) return;
     this.game.cardSystem?.cancelActiveDrag?.();
+    // Keep revisions already applied from patches that arrived before this
+    // snapshot: rebuilding from the snapshot's own (possibly lower) values
+    // would roll the baseline back and spuriously trigger a resync for the
+    // next patch. Under ordered delivery the snapshot is always the newest
+    // state, so taking the max is safe either way.
+    const previousRevisions = this.entityRevisions;
     this.clearWorldMirrors();
     (snapshot.world.units ?? []).forEach((state) => {
       this.applyUnitPatch({
         entityId: state.unitId,
-        entityRevision: state.entityRevision ?? 1,
+        entityRevision: Math.max(
+          Number(state.entityRevision) || 1,
+          previousRevisions.get(state.unitId) ?? 0
+        ),
         operation: 'spawn',
         changes: state
       });
@@ -406,6 +415,14 @@ export class ClientMirror {
           : (result.targetId === 'enemy-camp' ? this.game.enemyCamp : null);
         const target = record?.unit ?? structure;
         if (!target) return;
+        // Defensive revision check: if a state patch has already advanced past
+        // the revision this transaction was built against, its values are
+        // stale and the patch is the newer truth. Unreachable under ordered
+        // delivery, but guards replay/retry paths.
+        if (record && Number.isFinite(result.targetRevisionAfter)
+          && (this.entityRevisions.get(result.targetId) ?? 0) >= result.targetRevisionAfter) {
+          return;
+        }
         if (Number.isFinite(result.healthAfter)) target.health = result.healthAfter;
         if (Number.isFinite(result.shieldAfter)) target.shield = result.shieldAfter;
         if (Number.isFinite(result.durabilityAfter)) target.structureDurability = result.durabilityAfter;
@@ -443,7 +460,27 @@ export class ClientMirror {
       card_cooldown: '卡牌仍在冷却',
       insufficient_energy: '能量不足',
       invalid_target_point: '目标位置无效',
-      card_effect_rejected: '卡牌效果未能生效'
+      card_effect_rejected: '卡牌效果未能生效',
+      reward_not_open: '奖励窗口已失效',
+      stale_reward: '奖励已刷新，请重新选择',
+      stale_reward_revision: '奖励已刷新，请重新选择',
+      reward_choice_not_found: '奖励选项已失效',
+      reward_reroll_failed: '刷新奖励失败，可能银币不足或奖励已变化',
+      reward_choice_failed: '选择奖励失败，请重试',
+      reward_skip_failed: '跳过奖励失败，请重试',
+      shop_not_available: '军需铺状态已失效',
+      shop_reward_not_active: '免费军需奖励已结束',
+      shop_category_not_found: '军需服务不存在',
+      shop_category_not_available: '当前不能购买该军需服务',
+      stale_shop: '军需铺已刷新，请重新选择',
+      stale_shop_revision: '军需铺已刷新，请重新选择',
+      shop_choice_not_found: '军需选项已失效',
+      shop_category_failed: '打开军需服务失败，请重试',
+      shop_purchase_failed: '购买失败，可能银币不足或选项已变化',
+      shop_energy_failed: '购买能量失败，请重试',
+      shop_back_failed: '返回军需铺失败，请重试',
+      shop_skip_failed: '跳过军需奖励失败，请重试',
+      game_rule_rejected: '当前状态不能执行该操作'
     };
     const reason = labels[message.reasonCode] ?? message.reasonCode;
     this.game.cardSystem?.setHint?.(`Host 拒绝操作：${reason}`, 'network-command');

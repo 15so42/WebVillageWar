@@ -53,7 +53,7 @@ export class CombatSystem {
       return true;
     }
     if (target === this.game.enemyCamp) {
-      this.game.damageEnemyCamp(context.damage);
+      this.game.damageEnemyCamp(context.damage, { isAttack: true });
       scratch.copy(target.position);
       scratch.y += 1.6;
       this.game.effects.spawnHit(scratch);

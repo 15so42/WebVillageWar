@@ -65,4 +65,94 @@ controller.handleRoomUpdate({
 assert.equal(forwardedPayloads, 1, 'the controller must still route lobby/protocol payloads');
 assert.equal(lobbyRenders, 0, 'in-match packets must not rebuild the hidden co-op lobby');
 
+{
+  const saved = {
+    roomId: 'ABC123',
+    playerId: 'client-old',
+    hostPlayerId: 'host',
+    reconnectToken: 'token-old',
+    expiresAt: Date.now() + 60_000
+  };
+  let confirmCalls = 0;
+  let joinCalls = 0;
+  const reconnectController = Object.create(CoopMatchController.prototype);
+  Object.assign(reconnectController, {
+    pendingReconnectSession: null,
+    roomClient: {
+      transport: {
+        loadSession: () => saved,
+        clearSession: () => {}
+      },
+      joinRoom: () => {
+        joinCalls += 1;
+      }
+    },
+    confirmReconnect: () => {
+      confirmCalls += 1;
+      return true;
+    },
+    onNotice: () => {},
+    resetMatchState: () => {
+      throw new Error('joining the saved room must not create a fresh player');
+    }
+  });
+
+  reconnectController.joinRoom('abc123', 'client');
+
+  assert.equal(confirmCalls, 1, 'joining the saved room should be redirected to reconnect');
+  assert.equal(joinCalls, 0, 'redirected reconnect must not create a duplicate lobby player');
+  assert.equal(reconnectController.pendingReconnectSession, saved);
+}
+
+{
+  const saved = {
+    roomId: 'ABC123',
+    playerId: 'client-old',
+    hostPlayerId: 'host',
+    reconnectToken: 'token-old',
+    matchActive: true,
+    expiresAt: Date.now() + 60_000
+  };
+  let reconnectCalls = 0;
+  let watchCalls = 0;
+  let versionHelloCalls = 0;
+  let lobbyRendersAfterConfirm = 0;
+  const liveController = Object.create(CoopMatchController.prototype);
+  Object.assign(liveController, {
+    pendingReconnectSession: saved,
+    reconnectRequestSession: null,
+    roomClient: {
+      room: { id: 'ABC123' },
+      playerId: 'client-old',
+      transport: {
+        connected: true,
+        clearSession: () => {}
+      },
+      reconnect: () => {
+        reconnectCalls += 1;
+        return Promise.resolve(true);
+      }
+    },
+    startReconnectResumeWatch: () => {
+      watchCalls += 1;
+    },
+    sendVersionHello: () => {
+      versionHelloCalls += 1;
+      return true;
+    },
+    onNotice: () => {},
+    onLobbyVisible: () => {
+      lobbyRendersAfterConfirm += 1;
+    },
+    viewState: (state) => state
+  });
+
+  assert.equal(liveController.confirmReconnect(), true);
+  assert.equal(reconnectCalls, 0, 'already connected players must not send a second reconnect');
+  assert.equal(versionHelloCalls, 1, 'already connected players should re-request Host resume');
+  assert.equal(watchCalls, 1, 'active matches should keep waiting for Host resume');
+  assert.equal(lobbyRendersAfterConfirm, 1);
+  assert.equal(liveController.pendingReconnectSession, null);
+}
+
 console.log('network inbound queue regression passed');

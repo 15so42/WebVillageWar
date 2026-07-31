@@ -1,7 +1,7 @@
 /** Multiplayer stream rates and quantization. Persistent state is change-driven. */
 
 export const SYNC = {
-  transformHz: 10,
+  transformHz: 20,
   heartbeatSec: 12,
   clientReconnectGraceSec: 90,
   hostLeaseSec: 60,
@@ -20,6 +20,10 @@ export const SYNC = {
   posStep: 0.02,
   yawStep: 0.035,
   commandThrottleMs: 55,
+  // Selection changes are sent immediately, but a box-drag mutates the
+  // selection set every frame; intermediate states are coalesced onto the
+  // latest set and flushed once per window.
+  selectionThrottleMs: 100,
   positionEpsilon: 0.015,
   yawEpsilon: 0.02
 };

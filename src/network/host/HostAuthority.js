@@ -157,6 +157,7 @@ export class HostAuthority {
         authoritativeRevision: this.phaseRevision
       };
       this.commandResults.set(cacheKey, rejection);
+      trimCommandResults(this.commandResults);
       this.send(sourcePlayerId, rejection);
       if (sourcePlayerId === this.localPlayerId) {
         this.game.cardSystem?.setHint?.(`操作未执行：${validation.reasonCode}`, 'network-command');
@@ -190,6 +191,7 @@ export class HostAuthority {
       results: [{ kind: 'command_applied', name: command.name, playerId: sourcePlayerId }]
     };
     this.commandResults.set(cacheKey, transaction);
+    trimCommandResults(this.commandResults);
     this.broadcast(transaction);
     if (PRIVATE_STATE_COMMANDS.has(command.name)) {
       this.markPrivateStateDirty(sourcePlayerId);
@@ -295,6 +297,14 @@ export class HostAuthority {
   }
 
   commandRejectionReason(command, playerId) {
+    if (command?.name === COMMAND.REWARD_REROLL) return 'reward_reroll_failed';
+    if (command?.name === COMMAND.REWARD_CHOOSE) return 'reward_choice_failed';
+    if (command?.name === COMMAND.REWARD_SKIP) return 'reward_skip_failed';
+    if (command?.name === COMMAND.SHOP_CATEGORY) return 'shop_category_failed';
+    if (command?.name === COMMAND.SHOP_CHOOSE) return 'shop_purchase_failed';
+    if (command?.name === COMMAND.SHOP_ENERGY) return 'shop_energy_failed';
+    if (command?.name === COMMAND.SHOP_BACK) return 'shop_back_failed';
+    if (command?.name === COMMAND.SHOP_REWARD_SKIP) return 'shop_skip_failed';
     if (command?.name !== COMMAND.PLAY_CARD) return 'game_rule_rejected';
     const cards = this.game.cardSystems?.[playerId]
       ?? (playerId === this.localPlayerId ? this.game.cardSystem : null);
@@ -338,4 +348,15 @@ function diffPrivateState(previous, current) {
     changes[key] = current[key];
   });
   return changes;
+}
+
+// Dedupe cache for replayed commandIds. Long matches can accumulate thousands
+// of command entries; cap it so memory stays bounded. Map iteration order is
+// insertion order, so evicting the first key drops the oldest result.
+function trimCommandResults(results, maxEntries = 2048) {
+  while (results.size > maxEntries) {
+    const oldest = results.keys().next().value;
+    if (oldest === undefined) break;
+    results.delete(oldest);
+  }
 }

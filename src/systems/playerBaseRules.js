@@ -1,4 +1,4 @@
-export function resolvePlayerBaseDamage(amount, {
+export function resolveStructureDamage(amount, {
   isAttack = false,
   attackDamage = 1
 } = {}) {
@@ -6,6 +6,10 @@ export function resolvePlayerBaseDamage(amount, {
     return Math.max(0, Number(attackDamage) || 0);
   }
   return Math.max(0, Number(amount) || 0);
+}
+
+export function resolvePlayerBaseDamage(amount, options = {}) {
+  return resolveStructureDamage(amount, options);
 }
 
 export function consumeBaseHealthLossMilestones(

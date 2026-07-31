@@ -75,6 +75,11 @@ export class WebSocketTransport {
       });
 
       socket.addEventListener('close', () => {
+        // A stale socket closed while connect() is replacing it (e.g. switching
+        // rooms or retrying) must not surface as a disconnect: the closeHandlers
+        // set is shared across connections. Only the current socket (or an
+        // explicit close() that nulls this.socket) may notify subscribers.
+        if (this.socket && socket !== this.socket) return;
         this.closeHandlers.forEach((handler) => handler(this.manualClose));
         if (!settled) {
           finish(reject, new Error('WebSocket 连接已关闭'));
@@ -209,5 +214,8 @@ function isReplaceableTransform(payload) {
 export function defaultCoopWsUrl() {
   const configured = import.meta.env.VITE_COOP_WS_URL;
   if (configured) return configured;
-  return 'ws://47.100.215.224:8888';
+  // Local default matches `npm run server:coop` (server/index.js, COOP_PORT
+  // default 8787). Public deployments must set VITE_COOP_WS_URL to their own
+  // relay address at build time.
+  return 'ws://127.0.0.1:8787';
 }

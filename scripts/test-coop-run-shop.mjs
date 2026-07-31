@@ -9,6 +9,23 @@ function makeClassList() {
   };
 }
 
+function makeStrategyEventUi() {
+  return {
+    root: {
+      hidden: true,
+      dataset: {},
+      setAttribute(name, value) {
+        this[name] = value;
+      }
+    },
+    kicker: { textContent: '', hidden: true },
+    title: { textContent: '' },
+    summary: { textContent: '', hidden: true },
+    choices: { innerHTML: '' },
+    actions: { hidden: true, innerHTML: '' }
+  };
+}
+
 globalThis.window = {
   innerWidth: 1280,
   innerHeight: 720,
@@ -90,18 +107,174 @@ function makeCommand({ playerId, seq, name, payload = {} }) {
 }
 
 {
+  const hostRun = makeRun({ runShopFreeReward: false, silver: 10 });
+  const guestRun = makeRun({ runShopFreeReward: false, silver: 52 });
+  let dirtySlot = null;
+  const game = Object.assign(Object.create(Game.prototype), {
+    localPlayerSlot: 'host',
+    activeEconomySlot: 'host',
+    players: { host: hostRun, guest: guestRun },
+    strategyEvent: null,
+    cardSystem: {},
+    cardSystems: { host: {}, guest: {} },
+    abilities: {},
+    abilitySystems: {},
+    shopPrices: hostRun.shopPrices,
+    strategyRewardRerollCount: 0,
+    runShopFreeReward: false,
+    runShopActiveCategory: null,
+    runShopChoices: [],
+    runShopPendingOffers: {},
+    silver: hostRun.silver,
+    runCardsPlayedCount: 0,
+    waveRewardDeck: [],
+    acquiredUnitCardTypes: new Set(),
+    teamGenericUpgradeCounts: {},
+    teamSpecialUpgrades: new Set(),
+    teamSupportModifiersApplied: new Set(),
+    networkBridge: {
+      markPrivateStateDirty(slot) {
+        dirtySlot = slot;
+      }
+    }
+  });
+
+  game.withPlayerContext('guest', () => {
+    game.setSilver(game.getSilver() - 12);
+    assert.equal(game.silver, 40);
+  });
+
+  assert.equal(guestRun.silver, 40);
+  assert.equal(hostRun.silver, 10);
+  assert.equal(game.silver, hostRun.silver);
+  assert.equal(dirtySlot, 'guest');
+}
+
+{
+  const guestCard = { id: 'swordsman', instanceId: 'guest-swordsman', name: '剑士', level: 1 };
+  let upgradedCard = null;
+  const guestCards = {
+    setHint: () => {},
+    upgradeCardFamily(card, amount) {
+      upgradedCard = card;
+      card.level += amount;
+      return true;
+    }
+  };
+  const hostRun = makeRun({ runShopFreeReward: false, silver: 10 });
+  const guestRun = makeRun({
+    runShopFreeReward: false,
+    runShopActiveCategory: 'upgrade',
+    runShopChoices: [{
+      action: 'upgrade-card',
+      title: '剑士',
+      targetCard: guestCard,
+      card: guestCard,
+      choiceId: 'upgrade-choice',
+      disabled: false
+    }],
+    silver: 52,
+    shopPrices: { upgrade: 12 }
+  });
+  const game = Object.assign(Object.create(Game.prototype), {
+    localPlayerSlot: 'host',
+    activeEconomySlot: 'host',
+    players: { host: hostRun, guest: guestRun },
+    strategyEvent: null,
+    cardSystem: {},
+    cardSystems: { host: {}, guest: guestCards },
+    abilities: {},
+    abilitySystems: {},
+    shopPrices: hostRun.shopPrices,
+    strategyRewardRerollCount: 0,
+    runShopFreeReward: false,
+    runShopActiveCategory: null,
+    runShopChoices: [],
+    runShopPendingOffers: {},
+    silver: hostRun.silver,
+    runCardsPlayedCount: 0,
+    waveRewardDeck: [],
+    acquiredUnitCardTypes: new Set(),
+    teamGenericUpgradeCounts: {},
+    teamSpecialUpgrades: new Set(),
+    teamSupportModifiersApplied: new Set(),
+    updateHud: () => {},
+    renderRunShop: () => {},
+    shopPriceIncrement: () => 3,
+    networkBridge: { markPrivateStateDirty: () => {} }
+  });
+
+  assert.equal(game.applyNetworkShopChoice('guest', 0), true);
+  assert.equal(guestRun.silver, 40);
+  assert.equal(guestRun.shopPrices.upgrade, 15);
+  assert.equal(guestRun.runShopActiveCategory, null);
+  assert.deepEqual(guestRun.runShopChoices, []);
+  assert.equal(upgradedCard, guestCard);
+  assert.equal(guestCard.level, 2);
+}
+
+{
+  const hostRun = makeRun({ runShopFreeReward: false, silver: 10 });
+  const guestRun = makeRun({
+    runShopFreeReward: false,
+    silver: 52,
+    strategyEvent: {
+      type: 'wave-reward',
+      wave: { index: 3, kind: 'normal' },
+      choices: [{ choiceId: 'old-choice', title: '旧奖励' }]
+    },
+    strategyRewardRerollCount: 0
+  });
+  const newChoices = [{ choiceId: 'new-choice', title: '新奖励' }];
+  const game = Object.assign(Object.create(Game.prototype), {
+    localPlayerSlot: 'host',
+    activeEconomySlot: 'host',
+    players: { host: hostRun, guest: guestRun },
+    strategyEvent: null,
+    cardSystem: {},
+    cardSystems: { host: {}, guest: {} },
+    abilities: {},
+    abilitySystems: {},
+    shopPrices: hostRun.shopPrices,
+    strategyRewardRerollCount: 0,
+    runShopFreeReward: false,
+    runShopActiveCategory: null,
+    runShopChoices: [],
+    runShopPendingOffers: {},
+    silver: hostRun.silver,
+    runCardsPlayedCount: 0,
+    waveRewardDeck: [],
+    acquiredUnitCardTypes: new Set(),
+    teamGenericUpgradeCounts: {},
+    teamSpecialUpgrades: new Set(),
+    teamSupportModifiersApplied: new Set(),
+    createCardWaveRewardChoices: () => newChoices,
+    networkBridge: { markPrivateStateDirty: () => {} }
+  });
+
+  assert.equal(game.applyNetworkStrategyReroll('guest'), true);
+  assert.equal(guestRun.silver, 48);
+  assert.equal(guestRun.strategyRewardRerollCount, 1);
+  assert.deepEqual(guestRun.strategyEvent.choices, newChoices);
+}
+
+{
+  document.body.classList = makeClassList();
   let waitingShown = 0;
   const hostRun = makeRun();
   const guestRun = makeRun();
   const game = Object.assign(Object.create(Game.prototype), {
     localPlayerSlot: 'host',
     activeEconomySlot: 'host',
+    coop: { enabled: true },
+    networkClientMode: false,
     players: { host: hostRun, guest: guestRun },
     cardSystem: { clearHint: () => {} },
     clock: { getDelta: () => 0 },
     networkBridge: { markPrivateStateDirty: () => {} },
     coopRewardKind: 'run-shop',
     coopRewardWaitSlots: new Set(['host', 'guest']),
+    paused: false,
     runShopUi: {
       overlay: {
         hidden: false,
@@ -147,6 +320,8 @@ function makeCommand({ playerId, seq, name, payload = {} }) {
   assert.equal(game.coopRewardWaitSlots.has('guest'), true);
   assert.equal(game.runShopUi.overlay.hidden, true);
   assert.equal(game.runShopOpen, false);
+  assert.equal(game.paused, true);
+  assert.equal(document.body.classList.contains('is-game-paused'), true);
   assert.equal(waitingShown, 1);
 
   game.withPlayerContext('host', () => {
@@ -154,6 +329,88 @@ function makeCommand({ playerId, seq, name, payload = {} }) {
     assert.deepEqual(game.runShopChoices, []);
     assert.deepEqual(game.runShopPendingOffers, {});
   });
+}
+
+{
+  document.body.classList = makeClassList();
+  let continued = 0;
+  let dirty = 0;
+  const hostRun = makeRun({ strategyEvent: { choices: [{ id: 'host-choice' }] } });
+  const guestRun = makeRun({ strategyEvent: { choices: [{ id: 'guest-choice' }] } });
+  const game = Object.assign(Object.create(Game.prototype), {
+    localPlayerSlot: 'host',
+    activeEconomySlot: 'host',
+    coop: { enabled: true },
+    networkClientMode: false,
+    players: { host: hostRun, guest: guestRun },
+    strategyEvent: hostRun.strategyEvent,
+    strategyEventUi: makeStrategyEventUi(),
+    cardSystem: {
+      setHint: () => {},
+      clearHint: () => {}
+    },
+    clock: { getDelta: () => 0 },
+    networkBridge: {
+      markPrivateStateDirty: () => {
+        dirty += 1;
+      }
+    },
+    coopRewardKind: 'strategy',
+    coopRewardWaitSlots: new Set(['host', 'guest']),
+    coopRewardAutoSelectSecondsRemaining: 9,
+    paused: false,
+    cancelCameraDrag: () => {},
+    cancelSelectionDrag: () => {},
+    clearCoopRewardAutoSelectTimer: () => {},
+    continueAfterStrategyFlow: () => {
+      continued += 1;
+    }
+  });
+
+  game.finishCoopStrategyReward('host');
+
+  assert.equal(game.strategyEvent, null);
+  assert.equal(hostRun.strategyEvent, null);
+  assert.equal(game.coopRewardWaitSlots.has('host'), false);
+  assert.equal(game.coopRewardWaitSlots.has('guest'), true);
+  assert.equal(game.paused, true);
+  assert.equal(document.body.classList.contains('is-game-paused'), true);
+  assert.equal(game.strategyEventUi.root.dataset.eventType, 'waiting');
+  assert.equal(dirty, 1);
+  assert.equal(continued, 0);
+}
+
+{
+  document.body.classList = makeClassList();
+  let hudUpdated = 0;
+  let clockDelta = 0;
+  const game = Object.assign(Object.create(Game.prototype), {
+    coop: { enabled: true },
+    networkClientMode: false,
+    coopRewardKind: 'strategy',
+    coopRewardWaitSlots: new Set(['guest']),
+    strategyEvent: null,
+    runShopFreeReward: false,
+    paused: false,
+    hudUpdateTimer: 5,
+    cardSystem: { clearHint: () => {} },
+    clock: {
+      getDelta: () => {
+        clockDelta += 1;
+      }
+    },
+    updateHud: () => {
+      hudUpdated += 1;
+    }
+  });
+
+  game.onNetworkMatchPhaseChanged('RUNNING');
+
+  assert.equal(game.paused, true);
+  assert.equal(document.body.classList.contains('is-game-paused'), true);
+  assert.equal(game.hudUpdateTimer, 5);
+  assert.equal(clockDelta, 0);
+  assert.equal(hudUpdated, 0);
 }
 
 {

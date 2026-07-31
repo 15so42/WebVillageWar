@@ -190,8 +190,13 @@ try {
       activeGame?.destroy?.();
       activeGame = null;
       recordLaunchError(error, 'coop');
-      meta.show('menu');
-      meta.setNotice?.('联机开局失败，请确认中继服已启动');
+      const detail = error?.message ? String(error.message) : '';
+      const message = detail
+        ? `联机战斗启动失败：${detail}`
+        : '联机战斗启动失败，请确认中继服和房主对局状态正常';
+      coopController?.handleLaunchFailed?.(message);
+      meta.hide();
+      coopLobby?.show(message);
     }
   };
   meta = new MetaGameSystem({
@@ -251,7 +256,7 @@ try {
         });
       }
       coopController.restoreSession?.();
-      coopLobby.show(meta.notice ?? '');
+      coopLobby.show(meta.notice?.text ?? '');
     }
   });
 } catch (error) {

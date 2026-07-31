@@ -842,6 +842,29 @@ const DEVELOPMENT_CHANGELOG_ARCHIVE = [
 
 const CHANGELOG_ENTRIES = [
   {
+    date: '2026-08-01',
+    title: '联机稳定性与中继健壮性修复',
+    items: [
+      '修复中继服务器在客户端异常数据下可能整体崩溃、所有房间一起消失的问题；繁忙时的可靠战斗与状态消息改为排队保序送达，不再静默丢弃。',
+      '修复波次奖励、祭坛奖励与免费军需铺在同一时刻触发时可能互相覆盖、导致奖励丢失的问题；现在会排队依次结算，不会跳过任何一份奖励。',
+      '修复联机框选单位时每帧重复上报、浪费带宽的问题；选中同步改为合并发送，队友仍能及时看到你的选中。',
+      '加强联机军需铺与波次奖励的过期校验，旧的选择在奖励刷新后会被明确拒绝，不会误扣银币或误发奖励。',
+      '本地一键启动联机中继（npm run server:coop）的默认地址与客户端默认配置对齐为 127.0.0.1:8787；公网部署通过 VITE_COOP_WS_URL 指定中继地址。',
+      '重连恢复、伤害结算与命令去重增加防御性校验，减少偶发的重复同步与内存增长。'
+    ]
+  },
+  {
+    date: '2026-07-31',
+    title: '联机回连与战斗流程热修',
+    items: [
+      '敌营改为与玩家营地一致的次数耐久规则：普通攻击每次只消耗 1 点结构生命，并保留敌营开火次数耐久。',
+      '修复客户端军需铺升级与波次奖励刷新偶尔不扣银币、选择后又回到界面并可重复操作的问题。',
+      '修复客户端断线回连后可能回到主菜单或缺少飘字提示的问题；回连成功但未收到 Host 恢复数据时会明确提示并回到回连确认。',
+      '联机等待波次奖励或免费军需铺时，Host 会暂停战斗推进，避免还有队友未选择时小怪继续攻击基地。',
+      '修复回连后大厅可能出现两个自己、点击准备无效的问题；重复回连会复用原玩家身份，并重新请求 Host 恢复当前对局。'
+    ]
+  },
+  {
     date: '2026-07-31',
     title: '联机军需与友方单位模型修复',
     items: [
@@ -1451,14 +1474,22 @@ export class MetaGameSystem {
   }
 
   setNotice(text) {
+    const message = String(text ?? '').trim();
+    if (!message) {
+      this.clearNotice();
+      return;
+    }
     this.clearNotice({ render: false });
     this.notice = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      text
+      text: message
     };
     this.noticeTimer = window.setTimeout(() => {
       this.clearNotice();
     }, 2600);
+    if (!this.root.hidden) {
+      this.render({ preserveScroll: true });
+    }
   }
 
   clearNotice({ render = true } = {}) {

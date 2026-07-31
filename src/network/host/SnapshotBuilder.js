@@ -394,7 +394,7 @@ export class SnapshotBuilder {
     if (!game.players) return [];
     return Object.keys(game.players).map((playerId) => {
       const run = game.players[playerId];
-      const cards = game.cardSystems?.[playerId] ?? (playerId === game.localPlayerSlot ? game.cardSystem : null);
+      const cards = game.cardSystems?.[playerId] ?? (playerId === localPlayerId(game) ? game.cardSystem : null);
       const sessionPlayer = game.levelSession?.players?.[playerId];
       return {
         playerId,
@@ -410,10 +410,10 @@ export class SnapshotBuilder {
 
   buildPrivateState(playerId) {
     const cards = this.game.cardSystems?.[playerId]
-      ?? (playerId === this.game.localPlayerSlot ? this.game.cardSystem : null);
+      ?? (playerId === localPlayerId(this.game) ? this.game.cardSystem : null);
     const run = this.game.players?.[playerId];
     if (!cards || !run) return null;
-    const isLocal = playerId === this.game.localPlayerSlot;
+    const isLocal = playerId === localPlayerId(this.game);
     const strategyEvent = run.strategyEvent;
     const shopRun = isLocal ? this.game : run;
     ensureInteractionIdentity(strategyEvent, {
@@ -635,6 +635,13 @@ function serializeStructure(structure) {
     durability: round(structure.structureDurability ?? 0),
     maxDurability: round(structure.maxStructureDurability ?? 0)
   };
+}
+
+function localPlayerId(game) {
+  // Single source of truth. Game.js keeps localPlayerSlot === localPlayerId,
+  // but HostAuthority and this builder must not diverge if a future session
+  // path ever passes them different values.
+  return game?.localPlayerId ?? game?.localPlayerSlot ?? null;
 }
 
 function transformFor(unit, previousTransform, motionActive = false) {

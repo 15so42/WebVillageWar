@@ -77,7 +77,8 @@ import {
 } from './endlessMode.js';
 import {
   consumeBaseHealthLossMilestones,
-  resolvePlayerBaseDamage
+  resolvePlayerBaseDamage,
+  resolveStructureDamage
 } from './playerBaseRules.js';
 import { scaleResourceAfterMaximumChange } from './unitResourceSync.js';
 import { NetworkAnalysisUi } from './NetworkAnalysisUi.js';
@@ -1242,6 +1243,7 @@ export class Game {
     const dt = Math.min(rawDt, 0.05) * timeScale;
     this.updateFpsMeter(rawDt);
     this.networkAnalysisUi?.update();
+    this.syncCoopRewardPauseState();
     if (this.paused) {
       // 联机暂停（波次奖励/军需铺）时仍要处理远端命令与私有状态推送
       this.networkBridge?.beforeTick?.(0);
@@ -1506,6 +1508,12 @@ export class Game {
     if (this.levelFinished || this.strategyEvent) return false;
     const next = this.pendingStrategyRewards.shift();
     if (!next) return false;
+    // Co-op queue entries must reopen the shared all-players flow; the solo
+    // path would generate a reward for this machine only.
+    if (next.coop && this.players) {
+      if (next.type === 'run-shop') return this.openCoopRunShopForAll(next.options);
+      return this.openCoopStrategyEventForAll(next.type, next.options);
+    }
     return this.openStrategyEvent(next.type, next.options);
   }
 
@@ -1517,6 +1525,21 @@ export class Game {
     const shouldStartFirstWave = this.awaitingOpeningReward;
     this.closeStrategyEvent();
     this.continueAfterStrategyFlow(shouldStartFirstWave);
+  }
+
+  hasBlockingCoopRewardWait() {
+    return Boolean(
+      this.coop?.enabled
+      && !this.networkClientMode
+      && this.coopRewardWaitSlots?.size
+    );
+  }
+
+  syncCoopRewardPauseState() {
+    if (!this.hasBlockingCoopRewardWait()) return false;
+    this.paused = true;
+    document.body.classList.add('is-game-paused');
+    return true;
   }
 
   isCoopPlayerConnected(slot) {
@@ -1672,6 +1695,13 @@ export class Game {
     if (!this.players) {
       return this.openStrategyEvent(type, options);
     }
+    // Re-entrancy guard: a second reward source (e.g. an altar capture landing
+    // in the same frame as a wave clear) must not clobber an in-progress
+    // reward. Queue it instead; the completion path drains the queue.
+    if (this.coopRewardWaitSlots?.size || this.coopRewardKind) {
+      this.pendingStrategyRewards.push({ type, options, coop: true });
+      return true;
+    }
     this.coopRewardWaitSlots = new Set();
     this.coopRewardKind = 'strategy';
     this.coopPlayerSlots().forEach((slot) => {
@@ -1703,6 +1733,7 @@ export class Game {
     this.startCoopRewardAutoSelectTimer();
     this.resolveDisconnectedCoopRewardSlots();
     if (!this.coopRewardWaitSlots?.size) return true;
+    this.syncCoopRewardPauseState();
     this.showLocalCoopStrategyUi();
     this.networkBridge?.markPrivateStateDirty?.();
     return true;
@@ -1841,6 +1872,7 @@ export class Game {
       this.syncNetworkStrategyEventUi();
       return;
     }
+    if (this.syncCoopRewardPauseState()) return;
     if (phase === 'RUNNING' && !this.runShopFreeReward) {
       this.paused = false;
       this.hudUpdateTimer = 0;
@@ -1874,7 +1906,10 @@ export class Game {
       }
     }
     this.networkBridge?.markPrivateStateDirty?.();
-    if (this.coopRewardWaitSlots?.size) return;
+    if (this.coopRewardWaitSlots?.size) {
+      this.syncCoopRewardPauseState();
+      return;
+    }
     this.coopRewardWaitSlots = null;
     this.coopRewardKind = null;
     this.clearCoopRewardAutoSelectTimer();
@@ -1896,6 +1931,12 @@ export class Game {
     if (!this.players) {
       return this.openRunShop(options);
     }
+    // Re-entrancy guard: never replace an in-progress co-op reward/shop with
+    // a new one; defer it to the queue drained by continueAfterStrategyFlow.
+    if (this.coopRewardWaitSlots?.size || this.coopRewardKind) {
+      this.pendingStrategyRewards.push({ type: 'run-shop', options, coop: true });
+      return true;
+    }
     this.coopRewardWaitSlots = new Set();
     this.coopRewardKind = 'run-shop';
     this.coopPlayerSlots().forEach((slot) => {
@@ -1916,6 +1957,7 @@ export class Game {
       return false;
     }
     this.startCoopRewardAutoSelectTimer();
+    this.syncCoopRewardPauseState();
     if (this.coopRewardWaitSlots.has(this.localPlayerSlot)) {
       this.openRunShop(options);
     } else {
@@ -1963,7 +2005,10 @@ export class Game {
       }
     }
     this.networkBridge?.markPrivateStateDirty?.();
-    if (this.coopRewardWaitSlots?.size) return;
+    if (this.coopRewardWaitSlots?.size) {
+      this.syncCoopRewardPauseState();
+      return;
+    }
     this.coopRewardWaitSlots = null;
     this.coopRewardKind = null;
     this.clearCoopRewardAutoSelectTimer();
@@ -2533,25 +2578,31 @@ export class Game {
       const backButton = event.target.closest('#run-shop-back');
       if (backButton) {
         event.preventDefault();
-        this.networkBridge?.commandSender?.shopBack?.();
+        const sent = this.networkBridge?.commandSender?.shopBack?.();
+        if (!sent) this.cardSystem?.setHint?.('返回请求未发送，请等待军需铺状态同步后重试', 'network-command');
         return;
       }
       const skipButton = event.target.closest('#run-shop-skip');
       if (skipButton) {
         event.preventDefault();
-        if (this.runShopFreeReward) this.networkBridge?.commandSender?.shopRewardSkip?.();
+        if (this.runShopFreeReward) {
+          const sent = this.networkBridge?.commandSender?.shopRewardSkip?.();
+          if (!sent) this.cardSystem?.setHint?.('跳过请求未发送，请等待军需铺状态同步后重试', 'network-command');
+        }
         return;
       }
       const serviceButton = event.target.closest('[data-run-shop-category]');
       if (serviceButton && !serviceButton.disabled) {
         event.preventDefault();
-        this.networkBridge?.commandSender?.shopCategory?.(serviceButton.dataset.runShopCategory);
+        const sent = this.networkBridge?.commandSender?.shopCategory?.(serviceButton.dataset.runShopCategory);
+        if (!sent) this.cardSystem?.setHint?.('军需请求未发送，请等待军需铺状态同步后重试', 'network-command');
         return;
       }
       const choiceButton = event.target.closest('[data-run-shop-choice-index]');
       if (choiceButton && !choiceButton.disabled) {
         event.preventDefault();
-        this.networkBridge?.commandSender?.shopChoice?.(Number(choiceButton.dataset.runShopChoiceIndex));
+        const sent = this.networkBridge?.commandSender?.shopChoice?.(Number(choiceButton.dataset.runShopChoiceIndex));
+        if (!sent) this.cardSystem?.setHint?.('购买请求未发送，请等待军需铺状态同步后重试', 'network-command');
       }
       return;
     }
@@ -3489,9 +3540,11 @@ export class Game {
       const action = actionButton.dataset.strategyAction;
       if (this.networkBridge?.shouldRouteLocalCommands?.()) {
         if (action === 'reroll' && !actionButton.disabled) {
-          this.networkBridge?.commandSender?.strategyReroll?.();
+          const sent = this.networkBridge?.commandSender?.strategyReroll?.();
+          if (!sent) this.cardSystem?.setHint?.('刷新请求未发送，请等待联机状态同步后重试', 'network-command');
         } else if (action === 'skip') {
-          this.networkBridge?.commandSender?.strategySkip?.();
+          const sent = this.networkBridge?.commandSender?.strategySkip?.();
+          if (!sent) this.cardSystem?.setHint?.('跳过请求未发送，请等待联机状态同步后重试', 'network-command');
         }
         return;
       }
@@ -4207,12 +4260,13 @@ export class Game {
   setSilver(value, slot = this.activeEconomySlot ?? this.localPlayerSlot) {
     const next = Math.max(0, value);
     if (this.players?.[slot]) {
+      const isActiveEconomyContext = slot === (this.activeEconomySlot ?? this.localPlayerSlot);
       if (this.players[slot].silver === next) {
-        if (slot === this.localPlayerSlot) this.silver = next;
+        if (slot === this.localPlayerSlot || isActiveEconomyContext) this.silver = next;
         return;
       }
       this.players[slot].silver = next;
-      if (slot === this.localPlayerSlot) this.silver = next;
+      if (slot === this.localPlayerSlot || isActiveEconomyContext) this.silver = next;
       this.networkBridge?.markPrivateStateDirty?.(slot);
       return;
     }
@@ -6043,17 +6097,24 @@ export class Game {
     });
   }
 
-  damageEnemyCamp(amount) {
+  damageEnemyCamp(amount, { isAttack = false } = {}) {
     if (!this.enemyCamp.alive) return;
+    const resolvedDamage = resolveStructureDamage(amount, {
+      isAttack,
+      attackDamage: BALANCE.enemyCamp.damagePerAttack ?? BALANCE.playerBase.damagePerAttack ?? 1
+    });
+    if (resolvedDamage <= 0) return;
     const previousHealth = this.enemyCamp.health;
     const previousDurability = this.enemyCamp.structureDurability ?? 0;
-    this.enemyCamp.health = Math.max(0, this.enemyCamp.health - amount);
+    this.enemyCamp.health = Math.max(0, this.enemyCamp.health - resolvedDamage);
+    const healthLost = Math.max(0, previousHealth - this.enemyCamp.health);
     this.spendStructureDurability(this.enemyCamp, 1);
     this.networkBridge?.notifyCombatResult?.({
       kind: 'damage_applied',
       targetId: 'enemy-camp',
       damageType: 'structure',
       requestedAmount: amount,
+      appliedAmount: healthLost,
       healthBefore: previousHealth,
       healthAfter: this.enemyCamp.health,
       durabilityBefore: previousDurability,
@@ -6065,10 +6126,10 @@ export class Game {
     this.shakeStructure(this.enemyCamp, 0.16, 0.32);
     this.effects.spawnRing(this.enemyCamp.position, '#ff8c66', 1.1, 0.44);
     this.effects.spawnStructureDust(this.enemyCamp.position, this.enemyCamp.collisionRadius, '#8d7464');
-    this.effects.spawnDamageNumber(this.enemyCamp.position, amount, {
+    this.effects.spawnDamageNumber(this.enemyCamp.position, healthLost, {
       height: 2.7
     });
-    const campDamageRatio = amount / Math.max(1, this.enemyCamp.maxHealth);
+    const campDamageRatio = healthLost / Math.max(1, this.enemyCamp.maxHealth);
     if (campDamageRatio >= 0.02) {
       const rewards = this.enemyDirectorConfig.battleRewards ?? {};
       const grant = campDamageRatio * (Number(rewards.campDamageRatio) || 3.2);
@@ -8549,6 +8610,11 @@ function teamGenericUpgradeAmount(baseValue) {
   return Math.max(1, Math.round(Math.max(0, baseValue) * 0.1));
 }
 
+function unitBaseAttributeValue(unit, stat, fallback = 0) {
+  const value = unit?.attributes?.getBase?.(stat, fallback);
+  return Number.isFinite(value) ? value : fallback;
+}
+
 function unitGenericUpgradeModifiers(unit, upgrade, index = 0) {
   void index;
   if (upgrade.stat === 'vitality') {
@@ -8556,14 +8622,12 @@ function unitGenericUpgradeModifiers(unit, upgrade, index = 0) {
       {
         stat: 'maxHealth',
         type: 'add',
-        amount: teamGenericUpgradeAmount(unit.maxHealth ?? unit.attributes?.get?.('maxHealth') ?? 0)
+        amount: teamGenericUpgradeAmount(unitBaseAttributeValue(unit, 'maxHealth'))
       },
       {
         stat: 'maxDurability',
         type: 'add',
-        amount: teamGenericUpgradeAmount(
-          unit.weapon?.maxDurability ?? unit.maxDurability ?? unit.attributes?.get?.('maxDurability') ?? 0
-        )
+        amount: teamGenericUpgradeAmount(unitBaseAttributeValue(unit, 'maxDurability'))
       }
     ];
   }
@@ -8572,16 +8636,12 @@ function unitGenericUpgradeModifiers(unit, upgrade, index = 0) {
       {
         stat: 'physicalAttack',
         type: 'add',
-        amount: teamGenericUpgradeAmount(
-          unit.physicalAttack ?? unit.attributes?.get?.('physicalAttack') ?? 0
-        )
+        amount: teamGenericUpgradeAmount(unitBaseAttributeValue(unit, 'physicalAttack'))
       },
       {
         stat: 'magicAttack',
         type: 'add',
-        amount: teamGenericUpgradeAmount(
-          unit.magicAttack ?? unit.attributes?.get?.('magicAttack') ?? 0
-        )
+        amount: teamGenericUpgradeAmount(unitBaseAttributeValue(unit, 'magicAttack'))
       }
     ];
   }
@@ -8589,16 +8649,14 @@ function unitGenericUpgradeModifiers(unit, upgrade, index = 0) {
     return [{
       stat: 'armor',
       type: 'add',
-      amount: teamGenericUpgradeAmount(unit.armor ?? unit.attributes?.get?.('armor') ?? 0)
+      amount: teamGenericUpgradeAmount(unitBaseAttributeValue(unit, 'armor'))
     }];
   }
   if (upgrade.stat === 'magicResistance') {
     return [{
       stat: 'magicResistance',
       type: 'add',
-      amount: teamGenericUpgradeAmount(
-        unit.magicResistance ?? unit.attributes?.get?.('magicResistance') ?? 0
-      )
+      amount: teamGenericUpgradeAmount(unitBaseAttributeValue(unit, 'magicResistance'))
     }];
   }
   return [];

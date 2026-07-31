@@ -65,6 +65,11 @@ export class AttributeSet {
     return clampNumber(value, entry.min, entry.max);
   }
 
+  getBase(name, fallback = 0) {
+    const entry = this.values.get(name);
+    return entry ? entry.base : fallback;
+  }
+
   snapshot() {
     const result = {};
     this.values.forEach((entry, name) => {

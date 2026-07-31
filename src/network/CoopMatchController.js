@@ -14,6 +14,8 @@ import {
   MSG
 } from './protocol/messages.js';
 
+const RECONNECT_RESUME_TIMEOUT_MS = 8_000;
+
 export function multiplayerVersionMatches(payload = {}) {
   return payload.gameVersion === GAME_VERSION
     && payload.gameProtocolVersion === GAME_PROTOCOL_VERSION
@@ -66,10 +68,13 @@ export class CoopMatchController {
     this.reconnectProbeSession = null;
     this.reconnectProbePending = false;
     this.reconnectRequestSession = null;
+    this.awaitingReconnectResume = false;
+    this.reconnectResumeTimer = null;
     this.kickedLobbyPlayers = new Set();
   }
 
   destroy() {
+    this.clearReconnectResumeWatch();
     this.unsubscribe?.();
     this.activeBridge?.unbindGame();
     this.roomClient.leaveRoom();
@@ -89,9 +94,17 @@ export class CoopMatchController {
   }
 
   joinRoom(roomId, playerName = null) {
+    const normalizedRoomId = String(roomId || '').trim().toUpperCase();
+    const reconnectSession = this.reconnectSessionForRoom(normalizedRoomId);
+    if (reconnectSession) {
+      this.pendingReconnectSession = reconnectSession;
+      this.onNotice?.('检测到这是原房间，已改用回连方式恢复身份…');
+      this.confirmReconnect();
+      return;
+    }
     this.resetMatchState();
     this.onNotice?.('正在加入房间…');
-    this.roomClient.joinRoom(roomId, this.resolvePlayerName(playerName, '玩家')).catch((error) => {
+    this.roomClient.joinRoom(normalizedRoomId, this.resolvePlayerName(playerName, '玩家')).catch((error) => {
       this.onNotice?.(error?.message ?? '连接服务器失败');
     });
   }
@@ -104,6 +117,19 @@ export class CoopMatchController {
       .trim()
       .slice(0, 16);
     return normalized || fallback;
+  }
+
+  reconnectSessionForRoom(roomId) {
+    const normalizedRoomId = String(roomId || '').trim().toUpperCase();
+    if (!normalizedRoomId) return null;
+    const saved = this.pendingReconnectSession ?? this.roomClient.transport.loadSession();
+    if (!saved?.roomId || !saved?.reconnectToken || saved.playerId === saved.hostPlayerId) return null;
+    if (String(saved.roomId).trim().toUpperCase() !== normalizedRoomId) return null;
+    if (Number.isFinite(Number(saved.expiresAt)) && Number(saved.expiresAt) <= Date.now()) {
+      this.roomClient.transport.clearSession();
+      return null;
+    }
+    return saved;
   }
 
   restoreSession() {
@@ -141,6 +167,22 @@ export class CoopMatchController {
       this.onLobbyVisible?.(this.viewState({ event: MSG.ERROR }));
       return false;
     }
+    const alreadyConnected = this.roomClient.transport.connected
+      && this.roomClient.playerId === saved.playerId
+      && String(this.roomClient.room?.id ?? '').trim().toUpperCase() === String(saved.roomId ?? '').trim().toUpperCase();
+    if (alreadyConnected) {
+      this.pendingReconnectSession = null;
+      this.reconnectRequestSession = null;
+      if (saved.matchActive || saved.matchId) {
+        this.sendVersionHello?.();
+        this.onNotice?.('已在原房间中，正在等待 Host 恢复当前对局…');
+        this.startReconnectResumeWatch();
+      } else {
+        this.onNotice?.('');
+      }
+      this.onLobbyVisible?.(this.viewState({ event: MSG.RECONNECT_OK }));
+      return true;
+    }
     this.pendingReconnectSession = null;
     this.reconnectRequestSession = saved;
     this.onNotice?.('正在回连原联机会话…');
@@ -163,6 +205,7 @@ export class CoopMatchController {
     this.reconnectProbeSession = null;
     this.reconnectProbePending = false;
     this.reconnectRequestSession = null;
+    this.clearReconnectResumeWatch();
     this.roomClient.resetLocalRoom({ notify: false });
     this.resetMatchState();
     this.onNotice?.('已放弃回连，可以创建或加入其他房间');
@@ -311,6 +354,7 @@ export class CoopMatchController {
     this.reconnectProbeSession = null;
     this.reconnectProbePending = false;
     this.reconnectRequestSession = null;
+    this.clearReconnectResumeWatch();
     this.kickedLobbyPlayers.clear();
   }
 
@@ -343,8 +387,15 @@ export class CoopMatchController {
       return;
     }
     if (state.event === MSG.RECONNECT_OK) {
+      const reconnectSession = this.reconnectRequestSession;
       this.reconnectRequestSession = null;
       this.pendingReconnectSession = null;
+      this.reconnectProbeSession = null;
+      this.reconnectProbePending = false;
+      if (!this.roomClient.isHost && (reconnectSession?.matchActive || reconnectSession?.matchId)) {
+        this.onNotice?.('已连上中继，正在等待 Host 恢复当前对局…');
+        this.startReconnectResumeWatch();
+      }
     }
     if (state.event === MSG.ERROR) {
       if (this.reconnectRequestSession) {
@@ -356,6 +407,7 @@ export class CoopMatchController {
       return;
     }
     if (state.event === MSG.ROOM_CLOSED) {
+      this.clearReconnectResumeWatch();
       this.activeBridge?.handleRoomClosed?.(state.reason);
       this.onNotice?.(state.reason === 'host_lease_expired' ? '房主断线超过 60 秒，房间已释放' : '房间已关闭');
       return;
@@ -397,6 +449,7 @@ export class CoopMatchController {
     const saved = this.roomClient.transport.loadSession();
     if (this.roomClient.isHost) {
       this.roomClient.transport.clearSession();
+      this.clearReconnectResumeWatch();
       this.onNotice?.('主机与中继的连接已中断；原权威对局无法恢复');
       return;
     }
@@ -409,6 +462,7 @@ export class CoopMatchController {
     this.activeBridge?.unbindGame();
     this.activeBridge = null;
     this.launchedRevision = 0;
+    this.clearReconnectResumeWatch();
     const shouldProbe = Boolean(state.reconnectAvailable && saved?.roomId && saved?.reconnectToken);
     this.onNotice?.(shouldProbe
       ? '连接已中断，正在检测原房间与 Host 是否在线…'
@@ -610,7 +664,9 @@ export class CoopMatchController {
         local.gameVersion = GAME_VERSION;
         local.versionVerified = true;
       }
-      this.onNotice?.('');
+      this.onNotice?.(this.awaitingReconnectResume
+        ? '版本校验通过，继续等待 Host 恢复当前对局…'
+        : '');
       this.onLobbyVisible?.(this.viewState({ event: MSG.VERSION_RESULT }));
       return;
     }
@@ -619,6 +675,7 @@ export class CoopMatchController {
     this.activeBridge?.unbindGame();
     this.activeBridge = null;
     this.pendingReconnectSession = null;
+    this.clearReconnectResumeWatch();
     this.roomClient.leaveRoom();
     this.resetMatchState();
     this.onNotice?.(message);
@@ -628,6 +685,7 @@ export class CoopMatchController {
   handleKickedFromRoom() {
     this.activeBridge?.unbindGame();
     this.activeBridge = null;
+    this.clearReconnectResumeWatch();
     this.roomClient.leaveRoom();
     this.resetMatchState();
     this.onNotice?.('已被房主移出房间');
@@ -655,6 +713,7 @@ export class CoopMatchController {
       result = this.rejectLobbyCommand(command, 'unsupported_lobby_command');
     }
     this.commandResults.set(dedupeKey, result);
+    trimLobbyCommandResults(this.commandResults);
     this.sendLobbyResult(fromPlayerId, result);
   }
 
@@ -845,6 +904,7 @@ export class CoopMatchController {
       return;
     }
     if ((payload.phaseRevision ?? 0) < this.phaseRevision || this.launchedRevision === payload.phaseRevision) return;
+    this.clearReconnectResumeWatch();
     this.phase = MATCH_PHASE.MATCH_LOADING;
     this.phaseRevision = payload.phaseRevision;
     this.launchedRevision = payload.phaseRevision;
@@ -860,11 +920,45 @@ export class CoopMatchController {
       return;
     }
     if (this.activeBridge || this.launchedRevision === payload.phaseRevision) return;
+    this.clearReconnectResumeWatch();
     this.phase = payload.phase ?? MATCH_PHASE.RUNNING;
     this.phaseRevision = payload.phaseRevision;
     this.launchedRevision = payload.phaseRevision;
     this.launchMatch(payload);
     this.activeBridge?.requestResync?.();
+  }
+
+  handleLaunchFailed(message = '联机战斗启动失败') {
+    this.activeBridge?.unbindGame();
+    this.activeBridge = null;
+    this.launchedRevision = 0;
+    this.clearReconnectResumeWatch();
+    this.onNotice?.(message);
+    this.onLobbyVisible?.(this.viewState({ event: MSG.ERROR, launchFailed: true }));
+  }
+
+  startReconnectResumeWatch() {
+    this.clearReconnectResumeWatch();
+    this.awaitingReconnectResume = true;
+    this.reconnectResumeTimer = globalThis.setTimeout?.(() => {
+      this.reconnectResumeTimer = null;
+      if (!this.awaitingReconnectResume || this.activeBridge) return;
+      this.awaitingReconnectResume = false;
+      const saved = this.roomClient.transport.loadSession();
+      if (saved?.roomId && saved?.reconnectToken) {
+        this.pendingReconnectSession = saved;
+      }
+      this.onNotice?.('已连上中继，但 8 秒内没有收到 Host 的对局恢复数据；已回到回连确认页，请确认房主仍在战斗中后再试');
+      this.onLobbyVisible?.(this.viewState({ event: MSG.ERROR, reconnectResumeTimedOut: true }));
+    }, RECONNECT_RESUME_TIMEOUT_MS) ?? null;
+  }
+
+  clearReconnectResumeWatch() {
+    if (this.reconnectResumeTimer) {
+      globalThis.clearTimeout?.(this.reconnectResumeTimer);
+      this.reconnectResumeTimer = null;
+    }
+    this.awaitingReconnectResume = false;
   }
 
   launchMatch(payload) {
@@ -1008,6 +1102,16 @@ function deckRevision(deck) {
     hash = Math.imul(hash, 16777619);
   });
   return `deck-${(hash >>> 0).toString(16)}`;
+}
+
+// Bound the lobby-command dedupe cache; lobby traffic is light but a
+// reconnect storm could otherwise grow it without limit.
+function trimLobbyCommandResults(results, maxEntries = 512) {
+  while (results.size > maxEntries) {
+    const oldest = results.keys().next().value;
+    if (oldest === undefined) break;
+    results.delete(oldest);
+  }
 }
 
 function createStableId(prefix) {

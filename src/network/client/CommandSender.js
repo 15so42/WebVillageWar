@@ -10,6 +10,9 @@ export class CommandSender {
     this.send = send;
     this.seq = 1;
     this.lastMoveSentAt = Number.NEGATIVE_INFINITY;
+    this.lastSelectionKey = '';
+    this.pendingSelection = null;
+    this.selectionFlushTimer = null;
   }
 
   sendCommand(name, payload = {}) {
@@ -52,7 +55,27 @@ export class CommandSender {
   }
 
   selectionSet(unitIds) {
-    return this.sendCommand(COMMAND.SELECTION_SET, { unitIds: normalizeUnitIds(unitIds) });
+    const normalized = normalizeUnitIds(unitIds);
+    const key = normalized.join(',');
+    if (!normalized.length && !this.lastSelectionKey) return true;
+    this.pendingSelection = normalized;
+    if (this.selectionFlushTimer) return true;
+    // All changes during a box-drag (or rapid clicks) coalesce onto the
+    // latest set; one command per throttle window. Local selection feedback
+    // is rendered immediately by the game itself, so the remote-only sync can
+    // tolerate this short delay.
+    this.selectionFlushTimer = setTimeout(() => {
+      this.selectionFlushTimer = null;
+      const ids = this.pendingSelection;
+      this.pendingSelection = null;
+      if (!ids) return;
+      const latestKey = ids.join(',');
+      if (latestKey !== this.lastSelectionKey) {
+        this.lastSelectionKey = latestKey;
+        this.sendCommand(COMMAND.SELECTION_SET, { unitIds: ids });
+      }
+    }, SYNC.selectionThrottleMs);
+    return true;
   }
 
   playCard(payload) {

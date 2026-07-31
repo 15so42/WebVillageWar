@@ -132,7 +132,7 @@ export class CommandValidator {
 
   validateCard(playerId, payload) {
     const cards = this.game.cardSystems?.[playerId]
-      ?? (playerId === this.game.localPlayerSlot ? this.game.cardSystem : null);
+      ?? (playerId === this.localPlayerId() ? this.game.cardSystem : null);
     const instanceId = payload.cardInstanceId;
     if (!cards || typeof instanceId !== 'string') return reject('invalid_card_instance');
     const card = cards.findCardByInstanceId?.(instanceId);
@@ -166,10 +166,16 @@ export class CommandValidator {
     const run = this.game.players?.[playerId];
     const event = run
       ? run.strategyEvent
-      : (playerId === this.game.localPlayerSlot ? this.game.strategyEvent : null);
+      : (playerId === this.localPlayerId() ? this.game.strategyEvent : null);
     if (!event) return reject('reward_not_open');
     if (payload.rewardId && event.networkInteractionId !== payload.rewardId) return reject('stale_reward');
-    if (payload.revision && event.networkRevision !== payload.revision) return reject('stale_reward_revision');
+    if (
+      payload.revision != null
+      && Number.isFinite(Number(event.networkRevision))
+      && Number(payload.revision) !== Number(event.networkRevision)
+    ) {
+      return reject('stale_reward_revision');
+    }
     return { ok: true, payload };
   }
 
@@ -179,7 +185,7 @@ export class CommandValidator {
     const run = this.game.players?.[playerId];
     const event = run
       ? run.strategyEvent
-      : (playerId === this.game.localPlayerSlot ? this.game.strategyEvent : null);
+      : (playerId === this.localPlayerId() ? this.game.strategyEvent : null);
     const choiceIndex = findChoiceIndex(event, payload.choiceId);
     if (choiceIndex < 0) return reject('reward_choice_not_found');
     return { ok: true, payload: { ...payload, choiceIndex } };
@@ -195,7 +201,7 @@ export class CommandValidator {
       && payload.offerId !== shop.networkInteractionId
     ) return reject('stale_shop');
     if (
-      payload.revision
+      payload.revision != null
       && Number.isFinite(Number(shop.networkShopRevision))
       && Number(payload.revision) !== Number(shop.networkShopRevision)
     ) return reject('stale_shop_revision');
@@ -233,8 +239,13 @@ export class CommandValidator {
   }
 
   shopStateForPlayer(playerId) {
-    if (playerId === this.game.localPlayerSlot) return this.game;
+    if (playerId === this.localPlayerId()) return this.game;
     return this.game.players?.[playerId] ?? null;
+  }
+
+  localPlayerId() {
+    // Single source of truth; Game.js keeps both equal, prefer localPlayerId.
+    return this.game?.localPlayerId ?? this.game?.localPlayerSlot ?? null;
   }
 
   validateShopReward(playerId) {

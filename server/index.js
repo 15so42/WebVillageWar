@@ -11,9 +11,16 @@ const PORT = Number(process.env.COOP_PORT ?? 8787);
 const RELAY_VERSION = 3;
 const HOST_LEASE_MS = 60_000;
 const CLIENT_RECONNECT_GRACE_MS = 90_000;
-const MAX_MESSAGE_BYTES = 256 * 1024;
-// A Host can legitimately emit transform, combat and FX bursts in the same second.
-const MAX_MESSAGES_PER_WINDOW = 600;
+// Full recovery snapshots carry the whole world plus every player's deck,
+// card zones and interaction state, so they need room well beyond a normal
+// game message. The relay never parses payload contents; this is only a
+// per-message ceiling against memory abuse.
+const MAX_MESSAGE_BYTES = 2 * 1024 * 1024;
+// A Host can legitimately emit transform, combat and FX bursts in the same
+// second; transform streams are bundled (all units in one message), so the
+// ceiling mostly covers per-unit state patches during heavy fights.
+const MAX_MESSAGES_PER_WINDOW = 2000;
+const MAX_PENDING_RELIABLE = 1000;
 const RATE_WINDOW_MS = 1_000;
 const ROOM_ID_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
@@ -114,7 +121,13 @@ function bindConnection(socket, roomId, player) {
     rateWindowStartedAt: Date.now(),
     rateCount: 0,
     pendingTransform: null,
-    nextTransformSendAt: 0
+    nextTransformSendAt: 0,
+    // Reliable messages that arrived while the rate window was exhausted are
+    // deferred (in order) instead of dropped: dropping a state_patch or
+    // transaction would break the client's serverSeq continuity and force a
+    // full resync. Replaceable transform streams are dropped instead.
+    pendingReliable: [],
+    pendingFlushTimer: null
   });
 }
 
@@ -243,7 +256,10 @@ function handleReconnect(socket, message) {
   if (!player.connected && Date.now() - player.lastSeen > CLIENT_RECONNECT_GRACE_MS) {
     return send(socket, { type: MSG.ERROR, message: '重连已超时' });
   }
-  detachSocket(socket, { explicit: true, notify: false });
+  const currentInfo = connections.get(socket);
+  if (currentInfo && (currentInfo.roomId !== room.id || currentInfo.playerId !== player.playerId)) {
+    detachSocket(socket, { explicit: true, notify: false });
+  }
   clearTimeout(player.disconnectTimer);
   player.disconnectTimer = null;
   player.connected = true;
@@ -328,6 +344,11 @@ function kickPlayer(socket, message) {
     });
     connections.delete(peer);
     room.sockets.delete(peer);
+    try {
+      peer.close();
+    } catch {
+      // The socket may already be gone; the connection maps are authoritative.
+    }
   });
   broadcastRoom(room);
 }
@@ -336,6 +357,10 @@ function detachSocket(socket, { explicit = false, notify = true } = {}) {
   const info = connections.get(socket);
   if (!info) return;
   connections.delete(socket);
+  if (info.pendingFlushTimer) {
+    clearTimeout(info.pendingFlushTimer);
+    info.pendingFlushTimer = null;
+  }
   const room = rooms.get(info.roomId);
   if (!room) return;
   room.sockets.delete(socket);
@@ -395,9 +420,85 @@ function consumeRateBudget(socket) {
   if (now - info.rateWindowStartedAt >= RATE_WINDOW_MS) {
     info.rateWindowStartedAt = now;
     info.rateCount = 0;
+    // Flush messages deferred by the previous window, in arrival order.
+    // They are not re-counted: they already failed the budget they arrived in.
+    flushPendingReliable(socket, info);
   }
   info.rateCount += 1;
   return info.rateCount <= MAX_MESSAGES_PER_WINDOW;
+}
+
+function queueForNextWindow(socket, message) {
+  const info = connections.get(socket);
+  if (!info) return;
+  info.pendingReliable.push(message);
+  if (info.pendingReliable.length > MAX_PENDING_RELIABLE) {
+    info.pendingReliable.shift();
+  }
+  // A client that goes quiet right after bursting must still have its
+  // deferred messages delivered; waiting for the next inbound message to
+  // reset the window could stall them forever.
+  if (!info.pendingFlushTimer) {
+    info.pendingFlushTimer = setTimeout(() => flushPendingReliable(socket, info), RATE_WINDOW_MS + 10);
+    info.pendingFlushTimer.unref?.();
+  }
+}
+
+function flushPendingReliable(socket, info) {
+  if (info.pendingFlushTimer) {
+    clearTimeout(info.pendingFlushTimer);
+    info.pendingFlushTimer = null;
+  }
+  const pending = info.pendingReliable;
+  info.pendingReliable = [];
+  pending.forEach((message) => processMessage(socket, message));
+}
+
+function processMessage(socket, message) {
+  if (message.relayVersion !== RELAY_VERSION) {
+    send(socket, {
+      type: MSG.ERROR,
+      message: '联机客户端与中继版本不一致，请刷新页面并重启联机中继'
+    });
+    return;
+  }
+  try {
+    switch (message.type) {
+      case MSG.ROOM_CREATE:
+        createRoom(socket, message);
+        break;
+      case MSG.ROOM_JOIN:
+        joinRoom(socket, message);
+        break;
+      case MSG.ROOM_LEAVE:
+        detachSocket(socket, { explicit: true });
+        break;
+      case MSG.ROOM_KICK:
+        kickPlayer(socket, message);
+        break;
+      case MSG.RECONNECT:
+        handleReconnect(socket, message);
+        break;
+      case MSG.RECONNECT_PROBE:
+        handleReconnectProbe(socket, message);
+        break;
+      case MSG.HEARTBEAT: {
+        const info = connections.get(socket);
+        const player = info ? rooms.get(info.roomId)?.players.get(info.playerId) : null;
+        if (player) player.lastSeen = Date.now();
+        send(socket, { type: MSG.HEARTBEAT, ok: true, serverTime: Date.now() });
+        break;
+      }
+      case MSG.NET_FORWARD:
+        forwardMessage(socket, message);
+        break;
+      default:
+        break;
+    }
+  } catch (error) {
+    console.error('[multiplayer-relay] message handler error:', error);
+    send(socket, { type: MSG.ERROR, message: '中继处理失败，请重试' });
+  }
 }
 
 const wss = new WebSocketServer({ port: PORT, maxPayload: MAX_MESSAGE_BYTES });
@@ -414,8 +515,8 @@ transformFlushTimer.unref?.();
 
 wss.on('connection', (socket) => {
   socket.on('message', (raw) => {
-    if (raw.byteLength > MAX_MESSAGE_BYTES || !consumeRateBudget(socket)) {
-      send(socket, { type: MSG.ERROR, message: '消息过大或发送过于频繁' });
+    if (raw.byteLength > MAX_MESSAGE_BYTES) {
+      send(socket, { type: MSG.ERROR, message: '消息过大' });
       return;
     }
     let message;
@@ -424,50 +525,20 @@ wss.on('connection', (socket) => {
     } catch {
       return;
     }
-    if (message.relayVersion !== RELAY_VERSION) {
-      send(socket, {
-        type: MSG.ERROR,
-        message: '联机客户端与中继版本不一致，请刷新页面并重启联机中继'
-      });
+    if (!consumeRateBudget(socket)) {
+      // Replaceable transform streams are safe to drop; a newer sample always
+      // supersedes an older one. Reliable game messages are deferred instead
+      // so clients never see a serverSeq gap caused by rate limiting.
+      if (isReplaceableTransform(message)) return;
+      queueForNextWindow(socket, message);
       return;
     }
-    try {
-      switch (message.type) {
-        case MSG.ROOM_CREATE:
-          createRoom(socket, message);
-          break;
-        case MSG.ROOM_JOIN:
-          joinRoom(socket, message);
-          break;
-        case MSG.ROOM_LEAVE:
-          detachSocket(socket, { explicit: true });
-          break;
-        case MSG.ROOM_KICK:
-          kickPlayer(socket, message);
-          break;
-        case MSG.RECONNECT:
-          handleReconnect(socket, message);
-          break;
-        case MSG.RECONNECT_PROBE:
-          handleReconnectProbe(socket, message);
-          break;
-        case MSG.HEARTBEAT: {
-          const info = connections.get(socket);
-          const player = info ? rooms.get(info.roomId)?.players.get(info.playerId) : null;
-          if (player) player.lastSeen = Date.now();
-          send(socket, { type: MSG.HEARTBEAT, ok: true, serverTime: Date.now() });
-          break;
-        }
-        case MSG.NET_FORWARD:
-          forwardMessage(socket, message);
-          break;
-        default:
-          break;
-      }
-    } catch (error) {
-      console.error('[multiplayer-relay] message handler error:', error);
-      send(socket, { type: MSG.ERROR, message: '中继处理失败，请重试' });
-    }
+    processMessage(socket, message);
   });
   socket.on('close', () => detachSocket(socket));
+  // Without an 'error' listener an invalid frame (or a TCP reset) emits an
+  // unhandled 'error' on the WebSocket, which throws in Node and crashes the
+  // whole relay along with every room. ws closes the socket itself after the
+  // error, so 'close' still runs detachSocket.
+  socket.on('error', () => {});
 });

@@ -118,8 +118,13 @@ export class WebRtcDirectTransport {
 
   async acceptOffer(playerId, description) {
     const existing = this.peers.get(playerId);
+    // Candidates that arrived before the offer (out-of-order signaling) are
+    // buffered on the peer. Rebuilding the peer must carry them over, or a
+    // host that does not re-trickle them would never get the P2P connection up.
+    const carriedCandidates = existing?.pendingCandidates ?? [];
     if (existing) this.disposePeer(existing);
     const peer = this.createPeer(playerId);
+    if (carriedCandidates.length) peer.pendingCandidates = carriedCandidates;
     await peer.connection.setRemoteDescription(description);
     await this.flushPendingCandidates(peer);
     const answer = await peer.connection.createAnswer();

@@ -5728,8 +5728,9 @@ export const BALANCE = {
   },
   enemyCamp: {
     position: { x: 0, y: 0, z: -30 },
-    maxHealth: 260,
+    maxHealth: 50,
     maxStructureDurability: 49,
+    damagePerAttack: 1,
     attackRange: 8.5,
     attackDamage: 7,
     attackInterval: 1,

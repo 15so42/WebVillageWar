@@ -1,5 +1,6 @@
 node_modules/
 dist/
+.reasonix/
 .codex-cloudflared/
 .vite/
 .vite-dev*.log

@@ -1,12 +1,17 @@
 import assert from 'node:assert/strict';
 import {
   consumeBaseHealthLossMilestones,
-  resolvePlayerBaseDamage
+  resolvePlayerBaseDamage,
+  resolveStructureDamage
 } from '../src/systems/playerBaseRules.js';
 
 assert.equal(resolvePlayerBaseDamage(999, { isAttack: true, attackDamage: 1 }), 1);
 assert.equal(resolvePlayerBaseDamage(0, { isAttack: true, attackDamage: 1 }), 1);
 assert.equal(resolvePlayerBaseDamage(10, { isAttack: false, attackDamage: 1 }), 10);
+
+assert.equal(resolveStructureDamage(999, { isAttack: true, attackDamage: 1 }), 1);
+assert.equal(resolveStructureDamage(0, { isAttack: true, attackDamage: 1 }), 1);
+assert.equal(resolveStructureDamage(10, { isAttack: false, attackDamage: 1 }), 10);
 
 assert.deepEqual(
   consumeBaseHealthLossMilestones(9, 1, 10),
