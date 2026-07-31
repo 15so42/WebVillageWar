@@ -1709,16 +1709,29 @@ export class Game {
       this.withPlayerContext(slot, () => {
         this.strategyRewardRerollCount = 0;
         let event = this.createStrategyEvent(type, options);
-        if (!event?.choices?.length && type !== 'card-choice' && type !== 'wave-reward') {
-          event = this.createStrategyEvent('card-choice', {
-            ...options,
-            fallbackFrom: type
-          });
+        if (!event?.choices?.length && type === 'wave-reward') {
+          // 发牌池耗尽：仍进入奖励阶段并显示"牌已发光"，等待其他玩家选完
+          //（30 秒倒计时超时或手动跳过由 Host 自动完成）。
+          event = {
+            type,
+            kicker: '波次奖励',
+            title: '牌已发光',
+            summary: '本局波次奖励的发牌池已用完。',
+            choices: [],
+            exhausted: true
+          };
+        } else {
+          if (!event?.choices?.length && type !== 'card-choice' && type !== 'wave-reward') {
+            event = this.createStrategyEvent('card-choice', {
+              ...options,
+              fallbackFrom: type
+            });
+          }
+          if (!event?.choices?.length && type !== 'wave-reward') {
+            event = this.createFallbackCardChoiceEvent(options);
+          }
         }
-        if (!event?.choices?.length && type !== 'wave-reward') {
-          event = this.createFallbackCardChoiceEvent(options);
-        }
-        this.strategyEvent = event?.choices?.length ? event : null;
+        this.strategyEvent = event?.choices?.length || event?.exhausted ? event : null;
         hasEvent = Boolean(this.strategyEvent);
       });
       if (hasEvent) this.coopRewardWaitSlots.add(slot);
@@ -2123,7 +2136,7 @@ export class Game {
       this.onNetworkMatchPhaseChanged(this.networkBridge?.phase);
     }
     if ('strategyUi' in state) {
-      if (state.strategyUi?.choices?.length) {
+      if (state.strategyUi?.choices?.length || state.strategyUi?.exhausted) {
         // 刷新次数随奖励状态同步，客户端据此计算重新随机费用（base × 2^n）
         this.strategyRewardRerollCount = Math.max(0, Number(state.strategyUi.rerollCount) || 0);
         this.strategyEvent = {
@@ -2136,6 +2149,7 @@ export class Game {
           autoSelectSecondsRemaining: state.strategyUi.autoSelectSecondsRemaining
             ?? this.coopRewardAutoSelectSecondsRemaining,
           rerollCount: this.strategyRewardRerollCount,
+          exhausted: Boolean(state.strategyUi.exhausted),
           wave: state.strategyUi.wave,
           choices: state.strategyUi.choices.map((choice) => ({
             ...choice,
@@ -2786,6 +2800,8 @@ export class Game {
     if (this.levelFinished || this.levelSession.debug) return;
     let event = this.createStrategyEvent(type, options);
     if (!event?.choices?.length && type === 'wave-reward') {
+      // 发牌池已耗尽：提示后直接继续（单机无等待）
+      this.cardSystem?.setHint?.('牌已发光：本局波次奖励的发牌池已用完', 'wave-reward-exhausted');
       this.continueAfterStrategyFlow(false);
       return false;
     }
@@ -3470,9 +3486,13 @@ export class Game {
       this.strategyEventUi.summary.textContent = summary;
       this.strategyEventUi.summary.hidden = !summary;
     }
-    this.strategyEventUi.choices.innerHTML = event.choices
-      .map((choice, index) => strategyRewardMarkup(choice, index))
-      .join('');
+    if (event.exhausted) {
+      this.strategyEventUi.choices.innerHTML = '<p class="strategy-event-exhausted">牌已发光：本局波次奖励的发牌池已用完。</p>';
+    } else {
+      this.strategyEventUi.choices.innerHTML = event.choices
+        .map((choice, index) => strategyRewardMarkup(choice, index))
+        .join('');
+    }
     fitStrategyRewardCards(this.strategyEventUi.choices);
     this.renderStrategyEventActions(event);
   }
@@ -3511,6 +3531,17 @@ export class Game {
     if (event?.type !== 'wave-reward') {
       actions.hidden = true;
       actions.innerHTML = '';
+      return;
+    }
+    if (event.exhausted) {
+      // 牌已发光：无需重新随机，仅保留放弃奖励（等待其他玩家/继续）。
+      actions.hidden = false;
+      actions.innerHTML = `
+        <button class="strategy-event-action is-skip" type="button" data-strategy-action="skip">
+          <span class="strategy-event-action-label">放弃奖励</span>
+          <strong>直接进入下一波</strong>
+        </button>
+      `;
       return;
     }
     const rerollCost = this.getStrategyRewardRerollCost();

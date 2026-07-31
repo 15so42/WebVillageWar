@@ -578,6 +578,7 @@ function serializeStrategyUi(event, options = {}) {
     summary: event.summary,
     autoSelectSecondsRemaining: options.autoSelectSecondsRemaining ?? null,
     rerollCount: Math.max(0, Number(options.rerollCount) || 0),
+    exhausted: Boolean(event.exhausted),
     wave: event.wave ? { index: event.wave.index, kind: event.wave.kind } : null,
     choices: (event.choices ?? []).map((choice) => ({
       choiceId: choice.choiceId,

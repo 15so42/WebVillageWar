@@ -3651,6 +3651,18 @@ body:not(.is-game-active) .mobile-action-dock {
   margin-top: 14px;
 }
 
+.strategy-event-exhausted {
+  margin: 18px 0;
+  padding: 14px 16px;
+  border: 1px dashed rgba(255, 210, 120, 0.35);
+  border-radius: 10px;
+  color: rgba(247, 244, 232, 0.85);
+  background: rgba(255, 210, 120, 0.06);
+  text-align: center;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
 .strategy-event-actions[hidden] {
   display: none;
 }

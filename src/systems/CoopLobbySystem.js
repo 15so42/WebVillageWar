@@ -232,7 +232,15 @@ export class CoopLobbySystem {
             </div>
             <p class="coop-lobby-hint">${!selfVersionVerified ? '正在与主机校验游戏版本…' : (allReady ? '全员已准备，Host 正在创建权威对局…' : `至少 2 人且全员准备后开始 · 当前阶段 ${escapeHtml(room.phase ?? 'LOBBY_EDITING')}`)}</p>
           </section>
-          ${this.renderDeckBuilder({ selfReady, locked: roomLocked })}
+          <section class="coop-deck-builder" aria-label="出战牌组说明">
+            <header class="coop-deck-builder-head">
+              <div>
+                <span>出战牌组</span>
+                <strong>默认全部已拥有卡牌（${this.getOwnedCardIds?.().length ?? 0} 张）</strong>
+              </div>
+              <small>无需配置；每张牌在波次奖励中只能获得一次，发完后提示牌已发光。</small>
+            </header>
+          </section>
         ` : `
           <section class="coop-lobby-entry">
             <label class="coop-level-field">

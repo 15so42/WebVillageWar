@@ -1,10 +1,9 @@
 /**
- * Wave rewards normally consume the selected card definition. Summon cards
- * are intentionally exempt: they are one-shot cards in the actual draw pile,
- * so later waves may offer the same unit again. This does not affect the
- * separate run-shop inventory.
+ * Wave rewards consume the selected card definition from the reward deck.
+ * Every card — including summon cards — can only be obtained once per run;
+ * the reward pool shrinks until it is exhausted ("牌已发光").
  */
 export function shouldConsumeWaveRewardCard(choice) {
   if (choice?.rewardSource !== 'wave-reward-deck' || choice.action !== 'add-card') return false;
-  return choice.card?.kind !== 'summon';
+  return true;
 }

@@ -852,7 +852,10 @@ const CHANGELOG_ENTRIES = [
       '本地一键启动联机中继（npm run server:coop）的默认地址与客户端默认配置对齐为 127.0.0.1:8787；公网部署通过 VITE_COOP_WS_URL 指定中继地址。',
       '重连恢复、伤害结算与命令去重增加防御性校验，减少偶发的重复同步与内存增长。',
       '修复联机波次奖励刷新后客户端仍显示初始 4 银币价格的问题；刷新次数会随奖励状态同步，重新随机费用正确翻倍。',
-      '修复联机客户端选择兵种专精后能量条栏位不显示对应专精的问题；专精数据随私有状态同步，与能力卡图标同排展示。'
+      '修复联机客户端选择兵种专精后能量条栏位不显示对应专精的问题；专精数据随私有状态同步，与能力卡图标同排展示。',
+      '开局不再需要配置出战牌组，默认使用全部已拥有卡牌（单机与联机一致），移除选牌步骤。',
+      '波次奖励调整为每张牌（包括单位卡）只能获得一次，选过后即从本局发牌池移除；战役与无尽会持续发牌直到池空。',
+      '波次奖励发牌池耗尽时提示「牌已发光」；联机下仍会进入 30 秒等待，等其他玩家完成选择或超时自动跳过。'
     ]
   },
   {
@@ -1368,12 +1371,6 @@ export class MetaGameSystem {
       return;
     }
     if (action === 'start-level') {
-      if (this.view === 'levels') {
-        this.ensureDeckSelection();
-        this.persistPreferences();
-        this.show('deck');
-        return;
-      }
       this.startLevel();
       return;
     }
@@ -1871,7 +1868,7 @@ export class MetaGameSystem {
              `}
 
              <button class="med-war-start-btn" type="button" data-action="start-level">
-                <span class="btn-inner-text">配置牌组 / 进入整备</span>
+                <span class="btn-inner-text">开始战斗</span>
              </button>
           </div>
         </div>
@@ -2242,14 +2239,8 @@ export class MetaGameSystem {
   }
 
   startLevel() {
-    this.ensureDeckSelection();
-    const deckValidation = validateDeckSelection(this.deckSelection);
-    if (!deckValidation.valid) {
-      this.setNotice(deckValidationMessage(deckValidation));
-      this.show('deck', { preserveScroll: true, keepNotice: true });
-      return;
-    }
-    const deckIds = this.deckSelection.slice();
+    // 出战牌组默认使用全部已拥有卡牌，不再需要手动配置。
+    const deckIds = this.progress.ownedCards.slice();
     const deck = deckIds.map((id, index) => {
       const card = this.cardWithLevel(id);
       return {
@@ -2257,6 +2248,10 @@ export class MetaGameSystem {
         instanceId: `${id}-${index}-${Date.now()}-${Math.random().toString(36).slice(2)}`
       };
     });
+    if (!validateDeckSelection(deckIds).valid) {
+      this.setNotice('当前没有可出战的单位卡，请先在炼金工坊购买卡牌');
+      return;
+    }
     const difficulty = Math.min(
       clampDifficulty(this.selectedDifficulty),
       this.availableDifficulty(this.selectedLevelId)

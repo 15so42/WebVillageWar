@@ -213,7 +213,7 @@ try {
       meta.hide();
       if (!coopController) {
         coopController = new CoopMatchController({
-          getDeckSelection: () => meta.deckSelection,
+          getDeckSelection: () => meta.progress.ownedCards.slice(),
           getSelectedLevelId: () => meta.selectedLevelId,
           getSelectedDifficulty: () => meta.selectedDifficulty,
           getSelectedChallengeMode: () => meta.selectedChallengeMode,
