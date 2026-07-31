@@ -459,7 +459,8 @@ export class SnapshotBuilder {
       silver: round(isLocal ? this.game.getSilver(playerId) : run.silver),
       coopRewardAutoSelectSecondsRemaining: rewardSeconds,
       strategyUi: serializeStrategyUi(strategyEvent, {
-        autoSelectSecondsRemaining: rewardKind === 'strategy' ? rewardSeconds : null
+        autoSelectSecondsRemaining: rewardKind === 'strategy' ? rewardSeconds : null,
+        rerollCount: Math.max(0, run?.strategyRewardRerollCount ?? 0)
       }),
       strategySelectionRequired: Boolean(strategyEvent),
       strategyWaiting: Boolean(
@@ -575,6 +576,7 @@ function serializeStrategyUi(event, options = {}) {
     title: event.title,
     summary: event.summary,
     autoSelectSecondsRemaining: options.autoSelectSecondsRemaining ?? null,
+    rerollCount: Math.max(0, Number(options.rerollCount) || 0),
     wave: event.wave ? { index: event.wave.index, kind: event.wave.kind } : null,
     choices: (event.choices ?? []).map((choice) => ({
       choiceId: choice.choiceId,

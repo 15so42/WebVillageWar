@@ -2124,6 +2124,8 @@ export class Game {
     }
     if ('strategyUi' in state) {
       if (state.strategyUi?.choices?.length) {
+        // 刷新次数随奖励状态同步，客户端据此计算重新随机费用（base × 2^n）
+        this.strategyRewardRerollCount = Math.max(0, Number(state.strategyUi.rerollCount) || 0);
         this.strategyEvent = {
           networkInteractionId: state.strategyUi.rewardId,
           networkRevision: state.strategyUi.revision,
@@ -2133,6 +2135,7 @@ export class Game {
           summary: state.strategyUi.summary,
           autoSelectSecondsRemaining: state.strategyUi.autoSelectSecondsRemaining
             ?? this.coopRewardAutoSelectSecondsRemaining,
+          rerollCount: this.strategyRewardRerollCount,
           wave: state.strategyUi.wave,
           choices: state.strategyUi.choices.map((choice) => ({
             ...choice,
