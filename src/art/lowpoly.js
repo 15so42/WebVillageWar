@@ -63,6 +63,28 @@ function limb(start, end, radius, material) {
   return object;
 }
 
+function humanoidHeadGeometry(radius, team) {
+  if (team !== 'player') {
+    return new THREE.DodecahedronGeometry(radius, 0);
+  }
+  return new THREE.BoxGeometry(
+    radius * 1.36,
+    radius * 1.5,
+    radius * 1.28
+  );
+}
+
+function humanoidArmRadius(radius, team) {
+  return team === 'player' ? radius * 0.84 : radius;
+}
+
+function humanoidHandGeometry(radius, team) {
+  return new THREE.DodecahedronGeometry(
+    team === 'player' ? radius * 0.84 : radius,
+    0
+  );
+}
+
 function boxBetween(start, end, width, depth, material) {
   const center = start.clone().lerp(end, 0.5);
   const direction = end.clone().sub(start);
@@ -217,7 +239,7 @@ export function createSpearmanModel(team) {
   upperBodyPivot.rotation.y = Math.PI / 2;
 
   const head = mesh(
-    new THREE.DodecahedronGeometry(0.26, 0),
+    humanoidHeadGeometry(0.26, team),
     skin,
     new THREE.Vector3(0, 1.52, 0.02),
     new THREE.Vector3(1, 1, 1)
@@ -277,16 +299,16 @@ export function createSpearmanModel(team) {
   const frontGripRoot = spearPivotPos.clone().add(new THREE.Vector3(0, 0, 0.28));
   const rightShoulderRoot = new THREE.Vector3(-0.1, 1.06, 0.12);
   const leftShoulderRoot = new THREE.Vector3(0.02, 1.04, 0.28);
-  const rightArm = limb(rightShoulderRoot, rearGripRoot, 0.052, skin);
-  const leftArm = limb(leftShoulderRoot, frontGripRoot, 0.052, skin);
+  const rightArm = limb(rightShoulderRoot, rearGripRoot, humanoidArmRadius(0.052, team), skin);
+  const leftArm = limb(leftShoulderRoot, frontGripRoot, humanoidArmRadius(0.052, team), skin);
   const rightHand = mesh(
-    new THREE.DodecahedronGeometry(0.08, 0),
+    humanoidHandGeometry(0.08, team),
     skin,
     rearGripRoot,
     new THREE.Vector3(1, 1, 1)
   );
   const leftHand = mesh(
-    new THREE.DodecahedronGeometry(0.08, 0),
+    humanoidHandGeometry(0.08, team),
     skin,
     frontGripRoot,
     new THREE.Vector3(1, 1, 1)
@@ -459,7 +481,7 @@ export function createTowerShieldModel(team) {
   const pauldronRight = pauldronLeft.clone();
   pauldronRight.position.x = -0.28;
   const head = mesh(
-    new THREE.DodecahedronGeometry(0.24, 0),
+    humanoidHeadGeometry(0.24, team),
     skin,
     new THREE.Vector3(0, 1.56, -0.08),
     new THREE.Vector3(1, 1, 1)
@@ -483,16 +505,16 @@ export function createTowerShieldModel(team) {
   const rightShoulder = new THREE.Vector3(-0.24, 1.06, 0.02);
   const leftHandPos = new THREE.Vector3(0.16, 0.84, 0.48);
   const rightHandPos = new THREE.Vector3(-0.16, 0.84, 0.48);
-  const leftArm = limb(leftShoulder, leftHandPos, 0.064, skin);
-  const rightArm = limb(rightShoulder, rightHandPos, 0.064, skin);
+  const leftArm = limb(leftShoulder, leftHandPos, humanoidArmRadius(0.064, team), skin);
+  const rightArm = limb(rightShoulder, rightHandPos, humanoidArmRadius(0.064, team), skin);
   const leftHand = mesh(
-    new THREE.DodecahedronGeometry(0.09, 0),
+    humanoidHandGeometry(0.09, team),
     skin,
     leftHandPos,
     new THREE.Vector3(1, 1, 1)
   );
   const rightHand = mesh(
-    new THREE.DodecahedronGeometry(0.09, 0),
+    humanoidHandGeometry(0.09, team),
     skin,
     rightHandPos,
     new THREE.Vector3(1, 1, 1)
@@ -587,7 +609,7 @@ export function createSwordsmanModel(team, { hasShield = false } = {}) {
     new THREE.Vector3(0.86, 1.25, 0.64)
   );
   const head = mesh(
-    new THREE.DodecahedronGeometry(0.28, 0),
+    humanoidHeadGeometry(0.28, team),
     mat(skin),
     new THREE.Vector3(0, 1.6, 0),
     new THREE.Vector3(1, 1, 1)
@@ -617,11 +639,11 @@ export function createSwordsmanModel(team, { hasShield = false } = {}) {
   const rightArm = limb(
     new THREE.Vector3(-0.31, 1.18, 0.06),
     new THREE.Vector3(-0.24, 0.68, 0.4),
-    0.06,
+    humanoidArmRadius(0.06, team),
     mat(skin)
   );
   const rightHand = mesh(
-    new THREE.DodecahedronGeometry(0.09, 0),
+    humanoidHandGeometry(0.09, team),
     mat(skin),
     new THREE.Vector3(-0.24, 0.68, 0.4),
     new THREE.Vector3(1, 1, 1)
@@ -632,11 +654,11 @@ export function createSwordsmanModel(team, { hasShield = false } = {}) {
   const leftArm = limb(
     new THREE.Vector3(0.31, 1.16, 0.06),
     leftHandPosition,
-    0.06,
+    humanoidArmRadius(0.06, team),
     mat(skin)
   );
   const leftHand = mesh(
-    new THREE.DodecahedronGeometry(0.085, 0),
+    humanoidHandGeometry(0.085, team),
     mat(skin),
     leftHandPosition,
     new THREE.Vector3(1, 1, 1)
@@ -727,17 +749,17 @@ export function createRogueModel(team) {
   const upperArm = limb(
     new THREE.Vector3(0, 0, 0),
     elbowLocal,
-    0.055,
+    humanoidArmRadius(0.055, team),
     mat(skin)
   );
   const forearm = limb(
     new THREE.Vector3(0, 0, 0),
     wristLocal,
-    0.052,
+    humanoidArmRadius(0.052, team),
     mat(skin)
   );
   const rightHand = mesh(
-    new THREE.DodecahedronGeometry(0.085, 0),
+    humanoidHandGeometry(0.085, team),
     mat(skin),
     new THREE.Vector3(0, 0, 0),
     new THREE.Vector3(1, 1, 1)
@@ -1081,7 +1103,7 @@ export function createBerserkerModel(team) {
     new THREE.Vector3(0.92, 1.22, 0.7)
   );
   const head = mesh(
-    new THREE.DodecahedronGeometry(0.28, 0),
+    humanoidHeadGeometry(0.28, team),
     skinMat,
     new THREE.Vector3(0, 1.56, 0),
     new THREE.Vector3(1, 1, 1)
@@ -1103,11 +1125,11 @@ export function createBerserkerModel(team) {
   const rightArm = limb(
     new THREE.Vector3(-0.34, 1.16, 0.04),
     new THREE.Vector3(-0.25, 0.68, 0.42),
-    0.068,
+    humanoidArmRadius(0.068, team),
     skinMat
   );
   const rightHand = mesh(
-    new THREE.DodecahedronGeometry(0.1, 0),
+    humanoidHandGeometry(0.1, team),
     skinMat,
     new THREE.Vector3(-0.25, 0.68, 0.42),
     new THREE.Vector3(1, 1, 1)
@@ -1115,11 +1137,11 @@ export function createBerserkerModel(team) {
   const leftArm = limb(
     new THREE.Vector3(0.34, 1.14, 0.04),
     new THREE.Vector3(0.28, 0.74, 0.34),
-    0.062,
+    humanoidArmRadius(0.062, team),
     skinMat
   );
   const leftHand = mesh(
-    new THREE.DodecahedronGeometry(0.09, 0),
+    humanoidHandGeometry(0.09, team),
     skinMat,
     new THREE.Vector3(0.28, 0.74, 0.34),
     new THREE.Vector3(1, 1, 1)
@@ -1189,7 +1211,7 @@ export function createArcherModel(team, options = {}) {
     new THREE.Vector3(0.76, 1.18, 0.58)
   );
   const head = mesh(
-    new THREE.DodecahedronGeometry(0.26, 0),
+    humanoidHeadGeometry(0.26, team),
     mat(skin),
     new THREE.Vector3(0, 1.55, 0),
     new THREE.Vector3(1, 1, 1)
@@ -1234,7 +1256,7 @@ export function createArcherModel(team, options = {}) {
   const leftArm = limb(
     new THREE.Vector3(0.3, 1.2, 0.08),
     new THREE.Vector3(0.04, 1.04, 0.57),
-    0.055,
+    humanoidArmRadius(0.055, team),
     skinMat
   );
   const rightShoulder = new THREE.Vector3(-0.3, 1.18, 0.08);
@@ -1243,23 +1265,23 @@ export function createArcherModel(team, options = {}) {
   const rightUpperArm = limb(
     rightShoulder,
     rightElbow,
-    0.055,
+    humanoidArmRadius(0.055, team),
     skinMat
   );
   const rightForearm = limb(
     rightElbow,
     rightHandPosition,
-    0.055,
+    humanoidArmRadius(0.055, team),
     skinMat
   );
   const leftHand = mesh(
-    new THREE.DodecahedronGeometry(0.09, 0),
+    humanoidHandGeometry(0.09, team),
     skinMat,
     new THREE.Vector3(0.04, 1.04, 0.57),
     new THREE.Vector3(1, 1, 1)
   );
   const rightHand = mesh(
-    new THREE.DodecahedronGeometry(0.09, 0),
+    humanoidHandGeometry(0.09, team),
     skinMat,
     rightHandPosition,
     new THREE.Vector3(1, 1, 1)
@@ -1353,7 +1375,7 @@ export function createCrossbowmanModel(team) {
     new THREE.Vector3(0.82, 1.18, 0.62)
   );
   const head = mesh(
-    new THREE.DodecahedronGeometry(0.27, 0),
+    humanoidHeadGeometry(0.27, team),
     skinMat,
     new THREE.Vector3(0, 1.56, 0),
     new THREE.Vector3(1, 1, 1)
@@ -1384,23 +1406,23 @@ export function createCrossbowmanModel(team) {
   const leftArm = limb(
     new THREE.Vector3(0.31, 1.18, 0.08),
     new THREE.Vector3(0.42, 0.9, 0.62),
-    0.058,
+    humanoidArmRadius(0.058, team),
     skinMat
   );
   const rightArm = limb(
     new THREE.Vector3(-0.31, 1.18, 0.08),
     new THREE.Vector3(-0.12, 0.86, 0.54),
-    0.058,
+    humanoidArmRadius(0.058, team),
     skinMat
   );
   const leftHand = mesh(
-    new THREE.DodecahedronGeometry(0.09, 0),
+    humanoidHandGeometry(0.09, team),
     skinMat,
     new THREE.Vector3(0.42, 0.9, 0.62),
     new THREE.Vector3(1, 1, 1)
   );
   const rightHand = mesh(
-    new THREE.DodecahedronGeometry(0.09, 0),
+    humanoidHandGeometry(0.09, team),
     skinMat,
     new THREE.Vector3(-0.12, 0.86, 0.54),
     new THREE.Vector3(1, 1, 1)
@@ -1606,7 +1628,7 @@ export function createPriestModel(team, options = {}) {
     new THREE.Vector3(1, 1, 1)
   );
   const head = mesh(
-    new THREE.DodecahedronGeometry(0.26, 0),
+    humanoidHeadGeometry(0.26, team),
     skinMat,
     new THREE.Vector3(0, 1.5, 0),
     new THREE.Vector3(1, 1, 1)
@@ -1628,11 +1650,11 @@ export function createPriestModel(team, options = {}) {
   const rightArm = limb(
     new THREE.Vector3(-0.32, 1.14, 0.05),
     new THREE.Vector3(-0.36, 0.78, 0.36),
-    0.055,
+    humanoidArmRadius(0.055, team),
     skinMat
   );
   const rightHand = mesh(
-    new THREE.DodecahedronGeometry(0.09, 0),
+    humanoidHandGeometry(0.09, team),
     skinMat,
     new THREE.Vector3(-0.36, 0.78, 0.36),
     new THREE.Vector3(1, 1, 1)
@@ -1663,11 +1685,11 @@ export function createPriestModel(team, options = {}) {
   const leftArm = limb(
     new THREE.Vector3(0.32, 1.13, 0.05),
     new THREE.Vector3(0.28, 0.94, 0.42),
-    0.052,
+    humanoidArmRadius(0.052, team),
     skinMat
   );
   const leftHand = mesh(
-    new THREE.DodecahedronGeometry(0.085, 0),
+    humanoidHandGeometry(0.085, team),
     skinMat,
     new THREE.Vector3(0.28, 0.94, 0.42),
     new THREE.Vector3(1, 1, 1)
@@ -2029,7 +2051,7 @@ export function createWarderModel(team) {
     new THREE.Vector3(0.82, 1.14, 0.62)
   );
   const head = mesh(
-    new THREE.DodecahedronGeometry(0.26, 0),
+    humanoidHeadGeometry(0.26, team),
     skinMat,
     new THREE.Vector3(0, 1.52, 0),
     new THREE.Vector3(1, 1, 1)
@@ -2072,18 +2094,18 @@ export function createWarderModel(team) {
   const rightHandPosition = new THREE.Vector3(0.1, 1.2, 0.56);
   const leftShoulder = new THREE.Vector3(0.32, 1.12, 0.04);
   const leftHandPosition = new THREE.Vector3(-0.08, 0.94, 0.58);
-  const rightArm = limb(rightShoulder, rightHandPosition, 0.058, skinMat);
-  const leftArm = limb(leftShoulder, leftHandPosition, 0.058, skinMat);
+  const rightArm = limb(rightShoulder, rightHandPosition, humanoidArmRadius(0.058, team), skinMat);
+  const leftArm = limb(leftShoulder, leftHandPosition, humanoidArmRadius(0.058, team), skinMat);
   const rightSleeve = limb(rightShoulder, rightShoulder.clone().lerp(rightHandPosition, 0.48), 0.085, dark);
   const leftSleeve = limb(leftShoulder, leftShoulder.clone().lerp(leftHandPosition, 0.48), 0.085, dark);
   const rightHand = mesh(
-    new THREE.DodecahedronGeometry(0.09, 0),
+    humanoidHandGeometry(0.09, team),
     skinMat,
     rightHandPosition,
     new THREE.Vector3(1, 1, 1)
   );
   const leftHand = mesh(
-    new THREE.DodecahedronGeometry(0.09, 0),
+    humanoidHandGeometry(0.09, team),
     skinMat,
     leftHandPosition,
     new THREE.Vector3(1, 1, 1)
@@ -2361,6 +2383,7 @@ export function createGoblinShamanModel() {
 
 export function createRaiderModel(options = {}) {
   const group = new THREE.Group();
+  const team = options.team ?? 'enemy';
   const skinMat = mat(options.skinColor ?? '#b97a56');
   const legMat = options.skeletalLegs ? skinMat : mat(options.legColor ?? '#312923');
   const body = mesh(
@@ -2370,7 +2393,7 @@ export function createRaiderModel(options = {}) {
     new THREE.Vector3(0.84, 1.16, 0.66)
   );
   const head = mesh(
-    new THREE.DodecahedronGeometry(0.27, 0),
+    humanoidHeadGeometry(0.27, team),
     skinMat,
     new THREE.Vector3(0, 1.5, 0),
     new THREE.Vector3(1, 1, 1)
@@ -2386,11 +2409,11 @@ export function createRaiderModel(options = {}) {
   const rightArm = limb(
     new THREE.Vector3(-0.32, 1.14, 0.04),
     new THREE.Vector3(-0.25, 0.7, 0.38),
-    0.065,
+    humanoidArmRadius(0.065, team),
     skinMat
   );
   const rightHand = mesh(
-    new THREE.DodecahedronGeometry(0.095, 0),
+    humanoidHandGeometry(0.095, team),
     skinMat,
     new THREE.Vector3(-0.25, 0.7, 0.38),
     new THREE.Vector3(1, 1, 1)
@@ -2398,11 +2421,11 @@ export function createRaiderModel(options = {}) {
   const leftArm = limb(
     new THREE.Vector3(0.32, 1.12, 0.04),
     new THREE.Vector3(0.43, 0.82, 0.12),
-    0.058,
+    humanoidArmRadius(0.058, team),
     skinMat
   );
   const leftHand = mesh(
-    new THREE.DodecahedronGeometry(0.085, 0),
+    humanoidHandGeometry(0.085, team),
     skinMat,
     new THREE.Vector3(0.43, 0.82, 0.12),
     new THREE.Vector3(1, 1, 1)

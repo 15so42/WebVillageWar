@@ -9153,7 +9153,8 @@ function runShopServiceMarkup(category, game) {
   const isFree = game.runShopFreeReward === true;
   const price = game.shopPrice(category.key);
   const availability = game.canRunShopCategory(category.key);
-  const canAfford = isFree || game.silver + 0.001 >= price;
+  const currentSilver = Number(game.getSilver?.() ?? game.silver ?? 0);
+  const canAfford = isFree || currentSilver + 0.001 >= price;
   const disabled = !availability.ok || !canAfford;
   const statusText = !availability.ok
     ? availability.reason

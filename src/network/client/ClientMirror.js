@@ -341,12 +341,30 @@ export class ClientMirror {
       cards.updateEnergyUi?.(true);
       cards.updateCardAffordability?.();
     }
+    if (cards && state.cardRuntime) {
+      cards.runtimeCardLevelBonuses = new Map(
+        (state.cardRuntime.levelBonuses ?? [])
+          .filter((entry) => Array.isArray(entry) && entry.length >= 2)
+          .map(([cardId, level]) => [cardId, Math.max(0, Math.floor(Number(level) || 0))])
+      );
+      cards.runtimeCardUpgrades = new Map(
+        (state.cardRuntime.upgrades ?? [])
+          .filter((entry) => entry?.cardId)
+          .map((entry) => [entry.cardId, {
+            upgradeIds: [...(entry.upgradeIds ?? [])],
+            unitUpgradeIds: [...(entry.unitUpgradeIds ?? [])]
+          }])
+      );
+    }
     if (cards && state.zones) {
       cards.handCards = cloneCards(state.zones.hand);
       cards.drawPile = cloneCards(state.zones.drawPile);
       cards.discardPile = cloneCards(state.zones.discardPile);
       cards.temporaryCards = cloneCards(state.zones.temporary);
       cards.exilePile = cloneCards(state.zones.exile);
+      if (Array.isArray(state.zones.reserve)) {
+        cards.reservePile = cloneCards(state.zones.reserve);
+      }
       cards.renderHand?.();
       cards.renderTemporaryCards?.();
       cards.updatePileUi?.();
@@ -356,7 +374,10 @@ export class ClientMirror {
     }
     const run = this.game.players?.[localPlayerId];
     if (run) {
-      if ('silver' in state) run.silver = state.silver;
+      if ('silver' in state) {
+        run.silver = state.silver;
+        this.game.silver = state.silver;
+      }
       if ('strategyUi' in state) run.strategyEvent = deserializeStrategy(state.strategyUi);
       if ('runShopState' in state || 'runShopUi' in state) {
         const shopState = state.runShopState ?? state.runShopUi ?? {};

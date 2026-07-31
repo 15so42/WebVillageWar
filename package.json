@@ -19,6 +19,7 @@
     "test:spells": "node scripts/test-spell-system.mjs",
     "test:run-shop": "node scripts/test-run-shop-recovery.mjs",
     "test:coop-run-shop": "node scripts/test-coop-run-shop.mjs",
+    "test:coop-private-state": "node scripts/test-coop-private-state.mjs",
     "test:run-shop-catalog": "node scripts/test-run-shop-catalog.mjs",
     "test:network-diagnostics": "node scripts/test-network-diagnostics.mjs",
     "test:relay-backpressure": "node scripts/test-relay-backpressure.mjs",

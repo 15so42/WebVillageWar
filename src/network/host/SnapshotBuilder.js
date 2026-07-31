@@ -452,8 +452,10 @@ export class SnapshotBuilder {
         drawPile: serializeCardZone(cards.drawPile),
         discardPile: serializeCardZone(cards.discardPile),
         temporary: serializeCardZone(cards.temporaryCards),
-        exile: serializeCardZone(cards.exilePile)
+        exile: serializeCardZone(cards.exilePile),
+        reserve: serializeCardZone(cards.reservePile)
       },
+      cardRuntime: serializeCardRuntimeState(cards),
       silver: round(isLocal ? this.game.getSilver(playerId) : run.silver),
       coopRewardAutoSelectSecondsRemaining: rewardSeconds,
       strategyUi: serializeStrategyUi(strategyEvent, {
@@ -537,12 +539,29 @@ function serializeCard(card) {
     artKey: card.artKey,
     ...(Number.isFinite(card.maxUses) ? { maxUses: card.maxUses } : {}),
     ...(Number.isFinite(card.remainingUses) ? { remainingUses: card.remainingUses } : {}),
-    ...(Number.isFinite(card.cooldown) ? { cooldown: card.cooldown } : {})
+    ...(Number.isFinite(card.cooldown) ? { cooldown: card.cooldown } : {}),
+    ...(Number.isFinite(card.runtimeLevelBonusApplied)
+      ? { runtimeLevelBonusApplied: card.runtimeLevelBonusApplied }
+      : {}),
+    ...(card.runtimeUpgrades ? { runtimeUpgrades: card.runtimeUpgrades } : {})
   };
 }
 
 function serializeCardZone(cards) {
   return (cards ?? []).map(serializeCard).filter(Boolean);
+}
+
+function serializeCardRuntimeState(cards) {
+  return {
+    levelBonuses: [...(cards?.runtimeCardLevelBonuses?.entries?.() ?? [])]
+      .map(([cardId, level]) => [cardId, Math.max(0, Math.floor(Number(level) || 0))]),
+    upgrades: [...(cards?.runtimeCardUpgrades?.entries?.() ?? [])]
+      .map(([cardId, record]) => ({
+        cardId,
+        upgradeIds: [...(record?.upgradeIds ?? [])],
+        unitUpgradeIds: [...(record?.unitUpgradeIds ?? [])]
+      }))
+  };
 }
 
 function serializeStrategyUi(event, options = {}) {

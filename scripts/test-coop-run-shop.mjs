@@ -339,4 +339,31 @@ function makeCommand({ playerId, seq, name, payload = {} }) {
   assert.equal(waveStarted, 0);
 }
 
+{
+  const services = { hidden: true, innerHTML: '' };
+  const game = Object.assign(Object.create(Game.prototype), {
+    localPlayerSlot: 'guest',
+    activeEconomySlot: 'guest',
+    players: {
+      guest: makeRun({ silver: 30, runShopFreeReward: false })
+    },
+    silver: 0,
+    runShopOpen: true,
+    runShopFreeReward: false,
+    runShopActiveCategory: null,
+    runShopChoices: [],
+    runShopUi: {
+      root: { classList: makeClassList() },
+      services
+    },
+    shopPrice: () => 12,
+    canRunShopCategory: () => ({ ok: true, reason: '' })
+  });
+
+  game.renderRunShop();
+
+  assert.match(services.innerHTML, /12 银币/);
+  assert.doesNotMatch(services.innerHTML, /disabled aria-disabled="true"/);
+}
+
 console.log('Coop run-shop flow checks passed.');
