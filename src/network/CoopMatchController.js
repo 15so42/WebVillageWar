@@ -71,9 +71,14 @@ export class CoopMatchController {
     this.awaitingReconnectResume = false;
     this.reconnectResumeTimer = null;
     this.kickedLobbyPlayers = new Set();
+    // VERSION_HELLO 到达时新玩家可能尚未进入 lobbyPlayers（中继广播与时序竞态）；
+    // 暂存后由 syncRelayPlayers 补处理，避免版本握手被静默丢弃。
+    this.pendingVersionHellos = new Map();
+    this.versionHelloRetryTimer = null;
   }
 
   destroy() {
+    this.clearVersionHelloRetry();
     this.clearReconnectResumeWatch();
     this.unsubscribe?.();
     this.activeBridge?.unbindGame();
@@ -342,6 +347,8 @@ export class CoopMatchController {
   }
 
   resetMatchState() {
+    this.clearVersionHelloRetry();
+    this.pendingVersionHellos.clear();
     this.phase = MATCH_PHASE.LOBBY_EDITING;
     this.phaseRevision = 1;
     this.lobbyPlayers.clear();
@@ -543,6 +550,14 @@ export class CoopMatchController {
       this.publishLobbyState();
       this.tryStartLoading();
     }
+    // 补处理因竞态暂存的版本握手（此时 lobbyPlayers 已包含新玩家）
+    if (this.pendingVersionHellos.size) {
+      [...this.pendingVersionHellos.entries()].forEach(([playerId, payload]) => {
+        if (!this.lobbyPlayers.has(playerId)) return;
+        this.pendingVersionHellos.delete(playerId);
+        this.handleVersionHello(payload, playerId);
+      });
+    }
   }
 
   handleGamePayload(payload, fromPlayerId) {
@@ -607,17 +622,43 @@ export class CoopMatchController {
   sendVersionHello() {
     const saved = this.roomClient.transport.loadSession() ?? {};
     this.roomClient.transport.saveSession({ ...saved, gameVersion: GAME_VERSION });
-    return this.roomClient.forward({
+    const sent = this.roomClient.forward({
       type: MSG.VERSION_HELLO,
       gameVersion: GAME_VERSION,
       gameProtocolVersion: GAME_PROTOCOL_VERSION,
       catalogVersion: CATALOG_VERSION
     }, this.roomClient.hostPlayerId);
+    if (sent) this.scheduleVersionHelloRetry();
+    return sent;
+  }
+
+  scheduleVersionHelloRetry() {
+    this.clearVersionHelloRetry();
+    this.versionHelloRetryTimer = globalThis.setTimeout?.(() => {
+      this.versionHelloRetryTimer = null;
+      const local = this.lobbyPlayers.get(this.roomClient.playerId);
+      if (local?.versionVerified) return;
+      if (this.roomClient.isHost || !this.roomClient.room?.id) return;
+      // 未通过版本校验：重发握手（host 可能因竞态未处理首条 hello）
+      this.sendVersionHello();
+    }, 2000) ?? null;
+  }
+
+  clearVersionHelloRetry() {
+    if (this.versionHelloRetryTimer) {
+      globalThis.clearTimeout?.(this.versionHelloRetryTimer);
+      this.versionHelloRetryTimer = null;
+    }
   }
 
   handleVersionHello(payload, playerId) {
     const player = this.lobbyPlayers.get(playerId);
-    if (!player) return;
+    if (!player) {
+      // 新玩家可能尚未进入 lobbyPlayers（中继广播竞态）：暂存，待
+      // syncRelayPlayers 填充后补处理，而不是静默丢弃导致对方一直等待。
+      this.pendingVersionHellos.set(playerId, payload);
+      return;
+    }
     const accepted = multiplayerVersionMatches(payload);
     player.gameVersion = typeof payload.gameVersion === 'string' ? payload.gameVersion : '未知';
     player.gameProtocolVersion = payload.gameProtocolVersion ?? null;
