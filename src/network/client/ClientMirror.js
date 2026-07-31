@@ -394,6 +394,16 @@ export class ClientMirror {
         run.runShopActiveCategory = shopState.activeCategory ?? null;
         run.runShopChoices = cloneChoices(shopState.choices);
       }
+      if (Array.isArray(state.teamSpecialUpgrades)) {
+        // 兵种专精数据源（能量条图标）：恢复为 Map<unitType, Set<upgradeId>>
+        const restored = new Map();
+        state.teamSpecialUpgrades.forEach((entry) => {
+          if (entry?.unitType && Array.isArray(entry.upgradeIds)) {
+            restored.set(entry.unitType, new Set(entry.upgradeIds));
+          }
+        });
+        run.teamSpecialUpgrades = restored;
+      }
     }
     if ('runShopState' in state || 'runShopUi' in state) {
       const shopState = state.runShopState ?? state.runShopUi ?? {};
@@ -402,6 +412,14 @@ export class ClientMirror {
     }
     if ('silver' in state) this.game.updateSilverHud?.();
     if (Array.isArray(state.abilities)) this.applyAbilityState(state.abilities);
+    if (Array.isArray(state.teamSpecialUpgrades)) {
+      // 专精恢复后刷新能量条图标（专精与能力卡同排展示）
+      this.game.abilitiesFor?.(localPlayerId)?.updateUi?.()
+        ?? this.game.cardSystem?.updateAbilityIcons?.(
+          [],
+          this.game.getEnergyPanelSpecializationIcons?.(localPlayerId) ?? []
+        );
+    }
     this.game.applyNetworkPrivateUi?.(state);
     this.game.networkBridge?.coopStatusUi?.render?.();
   }

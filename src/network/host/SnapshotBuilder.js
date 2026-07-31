@@ -476,7 +476,8 @@ export class SnapshotBuilder {
         && this.game.coopRewardWaitSlots?.size
         && !run.runShopFreeReward
       ),
-      abilities: serializeAbilities(this.game.abilitySystems?.[playerId] ?? (isLocal ? this.game.abilities : null))
+      abilities: serializeAbilities(this.game.abilitySystems?.[playerId] ?? (isLocal ? this.game.abilities : null)),
+      teamSpecialUpgrades: serializeTeamSpecialUpgrades(run?.teamSpecialUpgrades)
     };
   }
 
@@ -614,6 +615,14 @@ function serializeAbilities(abilitySystem) {
     id,
     stacks: ability.stacks ?? 0,
     expiresAt: ability.expiresAt ?? null
+  }));
+}
+
+function serializeTeamSpecialUpgrades(map) {
+  if (!map || typeof map.entries !== 'function') return [];
+  return [...map.entries()].map(([unitType, ids]) => ({
+    unitType,
+    upgradeIds: [...(ids ?? [])]
   }));
 }
 
