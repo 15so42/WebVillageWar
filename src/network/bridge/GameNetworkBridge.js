@@ -141,7 +141,20 @@ export class GameNetworkBridge {
   }
 
   sendNet(payload, to = 'broadcast') {
-    if (!isWebRtcSignal(payload) && to !== 'broadcast' && to !== 'all' && this.directTransport?.send(to, payload)) {
+    // Critical game commands must reach the host reliably and in order. The
+    // WebRTC data channel is only used for replaceable high-frequency streams
+    // (transforms); a just-established or degraded channel could otherwise
+    // swallow a command (e.g. reward_choose), leaving the host waiting on the
+    // reward timeout before the game resumes.
+    const isCriticalReliable = payload?.type === MSG.COMMAND
+      || payload?.type === MSG.RESYNC_REQUEST
+      || payload?.type === MSG.TIME_SYNC_REQUEST
+      || payload?.type === MSG.WEBRTC_READY;
+    if (!isCriticalReliable
+      && !isWebRtcSignal(payload)
+      && to !== 'broadcast'
+      && to !== 'all'
+      && this.directTransport?.send(to, payload)) {
       return true;
     }
     return this.sendRelay(payload, to);
