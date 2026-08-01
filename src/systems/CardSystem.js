@@ -832,9 +832,9 @@ export class CardSystem {
     document.removeEventListener('pointercancel', this.onPointerCancel);
   }
 
-  playDraggedCard(drag) {
+  playDraggedCard(drag, options = {}) {
     if (this.game.networkBridge?.shouldRouteLocalCommands?.()) {
-      return this.sendPlayCardCommand(drag);
+      return this.sendPlayCardCommand(drag, options);
     }
     if (this.isCardOnCooldown(drag.card)) return false;
     const cost = cardEnergyCost(drag.card);
@@ -852,6 +852,13 @@ export class CardSystem {
       this.updateCardAffordability();
       return true;
     }
+    if (options.hold) {
+      // 长按连续附魔：施放但卡保留在手牌，仅按次数规则扣减
+      this.consumeCardUse(drag.card);
+      this.renderHand();
+      this.updateCardAffordability();
+      return true;
+    }
     this.moveCardToDiscard(drag.card);
     return true;
   }
@@ -865,9 +872,9 @@ export class CardSystem {
       this.enchantHoldStartAt = null;
       return;
     }
-    // 仅限以友方单位为目标的附魔卡；联机 Client 不本地结算，保持单次拖放。
+    // 仅限以友方单位为目标的附魔卡。联机 Client 走 hold 命令由 Host 结算，
+    // 倒计时/次数/能量在本地判断（展示）。
     if (!drag.card || drag.card.target !== 'friendly-unit') return;
-    if (this.game.networkBridge?.shouldRouteLocalCommands?.()) return;
     const now = performance.now();
     if (!this.enchantHoldStartAt) this.enchantHoldStartAt = now;
     if (now - this.enchantHoldStartAt >= ENCHANT_HOLD_START_MS) {
@@ -923,7 +930,28 @@ export class CardSystem {
       this.setHint('附魔次数已用尽，松手完成使用', 'card-drag');
       return;
     }
-    // 倒计时结束：扣除能量并施放一次附魔
+    if (this.game.networkBridge?.shouldRouteLocalCommands?.()) {
+      // 联机 Client：本地扣能量/次数（展示），发送 hold 命令由 Host 权威施放
+      this.energy -= hold.cost;
+      this.updateEnergyUi(true);
+      if (hold.remainingUses != null) {
+        hold.remainingUses = Math.max(0, hold.remainingUses - 1);
+        if (cardHasUseLimit(hold.drag.card)) {
+          if (!Number.isFinite(hold.drag.card.maxUses)) hold.drag.card.maxUses = cardMaxUses(hold.drag.card);
+          hold.drag.card.remainingUses = hold.remainingUses;
+        }
+      }
+      hold.tickCount += 1;
+      this.sendPlayCardCommand({ ...hold.drag, targetUnit: hold.target }, { hold: true });
+      this.updateEnchantHoldUi();
+      this.updateCardAffordability();
+      if (hold.remainingUses === 0) {
+        this.stopEnchantHold({ commit: false });
+        this.setHint('附魔次数已用尽，松手完成使用', 'card-drag');
+      }
+      return;
+    }
+    // 倒计时结束：扣除能量并施放一次附魔（本地/房主）
     this.spendEnergy(hold.cost);
     this.game.cardEffects.resolve({
       ...hold.drag,
@@ -951,6 +979,7 @@ export class CardSystem {
       this.enchantHoldInterval = null;
     }
     const wasActive = Boolean(this.enchantHold);
+    const holdTarget = this.enchantHold?.target ?? null;
     this.enchantHold = null;
     this.enchantHoldStartAt = null;
     this.hideEnchantHoldUi();
@@ -958,8 +987,13 @@ export class CardSystem {
       const card = this.drag?.card;
       this.cleanupDrag();
       if (card) {
-        // 松手：附魔牌使用完成，进入弃牌堆（次数耗尽则按规则消耗）
-        this.moveCardToDiscard(card);
+        if (this.game.networkBridge?.shouldRouteLocalCommands?.()) {
+          // 联机 Client：通知 Host 消耗卡（进弃牌堆，次数耗尽则按规则消耗）
+          this.sendPlayCardCommand({ card, targetUnit: holdTarget }, { consumeHold: true });
+        } else {
+          // 松手：附魔牌使用完成，进入弃牌堆（次数耗尽则按规则消耗）
+          this.moveCardToDiscard(card);
+        }
       }
     } else {
       this.clearHint('card-drag');
@@ -2030,14 +2064,16 @@ export class CardSystem {
     this.hintPanel.hidden = true;
   }
 
-  sendPlayCardCommand(drag) {
+  sendPlayCardCommand(drag, options = {}) {
     const sender = this.game.networkBridge?.commandSender;
     if (!sender || !drag?.card?.instanceId) return false;
     return sender.playCard({
       cardInstanceId: drag.card.instanceId,
       point: drag.point ? [drag.point.x, drag.point.z] : null,
       targetUnitId: drag.targetUnit?.id ?? null,
-      targetCardInstanceId: drag.targetCard?.instanceId ?? null
+      targetCardInstanceId: drag.targetCard?.instanceId ?? null,
+      ...(options.hold ? { hold: true } : {}),
+      ...(options.consumeHold ? { consumeHold: true } : {})
     });
   }
 
@@ -2057,6 +2093,10 @@ export class CardSystem {
       this.lastNetworkPlayRejectionReason = 'card_not_owned_or_not_available';
       return false;
     }
+    if (payload.consumeHold) {
+      // 长按附魔结束（松手）：只消耗卡（进弃牌堆，次数耗尽则按规则消耗），不再施放
+      return this.game.withPlayerContext(this.playerSlot, () => this.moveCardToDiscard(card));
+    }
     if (this.isCardOnCooldown(card)) {
       this.lastNetworkPlayRejectionReason = 'card_cooldown';
       return false;
@@ -2070,7 +2110,9 @@ export class CardSystem {
       this.lastNetworkPlayRejectionReason = 'invalid_target_point';
       return false;
     }
-    const applied = this.game.withPlayerContext(this.playerSlot, () => this.playDraggedCard(drag));
+    const applied = this.game.withPlayerContext(this.playerSlot, () => (
+      this.playDraggedCard(drag, { hold: payload.hold === true })
+    ));
     if (!applied && !this.lastNetworkPlayRejectionReason) {
       this.lastNetworkPlayRejectionReason = 'card_effect_rejected';
     }
