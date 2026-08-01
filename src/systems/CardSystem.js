@@ -481,6 +481,15 @@ export class CardSystem {
       this.ghost.classList.toggle('is-valid', this.drag.valid);
       this.showEnchantPreview(target, this.drag.card);
       this.reticle.visible = false;
+      if (this.drag.valid) {
+        if (this.game.networkBridge?.shouldRouteLocalCommands?.()) {
+          this.setHintOnce('松手对目标施放附魔', 'card-drag');
+        } else {
+          this.setHintOnce('按住不放连续附魔 · 松手完成使用', 'card-drag');
+        }
+      } else {
+        this.clearHint('card-drag');
+      }
       this.maybeStartEnchantHold();
       return;
     }
@@ -2001,10 +2010,16 @@ export class CardSystem {
 
   setHint(text, owner = 'system') {
     if (!this.hintPanel) return;
+    // 幂等：同属主且同文本时不重复写入（拖拽中每帧调用可避免重绘）
+    if (this.hintOwner === owner && this.hintPanel.textContent === text && !this.hintPanel.hidden) return;
     this.hintOwner = owner;
     this.hintPanel.textContent = text;
     this.hintPanel.hidden = false;
     this.hintPanel.classList.add('is-visible');
+  }
+
+  setHintOnce(text, owner = 'system') {
+    this.setHint(text, owner);
   }
 
   clearHint(owner = 'system') {
