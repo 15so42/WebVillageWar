@@ -118,8 +118,8 @@ assert.equal(tacticalFallback.drawTemporaryCards({
   card: { id: 'field-upgrade' },
   effect: { amount: 2, fallbackPool: 'wave-reward-pool' }
 }), true);
-assert.deepEqual(consumedWaveRewardCards, ['once-only-ability']);
-assert.deepEqual(tacticalRewardPool, [{ id: 'once-only-summon', kind: 'summon' }]);
+assert.deepEqual(consumedWaveRewardCards, ['once-only-ability', 'once-only-summon']);
+assert.deepEqual(tacticalRewardPool, []);
 
 const dispatchedDrawCards = [
   { id: 'drawn-unit-a', kind: 'summon' },
