@@ -2724,11 +2724,12 @@ export class Game {
         total += this.grantSilver(amount, showLocalFx ? unit.position : null, slot);
         const pouchStacks = this.abilitiesFor(slot)?.getStacks?.('lootPouch') ?? 0;
         if (pouchStacks > 0) {
-          this.addSilver(pouchStacks, slot);
-          total += pouchStacks;
+          const pouchSilver = pouchStacks * 0.35;
+          this.addSilver(pouchSilver, slot);
+          total += pouchSilver;
           if (showLocalFx && unit.position && this.effects?.spawnEnergyNumber) {
-            this.effects.spawnEnergyNumber(unit.position, pouchStacks, {
-              text: `+${formatSilverAmount(pouchStacks)} 银币`,
+            this.effects.spawnEnergyNumber(unit.position, pouchSilver, {
+              text: `+${formatSilverAmount(pouchSilver)} 银币`,
               color: '#f6e7a8',
               stroke: '#4a3818',
               height: 2.2,
@@ -2747,10 +2748,11 @@ export class Game {
     const gained = this.grantSilver(amount, unit.position, slot);
     const pouchStacks = this.abilitiesFor(slot)?.getStacks?.('lootPouch') ?? 0;
     if (pouchStacks > 0) {
-      this.addSilver(pouchStacks, slot);
+      const pouchSilver = pouchStacks * 0.35;
+      this.addSilver(pouchSilver, slot);
       if (unit.position && this.effects?.spawnEnergyNumber) {
-        this.effects.spawnEnergyNumber(unit.position, pouchStacks, {
-          text: `+${formatSilverAmount(pouchStacks)} 银币`,
+        this.effects.spawnEnergyNumber(unit.position, pouchSilver, {
+          text: `+${formatSilverAmount(pouchSilver)} 银币`,
           color: '#f6e7a8',
           stroke: '#4a3818',
           height: 2.2,
@@ -2760,7 +2762,7 @@ export class Game {
       }
       this.updateHud(0);
       if (this.runShopOpen) this.renderRunShop();
-      return gained + pouchStacks;
+      return gained + pouchSilver;
     }
     return gained;
   }
@@ -10793,7 +10795,8 @@ function restoreRebirthAttributes(unit, attributes) {
     setAttributeFinalValue(unit, name, value);
   });
   unit.health = unit.maxHealth;
-  unit.shield = unit.maxShield;
+  // 复活不恢复护盾：盾为空，与"复活后需重新充盾"的规则一致
+  unit.shield = 0;
   if (unit.weapon) {
     unit.weapon.durability = unit.weapon.maxDurability;
   }

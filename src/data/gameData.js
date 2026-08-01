@@ -3473,7 +3473,7 @@ export const PLAYER_ABILITY_DEFINITIONS = {
     name: '猎魂潮汐',
     label: '潮',
     color: '#7f8fc7',
-    summary: '击杀敌人时额外获得能量（每层 +0.35）'
+    summary: '击杀敌人时额外获得能量（每层 +0.2）'
   },
   venomSpread: {
     id: 'venomSpread',
@@ -3487,7 +3487,7 @@ export const PLAYER_ABILITY_DEFINITIONS = {
     name: '探囊',
     label: '囊',
     color: '#e8c56d',
-    summary: '击杀单位时，每层额外获得 1 银币'
+    summary: '击杀单位时，每层额外获得 0.35 银币'
   },
   tacticalMaster: {
     id: 'tacticalMaster',
@@ -4393,7 +4393,7 @@ export const CARD_DEFINITIONS = [
     kind: 'ability',
     label: '潮',
     artKey: 'abilityBloodRage',
-    summary: '击杀敌人时额外获得能量（每层 +0.35）',
+    summary: '击杀敌人时额外获得能量（每层 +0.2）',
     target: 'none',
     radius: 1,
     cooldown: 0,
@@ -4450,7 +4450,7 @@ export const CARD_DEFINITIONS = [
     kind: 'ability',
     label: '囊',
     artKey: 'abilityVictoryGold',
-    summary: '击杀单位时，每层额外获得 1 银币',
+    summary: '击杀单位时，每层额外获得 0.35 银币',
     target: 'none',
     radius: 1,
     cooldown: 0,

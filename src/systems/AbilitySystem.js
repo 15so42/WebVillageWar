@@ -1,7 +1,7 @@
 import { PLAYER_ABILITY_DEFINITIONS, TEAMS } from '../data/gameData.js';
 import { distance2D } from '../utils/math.js';
 
-const KILL_HARVEST_ENERGY_PER_STACK = 0.35;
+const KILL_HARVEST_ENERGY_PER_STACK = 0.2;
 const CARD_ENERGY_REFUND_CHANCE_PER_STACK = 0.16;
 const ENCHANT_RESONANCE_CHANCE_PER_STACK = 0.12;
 const MARTYRDOM_DAMAGE_PER_STACK = 15;

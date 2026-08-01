@@ -8,7 +8,7 @@ const HAND_SIZE = 5;
 // 附魔卡长按连续使用：按住超过 ENCHANT_HOLD_START_MS 进入连续模式，
 // 之后每 ENCHANT_HOLD_TICK_MS 倒计时结束自动施放一次并扣除能量。
 const ENCHANT_HOLD_START_MS = 350;
-const ENCHANT_HOLD_TICK_MS = 700;
+const ENCHANT_HOLD_TICK_MS = 1700;
 const energyBalance = BALANCE.playerEnergy ?? {};
 const INITIAL_ENERGY = Number(energyBalance.initial) || 4;
 const MAX_ENERGY = Number(energyBalance.max) || 12;
@@ -2271,6 +2271,9 @@ function kindLabel(kind) {
 function shouldUseCardFaceGhost(card, pointerType) {
   // Touch input has no hover state. Mirror the source card while it is pulled
   // from the hand so every card type gets a readable deployment preview.
+  // 附魔卡（拖到单位施放）例外：PC 与手机统一只显示目标圈，不跟随卡面，
+  // 避免卡牌遮挡战场视线。
+  if (card?.target === 'friendly-unit') return false;
   return pointerType === 'touch' || card?.kind === 'ability';
 }
 
