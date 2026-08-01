@@ -482,10 +482,14 @@ export class CardSystem {
       this.showEnchantPreview(target, this.drag.card);
       this.reticle.visible = false;
       if (this.drag.valid) {
-        if (this.game.networkBridge?.shouldRouteLocalCommands?.()) {
-          this.setHintOnce('松手对目标施放附魔', 'card-drag');
+        if (this.drag.card.kind === 'enchant') {
+          if (this.game.networkBridge?.shouldRouteLocalCommands?.()) {
+            this.setHintOnce('松手对目标施放附魔', 'card-drag');
+          } else {
+            this.setHintOnce('按住不放连续附魔 · 松手完成使用', 'card-drag');
+          }
         } else {
-          this.setHintOnce('按住不放连续附魔 · 松手完成使用', 'card-drag');
+          this.setHintOnce('松手对目标施放', 'card-drag');
         }
       } else {
         this.clearHint('card-drag');
@@ -873,8 +877,16 @@ export class CardSystem {
       return;
     }
     // 仅限以友方单位为目标的附魔卡。联机 Client 走 hold 命令由 Host 结算，
-    // 倒计时/次数/能量在本地判断（展示）。
-    if (!drag.card || drag.card.target !== 'friendly-unit') return;
+    // 倒计时/次数/能量在本地判断（展示）。其他 friendly-unit 卡（如符文扩容）
+    // 不进入长按模式，避免按住时被误判为连续附魔、松手零施放直接消耗。
+    if (!drag.card || drag.card.target !== 'friendly-unit') {
+      this.enchantHoldStartAt = null;
+      return;
+    }
+    if (drag.card.kind !== 'enchant') {
+      this.enchantHoldStartAt = null;
+      return;
+    }
     const now = performance.now();
     if (!this.enchantHoldStartAt) this.enchantHoldStartAt = now;
     if (now - this.enchantHoldStartAt >= ENCHANT_HOLD_START_MS) {

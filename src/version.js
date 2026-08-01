@@ -1,2 +1,2 @@
-export const GAME_VERSION = '0.2.128';
+export const GAME_VERSION = '0.2.129';
 export const TEST_VERSION_LABEL = `测试版本 v${GAME_VERSION}`;
