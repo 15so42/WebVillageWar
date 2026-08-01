@@ -635,10 +635,14 @@ export class Game {
     networkBridge = null,
     onLevelComplete = null,
     onRestart = null,
-    onExitToMenu = null
+    onExitToMenu = null,
+    getCoins = null,
+    spendCoinsHook = null
   } = {}) {
     this.canvas = canvas;
     this.levelSession = normalizeLevelSession(session);
+    this.getCoins = getCoins;
+    this.spendCoinsHook = spendCoinsHook;
     this.networkRole = session?.networkRole ?? 'offline';
     this.localPlayerId = session?.localPlayerId ?? session?.localPlayerSlot ?? 'local-player';
     this.localPlayerSlot = this.localPlayerId;
