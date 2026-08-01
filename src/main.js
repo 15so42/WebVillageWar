@@ -74,6 +74,8 @@ try {
       activeGame = new Game({
         canvas,
         session,
+        getCoins: () => meta.progress.coins,
+        spendCoinsHook: (amount) => meta.spendCoins(amount),
         onLevelComplete: (result) => {
           activeGame?.destroy?.();
           activeGame = null;
@@ -167,6 +169,8 @@ try {
         canvas,
         session,
         networkBridge,
+        getCoins: () => meta.progress.coins,
+        spendCoinsHook: (amount) => meta.spendCoins(amount),
         onLevelComplete: (result) => {
           activeGame?.destroy?.();
           activeGame = null;

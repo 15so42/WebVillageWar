@@ -868,7 +868,8 @@ const CHANGELOG_ENTRIES = [
       '长按连续附魔现已支持联机客户端：倒计时/次数/能量在客户端本地判断，每次施放通过 play_card（hold）命令由 Host 权威结算，松手通过 consumeHold 使附魔牌进入弃牌堆。',
       '数值调整：「探囊」击杀每层银币 1 → 0.35；「猎魂潮汐」击杀每层能量 0.35 → 0.2。',
       '单位复生不再恢复护盾（盾为空）；手机端拖拽附魔卡与 PC 一致只显示目标圈、卡牌不再跟随遮挡视线；连续附魔倒计时延长至 1.7 秒。',
-      '卡牌升级效果补充：「熔岩喷发」伤害每级 +8%；「银币博弈」成功率每级 +4%（上限 70%）；「符文扩容」附魔槽每级额外 +1。'
+      '卡牌升级效果补充：「熔岩喷发」伤害每级 +8%；「银币博弈」成功率每级 +4%（上限 70%）；「符文扩容」附魔槽每级额外 +1。',
+      '波次奖励「重新随机」改为消耗局外金币（初始 8 金币，每次翻倍）；银币不再参与刷新，联机下金币由各自客户端扣除、Host 负责刷新候选项。'
     ]
   },
   {
@@ -2226,9 +2227,18 @@ export class MetaGameSystem {
     this.setDeckSelection([]);
   }
 
+  // 战斗内消耗局外金币（波次奖励重新随机等），返回是否成功。
+  spendCoins(amount) {
+    if (!Number.isFinite(amount) || amount <= 0) return false;
+    const cost = Math.max(0, Math.floor(amount));
+    if (this.progress.coins < cost) return false;
+    this.progress.coins -= cost;
+    saveProgress(this.progress);
+    return true;
+  }
+
   buyCard(id) {
-    if (this.progress.ownedCards.includes(id)) return;
-    const card = CARD_DEFINITIONS.find((definition) => definition.id === id);
+    if (this.progress.ownedCards.includes(id)) return;    const card = CARD_DEFINITIONS.find((definition) => definition.id === id);
     if (!card || card.retired) return;
     const cost = CARD_META[id]?.buyCost ?? 80;
     if (this.progress.coins < cost) return;

@@ -125,7 +125,7 @@ const ELITE_WAVE_INTERVAL = 3;
 const WAVE_DIFFICULTY_STEP_WAVES = 3;
 const WAVE_DIFFICULTY_GROWTH_PER_SELECTED_DIFFICULTY = 0.16;
 const STRATEGY_CHOICE_COUNT = 3;
-const STRATEGY_REWARD_REROLL_BASE_COST = 4;
+const STRATEGY_REWARD_REROLL_BASE_COST = 8;
 const SILVER_GAIN_MULTIPLIER = 0.6;
 const FORCED_CARD_CHOICE_UNTIL_WAVE = 3;
 const OPENING_COMBAT_UNIT_CHOICES = 2;
@@ -2048,7 +2048,9 @@ export class Game {
   applyNetworkStrategyReroll(slot) {
     const shouldRenderLocalUi = slot === this.localPlayerSlot;
     return this.withPlayerContext(slot, () => this.rerollStrategyRewardChoices({
-      render: shouldRenderLocalUi
+      render: shouldRenderLocalUi,
+      // 局外金币由发起端（各自浏览器）扣除，Host 执行时不再扣
+      deductCost: false
     }));
   }
 
@@ -3526,15 +3528,27 @@ export class Game {
     return STRATEGY_REWARD_REROLL_BASE_COST * (2 ** Math.max(0, this.strategyRewardRerollCount ?? 0));
   }
 
+  canSpendCoins(amount) {
+    if (!Number.isFinite(amount) || amount <= 0) return false;
+    return (this.getCoins?.() ?? 0) + 0.001 >= amount;
+  }
+
+  spendCoins(amount) {
+    if (!this.canSpendCoins(amount)) return false;
+    return Boolean(this.spendCoinsHook?.(Math.ceil(amount)));
+  }
+
   rerollStrategyRewardChoices(options = {}) {
     const shouldRender = options.render !== false;
+    // 联机 Host 执行远端命令时 deductCost=false：局外金币由发起端（各自浏览器）扣除
+    const deductCost = options.deductCost !== false;
     const event = this.strategyEvent;
     if (!event || event.type !== 'wave-reward') return false;
     const cost = this.getStrategyRewardRerollCost();
-    if (this.getSilver() + 0.001 < cost) return false;
+    if (deductCost && !this.canSpendCoins(cost)) return false;
     const choices = this.createCardWaveRewardChoices(event.wave);
     if (!choices.length) return false;
-    this.setSilver(this.getSilver() - cost);
+    if (deductCost) this.spendCoins(cost);
     this.strategyRewardRerollCount = Math.max(0, (this.strategyRewardRerollCount ?? 0) + 1);
     event.choices = choices;
     if (shouldRender) {
@@ -3570,7 +3584,7 @@ export class Game {
       return;
     }
     const rerollCost = this.getStrategyRewardRerollCost();
-    const canAffordReroll = this.getSilver() + 0.001 >= rerollCost;
+    const canAffordReroll = this.canSpendCoins(rerollCost);
     const rerollCount = Math.max(0, this.strategyRewardRerollCount ?? 0);
     actions.hidden = false;
     actions.innerHTML = `
@@ -3581,7 +3595,7 @@ export class Game {
         ${canAffordReroll ? '' : 'disabled aria-disabled="true"'}
       >
         <span class="strategy-event-action-label">重新随机</span>
-        <strong>${formatSilverAmount(rerollCost)} 银币</strong>
+        <strong>${rerollCost} 金币</strong>
         <small>已刷新 ${rerollCount} 次，下次费用翻倍</small>
       </button>
       <button class="strategy-event-action is-skip" type="button" data-strategy-action="skip">
@@ -3599,6 +3613,12 @@ export class Game {
       const action = actionButton.dataset.strategyAction;
       if (this.networkBridge?.shouldRouteLocalCommands?.()) {
         if (action === 'reroll' && !actionButton.disabled) {
+          // 局外金币在各自客户端本地扣减（Host 只负责刷新候选并同步结果）
+          const cost = this.getStrategyRewardRerollCost();
+          if (!this.spendCoins(cost)) {
+            this.cardSystem?.setHint?.('金币不足，无法刷新波次奖励', 'network-command');
+            return;
+          }
           const sent = this.networkBridge?.commandSender?.strategyReroll?.();
           if (!sent) this.cardSystem?.setHint?.('刷新请求未发送，请等待联机状态同步后重试', 'network-command');
         } else if (action === 'skip') {

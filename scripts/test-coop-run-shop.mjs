@@ -253,7 +253,8 @@ function makeCommand({ playerId, seq, name, payload = {} }) {
   });
 
   assert.equal(game.applyNetworkStrategyReroll('guest'), true);
-  assert.equal(guestRun.silver, 48);
+  // 重新随机改扣局外金币（发起端本地扣），Host 执行不再扣银币
+  assert.equal(guestRun.silver, 52);
   assert.equal(guestRun.strategyRewardRerollCount, 1);
   assert.deepEqual(guestRun.strategyEvent.choices, newChoices);
 }
