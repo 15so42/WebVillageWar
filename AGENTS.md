@@ -105,5 +105,5 @@ Low Poly 只是几何语言，不等于最终画面效果。
 1. 对比自上次更新日志以来的实际改动
 2. 与 `CHANGELOG_ENTRIES` 最新一条（`[0]`）逐项核对
 3. 在 `CHANGELOG_ENTRIES` **顶部**新增一条（或合并进当天条目）
-4. 若本次为对外发布，同步更新 `TEST_VERSION_LABEL`（如 `测试版本 v0.1.4`）。
+4. **每次更新公网必须递增版本号**：修改 `src/version.js` 的 `GAME_VERSION`（如 `0.2.123 → 0.2.124`）。这是强制项，不是"若对外发布才做"——联机双方靠 `GAME_VERSION` 做版本校验；内容改动但版本不变会让 host 与 client 出现"版本一致但实际内容不同"的错配，导致校验形同虚设、对局不同步。版本号递增后 `TEST_VERSION_LABEL`（`测试版本 v${GAME_VERSION}`）自动跟随，无需单独修改。
 5. 完成 `node --check` / `npm run build` 后再提交或部署公网。
