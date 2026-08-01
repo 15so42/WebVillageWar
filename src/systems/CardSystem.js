@@ -8,7 +8,7 @@ const HAND_SIZE = 5;
 // 附魔卡长按连续使用：按住超过 ENCHANT_HOLD_START_MS 进入连续模式，
 // 之后每 ENCHANT_HOLD_TICK_MS 倒计时结束自动施放一次并扣除能量。
 const ENCHANT_HOLD_START_MS = 350;
-const ENCHANT_HOLD_TICK_MS = 1700;
+const ENCHANT_HOLD_TICK_MS = 1000;
 const energyBalance = BALANCE.playerEnergy ?? {};
 const INITIAL_ENERGY = Number(energyBalance.initial) || 4;
 const MAX_ENERGY = Number(energyBalance.max) || 12;
