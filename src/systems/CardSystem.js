@@ -847,7 +847,7 @@ export class CardSystem {
       this.startTemporaryDiscardFall(drag, index);
       return true;
     }
-    const index = this.handCards.indexOf(drag.card);
+    const index = this.findHandCardIndex(drag.card);
     if (index === -1) return false;
     this.spendEnergy(cost);
     this.startDiscardFall(drag, index);
@@ -1040,6 +1040,18 @@ export class CardSystem {
     };
   }
 
+  findHandCardIndex(card) {
+    let index = this.handCards.indexOf(card);
+    // 兜底：长时间对局中卡对象可能被重建/克隆（如网络镜像、奖励实例化），
+    // 引用找不到时按 instanceId 定位，避免"用了卡却不消耗、不补牌"。
+    if (index === -1 && card?.instanceId) {
+      index = this.handCards.findIndex((candidate) => (
+        candidate?.instanceId && candidate.instanceId === card.instanceId
+      ));
+    }
+    return index;
+  }
+
   moveCardToDiscard(card) {
     const temporaryIndex = this.temporaryCards.indexOf(card);
     this.consumeCardUse(card);
@@ -1057,7 +1069,7 @@ export class CardSystem {
       this.updatePileUi();
       return true;
     }
-    const index = this.handCards.indexOf(card);
+    const index = this.findHandCardIndex(card);
     if (index === -1) return false;
     this.handCards[index] = null;
     if (exhausted || spent) {

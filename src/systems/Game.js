@@ -2498,6 +2498,9 @@ export class Game {
     if (this.isLocalEconomyContext() && this.runShopUi?.choices) this.runShopUi.choices.hidden = true;
     this.updateHud(0);
     if (isFree) {
+      // 立即消费免费奖励（双保险：即使 finish/close 因任何原因延迟，
+      // 本次购买后也不再允许免费购买，杜绝"零元购"）。
+      this.runShopFreeReward = false;
       if (!options.deferFreeRewardClose) this.closeRunShop({ afterFreeReward: true });
       return true;
     }
@@ -2513,8 +2516,12 @@ export class Game {
     if (gained <= 0) return false;
     if (!isFree) {
       this.setSilver(this.getSilver() - price);
-    } else if (!options.deferFreeRewardClose) {
-      this.closeRunShop({ afterFreeReward: true });
+    } else {
+      // 与 completeRunShopPurchase 一致：立即消费免费奖励，杜绝零元购
+      this.runShopFreeReward = false;
+      if (!options.deferFreeRewardClose) {
+        this.closeRunShop({ afterFreeReward: true });
+      }
     }
     this.updateHud(0);
     if (!isFree) this.renderRunShop();
@@ -3967,12 +3974,16 @@ export class Game {
         background: settings.background
       });
     }
+    const safeFilterValue = (value, fallback = 1) => {
+      const number = Number(value);
+      return Number.isFinite(number) ? number : fallback;
+    };
     this.canvas.style.filter = [
-      `brightness(${settings.brightness})`,
-      `contrast(${settings.contrast})`,
-      `saturate(${settings.saturation})`,
-      `hue-rotate(${settings.hue}deg)`,
-      `sepia(${settings.warmth})`
+      `brightness(${safeFilterValue(settings.brightness)})`,
+      `contrast(${safeFilterValue(settings.contrast)})`,
+      `saturate(${safeFilterValue(settings.saturation)})`,
+      `hue-rotate(${safeFilterValue(settings.hue, 0)}deg)`,
+      `sepia(${safeFilterValue(settings.warmth, 0)})`
     ].join(' ');
   }
 
