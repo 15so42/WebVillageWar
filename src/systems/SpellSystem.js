@@ -86,7 +86,10 @@ export class SpellSystem {
       playerId
     );
     const cardsPlayedIncludingThis = Math.max(1, Math.floor(this.game.runCardsPlayedCount ?? 0) + 1);
-    const damage = cardsPlayedIncludingThis;
+    // 伤害系数随等级提升：Lv1 ×1，每级 +8%（1 → 1.08 → 1.16 …）
+    const damage = Math.round(
+      cardsPlayedIncludingThis * (1 + 0.08 * Math.max(0, level - 1))
+    );
     const impactPoint = point.clone();
     impactPoint.y = this.game.groundHeightAt(impactPoint);
     // Lock valid victims when the spell is cast. The visual has a short

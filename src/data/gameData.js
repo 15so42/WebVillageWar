@@ -4148,7 +4148,7 @@ export const CARD_DEFINITIONS = [
     kind: 'tactic',
     label: '赌',
     artKey: 'tacticSilverGamble',
-    summary: '消耗 1 点能量：50% 概率银币翻倍，50% 概率减半',
+    summary: '消耗 1 点能量：50% 概率银币翻倍、50% 概率减半；每级成功率 +4%（上限 70%）',
     target: 'none',
     radius: 1,
     cooldown: 0,
@@ -4602,14 +4602,15 @@ export const CARD_DEFINITIONS = [
     kind: 'tactic',
     label: '槽',
     artKey: 'abilityEnchantEcho',
-    summary: '使一个友方单位的附魔槽上限永久 +1。',
+    summary: '使一个友方单位的附魔槽上限永久 +1（每级额外 +1）。',
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,
     energyCost: 5,
     effect: {
       type: 'increase-enchantment-slots',
-      amountBase: 1
+      amountBase: 1,
+      amountPerLevel: 1
     },
     color: '#63e0c4'
   },

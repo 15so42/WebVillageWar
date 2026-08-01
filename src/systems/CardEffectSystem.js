@@ -217,7 +217,10 @@ export class CardEffectSystem {
 
   gambleSilver({ card }) {
     const before = Math.max(0, this.game.silver ?? 0);
-    const doubled = Math.random() < 0.5;
+    // 成功率随等级提升：Lv1 50%，每级 +4%（上限 70%）
+    const level = Math.max(1, Math.floor(card?.level ?? 1));
+    const winChance = Math.min(0.7, 0.5 + 0.04 * Math.max(0, level - 1));
+    const doubled = Math.random() < winChance;
     const after = doubled ? before * 2 : before * 0.5;
     this.game.silver = Math.max(0, after);
     const position = this.game.playerBase?.position ?? null;
