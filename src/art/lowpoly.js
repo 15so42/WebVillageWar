@@ -51,8 +51,22 @@ function mesh(geometry, material, position, scale = new THREE.Vector3(1, 1, 1)) 
 function limb(start, end, radius, material) {
   const center = start.clone().lerp(end, 0.5);
   const direction = end.clone().sub(start);
+  const limbStyle = typeof radius === 'number'
+    ? { radius, blocky: false }
+    : radius;
   const object = new THREE.Mesh(
-    new THREE.CylinderGeometry(radius, radius, direction.length(), 5),
+    limbStyle.blocky
+      ? new THREE.BoxGeometry(
+        limbStyle.radius * 1.72,
+        direction.length(),
+        limbStyle.radius * 1.52
+      )
+      : new THREE.CylinderGeometry(
+        limbStyle.radius,
+        limbStyle.radius,
+        direction.length(),
+        5
+      ),
     material
   );
   object.position.copy(center);
@@ -68,21 +82,367 @@ function humanoidHeadGeometry(radius, team) {
     return new THREE.DodecahedronGeometry(radius, 0);
   }
   return new THREE.BoxGeometry(
-    radius * 1.36,
-    radius * 1.5,
-    radius * 1.28
+    radius,
+    radius * 1.38,
+    radius * 1.06
   );
 }
 
 function humanoidArmRadius(radius, team) {
-  return team === 'player' ? radius * 0.84 : radius;
+  return {
+    radius: team === 'player' ? radius * 0.84 : radius,
+    blocky: team === 'player'
+  };
 }
 
 function humanoidHandGeometry(radius, team) {
-  return new THREE.DodecahedronGeometry(
-    team === 'player' ? radius * 0.84 : radius,
-    0
+  if (team !== 'player') {
+    return new THREE.DodecahedronGeometry(radius, 0);
+  }
+  return new THREE.BoxGeometry(
+    radius * 1.42,
+    radius * 1.28,
+    radius * 1.34
   );
+}
+
+function humanoidTorsoGeometry(radius, team) {
+  if (team !== 'player') {
+    return new THREE.DodecahedronGeometry(radius, 0);
+  }
+  return new THREE.CylinderGeometry(
+    radius * 1.12,
+    radius * 0.78,
+    radius * 1.42,
+    6,
+    1,
+    false,
+    Math.PI / 6
+  );
+}
+
+function humanoidRobeGeometry(radiusTop, radiusBottom, height, team) {
+  return new THREE.CylinderGeometry(
+    radiusTop,
+    radiusBottom,
+    height,
+    team === 'player' ? 5 : 6,
+    1,
+    false,
+    team === 'player' ? Math.PI / 2 : 0
+  );
+}
+
+function humanoidCloakGeometry(radius, height, team, enemySides = 6) {
+  if (team !== 'player') {
+    return new THREE.ConeGeometry(radius, height, enemySides);
+  }
+  return new THREE.CylinderGeometry(
+    radius * 0.52,
+    radius,
+    height,
+    5,
+    1,
+    false,
+    Math.PI / 2
+  );
+}
+
+function humanoidHeadwearGeometry(radius, height, team, enemySides = 6) {
+  if (team !== 'player') {
+    return new THREE.ConeGeometry(radius, height, enemySides);
+  }
+  return new THREE.CylinderGeometry(
+    radius * 0.18,
+    radius * 1.06,
+    height * 0.76,
+    5,
+    1,
+    false,
+    Math.PI / 5
+  );
+}
+
+function createPlayerSleeve(team, start, end, radius, material, coverage = 0.46) {
+  if (team !== 'player') return null;
+  return limb(
+    start,
+    start.clone().lerp(end, coverage),
+    { radius, blocky: true },
+    material
+  );
+}
+
+function createPlayerArmGuard(
+  team,
+  start,
+  end,
+  radius,
+  material,
+  startRatio = 0.5,
+  endRatio = 0.84
+) {
+  if (team !== 'player') return null;
+  return limb(
+    start.clone().lerp(end, startRatio),
+    start.clone().lerp(end, endRatio),
+    { radius, blocky: true },
+    material
+  );
+}
+
+function createKiteShieldGeometry(width, height, depth) {
+  const shape = new THREE.Shape();
+  shape.moveTo(-width * 0.43, height * 0.38);
+  shape.lineTo(width * 0.43, height * 0.38);
+  shape.lineTo(width * 0.5, height * 0.08);
+  shape.lineTo(0, -height * 0.5);
+  shape.lineTo(-width * 0.5, height * 0.08);
+  shape.closePath();
+  const geometry = new THREE.ExtrudeGeometry(shape, {
+    depth,
+    bevelEnabled: false,
+    steps: 1
+  });
+  geometry.center();
+  return geometry;
+}
+
+function createTowerShieldGeometry(width, height, depth) {
+  const shape = new THREE.Shape();
+  shape.moveTo(-width * 0.38, height * 0.5);
+  shape.lineTo(width * 0.38, height * 0.5);
+  shape.lineTo(width * 0.5, height * 0.4);
+  shape.lineTo(width * 0.5, -height * 0.42);
+  shape.lineTo(width * 0.4, -height * 0.5);
+  shape.lineTo(-width * 0.4, -height * 0.5);
+  shape.lineTo(-width * 0.5, -height * 0.42);
+  shape.lineTo(-width * 0.5, height * 0.4);
+  shape.closePath();
+  const geometry = new THREE.ExtrudeGeometry(shape, {
+    depth,
+    bevelEnabled: false,
+    steps: 1
+  });
+  geometry.center();
+  return geometry;
+}
+
+function createPlayerHoodFrame({
+  team,
+  centerY,
+  width,
+  height,
+  depth,
+  material
+}) {
+  if (team !== 'player') return null;
+  const frame = new THREE.Group();
+  frame.name = 'playerHoodFrame';
+  frame.position.set(0, centerY, 0);
+
+  const sideGeometry = new THREE.BoxGeometry(width * 0.18, height, depth);
+  const left = new THREE.Mesh(sideGeometry, material);
+  left.position.set(-width * 0.41, 0, depth * 0.28);
+  left.rotation.z = -0.12;
+  const right = left.clone();
+  right.position.x = width * 0.41;
+  right.rotation.z = 0.12;
+  const brow = new THREE.Mesh(
+    new THREE.BoxGeometry(width * 0.72, height * 0.16, depth),
+    material
+  );
+  brow.position.set(0, height * 0.43, depth * 0.28);
+  frame.add(left, right, brow);
+  return frame;
+}
+
+function styleHumanoidEyes(team, ...eyes) {
+  if (team !== 'player') return;
+  eyes.forEach((eye) => {
+    eye.visible = false;
+  });
+}
+
+function createPlayerTorsoStructure({
+  team,
+  centerY,
+  width,
+  height,
+  depth,
+  panelMaterial,
+  beltMaterial
+}) {
+  if (team !== 'player') return null;
+  const structure = new THREE.Group();
+  structure.name = 'playerTorsoStructure';
+  structure.position.y = centerY;
+
+  const chestPanel = new THREE.Mesh(
+    new THREE.BoxGeometry(width * 0.56, height * 0.28, depth * 0.14),
+    panelMaterial
+  );
+  chestPanel.position.set(0, height * 0.1, depth * 0.5);
+
+  const belt = new THREE.Mesh(
+    new THREE.BoxGeometry(width * 0.86, height * 0.09, depth * 0.78),
+    beltMaterial
+  );
+  belt.position.set(0, -height * 0.28, depth * 0.02);
+
+  const shoulderGeometry = new THREE.BoxGeometry(
+    width * 0.2,
+    height * 0.13,
+    depth * 0.56
+  );
+  const shoulderLeft = new THREE.Mesh(shoulderGeometry, panelMaterial);
+  shoulderLeft.position.set(-width * 0.48, height * 0.3, 0);
+  shoulderLeft.rotation.z = -0.12;
+  const shoulderRight = shoulderLeft.clone();
+  shoulderRight.position.x = width * 0.48;
+  shoulderRight.rotation.z = 0.12;
+
+  structure.add(chestPanel, belt, shoulderLeft, shoulderRight);
+  return structure;
+}
+
+function createPlayerRobeStructure(team, material) {
+  if (team !== 'player') return null;
+  const structure = new THREE.Group();
+  structure.name = 'playerRobeStructure';
+
+  const upper = mesh(
+    humanoidTorsoGeometry(0.46, team),
+    material,
+    new THREE.Vector3(0, 1.04, 0),
+    new THREE.Vector3(0.82, 0.9, 0.64)
+  );
+  const skirtMaterial = material.clone();
+  skirtMaterial.color.multiplyScalar(0.9);
+  const skirt = mesh(
+    humanoidRobeGeometry(0.32, 0.48, 0.68, team),
+    skirtMaterial,
+    new THREE.Vector3(0, 0.5, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const frontPanel = mesh(
+    new THREE.BoxGeometry(0.28, 0.46, 0.055),
+    material,
+    new THREE.Vector3(0, 0.5, 0.41),
+    new THREE.Vector3(1, 1, 1)
+  );
+  structure.add(upper, skirt, frontPanel);
+  return structure;
+}
+
+function createPlayerBattleCoatStructure(team, material, trimMaterial) {
+  if (team !== 'player') return null;
+  const structure = new THREE.Group();
+  structure.name = 'playerBattleCoatStructure';
+
+  const upper = mesh(
+    humanoidTorsoGeometry(0.46, team),
+    material,
+    new THREE.Vector3(0, 1.03, 0),
+    new THREE.Vector3(0.82, 0.88, 0.64)
+  );
+  const panelMaterial = material.clone();
+  panelMaterial.color.multiplyScalar(0.86);
+  const frontLeft = mesh(
+    new THREE.BoxGeometry(0.22, 0.36, 0.07),
+    panelMaterial,
+    new THREE.Vector3(-0.14, 0.63, 0.27),
+    new THREE.Vector3(1, 1, 1)
+  );
+  frontLeft.rotation.z = 0.08;
+  const frontRight = frontLeft.clone();
+  frontRight.position.x = 0.14;
+  frontRight.rotation.z = -0.08;
+  const backLeft = mesh(
+    new THREE.BoxGeometry(0.22, 0.32, 0.06),
+    panelMaterial,
+    new THREE.Vector3(-0.14, 0.66, -0.25),
+    new THREE.Vector3(1, 1, 1)
+  );
+  backLeft.rotation.z = 0.06;
+  const backRight = backLeft.clone();
+  backRight.position.x = 0.14;
+  backRight.rotation.z = -0.06;
+  const sideLeft = mesh(
+    new THREE.BoxGeometry(0.07, 0.31, 0.32),
+    panelMaterial,
+    new THREE.Vector3(-0.34, 0.67, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  sideLeft.rotation.z = -0.08;
+  const sideRight = sideLeft.clone();
+  sideRight.position.x = 0.34;
+  sideRight.rotation.z = 0.08;
+  const belt = mesh(
+    new THREE.BoxGeometry(0.61, 0.09, 0.46),
+    trimMaterial,
+    new THREE.Vector3(0, 0.78, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const buckle = mesh(
+    new THREE.BoxGeometry(0.11, 0.12, 0.05),
+    trimMaterial,
+    new THREE.Vector3(0, 0.78, 0.26),
+    new THREE.Vector3(1, 1, 1)
+  );
+  structure.add(
+    upper,
+    frontLeft,
+    frontRight,
+    backLeft,
+    backRight,
+    sideLeft,
+    sideRight,
+    belt,
+    buckle
+  );
+  return structure;
+}
+
+function createPlayerShortTunicStructure(team, material, trimMaterial) {
+  if (team !== 'player') return null;
+  const structure = new THREE.Group();
+  structure.name = 'playerShortTunicStructure';
+
+  const upper = mesh(
+    humanoidTorsoGeometry(0.45, team),
+    material,
+    new THREE.Vector3(0, 1.04, 0),
+    new THREE.Vector3(0.82, 0.86, 0.64)
+  );
+  const hemMaterial = material.clone();
+  hemMaterial.color.multiplyScalar(0.88);
+  const straightHem = mesh(
+    new THREE.BoxGeometry(0.55, 0.22, 0.4),
+    hemMaterial,
+    new THREE.Vector3(0, 0.7, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const frontSplit = mesh(
+    new THREE.BoxGeometry(0.035, 0.16, 0.025),
+    trimMaterial,
+    new THREE.Vector3(0, 0.65, 0.215),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const belt = mesh(
+    new THREE.BoxGeometry(0.61, 0.09, 0.46),
+    trimMaterial,
+    new THREE.Vector3(0, 0.82, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const buckle = mesh(
+    new THREE.BoxGeometry(0.11, 0.12, 0.05),
+    trimMaterial,
+    new THREE.Vector3(0, 0.82, 0.26),
+    new THREE.Vector3(1, 1, 1)
+  );
+  structure.add(upper, straightHem, frontSplit, belt, buckle);
+  return structure;
 }
 
 function boxBetween(start, end, width, depth, material) {
@@ -174,16 +534,28 @@ export function createHealthBar({ hpColor = '#62d56f', tickColor = '#120f0d' } =
 }
 
 export function createKnightModel(team) {
-  return createSwordsmanModel(team, { hasShield: true });
+  return createSwordsmanModel(team, {
+    hasShield: true,
+    styleVariant: 'knight',
+    tunicColor: team === 'player' ? '#536361' : null,
+    trimColor: team === 'player' ? '#6f7a79' : null,
+    panelColor: team === 'player' ? '#687473' : null,
+    beltColor: team === 'player' ? '#493b31' : null
+  });
 }
 
 export function createSpearmanModel(team) {
   const group = new THREE.Group();
-  const tunic = team === 'player' ? '#4f6a45' : '#7a4638';
-  const trim = team === 'player' ? '#c8b26a' : '#2f2520';
+  const tunic = team === 'player' ? '#536445' : '#7a4638';
+  const trim = team === 'player' ? '#8a825d' : '#2f2520';
+  const tunicMaterial = mat(tunic);
   const leather = mat('#5a4030');
   const wood = mat('#7a5a36');
   const steel = mat('#d8dde2', { metalness: 0.24 });
+  const oliveArmor = mat('#66705b', { metalness: 0.08, roughness: 0.82 });
+  const helmetMaterial = team === 'player'
+    ? mat('#8a8d79', { metalness: 0.12, roughness: 0.76 })
+    : leather;
   const skin = mat('#d9a16f');
 
   const leftLeg = mesh(
@@ -202,16 +574,32 @@ export function createSpearmanModel(team) {
   );
   const rightBoot = leftBoot.clone();
   rightBoot.position.x = 0.15;
+  const legDetails = [];
+  if (team === 'player') {
+    const shinLeft = mesh(
+      new THREE.BoxGeometry(0.17, 0.22, 0.055),
+      leather,
+      new THREE.Vector3(-0.15, 0.31, 0.09),
+      new THREE.Vector3(1, 1, 1)
+    );
+    const shinRight = shinLeft.clone();
+    shinRight.position.x = 0.15;
+    legDetails.push(shinLeft, shinRight);
+  }
 
   const body = mesh(
-    new THREE.DodecahedronGeometry(0.48, 0),
-    mat(tunic),
+    humanoidTorsoGeometry(team === 'player' ? 0.44 : 0.48, team),
+    tunicMaterial,
     new THREE.Vector3(0, 0.88, 0),
-    new THREE.Vector3(0.78, 1.08, 0.56)
+    team === 'player'
+      ? new THREE.Vector3(0.72, 1.05, 0.54)
+      : new THREE.Vector3(0.78, 1.08, 0.56)
   );
   const chestPad = mesh(
-    new THREE.BoxGeometry(0.46, 0.34, 0.12),
-    mat(trim),
+    team === 'player'
+      ? new THREE.BoxGeometry(0.34, 0.24, 0.09)
+      : new THREE.BoxGeometry(0.46, 0.34, 0.12),
+    team === 'player' ? oliveArmor : mat(trim),
     new THREE.Vector3(0, 0.96, 0.26),
     new THREE.Vector3(1, 1, 1)
   );
@@ -222,18 +610,58 @@ export function createSpearmanModel(team) {
     new THREE.Vector3(1, 1, 1)
   );
   const shoulderLeft = mesh(
-    new THREE.BoxGeometry(0.14, 0.08, 0.12),
-    mat(trim),
+    team === 'player'
+      ? new THREE.DodecahedronGeometry(0.115, 0)
+      : new THREE.BoxGeometry(0.14, 0.08, 0.12),
+    team === 'player' ? oliveArmor : mat(trim),
     new THREE.Vector3(0.24, 1.08, 0.04),
-    new THREE.Vector3(1, 1, 1)
+    team === 'player'
+      ? new THREE.Vector3(1, 0.52, 0.76)
+      : new THREE.Vector3(1, 1, 1)
   );
   const shoulderRight = shoulderLeft.clone();
   shoulderRight.position.x = -0.24;
+  const armorVest = team === 'player'
+    ? mesh(
+      humanoidTorsoGeometry(0.4, team),
+      oliveArmor,
+      new THREE.Vector3(0, 0.98, -0.015),
+      new THREE.Vector3(0.7, 0.66, 0.54)
+    )
+    : null;
+  const skirtLeft = team === 'player'
+    ? mesh(
+      new THREE.BoxGeometry(0.23, 0.22, 0.05),
+      mat('#46543a'),
+      new THREE.Vector3(-0.13, 0.6, 0.24),
+      new THREE.Vector3(1, 1, 1)
+    )
+    : null;
+  const skirtRight = skirtLeft?.clone() ?? null;
+  if (skirtRight) skirtRight.position.x = 0.13;
+  const beltBuckle = team === 'player'
+    ? mesh(
+      new THREE.BoxGeometry(0.1, 0.11, 0.045),
+      helmetMaterial,
+      new THREE.Vector3(0, 0.72, 0.285),
+      new THREE.Vector3(1, 1, 1)
+    )
+    : null;
 
   const upperBodyPivot = createPivot(
     'spearmanUpperBodyPivot',
     new THREE.Vector3(0, 0.72, 0),
-    [body, chestPad, belt, shoulderLeft, shoulderRight]
+    [
+      body,
+      ...(armorVest ? [armorVest] : []),
+      chestPad,
+      belt,
+      shoulderLeft,
+      shoulderRight,
+      ...(skirtLeft ? [skirtLeft] : []),
+      ...(skirtRight ? [skirtRight] : []),
+      ...(beltBuckle ? [beltBuckle] : [])
+    ]
   );
   // 躯干朝右（+X），头与矛单独朝前（+Z）
   upperBodyPivot.rotation.y = Math.PI / 2;
@@ -245,17 +673,29 @@ export function createSpearmanModel(team) {
     new THREE.Vector3(1, 1, 1)
   );
   const cap = mesh(
-    new THREE.ConeGeometry(0.28, 0.22, 6),
-    leather,
-    new THREE.Vector3(0, 1.68, 0.02),
-    new THREE.Vector3(1.05, 0.82, 1.05)
+    humanoidHeadwearGeometry(team === 'player' ? 0.255 : 0.28, team === 'player' ? 0.28 : 0.22, team),
+    helmetMaterial,
+    new THREE.Vector3(0, team === 'player' ? 1.71 : 1.68, 0.02),
+    team === 'player'
+      ? new THREE.Vector3(1, 1, 1)
+      : new THREE.Vector3(1.05, 0.82, 1.05)
   );
-  const noseGuard = mesh(
-    new THREE.BoxGeometry(0.06, 0.12, 0.08),
-    steel,
-    new THREE.Vector3(0, 1.5, 0.24),
-    new THREE.Vector3(1, 1, 1)
-  );
+  const helmetBand = team === 'player'
+    ? mesh(
+      new THREE.BoxGeometry(0.29, 0.045, 0.045),
+      oliveArmor,
+      new THREE.Vector3(0, 1.61, 0.2),
+      new THREE.Vector3(1, 1, 1)
+    )
+    : null;
+  const noseGuard = team === 'player'
+    ? null
+    : mesh(
+      new THREE.BoxGeometry(0.06, 0.12, 0.08),
+      steel,
+      new THREE.Vector3(0, 1.5, 0.24),
+      new THREE.Vector3(1, 1, 1)
+    );
   const eyeLeft = mesh(
     new THREE.BoxGeometry(0.04, 0.03, 0.02),
     mat('#24201c'),
@@ -264,10 +704,18 @@ export function createSpearmanModel(team) {
   );
   const eyeRight = eyeLeft.clone();
   eyeRight.position.x = 0.07;
+  styleHumanoidEyes(team, eyeLeft, eyeRight);
   const headPivot = createPivot(
     'spearmanHeadPivot',
     new THREE.Vector3(0, 1.4, 0),
-    [head, cap, noseGuard, eyeLeft, eyeRight]
+    [
+      head,
+      cap,
+      ...(helmetBand ? [helmetBand] : []),
+      ...(noseGuard ? [noseGuard] : []),
+      eyeLeft,
+      eyeRight
+    ]
   );
 
   // 全部用根空间坐标，避免 createPivot 后矛落到地面
@@ -301,6 +749,38 @@ export function createSpearmanModel(team) {
   const leftShoulderRoot = new THREE.Vector3(0.02, 1.04, 0.28);
   const rightArm = limb(rightShoulderRoot, rearGripRoot, humanoidArmRadius(0.052, team), skin);
   const leftArm = limb(leftShoulderRoot, frontGripRoot, humanoidArmRadius(0.052, team), skin);
+  const rightSleeve = createPlayerSleeve(
+    team,
+    rightShoulderRoot,
+    rearGripRoot,
+    0.062,
+    tunicMaterial
+  );
+  const leftSleeve = createPlayerSleeve(
+    team,
+    leftShoulderRoot,
+    frontGripRoot,
+    0.062,
+    tunicMaterial
+  );
+  const rightArmGuard = createPlayerArmGuard(
+    team,
+    rightShoulderRoot,
+    rearGripRoot,
+    0.063,
+    leather,
+    0.48,
+    0.82
+  );
+  const leftArmGuard = createPlayerArmGuard(
+    team,
+    leftShoulderRoot,
+    frontGripRoot,
+    0.063,
+    leather,
+    0.48,
+    0.82
+  );
   const rightHand = mesh(
     humanoidHandGeometry(0.08, team),
     skin,
@@ -317,10 +797,32 @@ export function createSpearmanModel(team) {
   const spearPivot = createPivot(
     'spearmanSpearPivot',
     spearPivotPos,
-    [spearShaft, spearBinding, spearGuard, spearHead, rightArm, leftArm, rightHand, leftHand]
+    [
+      spearShaft,
+      spearBinding,
+      spearGuard,
+      spearHead,
+      rightArm,
+      ...(rightSleeve ? [rightSleeve] : []),
+      ...(rightArmGuard ? [rightArmGuard] : []),
+      leftArm,
+      ...(leftSleeve ? [leftSleeve] : []),
+      ...(leftArmGuard ? [leftArmGuard] : []),
+      rightHand,
+      leftHand
+    ]
   );
 
-  group.add(upperBodyPivot, headPivot, spearPivot, leftLeg, rightLeg, leftBoot, rightBoot);
+  group.add(
+    upperBodyPivot,
+    headPivot,
+    spearPivot,
+    leftLeg,
+    rightLeg,
+    leftBoot,
+    rightBoot,
+    ...legDetails
+  );
   group.userData.parts = {
     upperBodyPivot,
     headPivot,
@@ -451,10 +953,19 @@ export function createMiniTurretModel(team = 'player') {
 
 export function createTowerShieldModel(team) {
   const group = new THREE.Group();
-  const armor = mat(team === 'player' ? '#6a7684' : '#6a4a44', { metalness: 0.2 });
-  const darkArmor = mat('#3a4048', { metalness: 0.14 });
-  const shieldFace = mat(team === 'player' ? '#8a949e' : '#7a5a52', { metalness: 0.22 });
-  const shieldTrim = mat('#c8b88a', { metalness: 0.12 });
+  const armor = team === 'player'
+    ? mat('#50696a', { metalness: 0.16, roughness: 0.74 })
+    : mat('#6a4a44', { metalness: 0.2 });
+  const darkArmor = team === 'player'
+    ? mat('#35484c', { metalness: 0.16, roughness: 0.72 })
+    : mat('#3a4048', { metalness: 0.14 });
+  const shieldFace = team === 'player'
+    ? mat('#6b5140', { metalness: 0.02, roughness: 0.88 })
+    : mat('#7a5a52', { metalness: 0.22 });
+  const shieldTrim = team === 'player'
+    ? mat('#596568', { metalness: 0.22, roughness: 0.62 })
+    : mat('#c8b88a', { metalness: 0.12 });
+  const shieldGroove = mat('#3d3028', { roughness: 0.92 });
   const leather = mat('#4a3428');
   const skin = mat('#d9a16f');
 
@@ -466,17 +977,52 @@ export function createTowerShieldModel(team) {
   );
   const rightLeg = leftLeg.clone();
   rightLeg.position.x = 0.2;
+  const leftBoot = team === 'player'
+    ? mesh(
+      new THREE.BoxGeometry(0.24, 0.14, 0.3),
+      leather,
+      new THREE.Vector3(-0.2, 0.07, 0.03),
+      new THREE.Vector3(1, 1, 1)
+    )
+    : null;
+  const rightBoot = leftBoot?.clone() ?? null;
+  if (rightBoot) rightBoot.position.x = 0.2;
+  const leftGreave = team === 'player'
+    ? mesh(
+      new THREE.BoxGeometry(0.2, 0.24, 0.07),
+      armor,
+      new THREE.Vector3(-0.2, 0.31, 0.09),
+      new THREE.Vector3(1, 1, 1)
+    )
+    : null;
+  const rightGreave = leftGreave?.clone() ?? null;
+  if (rightGreave) rightGreave.position.x = 0.2;
   const body = mesh(
-    new THREE.DodecahedronGeometry(0.46, 0),
+    humanoidTorsoGeometry(0.46, team),
     armor,
     new THREE.Vector3(0, 0.86, -0.12),
-    new THREE.Vector3(0.92, 1.02, 0.62)
+    team === 'player'
+      ? new THREE.Vector3(0.82, 1.02, 0.64)
+      : new THREE.Vector3(0.92, 1.02, 0.62)
   );
+  const torsoStructure = createPlayerTorsoStructure({
+    team,
+    centerY: 0.87,
+    width: 0.72,
+    height: 0.74,
+    depth: 0.48,
+    panelMaterial: darkArmor,
+    beltMaterial: leather
+  });
   const pauldronLeft = mesh(
-    new THREE.BoxGeometry(0.18, 0.12, 0.16),
-    armor,
+    team === 'player'
+      ? new THREE.DodecahedronGeometry(0.14, 0)
+      : new THREE.BoxGeometry(0.18, 0.12, 0.16),
+    team === 'player' ? darkArmor : armor,
     new THREE.Vector3(0.28, 1.08, -0.02),
-    new THREE.Vector3(1, 1, 1)
+    team === 'player'
+      ? new THREE.Vector3(1.08, 0.58, 0.86)
+      : new THREE.Vector3(1, 1, 1)
   );
   const pauldronRight = pauldronLeft.clone();
   pauldronRight.position.x = -0.28;
@@ -487,11 +1033,21 @@ export function createTowerShieldModel(team) {
     new THREE.Vector3(1, 1, 1)
   );
   const helm = mesh(
-    new THREE.CylinderGeometry(0.24, 0.28, 0.18, 7),
+    team === 'player'
+      ? humanoidHeadwearGeometry(0.255, 0.29, team)
+      : new THREE.CylinderGeometry(0.24, 0.28, 0.18, 7),
     armor,
-    new THREE.Vector3(0, 1.68, -0.08),
+    new THREE.Vector3(0, team === 'player' ? 1.71 : 1.68, -0.08),
     new THREE.Vector3(1, 1, 1)
   );
+  const helmetBand = team === 'player'
+    ? mesh(
+      new THREE.BoxGeometry(0.31, 0.045, 0.045),
+      darkArmor,
+      new THREE.Vector3(0, 1.61, 0.105),
+      new THREE.Vector3(1, 1, 1)
+    )
+    : null;
   const eyeLeft = mesh(
     new THREE.BoxGeometry(0.04, 0.028, 0.02),
     mat('#161b14'),
@@ -500,19 +1056,27 @@ export function createTowerShieldModel(team) {
   );
   const eyeRight = eyeLeft.clone();
   eyeRight.position.x = 0.07;
+  styleHumanoidEyes(team, eyeLeft, eyeRight);
 
   const leftShoulder = new THREE.Vector3(0.24, 1.06, 0.02);
   const rightShoulder = new THREE.Vector3(-0.24, 1.06, 0.02);
-  const leftHandPos = new THREE.Vector3(0.16, 0.84, 0.48);
+  const leftHandPos = team === 'player'
+    ? new THREE.Vector3(0.48, 0.9, 0.81)
+    : new THREE.Vector3(0.16, 0.84, 0.48);
   const rightHandPos = new THREE.Vector3(-0.16, 0.84, 0.48);
   const leftArm = limb(leftShoulder, leftHandPos, humanoidArmRadius(0.064, team), skin);
   const rightArm = limb(rightShoulder, rightHandPos, humanoidArmRadius(0.064, team), skin);
+  const leftSleeve = createPlayerSleeve(team, leftShoulder, leftHandPos, 0.075, armor);
+  const rightSleeve = createPlayerSleeve(team, rightShoulder, rightHandPos, 0.075, armor);
+  const leftArmGuard = createPlayerArmGuard(team, leftShoulder, leftHandPos, 0.078, darkArmor, 0.48, 0.84);
+  const rightArmGuard = createPlayerArmGuard(team, rightShoulder, rightHandPos, 0.078, darkArmor, 0.48, 0.84);
   const leftHand = mesh(
     humanoidHandGeometry(0.09, team),
     skin,
     leftHandPos,
     new THREE.Vector3(1, 1, 1)
   );
+  leftHand.name = 'towerShieldLeftHand';
   const rightHand = mesh(
     humanoidHandGeometry(0.09, team),
     skin,
@@ -521,38 +1085,81 @@ export function createTowerShieldModel(team) {
   );
 
   const towerShield = mesh(
-    new THREE.BoxGeometry(0.84, 1.72, 0.14),
+    team === 'player'
+      ? createTowerShieldGeometry(0.84, 1.62, 0.12)
+      : new THREE.BoxGeometry(0.84, 1.72, 0.14),
     shieldFace,
-    new THREE.Vector3(0, 0.94, 0.78),
+    new THREE.Vector3(0, team === 'player' ? 0.91 : 0.94, 0.78),
     new THREE.Vector3(1, 1, 1)
   );
   towerShield.rotation.x = -0.04;
   const shieldTopTrim = mesh(
-    new THREE.BoxGeometry(0.9, 0.1, 0.16),
+    team === 'player'
+      ? new THREE.BoxGeometry(0.7, 0.08, 0.15)
+      : new THREE.BoxGeometry(0.9, 0.1, 0.16),
     shieldTrim,
-    new THREE.Vector3(0, 1.78, 0.79),
+    new THREE.Vector3(0, team === 'player' ? 1.68 : 1.78, 0.79),
     new THREE.Vector3(1, 1, 1)
   );
   shieldTopTrim.rotation.x = -0.04;
   const shieldBottomTrim = mesh(
-    new THREE.BoxGeometry(0.9, 0.08, 0.16),
+    team === 'player'
+      ? new THREE.BoxGeometry(0.68, 0.08, 0.15)
+      : new THREE.BoxGeometry(0.9, 0.08, 0.16),
     shieldTrim,
-    new THREE.Vector3(0, 0.12, 0.77),
+    new THREE.Vector3(0, team === 'player' ? 0.14 : 0.12, 0.77),
     new THREE.Vector3(1, 1, 1)
   );
   shieldBottomTrim.rotation.x = -0.04;
+  const shieldLeftTrim = team === 'player'
+    ? mesh(
+      new THREE.BoxGeometry(0.08, 1.32, 0.15),
+      shieldTrim,
+      new THREE.Vector3(-0.39, 0.91, 0.79),
+      new THREE.Vector3(1, 1, 1)
+    )
+    : null;
+  const shieldRightTrim = shieldLeftTrim?.clone() ?? null;
+  if (shieldRightTrim) shieldRightTrim.position.x = 0.39;
   const shieldBoss = mesh(
-    new THREE.DodecahedronGeometry(0.18, 0),
+    team === 'player'
+      ? new THREE.BoxGeometry(0.24, 0.24, 0.09)
+      : new THREE.DodecahedronGeometry(0.18, 0),
     shieldTrim,
     new THREE.Vector3(0, 0.98, 0.88),
-    new THREE.Vector3(1, 0.55, 0.28)
+    team === 'player'
+      ? new THREE.Vector3(1, 1, 1)
+      : new THREE.Vector3(1, 0.55, 0.28)
   );
-  const shieldCross = mesh(
-    new THREE.BoxGeometry(0.12, 0.92, 0.03),
-    mat('#d8c58d', { emissive: '#5a4a22', emissiveIntensity: 0.12 }),
-    new THREE.Vector3(0, 0.98, 0.865),
-    new THREE.Vector3(1, 1, 1)
-  );
+  const shieldCross = team === 'player'
+    ? null
+    : mesh(
+      new THREE.BoxGeometry(0.12, 0.92, 0.03),
+      mat('#d8c58d', { emissive: '#5a4a22', emissiveIntensity: 0.12 }),
+      new THREE.Vector3(0, 0.98, 0.865),
+      new THREE.Vector3(1, 1, 1)
+    );
+  const shieldPlankSeams = team === 'player'
+    ? [-0.14, 0.14].map((x) => mesh(
+      new THREE.BoxGeometry(0.024, 1.32, 0.018),
+      shieldGroove,
+      new THREE.Vector3(x, 0.91, 0.852),
+      new THREE.Vector3(1, 1, 1)
+    ))
+    : [];
+  const shieldRivets = team === 'player'
+    ? [
+      [-0.32, 1.48], [0.32, 1.48],
+      [-0.34, 1.16], [0.34, 1.16],
+      [-0.34, 0.66], [0.34, 0.66],
+      [-0.3, 0.34], [0.3, 0.34]
+    ].map(([x, y]) => mesh(
+      new THREE.DodecahedronGeometry(0.035, 0),
+      shieldTrim,
+      new THREE.Vector3(x, y, 0.89),
+      new THREE.Vector3(1, 0.62, 0.42)
+    ))
+    : [];
   const leftGrip = mesh(
     new THREE.BoxGeometry(0.05, 0.28, 0.06),
     leather,
@@ -565,27 +1172,54 @@ export function createTowerShieldModel(team) {
   const upperBodyPivot = createPivot(
     'towerShieldUpperBodyPivot',
     new THREE.Vector3(0, 0.86, -0.08),
-    [body, pauldronLeft, pauldronRight, head, helm, eyeLeft, eyeRight]
+    [
+      body,
+      ...(torsoStructure ? [torsoStructure] : []),
+      pauldronLeft,
+      pauldronRight,
+      head,
+      helm,
+      ...(helmetBand ? [helmetBand] : []),
+      eyeLeft,
+      eyeRight
+    ]
   );
   const shieldPivot = createPivot(
     'towerShieldPivot',
     new THREE.Vector3(0, 0.9, 0.14),
     [
       leftArm,
+      ...(leftSleeve ? [leftSleeve] : []),
+      ...(leftArmGuard ? [leftArmGuard] : []),
       rightArm,
+      ...(rightSleeve ? [rightSleeve] : []),
+      ...(rightArmGuard ? [rightArmGuard] : []),
       leftHand,
       rightHand,
       towerShield,
       shieldTopTrim,
       shieldBottomTrim,
+      ...(shieldLeftTrim ? [shieldLeftTrim] : []),
+      ...(shieldRightTrim ? [shieldRightTrim] : []),
       shieldBoss,
-      shieldCross,
+      ...(shieldCross ? [shieldCross] : []),
+      ...shieldPlankSeams,
+      ...shieldRivets,
       leftGrip,
       rightGrip
     ]
   );
 
-  group.add(upperBodyPivot, shieldPivot, leftLeg, rightLeg);
+  group.add(
+    upperBodyPivot,
+    shieldPivot,
+    leftLeg,
+    rightLeg,
+    ...(leftBoot ? [leftBoot] : []),
+    ...(rightBoot ? [rightBoot] : []),
+    ...(leftGreave ? [leftGreave] : []),
+    ...(rightGreave ? [rightGreave] : [])
+  );
   group.userData.parts = {
     upperBodyPivot,
     shieldPivot,
@@ -596,17 +1230,33 @@ export function createTowerShieldModel(team) {
   return enableShadows(group);
 }
 
-export function createSwordsmanModel(team, { hasShield = false } = {}) {
+export function createSwordsmanModel(team, {
+  hasShield = false,
+  styleVariant = 'swordsman',
+  tunicColor = null,
+  trimColor = null,
+  panelColor = null,
+  beltColor = null
+} = {}) {
   const group = new THREE.Group();
-  const tunic = team === 'player' ? '#7b9ebc' : '#8c6b6d';
-  const trim = team === 'player' ? '#f2d06b' : '#2f2520';
+  const isPlayerSwordsman = team === 'player' && styleVariant === 'swordsman';
+  const isPlayerKnight = team === 'player' && styleVariant === 'knight';
+  const isPrimaryPlayer = isPlayerSwordsman || isPlayerKnight;
+  const tunic = tunicColor ?? (team === 'player' ? '#506d40' : '#8c6b6d');
+  const trim = trimColor ?? (team === 'player' ? '#f2d06b' : '#2f2520');
   const skin = '#d9a16f';
+  const tunicMaterial = mat(tunic);
+  const armorMaterial = mat('#788281', { metalness: 0.2, roughness: 0.72 });
+  const darkArmorMaterial = mat('#3f4b4a', { metalness: 0.14, roughness: 0.78 });
+  const leatherMaterial = mat(beltColor ?? '#60442d');
 
   const body = mesh(
-    new THREE.DodecahedronGeometry(0.52, 0),
-    mat(tunic),
+    humanoidTorsoGeometry(0.52, team),
+    tunicMaterial,
     new THREE.Vector3(0, 0.92, 0),
-    new THREE.Vector3(0.86, 1.25, 0.64)
+    isPrimaryPlayer
+      ? new THREE.Vector3(isPlayerKnight ? 0.76 : 0.7, 1.1, isPlayerKnight ? 0.64 : 0.6)
+      : new THREE.Vector3(0.86, 1.25, 0.64)
   );
   const head = mesh(
     humanoidHeadGeometry(0.28, team),
@@ -622,12 +1272,89 @@ export function createSwordsmanModel(team, { hasShield = false } = {}) {
   );
   const eyeRight = eyeLeft.clone();
   eyeRight.position.x = 0.08;
+  styleHumanoidEyes(team, eyeLeft, eyeRight);
+  const helmetMaterial = mat(
+    isPlayerKnight ? '#747e7d' : (team === 'player' ? '#aeb7b9' : trim),
+    team === 'player' ? { metalness: 0.18 } : {}
+  );
   const helm = mesh(
-    new THREE.ConeGeometry(0.3, 0.32, 6),
-    mat(trim),
+    humanoidHeadwearGeometry(0.3, 0.32, team),
+    helmetMaterial,
     new THREE.Vector3(0, 1.86, 0),
     new THREE.Vector3(1, 1, 1)
   );
+  if (isPlayerKnight) head.visible = false;
+  helm.name = 'swordsmanHelmet';
+  const helmBand = team === 'player'
+    ? mesh(
+      new THREE.BoxGeometry(0.4, 0.045, 0.05),
+      mat('#5d666a', { metalness: 0.14 }),
+      new THREE.Vector3(0, 1.765, 0.2),
+      new THREE.Vector3(1, 1, 1)
+    )
+    : null;
+  if (helmBand) helmBand.name = 'swordsmanHelmetBand';
+  const knightFaceplate = isPlayerKnight
+    ? mesh(
+      new THREE.BoxGeometry(0.31, 0.28, 0.055),
+      armorMaterial,
+      new THREE.Vector3(0, 1.58, 0.165),
+      new THREE.Vector3(1, 1, 1)
+    )
+    : null;
+  const knightVisor = isPlayerKnight
+    ? mesh(
+      new THREE.BoxGeometry(0.25, 0.045, 0.018),
+      darkArmorMaterial,
+      new THREE.Vector3(0, 1.64, 0.198),
+      new THREE.Vector3(1, 1, 1)
+    )
+    : null;
+  const knightHelmetSideLeft = isPlayerKnight
+    ? mesh(
+      new THREE.BoxGeometry(0.055, 0.28, 0.28),
+      armorMaterial,
+      new THREE.Vector3(-0.155, 1.58, 0.01),
+      new THREE.Vector3(1, 1, 1)
+    )
+    : null;
+  const knightHelmetSideRight = knightHelmetSideLeft?.clone() ?? null;
+  if (knightHelmetSideRight) knightHelmetSideRight.position.x = 0.155;
+  const knightHelmetBack = isPlayerKnight
+    ? mesh(
+      new THREE.BoxGeometry(0.31, 0.28, 0.055),
+      armorMaterial,
+      new THREE.Vector3(0, 1.58, -0.135),
+      new THREE.Vector3(1, 1, 1)
+    )
+    : null;
+  const torsoStructure = createPlayerTorsoStructure({
+    team,
+    centerY: 0.92,
+    width: isPrimaryPlayer ? 0.66 : 0.72,
+    height: isPrimaryPlayer ? 0.76 : 0.84,
+    depth: isPrimaryPlayer ? 0.44 : 0.48,
+    panelMaterial: isPlayerKnight ? armorMaterial : mat(panelColor ?? '#3f5835'),
+    beltMaterial: leatherMaterial
+  });
+  const knightBreastplate = isPlayerKnight
+    ? mesh(
+      humanoidTorsoGeometry(0.39, team),
+      armorMaterial,
+      new THREE.Vector3(0, 1.02, 0.03),
+      new THREE.Vector3(0.78, 0.82, 0.58)
+    )
+    : null;
+  const knightPauldronLeft = isPlayerKnight
+    ? mesh(
+      new THREE.DodecahedronGeometry(0.16, 0),
+      armorMaterial,
+      new THREE.Vector3(-0.35, 1.2, 0.02),
+      new THREE.Vector3(1.12, 0.62, 0.84)
+    )
+    : null;
+  const knightPauldronRight = knightPauldronLeft?.clone() ?? null;
+  if (knightPauldronRight) knightPauldronRight.position.x = 0.35;
   const leftLeg = mesh(
     new THREE.BoxGeometry(0.18, 0.54, 0.18),
     mat('#2d2e34'),
@@ -636,15 +1363,73 @@ export function createSwordsmanModel(team, { hasShield = false } = {}) {
   );
   const rightLeg = leftLeg.clone();
   rightLeg.position.x = 0.17;
+  const waistDetails = [];
+  const legDetails = [];
+  if (isPrimaryPlayer) {
+    const skirtMaterial = isPlayerKnight ? darkArmorMaterial : mat('#415a35');
+    const skirtGeometry = new THREE.BoxGeometry(0.25, 0.24, 0.055);
+    const skirtLeft = mesh(
+      skirtGeometry,
+      skirtMaterial,
+      new THREE.Vector3(-0.14, 0.58, 0.265),
+      new THREE.Vector3(1, 1, 1)
+    );
+    skirtLeft.rotation.z = -0.08;
+    const skirtRight = skirtLeft.clone();
+    skirtRight.position.x = 0.14;
+    skirtRight.rotation.z = 0.08;
+    waistDetails.push(skirtLeft, skirtRight);
+
+    const bootMaterial = mat('#5f442f');
+    const bootLeft = mesh(
+      new THREE.BoxGeometry(0.2, 0.18, 0.27),
+      bootMaterial,
+      new THREE.Vector3(-0.17, 0.09, 0.045),
+      new THREE.Vector3(1, 1, 1)
+    );
+    const bootRight = bootLeft.clone();
+    bootRight.position.x = 0.17;
+    legDetails.push(bootLeft, bootRight);
+
+    if (isPlayerKnight) {
+      const greaveLeft = mesh(
+        new THREE.BoxGeometry(0.19, 0.26, 0.055),
+        armorMaterial,
+        new THREE.Vector3(-0.17, 0.31, 0.095),
+        new THREE.Vector3(1, 1, 1)
+      );
+      const greaveRight = greaveLeft.clone();
+      greaveRight.position.x = 0.17;
+      legDetails.push(greaveLeft, greaveRight);
+    }
+  }
   const rightArm = limb(
     new THREE.Vector3(-0.31, 1.18, 0.06),
     new THREE.Vector3(-0.24, 0.68, 0.4),
     humanoidArmRadius(0.06, team),
     mat(skin)
   );
+  const rightSleeve = createPlayerSleeve(
+    team,
+    new THREE.Vector3(-0.31, 1.18, 0.06),
+    new THREE.Vector3(-0.24, 0.68, 0.4),
+    0.068,
+    tunicMaterial
+  );
+  const rightArmGuard = isPrimaryPlayer
+    ? createPlayerArmGuard(
+      team,
+      new THREE.Vector3(-0.31, 1.18, 0.06),
+      new THREE.Vector3(-0.24, 0.68, 0.4),
+      isPlayerKnight ? 0.07 : 0.065,
+      isPlayerKnight ? armorMaterial : leatherMaterial,
+      0.48,
+      isPlayerKnight ? 0.98 : 0.82
+    )
+    : null;
   const rightHand = mesh(
     humanoidHandGeometry(0.09, team),
-    mat(skin),
+    isPlayerKnight ? armorMaterial : mat(skin),
     new THREE.Vector3(-0.24, 0.68, 0.4),
     new THREE.Vector3(1, 1, 1)
   );
@@ -657,9 +1442,27 @@ export function createSwordsmanModel(team, { hasShield = false } = {}) {
     humanoidArmRadius(0.06, team),
     mat(skin)
   );
+  const leftSleeve = createPlayerSleeve(
+    team,
+    new THREE.Vector3(0.31, 1.16, 0.06),
+    leftHandPosition,
+    0.068,
+    tunicMaterial
+  );
+  const leftArmGuard = isPrimaryPlayer
+    ? createPlayerArmGuard(
+      team,
+      new THREE.Vector3(0.31, 1.16, 0.06),
+      leftHandPosition,
+      isPlayerKnight ? 0.07 : 0.065,
+      isPlayerKnight ? armorMaterial : leatherMaterial,
+      0.48,
+      isPlayerKnight ? 0.98 : 0.82
+    )
+    : null;
   const leftHand = mesh(
     humanoidHandGeometry(0.085, team),
-    mat(skin),
+    isPlayerKnight ? armorMaterial : mat(skin),
     leftHandPosition,
     new THREE.Vector3(1, 1, 1)
   );
@@ -682,24 +1485,64 @@ export function createSwordsmanModel(team, { hasShield = false } = {}) {
     new THREE.Vector3(-0.24, 0.68, 0.4),
     [blade, hilt]
   );
-  const shield = hasShield
-    ? mesh(
+  let shield = null;
+  if (hasShield && isPlayerKnight) {
+    shield = new THREE.Group();
+    shield.name = 'knightKiteShield';
+    shield.position.set(0.2, 1.04, 0.56);
+    const shieldOuter = new THREE.Mesh(
+      createKiteShieldGeometry(0.62, 0.9, 0.075),
+      armorMaterial
+    );
+    const shieldFace = new THREE.Mesh(
+      createKiteShieldGeometry(0.48, 0.7, 0.024),
+      mat('#304946')
+    );
+    shieldFace.position.z = 0.055;
+    const shieldBoss = new THREE.Mesh(
+      new THREE.DodecahedronGeometry(0.09, 0),
+      darkArmorMaterial
+    );
+    shieldBoss.position.z = 0.09;
+    shieldBoss.scale.set(1, 1, 0.42);
+    shield.add(shieldOuter, shieldFace, shieldBoss);
+  } else if (hasShield) {
+    shield = mesh(
       new THREE.CylinderGeometry(0.28, 0.33, 0.08, 6),
       mat(trim),
       new THREE.Vector3(0.18, 1.04, 0.54),
       new THREE.Vector3(1, 1.2, 1)
-    )
-    : null;
-  if (shield) shield.rotation.x = Math.PI / 2;
+    );
+    shield.rotation.x = Math.PI / 2;
+  }
   const weaponPivot = createPivot(
     'swordsmanWeaponPivot',
     new THREE.Vector3(-0.31, 1.18, 0.06),
-    [rightArm, rightHand, weaponSwingPivot]
+    [
+      rightArm,
+      ...(rightSleeve ? [rightSleeve] : []),
+      ...(rightArmGuard ? [rightArmGuard] : []),
+      rightHand,
+      weaponSwingPivot
+    ]
   );
   const offhandPivot = createPivot(
     'swordsmanOffhandPivot',
     new THREE.Vector3(0.31, 1.16, 0.06),
-    shield ? [leftArm, leftHand, shield] : [leftArm, leftHand]
+    shield
+      ? [
+        leftArm,
+        ...(leftSleeve ? [leftSleeve] : []),
+        ...(leftArmGuard ? [leftArmGuard] : []),
+        leftHand,
+        shield
+      ]
+      : [
+        leftArm,
+        ...(leftSleeve ? [leftSleeve] : []),
+        ...(leftArmGuard ? [leftArmGuard] : []),
+        leftHand
+      ]
   );
 
   group.add(
@@ -708,8 +1551,20 @@ export function createSwordsmanModel(team, { hasShield = false } = {}) {
     eyeLeft,
     eyeRight,
     helm,
+    ...(helmBand ? [helmBand] : []),
+    ...(knightFaceplate ? [knightFaceplate] : []),
+    ...(knightVisor ? [knightVisor] : []),
+    ...(knightHelmetSideLeft ? [knightHelmetSideLeft] : []),
+    ...(knightHelmetSideRight ? [knightHelmetSideRight] : []),
+    ...(knightHelmetBack ? [knightHelmetBack] : []),
+    ...(knightBreastplate ? [knightBreastplate] : []),
+    ...(knightPauldronLeft ? [knightPauldronLeft] : []),
+    ...(knightPauldronRight ? [knightPauldronRight] : []),
+    ...(torsoStructure ? [torsoStructure] : []),
+    ...waistDetails,
     leftLeg,
     rightLeg,
+    ...legDetails,
     weaponPivot,
     offhandPivot
   );
@@ -722,26 +1577,60 @@ export function createSwordsmanModel(team, { hasShield = false } = {}) {
 }
 
 export function createRogueModel(team) {
-  const group = createSwordsmanModel(team, { hasShield: false });
-  const parts = group.userData.parts ?? {};
   const cloakColor = team === 'player' ? '#29384a' : '#4b2d36';
+  const group = createSwordsmanModel(team, {
+    hasShield: false,
+    styleVariant: 'derived',
+    tunicColor: team === 'player' ? cloakColor : null,
+    panelColor: team === 'player' ? '#202b38' : null,
+    beltColor: team === 'player' ? '#3a2a24' : null
+  });
+  const parts = group.userData.parts ?? {};
+  const baseHelmet = group.getObjectByName('swordsmanHelmet');
+  const baseHelmetBand = group.getObjectByName('swordsmanHelmetBand');
+  if (baseHelmet) baseHelmet.visible = false;
+  if (baseHelmetBand) baseHelmetBand.visible = false;
   const leather = mat('#3a2a24');
   const steel = mat('#d8dce2', { metalness: 0.24 });
   const skin = team === 'player' ? '#d7a071' : '#b46f5c';
+  const cloakMaterial = mat(cloakColor);
 
   const hood = mesh(
-    new THREE.ConeGeometry(0.34, 0.34, 6),
-    mat(cloakColor),
+    humanoidHeadwearGeometry(0.34, 0.34, team),
+    cloakMaterial,
     new THREE.Vector3(0, 1.82, -0.02),
     new THREE.Vector3(1.05, 0.85, 1.05)
   );
-  const cloak = mesh(
-    new THREE.ConeGeometry(0.55, 1.2, 5),
-    mat(cloakColor),
-    new THREE.Vector3(0, 0.92, -0.18),
-    new THREE.Vector3(0.86, 1, 0.58)
-  );
-  cloak.rotation.y = Math.PI / 5;
+  const hoodFrame = createPlayerHoodFrame({
+    team,
+    centerY: 1.54,
+    width: 0.43,
+    height: 0.31,
+    depth: 0.14,
+    material: cloakMaterial
+  });
+  const cloak = team === 'player'
+    ? mesh(
+      new THREE.CylinderGeometry(0.34, 0.45, 0.92, 4, 1, false, Math.PI / 4),
+      cloakMaterial,
+      new THREE.Vector3(0, 0.94, -0.31),
+      new THREE.Vector3(1, 1, 0.18)
+    )
+    : mesh(
+      humanoidCloakGeometry(0.55, 1.2, team, 5),
+      cloakMaterial,
+      new THREE.Vector3(0, 0.92, -0.18),
+      new THREE.Vector3(0.86, 1, 0.58)
+    );
+  cloak.rotation.set(team === 'player' ? -0.08 : 0, team === 'player' ? 0 : Math.PI / 5, 0);
+  const cloakMantle = team === 'player'
+    ? mesh(
+      new THREE.BoxGeometry(0.7, 0.16, 0.28),
+      cloakMaterial,
+      new THREE.Vector3(0, 1.28, -0.08),
+      new THREE.Vector3(1, 1, 1)
+    )
+    : null;
   const shoulder = parts.weaponPivot ?? parts.offhandPivot;
   const elbowLocal = new THREE.Vector3(-0.22, -0.03, 0.18);
   const handLocal = new THREE.Vector3(0.02, -0.11, 0.36);
@@ -751,6 +1640,14 @@ export function createRogueModel(team) {
     elbowLocal,
     humanoidArmRadius(0.055, team),
     mat(skin)
+  );
+  const upperSleeve = createPlayerSleeve(
+    team,
+    new THREE.Vector3(0, 0, 0),
+    elbowLocal,
+    0.066,
+    mat(cloakColor),
+    0.72
   );
   const forearm = limb(
     new THREE.Vector3(0, 0, 0),
@@ -807,11 +1704,16 @@ export function createRogueModel(team) {
   elbowPivot.add(forearm, wristPivot);
   if (shoulder) {
     shoulder.clear?.();
-    shoulder.add(upperArm, elbowPivot);
+    shoulder.add(upperArm, ...(upperSleeve ? [upperSleeve] : []), elbowPivot);
   } else {
-    group.add(upperArm, elbowPivot);
+    group.add(upperArm, ...(upperSleeve ? [upperSleeve] : []), elbowPivot);
   }
-  group.add(cloak, hood);
+  group.add(
+    cloak,
+    ...(cloakMantle ? [cloakMantle] : []),
+    hood,
+    ...(hoodFrame ? [hoodFrame] : [])
+  );
   const upperBodyPivot = createPivot(
     'rogueUpperBodyPivot',
     new THREE.Vector3(0, 0.84, 0),
@@ -835,23 +1737,38 @@ export function createRogueModel(team) {
 }
 
 export function createEngineerModel(team) {
-  const group = createSwordsmanModel(team, { hasShield: false });
-  const parts = group.userData.parts ?? {};
   const cloth = team === 'player' ? '#7b5a38' : '#8f4a3f';
+  const group = createSwordsmanModel(team, {
+    hasShield: false,
+    styleVariant: 'derived',
+    tunicColor: team === 'player' ? cloth : null,
+    panelColor: team === 'player' ? '#63482f' : null,
+    beltColor: team === 'player' ? '#5a3a28' : null
+  });
+  const parts = group.userData.parts ?? {};
+  const baseHelmet = group.getObjectByName('swordsmanHelmet');
+  const baseHelmetBand = group.getObjectByName('swordsmanHelmetBand');
+  if (baseHelmet) baseHelmet.visible = false;
+  if (baseHelmetBand) baseHelmetBand.visible = false;
   const leather = mat('#5a3a28');
   const metal = mat('#8f9a9b', { metalness: 0.24 });
   const beardMat = mat(team === 'player' ? '#d09a5a' : '#6b4a35');
+  const capMaterial = team === 'player' ? mat('#6d5b3b') : metal;
 
   const helm = mesh(
-    new THREE.CylinderGeometry(0.3, 0.34, 0.22, 6),
-    metal,
-    new THREE.Vector3(0, 1.8, 0),
-    new THREE.Vector3(1.08, 0.86, 1.08)
+    team === 'player'
+      ? new THREE.CylinderGeometry(0.22, 0.29, 0.16, 6)
+      : new THREE.CylinderGeometry(0.3, 0.34, 0.22, 6),
+    capMaterial,
+    new THREE.Vector3(0, team === 'player' ? 1.75 : 1.8, 0),
+    team === 'player'
+      ? new THREE.Vector3(1, 1, 1)
+      : new THREE.Vector3(1.08, 0.86, 1.08)
   );
   const helmBand = mesh(
-    new THREE.BoxGeometry(0.54, 0.08, 0.12),
-    mat('#d8c58d'),
-    new THREE.Vector3(0, 1.77, 0.23),
+    new THREE.BoxGeometry(team === 'player' ? 0.28 : 0.54, team === 'player' ? 0.04 : 0.08, 0.1),
+    team === 'player' ? leather : mat('#d8c58d'),
+    new THREE.Vector3(0, team === 'player' ? 1.69 : 1.77, 0.22),
     new THREE.Vector3(1, 1, 1)
   );
   const beard = mesh(
@@ -1094,13 +2011,19 @@ export function createBeaconModel(team = 'player') {
 export function createBerserkerModel(team) {
   const group = new THREE.Group();
   const skinMat = mat('#c18a64');
-  const bodyColor = team === 'player' ? '#8f3240' : '#8f3b34';
+  const bodyColor = team === 'player' ? '#6b4732' : '#8f3b34';
+  const bodyMaterial = mat(bodyColor);
+  const leather = mat('#4f3427');
+  const fur = mat('#765238');
+  const helmetMaterial = mat('#625d50', { metalness: 0.08, roughness: 0.84 });
 
   const body = mesh(
-    new THREE.DodecahedronGeometry(0.54, 0),
-    mat(bodyColor),
+    humanoidTorsoGeometry(0.54, team),
+    bodyMaterial,
     new THREE.Vector3(0, 0.9, 0),
-    new THREE.Vector3(0.92, 1.22, 0.7)
+    team === 'player'
+      ? new THREE.Vector3(0.82, 1.14, 0.68)
+      : new THREE.Vector3(0.92, 1.22, 0.7)
   );
   const head = mesh(
     humanoidHeadGeometry(0.28, team),
@@ -1116,17 +2039,87 @@ export function createBerserkerModel(team) {
   );
   const eyeRight = eyeLeft.clone();
   eyeRight.position.x = 0.085;
-  const crest = mesh(
-    new THREE.BoxGeometry(0.18, 0.24, 0.12),
-    mat('#5b2630'),
-    new THREE.Vector3(0, 1.84, 0.02),
-    new THREE.Vector3(1, 1, 1)
-  );
+  styleHumanoidEyes(team, eyeLeft, eyeRight);
+  const torsoStructure = createPlayerTorsoStructure({
+    team,
+    centerY: 0.9,
+    width: 0.76,
+    height: 0.82,
+    depth: 0.5,
+    panelMaterial: mat('#5c3d2d'),
+    beltMaterial: leather
+  });
+  const crest = team === 'player'
+    ? mesh(
+      humanoidHeadwearGeometry(0.3, 0.34, team),
+      helmetMaterial,
+      new THREE.Vector3(0, 1.82, 0.01),
+      new THREE.Vector3(1, 1, 1)
+    )
+    : mesh(
+      new THREE.BoxGeometry(0.18, 0.24, 0.12),
+      mat('#5b2630'),
+      new THREE.Vector3(0, 1.84, 0.02),
+      new THREE.Vector3(1, 1, 1)
+    );
+  const helmetBand = team === 'player'
+    ? mesh(
+      new THREE.BoxGeometry(0.34, 0.055, 0.05),
+      leather,
+      new THREE.Vector3(0, 1.68, 0.19),
+      new THREE.Vector3(1, 1, 1)
+    )
+    : null;
+  const beard = team === 'player'
+    ? mesh(
+      new THREE.ConeGeometry(0.18, 0.3, 4),
+      mat('#5b3828'),
+      new THREE.Vector3(0, 1.36, 0.14),
+      new THREE.Vector3(0.92, 1, 0.6)
+    )
+    : null;
+  if (beard) beard.rotation.x = Math.PI;
+  const furShoulderLeft = team === 'player'
+    ? mesh(
+      new THREE.DodecahedronGeometry(0.18, 0),
+      fur,
+      new THREE.Vector3(-0.38, 1.18, 0.01),
+      new THREE.Vector3(1.18, 0.62, 0.9)
+    )
+    : null;
+  const furShoulderRight = furShoulderLeft?.clone() ?? null;
+  if (furShoulderRight) furShoulderRight.position.x = 0.38;
+  const chestHarness = team === 'player'
+    ? boxBetween(
+      new THREE.Vector3(-0.2, 1.2, 0.35),
+      new THREE.Vector3(0.2, 0.76, 0.36),
+      0.075,
+      0.05,
+      leather
+    )
+    : null;
   const rightArm = limb(
     new THREE.Vector3(-0.34, 1.16, 0.04),
     new THREE.Vector3(-0.25, 0.68, 0.42),
     humanoidArmRadius(0.068, team),
     skinMat
+  );
+  const rightSleeve = createPlayerSleeve(
+    team,
+    new THREE.Vector3(-0.34, 1.16, 0.04),
+    new THREE.Vector3(-0.25, 0.68, 0.42),
+    0.074,
+    fur,
+    0.28
+  );
+  const rightArmGuard = createPlayerArmGuard(
+    team,
+    new THREE.Vector3(-0.34, 1.16, 0.04),
+    new THREE.Vector3(-0.25, 0.68, 0.42),
+    0.075,
+    leather,
+    0.52,
+    0.84
   );
   const rightHand = mesh(
     humanoidHandGeometry(0.1, team),
@@ -1139,6 +2132,23 @@ export function createBerserkerModel(team) {
     new THREE.Vector3(0.28, 0.74, 0.34),
     humanoidArmRadius(0.062, team),
     skinMat
+  );
+  const leftSleeve = createPlayerSleeve(
+    team,
+    new THREE.Vector3(0.34, 1.14, 0.04),
+    new THREE.Vector3(0.28, 0.74, 0.34),
+    0.069,
+    fur,
+    0.28
+  );
+  const leftArmGuard = createPlayerArmGuard(
+    team,
+    new THREE.Vector3(0.34, 1.14, 0.04),
+    new THREE.Vector3(0.28, 0.74, 0.34),
+    0.07,
+    leather,
+    0.52,
+    0.84
   );
   const leftHand = mesh(
     humanoidHandGeometry(0.09, team),
@@ -1177,18 +2187,66 @@ export function createBerserkerModel(team) {
   );
   const leg2 = leg.clone();
   leg2.position.x = 0.16;
+  const legDetails = [];
+  if (team === 'player') {
+    const shinLeft = mesh(
+      new THREE.BoxGeometry(0.2, 0.24, 0.065),
+      leather,
+      new THREE.Vector3(-0.16, 0.3, 0.105),
+      new THREE.Vector3(1, 1, 1)
+    );
+    const shinRight = shinLeft.clone();
+    shinRight.position.x = 0.16;
+    const bootLeft = mesh(
+      new THREE.BoxGeometry(0.22, 0.16, 0.28),
+      leather,
+      new THREE.Vector3(-0.16, 0.08, 0.045),
+      new THREE.Vector3(1, 1, 1)
+    );
+    const bootRight = bootLeft.clone();
+    bootRight.position.x = 0.16;
+    legDetails.push(shinLeft, shinRight, bootLeft, bootRight);
+  }
   const weaponPivot = createPivot(
     'berserkerWeaponPivot',
     new THREE.Vector3(-0.34, 1.16, 0.04),
-    [rightArm, rightHand, weaponSwingPivot]
+    [
+      rightArm,
+      ...(rightSleeve ? [rightSleeve] : []),
+      ...(rightArmGuard ? [rightArmGuard] : []),
+      rightHand,
+      weaponSwingPivot
+    ]
   );
   const offhandPivot = createPivot(
     'berserkerOffhandPivot',
     new THREE.Vector3(0.34, 1.14, 0.04),
-    [leftArm, leftHand]
+    [
+      leftArm,
+      ...(leftSleeve ? [leftSleeve] : []),
+      ...(leftArmGuard ? [leftArmGuard] : []),
+      leftHand
+    ]
   );
 
-  group.add(body, head, eyeLeft, eyeRight, crest, weaponPivot, offhandPivot, leg, leg2);
+  group.add(
+    body,
+    ...(torsoStructure ? [torsoStructure] : []),
+    head,
+    eyeLeft,
+    eyeRight,
+    crest,
+    ...(helmetBand ? [helmetBand] : []),
+    ...(beard ? [beard] : []),
+    ...(furShoulderLeft ? [furShoulderLeft] : []),
+    ...(furShoulderRight ? [furShoulderRight] : []),
+    ...(chestHarness ? [chestHarness] : []),
+    weaponPivot,
+    offhandPivot,
+    leg,
+    leg2,
+    ...legDetails
+  );
   group.userData.parts = {
     weaponPivot,
     weaponSwingPivot,
@@ -1202,11 +2260,13 @@ export function createArcherModel(team, options = {}) {
   const tunic = options.tunicColor ?? (team === 'player' ? '#3f8f68' : '#8c6b6d');
   const skin = options.skinColor ?? '#d9a16f';
   const skinMat = mat(skin);
+  const tunicMaterial = mat(tunic);
   const leather = mat(options.leatherColor ?? '#7b4e2d');
+  const hoodMaterial = mat(options.hoodColor ?? '#324c37');
 
   const body = mesh(
-    new THREE.DodecahedronGeometry(0.48, 0),
-    mat(tunic),
+    humanoidTorsoGeometry(0.48, team),
+    tunicMaterial,
     new THREE.Vector3(0, 0.9, 0),
     new THREE.Vector3(0.76, 1.18, 0.58)
   );
@@ -1224,13 +2284,33 @@ export function createArcherModel(team, options = {}) {
   );
   const eyeRight = eyeLeft.clone();
   eyeRight.position.x = 0.075;
+  styleHumanoidEyes(team, eyeLeft, eyeRight);
   const hood = mesh(
-    new THREE.ConeGeometry(0.31, 0.42, 6),
-    mat(options.hoodColor ?? '#324c37'),
+    humanoidHeadwearGeometry(0.31, 0.42, team),
+    hoodMaterial,
     new THREE.Vector3(0, 1.78, 0),
     new THREE.Vector3(1, 1, 1)
   );
   hood.visible = options.hideHood !== true;
+  const hoodFrame = options.hideHood === true
+    ? null
+    : createPlayerHoodFrame({
+      team,
+      centerY: 1.54,
+      width: 0.42,
+      height: 0.31,
+      depth: 0.13,
+      material: hoodMaterial
+    });
+  const torsoStructure = createPlayerTorsoStructure({
+    team,
+    centerY: 0.9,
+    width: 0.64,
+    height: 0.76,
+    depth: 0.44,
+    panelMaterial: mat(options.hoodColor ?? '#324c37'),
+    beltMaterial: leather
+  });
   const bowCurve = new THREE.CatmullRomCurve3([
     new THREE.Vector3(-0.1, -0.58, 0),
     new THREE.Vector3(0.12, -0.22, 0),
@@ -1259,6 +2339,14 @@ export function createArcherModel(team, options = {}) {
     humanoidArmRadius(0.055, team),
     skinMat
   );
+  const leftSleeve = createPlayerSleeve(
+    team,
+    new THREE.Vector3(0.3, 1.2, 0.08),
+    new THREE.Vector3(0.04, 1.04, 0.57),
+    0.064,
+    tunicMaterial,
+    0.48
+  );
   const rightShoulder = new THREE.Vector3(-0.3, 1.18, 0.08);
   const rightElbow = new THREE.Vector3(-0.331, 1.143, 0.406);
   const rightHandPosition = new THREE.Vector3(-0.22, 1.09, 0.62);
@@ -1267,6 +2355,14 @@ export function createArcherModel(team, options = {}) {
     rightElbow,
     humanoidArmRadius(0.055, team),
     skinMat
+  );
+  const rightSleeve = createPlayerSleeve(
+    team,
+    rightShoulder,
+    rightElbow,
+    0.064,
+    tunicMaterial,
+    0.88
   );
   const rightForearm = limb(
     rightElbow,
@@ -1318,7 +2414,7 @@ export function createArcherModel(team, options = {}) {
   const bowPivot = createPivot(
     'archerBowPivot',
     new THREE.Vector3(0.3, 1.2, 0.08),
-    [leftArm, leftHand, bow, string]
+    [leftArm, ...(leftSleeve ? [leftSleeve] : []), leftHand, bow, string]
   );
   const drawForearmPivot = createPivot(
     'archerDrawForearmPivot',
@@ -1328,13 +2424,22 @@ export function createArcherModel(team, options = {}) {
   const drawPivot = createPivot(
     'archerDrawPivot',
     rightShoulder,
-    [rightUpperArm, drawForearmPivot]
+    [rightUpperArm, ...(rightSleeve ? [rightSleeve] : []), drawForearmPivot]
   );
   drawPivot.rotation.y = THREE.MathUtils.degToRad(10);
   const upperBodyPivot = createPivot(
     'archerUpperBodyPivot',
     new THREE.Vector3(0, 0.84, 0),
-    [body, head, eyeLeft, eyeRight, hood, quiver]
+    [
+      body,
+      ...(torsoStructure ? [torsoStructure] : []),
+      head,
+      eyeLeft,
+      eyeRight,
+      hood,
+      ...(hoodFrame ? [hoodFrame] : []),
+      quiver
+    ]
   );
 
   group.add(
@@ -1367,10 +2472,13 @@ export function createCrossbowmanModel(team) {
   const wood = mat('#6a4a30');
   const darkWood = mat('#3a2a24');
   const steel = mat('#d8dde0', { metalness: 0.22 });
+  const tunicMaterial = mat(tunic);
+  const leather = mat('#5a4030');
+  const armorMaterial = mat(team === 'player' ? '#68777a' : trim, { metalness: 0.14, roughness: 0.74 });
 
   const body = mesh(
-    new THREE.DodecahedronGeometry(0.5, 0),
-    mat(tunic),
+    humanoidTorsoGeometry(0.5, team),
+    tunicMaterial,
     new THREE.Vector3(0, 0.9, 0),
     new THREE.Vector3(0.82, 1.18, 0.62)
   );
@@ -1388,20 +2496,68 @@ export function createCrossbowmanModel(team) {
   );
   const eyeRight = eyeLeft.clone();
   eyeRight.position.x = 0.08;
+  styleHumanoidEyes(team, eyeLeft, eyeRight);
   const helm = mesh(
-    new THREE.ConeGeometry(0.31, 0.34, 6),
-    mat(trim),
-    new THREE.Vector3(0, 1.82, 0),
-    new THREE.Vector3(1, 0.92, 1)
+    humanoidHeadwearGeometry(team === 'player' ? 0.27 : 0.31, team === 'player' ? 0.29 : 0.34, team),
+    team === 'player' ? armorMaterial : mat(trim),
+    new THREE.Vector3(0, team === 'player' ? 1.79 : 1.82, 0),
+    team === 'player' ? new THREE.Vector3(1, 1, 1) : new THREE.Vector3(1, 0.92, 1)
   );
+  const helmetBand = team === 'player'
+    ? mesh(
+      new THREE.BoxGeometry(0.32, 0.045, 0.045),
+      mat('#49585b', { metalness: 0.12 }),
+      new THREE.Vector3(0, 1.68, 0.2),
+      new THREE.Vector3(1, 1, 1)
+    )
+    : null;
+  const torsoStructure = createPlayerTorsoStructure({
+    team,
+    centerY: 0.9,
+    width: 0.7,
+    height: 0.8,
+    depth: 0.48,
+    panelMaterial: mat('#40575d'),
+    beltMaterial: leather
+  });
   const leg = mesh(
     new THREE.BoxGeometry(0.17, 0.52, 0.17),
-    mat('#2d2e34'),
+    mat(team === 'player' ? '#323a3c' : '#2d2e34'),
     new THREE.Vector3(-0.15, 0.27, 0),
     new THREE.Vector3(1, 1, 1)
   );
   const leg2 = leg.clone();
   leg2.position.x = 0.15;
+  const leftBoot = team === 'player'
+    ? mesh(
+      new THREE.BoxGeometry(0.2, 0.13, 0.27),
+      leather,
+      new THREE.Vector3(-0.15, 0.065, 0.035),
+      new THREE.Vector3(1, 1, 1)
+    )
+    : null;
+  const rightBoot = leftBoot?.clone() ?? null;
+  if (rightBoot) rightBoot.position.x = 0.15;
+  const leftShinGuard = team === 'player'
+    ? mesh(
+      new THREE.BoxGeometry(0.18, 0.2, 0.055),
+      leather,
+      new THREE.Vector3(-0.15, 0.29, 0.095),
+      new THREE.Vector3(1, 1, 1)
+    )
+    : null;
+  const rightShinGuard = leftShinGuard?.clone() ?? null;
+  if (rightShinGuard) rightShinGuard.position.x = 0.15;
+  const tassetLeft = team === 'player'
+    ? mesh(
+      new THREE.BoxGeometry(0.22, 0.22, 0.055),
+      mat('#354c52'),
+      new THREE.Vector3(-0.13, 0.59, 0.25),
+      new THREE.Vector3(1, 1, 1)
+    )
+    : null;
+  const tassetRight = tassetLeft?.clone() ?? null;
+  if (tassetRight) tassetRight.position.x = 0.13;
 
   const leftArm = limb(
     new THREE.Vector3(0.31, 1.18, 0.08),
@@ -1414,6 +2570,38 @@ export function createCrossbowmanModel(team) {
     new THREE.Vector3(-0.12, 0.86, 0.54),
     humanoidArmRadius(0.058, team),
     skinMat
+  );
+  const leftSleeve = createPlayerSleeve(
+    team,
+    new THREE.Vector3(0.31, 1.18, 0.08),
+    new THREE.Vector3(0.42, 0.9, 0.62),
+    0.068,
+    tunicMaterial
+  );
+  const rightSleeve = createPlayerSleeve(
+    team,
+    new THREE.Vector3(-0.31, 1.18, 0.08),
+    new THREE.Vector3(-0.12, 0.86, 0.54),
+    0.068,
+    tunicMaterial
+  );
+  const leftArmGuard = createPlayerArmGuard(
+    team,
+    new THREE.Vector3(0.31, 1.18, 0.08),
+    new THREE.Vector3(0.42, 0.9, 0.62),
+    0.068,
+    leather,
+    0.52,
+    0.86
+  );
+  const rightArmGuard = createPlayerArmGuard(
+    team,
+    new THREE.Vector3(-0.31, 1.18, 0.08),
+    new THREE.Vector3(-0.12, 0.86, 0.54),
+    0.068,
+    leather,
+    0.52,
+    0.86
   );
   const leftHand = mesh(
     humanoidHandGeometry(0.09, team),
@@ -1458,7 +2646,17 @@ export function createCrossbowmanModel(team) {
   const upperBodyPivot = createPivot(
     'crossbowUpperBodyPivot',
     new THREE.Vector3(0, 0.88, 0),
-    [body, head, eyeLeft, eyeRight, helm]
+    [
+      body,
+      ...(torsoStructure ? [torsoStructure] : []),
+      ...(tassetLeft ? [tassetLeft] : []),
+      ...(tassetRight ? [tassetRight] : []),
+      head,
+      eyeLeft,
+      eyeRight,
+      helm,
+      ...(helmetBand ? [helmetBand] : [])
+    ]
   );
   const weaponPivot = createPivot(
     'crossbowWeaponPivot',
@@ -1468,15 +2666,36 @@ export function createCrossbowmanModel(team) {
   const offhandPivot = createPivot(
     'crossbowOffhandPivot',
     new THREE.Vector3(0.31, 1.18, 0.08),
-    [leftArm, leftHand]
+    [
+      leftArm,
+      ...(leftSleeve ? [leftSleeve] : []),
+      ...(leftArmGuard ? [leftArmGuard] : []),
+      leftHand
+    ]
   );
   const gripPivot = createPivot(
     'crossbowGripPivot',
     new THREE.Vector3(-0.31, 1.18, 0.08),
-    [rightArm, rightHand]
+    [
+      rightArm,
+      ...(rightSleeve ? [rightSleeve] : []),
+      ...(rightArmGuard ? [rightArmGuard] : []),
+      rightHand
+    ]
   );
 
-  group.add(upperBodyPivot, weaponPivot, offhandPivot, gripPivot, leg, leg2);
+  group.add(
+    upperBodyPivot,
+    weaponPivot,
+    offhandPivot,
+    gripPivot,
+    leg,
+    leg2,
+    ...(leftBoot ? [leftBoot] : []),
+    ...(rightBoot ? [rightBoot] : []),
+    ...(leftShinGuard ? [leftShinGuard] : []),
+    ...(rightShinGuard ? [rightShinGuard] : [])
+  );
   group.userData.parts = {
     upperBodyPivot,
     weaponPivot,
@@ -1607,26 +2826,47 @@ export function createPriestModel(team, options = {}) {
   const hoodColor = options.hoodColor ?? (team === 'player' ? '#5666a4' : '#6f4c44');
   const focusColor = options.focusColor ?? '#dff8ff';
   const focusEmissive = options.focusEmissive ?? '#8feaff';
+  const robeMaterial = mat(robeColor);
+  const hoodMaterial = mat(hoodColor);
+  const trimMaterial = mat(trimColor);
+  const battleCoat = options.bodyStyle === 'battleCoat'
+    ? createPlayerBattleCoatStructure(team, robeMaterial, trimMaterial)
+    : null;
+  const shortTunic = options.bodyStyle === 'shortTunic'
+    ? createPlayerShortTunicStructure(team, robeMaterial, trimMaterial)
+    : null;
+  const isPlayerCombatOutfit = team === 'player'
+    && (options.bodyStyle === 'battleCoat' || options.bodyStyle === 'shortTunic');
 
   const robe = options.bodyStyle === 'tunic'
     ? mesh(
-      new THREE.DodecahedronGeometry(0.5, 0),
-      mat(robeColor),
+      humanoidTorsoGeometry(0.5, team),
+      robeMaterial,
       new THREE.Vector3(0, 0.9, 0),
       new THREE.Vector3(0.86, 1.02, 0.66)
     )
-    : mesh(
-      new THREE.CylinderGeometry(0.42, 0.56, 1.18, 6),
-      mat(robeColor),
+    : battleCoat ?? shortTunic ?? createPlayerRobeStructure(team, robeMaterial) ?? mesh(
+      humanoidRobeGeometry(0.42, 0.56, 1.18, team),
+      robeMaterial,
       new THREE.Vector3(0, 0.78, 0),
       new THREE.Vector3(1, 1, 1)
     );
-  const sash = mesh(
-    new THREE.BoxGeometry(0.58, 0.08, 0.08),
-    mat(trimColor),
-    new THREE.Vector3(0, 0.98, 0.36),
-    new THREE.Vector3(1, 1, 1)
-  );
+  const sash = isPlayerCombatOutfit
+    ? null
+    : mesh(
+      new THREE.BoxGeometry(0.58, 0.08, team === 'player' ? 0.46 : 0.08),
+      trimMaterial,
+      new THREE.Vector3(0, team === 'player' ? 0.76 : 0.98, team === 'player' ? 0 : 0.36),
+      new THREE.Vector3(1, 1, 1)
+    );
+  const battleMantle = isPlayerCombatOutfit
+    ? mesh(
+      new THREE.CylinderGeometry(0.46, 0.34, 0.18, 5),
+      hoodMaterial,
+      new THREE.Vector3(0, 1.18, 0),
+      new THREE.Vector3(1, 0.88, 0.9)
+    )
+    : null;
   const head = mesh(
     humanoidHeadGeometry(0.26, team),
     skinMat,
@@ -1634,11 +2874,21 @@ export function createPriestModel(team, options = {}) {
     new THREE.Vector3(1, 1, 1)
   );
   const hood = mesh(
-    new THREE.ConeGeometry(0.3, 0.36, 6),
-    mat(hoodColor),
+    humanoidHeadwearGeometry(0.3, 0.36, team),
+    hoodMaterial,
     new THREE.Vector3(0, 1.74, 0),
     new THREE.Vector3(1, 1, 1)
   );
+  const hoodFrame = options.hideHood
+    ? null
+    : createPlayerHoodFrame({
+      team,
+      centerY: 1.49,
+      width: 0.41,
+      height: 0.3,
+      depth: 0.13,
+      material: hoodMaterial
+    });
   const eyeLeft = mesh(
     new THREE.BoxGeometry(0.04, 0.032, 0.02),
     mat('#24201c'),
@@ -1647,11 +2897,20 @@ export function createPriestModel(team, options = {}) {
   );
   const eyeRight = eyeLeft.clone();
   eyeRight.position.x = 0.075;
+  styleHumanoidEyes(team, eyeLeft, eyeRight);
   const rightArm = limb(
     new THREE.Vector3(-0.32, 1.14, 0.05),
     new THREE.Vector3(-0.36, 0.78, 0.36),
     humanoidArmRadius(0.055, team),
     skinMat
+  );
+  const rightSleeve = createPlayerSleeve(
+    team,
+    new THREE.Vector3(-0.32, 1.14, 0.05),
+    new THREE.Vector3(-0.36, 0.78, 0.36),
+    0.066,
+    robeMaterial,
+    0.52
   );
   const rightHand = mesh(
     humanoidHandGeometry(0.09, team),
@@ -1688,6 +2947,14 @@ export function createPriestModel(team, options = {}) {
     humanoidArmRadius(0.052, team),
     skinMat
   );
+  const leftSleeve = createPlayerSleeve(
+    team,
+    new THREE.Vector3(0.32, 1.13, 0.05),
+    new THREE.Vector3(0.28, 0.94, 0.42),
+    0.064,
+    robeMaterial,
+    0.52
+  );
   const leftHand = mesh(
     humanoidHandGeometry(0.085, team),
     skinMat,
@@ -1695,35 +2962,53 @@ export function createPriestModel(team, options = {}) {
     new THREE.Vector3(1, 1, 1)
   );
   const leg = mesh(
-    new THREE.BoxGeometry(0.15, 0.42, 0.15),
+    new THREE.BoxGeometry(
+      isPlayerCombatOutfit ? 0.17 : 0.15,
+      isPlayerCombatOutfit ? 0.5 : 0.42,
+      isPlayerCombatOutfit ? 0.17 : 0.15
+    ),
     mat(options.legColor ?? '#2a2b36'),
-    new THREE.Vector3(-0.12, 0.2, 0),
+    new THREE.Vector3(-0.12, isPlayerCombatOutfit ? 0.27 : 0.2, 0),
     new THREE.Vector3(1, 1, 1)
   );
   const leg2 = leg.clone();
   leg2.position.x = 0.12;
+  const leftBoot = isPlayerCombatOutfit
+    ? mesh(
+      new THREE.BoxGeometry(0.2, 0.14, 0.27),
+      mat(options.bootColor ?? '#5a4030'),
+      new THREE.Vector3(-0.12, 0.07, 0.04),
+      new THREE.Vector3(1, 1, 1)
+    )
+    : null;
+  const rightBoot = leftBoot?.clone() ?? null;
+  if (rightBoot) rightBoot.position.x = 0.12;
   const weaponPivot = createPivot(
     'supportWeaponPivot',
     new THREE.Vector3(-0.32, 1.14, 0.05),
-    [rightArm, rightHand, weaponSwingPivot]
+    [rightArm, ...(rightSleeve ? [rightSleeve] : []), rightHand, weaponSwingPivot]
   );
   const offhandPivot = createPivot(
     'supportOffhandPivot',
     new THREE.Vector3(0.32, 1.13, 0.05),
-    [leftArm, leftHand]
+    [leftArm, ...(leftSleeve ? [leftSleeve] : []), leftHand]
   );
 
   group.add(
     robe,
-    sash,
+    ...(sash ? [sash] : []),
+    ...(battleMantle ? [battleMantle] : []),
     head,
     ...(options.hideHood ? [] : [hood]),
+    ...(hoodFrame ? [hoodFrame] : []),
     eyeLeft,
     eyeRight,
     weaponPivot,
     offhandPivot,
     leg,
-    leg2
+    leg2,
+    ...(leftBoot ? [leftBoot] : []),
+    ...(rightBoot ? [rightBoot] : [])
   );
   group.userData.parts = {
     weaponPivot,
@@ -1761,7 +3046,7 @@ export function createPhysicianModel(team) {
     new THREE.Vector3(1, 1, 1)
   );
   const cap = mesh(
-    new THREE.ConeGeometry(0.3, 0.22, 6),
+    humanoidHeadwearGeometry(0.3, 0.22, team),
     cloth,
     new THREE.Vector3(0, 1.75, -0.01),
     new THREE.Vector3(1, 0.86, 0.86)
@@ -1916,16 +3201,55 @@ export function createPhysicianModel(team) {
 }
 
 export function createPurifierModel(team) {
+  const isPlayer = team === 'player';
   const group = createPriestModel(team, {
-    hideHood: true,
-    robeColor: team === 'player' ? '#17191d' : '#241c1f',
-    hoodColor: '#17191d',
-    trimColor: team === 'player' ? '#3c4148' : '#5a3d3d',
+    bodyStyle: isPlayer ? 'battleCoat' : undefined,
+    hideHood: !isPlayer,
+    robeColor: isPlayer ? '#46546b' : '#241c1f',
+    hoodColor: isPlayer ? '#c8bea0' : '#17191d',
+    trimColor: isPlayer ? '#b8aa82' : '#5a3d3d',
+    legColor: isPlayer ? '#303846' : '#2a2b36',
+    bootColor: '#554536',
     hideFocusGem: true,
     focusColor: '#dfe8ee',
     focusEmissive: '#9fdfff'
   });
   const { offhandPivot, projectileSocket } = group.userData.parts ?? {};
+  if (isPlayer) {
+    const paleCrystal = mat('#dceef2', {
+      emissive: '#87dceb',
+      emissiveIntensity: 0.42,
+      roughness: 0.5
+    });
+    const holyGlow = mat('#bceef3', {
+      emissive: '#6fdfff',
+      emissiveIntensity: 0.52
+    });
+    const staffCrystal = mesh(
+      new THREE.OctahedronGeometry(0.13, 0),
+      paleCrystal,
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(0.8, 1.22, 0.72)
+    );
+    projectileSocket?.add(staffCrystal);
+    if (offhandPivot) {
+      const sigil = new THREE.Group();
+      sigil.name = 'purifierOffhandSigil';
+      sigil.position.set(-0.03, -0.05, 0.43);
+      const vertical = new THREE.Mesh(
+        new THREE.BoxGeometry(0.045, 0.25, 0.045),
+        holyGlow
+      );
+      const horizontal = new THREE.Mesh(
+        new THREE.BoxGeometry(0.19, 0.045, 0.045),
+        holyGlow
+      );
+      horizontal.position.y = 0.045;
+      sigil.add(vertical, horizontal);
+      offhandPivot.add(sigil);
+    }
+    return enableShadows(group);
+  }
   const coat = mat('#111318');
   const coatEdge = mat('#2f343b');
   const maskMat = mat('#eef1f2');
@@ -2041,11 +3365,12 @@ export function createWarderModel(team) {
   const tunic = mat(team === 'player' ? '#24333c' : '#3c3030');
   const cloakMat = mat(team === 'player' ? '#8d2634' : '#6f202d');
   const dark = mat('#1f2b34');
+  const hoodMat = mat('#18181c');
   const gold = mat('#d7a64f');
   const wardMat = mat('#ffb347', { emissive: '#ff8a18', emissiveIntensity: 0.72 });
 
   const body = mesh(
-    new THREE.DodecahedronGeometry(0.5, 0),
+    humanoidTorsoGeometry(0.5, team),
     tunic,
     new THREE.Vector3(0, 0.88, 0),
     new THREE.Vector3(0.82, 1.14, 0.62)
@@ -2057,11 +3382,23 @@ export function createWarderModel(team) {
     new THREE.Vector3(1, 1, 1)
   );
   const hair = mesh(
-    new THREE.DodecahedronGeometry(0.28, 0),
-    mat('#18181c'),
-    new THREE.Vector3(0, 1.66, -0.03),
-    new THREE.Vector3(1.06, 0.52, 0.9)
+    team === 'player'
+      ? humanoidHeadwearGeometry(0.29, 0.32, team)
+      : new THREE.DodecahedronGeometry(0.28, 0),
+    hoodMat,
+    new THREE.Vector3(0, team === 'player' ? 1.74 : 1.66, -0.03),
+    team === 'player'
+      ? new THREE.Vector3(1, 1, 1)
+      : new THREE.Vector3(1.06, 0.52, 0.9)
   );
+  const hoodFrame = createPlayerHoodFrame({
+    team,
+    centerY: 1.51,
+    width: 0.41,
+    height: 0.3,
+    depth: 0.13,
+    material: hoodMat
+  });
   const eyeLeft = mesh(
     new THREE.BoxGeometry(0.04, 0.032, 0.02),
     mat('#201410'),
@@ -2070,11 +3407,16 @@ export function createWarderModel(team) {
   );
   const eyeRight = eyeLeft.clone();
   eyeRight.position.x = 0.075;
+  styleHumanoidEyes(team, eyeLeft, eyeRight);
   const cloak = mesh(
-    new THREE.ConeGeometry(0.58, 1.26, 6),
+    team === 'player'
+      ? new THREE.CylinderGeometry(0.36, 0.48, 1.02, 4, 1, false, Math.PI / 4)
+      : humanoidCloakGeometry(0.58, 1.26, team),
     cloakMat,
-    new THREE.Vector3(0, 0.88, -0.18),
-    new THREE.Vector3(0.96, 1, 0.62)
+    new THREE.Vector3(0, team === 'player' ? 0.91 : 0.88, team === 'player' ? -0.33 : -0.18),
+    team === 'player'
+      ? new THREE.Vector3(1, 1, 0.18)
+      : new THREE.Vector3(0.96, 1, 0.62)
   );
   cloak.rotation.x = -0.08;
   const collar = mesh(
@@ -2096,8 +3438,18 @@ export function createWarderModel(team) {
   const leftHandPosition = new THREE.Vector3(-0.08, 0.94, 0.58);
   const rightArm = limb(rightShoulder, rightHandPosition, humanoidArmRadius(0.058, team), skinMat);
   const leftArm = limb(leftShoulder, leftHandPosition, humanoidArmRadius(0.058, team), skinMat);
-  const rightSleeve = limb(rightShoulder, rightShoulder.clone().lerp(rightHandPosition, 0.48), 0.085, dark);
-  const leftSleeve = limb(leftShoulder, leftShoulder.clone().lerp(leftHandPosition, 0.48), 0.085, dark);
+  const rightSleeve = limb(
+    rightShoulder,
+    rightShoulder.clone().lerp(rightHandPosition, 0.48),
+    humanoidArmRadius(0.085, team),
+    dark
+  );
+  const leftSleeve = limb(
+    leftShoulder,
+    leftShoulder.clone().lerp(leftHandPosition, 0.48),
+    humanoidArmRadius(0.085, team),
+    dark
+  );
   const rightHand = mesh(
     humanoidHandGeometry(0.09, team),
     skinMat,
@@ -2142,7 +3494,22 @@ export function createWarderModel(team) {
   );
   const leg2 = leg.clone();
   leg2.position.x = 0.12;
-  group.add(cloak, body, belt, collar, head, hair, eyeLeft, eyeRight, rightHandPivot, leftHandPivot, wardCirclePivot, leg, leg2);
+  group.add(
+    cloak,
+    body,
+    belt,
+    collar,
+    head,
+    hair,
+    ...(hoodFrame ? [hoodFrame] : []),
+    eyeLeft,
+    eyeRight,
+    rightHandPivot,
+    leftHandPivot,
+    wardCirclePivot,
+    leg,
+    leg2
+  );
   group.userData.parts = {
     warderRightHandPivot: rightHandPivot,
     warderLeftHandPivot: leftHandPivot,
@@ -2156,9 +3523,12 @@ export function createWarderModel(team) {
 
 export function createWaterMageModel(team) {
   const group = createPriestModel(team, {
+    bodyStyle: 'shortTunic',
     robeColor: team === 'player' ? '#3e8fb3' : '#476575',
     hoodColor: team === 'player' ? '#235f83' : '#344a59',
     trimColor: '#dff8ff',
+    legColor: team === 'player' ? '#275f79' : '#2a2b36',
+    bootColor: '#5a4030',
     focusColor: '#65d8ff',
     focusEmissive: '#2fb6ff'
   });
@@ -2179,14 +3549,17 @@ export function createWaterMageModel(team) {
 }
 
 export function createLightningMageModel(team) {
+  const isPlayer = team === 'player';
   const group = createPriestModel(team, {
-    hideHood: true,
+    bodyStyle: 'battleCoat',
+    hideHood: !isPlayer,
     robeColor: team === 'player' ? '#36365f' : '#4b3a64',
     trimColor: '#e2c665',
     hoodColor: '#252541',
     focusColor: '#e9e3ff',
     focusEmissive: '#9c7cff',
-    legColor: '#202237'
+    legColor: '#202237',
+    bootColor: '#4b3b35'
   });
   const { projectileSocket, focusGem } = group.userData.parts ?? {};
   const darkMetal = mat('#2a3045', { metalness: 0.38, roughness: 0.45 });
@@ -2210,22 +3583,60 @@ export function createLightningMageModel(team) {
     new THREE.Vector3(0.72, 1, 0.25)
   );
   chestRune.rotation.x = Math.PI / 2;
-  const crownBand = mesh(
-    new THREE.CylinderGeometry(0.29, 0.3, 0.08, 6),
-    brass,
-    new THREE.Vector3(0, 1.72, 0),
-    new THREE.Vector3(1, 1, 1)
-  );
-  const crownProngs = [-0.18, 0, 0.18].map((x, index) => {
-    const prong = mesh(
-      new THREE.ConeGeometry(index === 1 ? 0.075 : 0.055, index === 1 ? 0.42 : 0.3, 4),
+  const hoodBrow = isPlayer
+    ? mesh(
+      new THREE.BoxGeometry(0.34, 0.045, 0.045),
       brass,
-      new THREE.Vector3(x, index === 1 ? 2.0 : 1.91, 0.02),
-      new THREE.Vector3(1, 1, 0.72)
+      new THREE.Vector3(0, 1.66, 0.23),
+      new THREE.Vector3(1, 1, 1)
+    )
+    : null;
+  const hoodTrimLeft = isPlayer
+    ? boxBetween(
+      new THREE.Vector3(-0.17, 1.65, 0.225),
+      new THREE.Vector3(-0.21, 1.4, 0.205),
+      0.045,
+      0.04,
+      brass
+    )
+    : null;
+  const hoodTrimRight = isPlayer
+    ? boxBetween(
+      new THREE.Vector3(0.17, 1.65, 0.225),
+      new THREE.Vector3(0.21, 1.4, 0.205),
+      0.045,
+      0.04,
+      brass
+    )
+    : null;
+  const hoodForeheadMark = isPlayer
+    ? mesh(
+      new THREE.OctahedronGeometry(0.055, 0),
+      brass,
+      new THREE.Vector3(0, 1.75, 0.19),
+      new THREE.Vector3(0.72, 1, 0.42)
+    )
+    : null;
+  const crownBand = isPlayer
+    ? null
+    : mesh(
+      new THREE.CylinderGeometry(0.29, 0.3, 0.08, 6),
+      brass,
+      new THREE.Vector3(0, 1.72, 0),
+      new THREE.Vector3(1, 1, 1)
     );
-    prong.rotation.z = index === 0 ? 0.22 : index === 2 ? -0.22 : 0;
-    return prong;
-  });
+  const crownProngs = isPlayer
+    ? []
+    : [-0.18, 0, 0.18].map((x, index) => {
+      const prong = mesh(
+        new THREE.ConeGeometry(index === 1 ? 0.075 : 0.055, index === 1 ? 0.42 : 0.3, 4),
+        brass,
+        new THREE.Vector3(x, index === 1 ? 2.0 : 1.91, 0.02),
+        new THREE.Vector3(1, 1, 0.72)
+      );
+      prong.rotation.z = index === 0 ? 0.22 : index === 2 ? -0.22 : 0;
+      return prong;
+    });
   const shoulderLeft = mesh(
     new THREE.ConeGeometry(0.18, 0.34, 4),
     darkMetal,
@@ -2238,24 +3649,42 @@ export function createLightningMageModel(team) {
   shoulderRight.rotation.z = 0.72;
 
   if (focusGem) {
-    focusGem.scale.setScalar(1.28);
+    focusGem.scale.setScalar(isPlayer ? 0.84 : 1.28);
   }
   if (projectileSocket) {
     const forkLeft = mesh(
-      new THREE.BoxGeometry(0.035, 0.32, 0.035),
+      new THREE.BoxGeometry(
+        isPlayer ? 0.03 : 0.035,
+        isPlayer ? 0.2 : 0.32,
+        isPlayer ? 0.03 : 0.035
+      ),
       brass,
-      new THREE.Vector3(-0.1, 0.13, 0),
+      new THREE.Vector3(isPlayer ? -0.07 : -0.1, isPlayer ? 0.08 : 0.13, 0),
       new THREE.Vector3(1, 1, 1)
     );
-    forkLeft.rotation.z = 0.52;
+    forkLeft.rotation.z = isPlayer ? 0.46 : 0.52;
     const forkRight = forkLeft.clone();
-    forkRight.position.x = 0.1;
-    forkRight.rotation.z = -0.52;
-    const arcRing = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.014, 4, 20), violetGlow);
+    forkRight.position.x = isPlayer ? 0.07 : 0.1;
+    forkRight.rotation.z = isPlayer ? -0.46 : -0.52;
+    const arcRing = new THREE.Mesh(
+      new THREE.TorusGeometry(isPlayer ? 0.15 : 0.2, isPlayer ? 0.012 : 0.014, 4, isPlayer ? 18 : 20),
+      violetGlow
+    );
     arcRing.rotation.y = Math.PI / 2;
     projectileSocket.add(forkLeft, forkRight, arcRing);
   }
-  group.add(mantle, chestRune, crownBand, ...crownProngs, shoulderLeft, shoulderRight);
+  group.add(
+    mantle,
+    chestRune,
+    ...(hoodBrow ? [hoodBrow] : []),
+    ...(hoodTrimLeft ? [hoodTrimLeft] : []),
+    ...(hoodTrimRight ? [hoodTrimRight] : []),
+    ...(hoodForeheadMark ? [hoodForeheadMark] : []),
+    ...(crownBand ? [crownBand] : []),
+    ...crownProngs,
+    shoulderLeft,
+    shoulderRight
+  );
   return enableShadows(group);
 }
 
@@ -2386,9 +3815,10 @@ export function createRaiderModel(options = {}) {
   const team = options.team ?? 'enemy';
   const skinMat = mat(options.skinColor ?? '#b97a56');
   const legMat = options.skeletalLegs ? skinMat : mat(options.legColor ?? '#312923');
+  const bodyMaterial = mat(options.bodyColor ?? '#8f3b34');
   const body = mesh(
-    new THREE.DodecahedronGeometry(0.5, 0),
-    mat(options.bodyColor ?? '#8f3b34'),
+    humanoidTorsoGeometry(0.5, team),
+    bodyMaterial,
     new THREE.Vector3(0, 0.86, 0),
     new THREE.Vector3(0.84, 1.16, 0.66)
   );
@@ -2406,11 +3836,54 @@ export function createRaiderModel(options = {}) {
   );
   const eyeRight = eyeLeft.clone();
   eyeRight.position.x = 0.08;
+  styleHumanoidEyes(team, eyeLeft, eyeRight);
+  const playerHeadDetails = [];
+  if (team === 'player') {
+    const hairMaterial = mat('#5a3928');
+    const hairTop = mesh(
+      new THREE.BoxGeometry(0.3, 0.1, 0.29),
+      hairMaterial,
+      new THREE.Vector3(0, 1.67, -0.015),
+      new THREE.Vector3(1, 1, 1)
+    );
+    hairTop.rotation.z = -0.06;
+    const hairBack = mesh(
+      new THREE.BoxGeometry(0.28, 0.24, 0.07),
+      hairMaterial,
+      new THREE.Vector3(0, 1.55, -0.16),
+      new THREE.Vector3(1, 1, 1)
+    );
+    const beard = mesh(
+      new THREE.ConeGeometry(0.17, 0.28, 4),
+      hairMaterial,
+      new THREE.Vector3(0, 1.34, 0.14),
+      new THREE.Vector3(0.9, 1, 0.58)
+    );
+    beard.rotation.x = Math.PI;
+    playerHeadDetails.push(hairTop, hairBack, beard);
+  }
+  const torsoStructure = createPlayerTorsoStructure({
+    team,
+    centerY: 0.86,
+    width: 0.7,
+    height: 0.8,
+    depth: 0.48,
+    panelMaterial: mat(options.bodyColor ?? '#8f3b34'),
+    beltMaterial: mat('#5b3a28')
+  });
   const rightArm = limb(
     new THREE.Vector3(-0.32, 1.14, 0.04),
     new THREE.Vector3(-0.25, 0.7, 0.38),
     humanoidArmRadius(0.065, team),
     skinMat
+  );
+  const rightSleeve = createPlayerSleeve(
+    team,
+    new THREE.Vector3(-0.32, 1.14, 0.04),
+    new THREE.Vector3(-0.25, 0.7, 0.38),
+    0.074,
+    bodyMaterial,
+    0.36
   );
   const rightHand = mesh(
     humanoidHandGeometry(0.095, team),
@@ -2423,6 +3896,14 @@ export function createRaiderModel(options = {}) {
     new THREE.Vector3(0.43, 0.82, 0.12),
     humanoidArmRadius(0.058, team),
     skinMat
+  );
+  const leftSleeve = createPlayerSleeve(
+    team,
+    new THREE.Vector3(0.32, 1.12, 0.04),
+    new THREE.Vector3(0.43, 0.82, 0.12),
+    0.068,
+    bodyMaterial,
+    0.36
   );
   const leftHand = mesh(
     humanoidHandGeometry(0.085, team),
@@ -2469,17 +3950,20 @@ export function createRaiderModel(options = {}) {
   const weaponPivot = createPivot(
     'raiderWeaponPivot',
     new THREE.Vector3(-0.32, 1.14, 0.04),
-    [rightArm, rightHand, weaponSwingPivot]
+    [rightArm, ...(rightSleeve ? [rightSleeve] : []), rightHand, weaponSwingPivot]
   );
   const offhandPivot = createPivot(
     'raiderOffhandPivot',
     new THREE.Vector3(0.32, 1.12, 0.04),
-    [leftArm, leftHand]
+    [leftArm, ...(leftSleeve ? [leftSleeve] : []), leftHand]
   );
-  const bodyParts = options.hideBody ? [] : [body];
+  const bodyParts = options.hideBody
+    ? []
+    : [body, ...(torsoStructure ? [torsoStructure] : [])];
   group.add(
     ...bodyParts,
     head,
+    ...playerHeadDetails,
     eyeLeft,
     eyeRight,
     weaponPivot,
