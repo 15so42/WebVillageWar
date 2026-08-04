@@ -180,16 +180,41 @@ export class CardSystem {
       element.dataset.handIndex = String(index);
     }
     element.style.setProperty('--card-color', cardThemeColor(card));
-        element.dataset.cost = cardEnergyCost(card);
+    element.dataset.cost = cardEnergyCost(card);
     element.dataset.kind = card.kind;
-    element.innerHTML = `
-      <div class="med-card-wrapper">
-        <div class="med-card-bg"></div>
-        <div class="med-card-cost"><span>${cardEnergyCost(card)}</span></div>
+    const cardLevel = card.level ?? 1;
+    const useBarMarkup = cardUseBarMarkup(card);
+    const handCardFrameStyle = location === 'hand'
+      ? ` style="--hand-card-frame: url('${resolveCardArtAsset('card-art/unit-hand-frame-imagegen-v1.png')}'); --hand-card-cost-frame: url('${resolveCardArtAsset('card-art/unit-cost-frame-v1.png')}')"`
+      : '';
+    const outerMetadataMarkup = location === 'hand'
+      ? ''
+      : `
         <div class="med-card-kind">${kindLabel(card.kind)}</div>
-        <div class="med-card-level">Lv.${card.level ?? 1}</div>
-        ${cardUseBarMarkup(card)}
-        ${cardCooldownOverlayMarkup(this, card)}
+        <div class="med-card-level">Lv.${cardLevel}</div>
+      `;
+    const cardFaceMarkup = location === 'hand'
+      ? `
+        <div class="med-card-face">
+          <div class="med-card-art-container">
+            ${createCardArtMarkup(card)}
+            ${useBarMarkup}
+          </div>
+          <div class="med-card-meta-row">
+            <div class="med-card-kind" role="img" aria-label="${kindLabel(card.kind)}" title="${kindLabel(card.kind)}">
+              ${cardKindIconMarkup(card.kind)}
+            </div>
+            <div class="med-card-name">${card.name}</div>
+            <div class="med-card-level" role="img" aria-label="等级 ${cardLevel}" title="等级 ${cardLevel}">
+              ${cardLevelIconMarkup(cardLevel)}
+            </div>
+          </div>
+          <div class="med-card-bottom">
+            <div class="med-card-desc">${card.summary}</div>
+          </div>
+        </div>
+      `
+      : `
         <div class="med-card-face">
           <div class="med-card-art-container">
             ${createCardArtMarkup(card)}
@@ -199,6 +224,15 @@ export class CardSystem {
             <div class="med-card-desc">${card.summary}</div>
           </div>
         </div>
+      `;
+    element.innerHTML = `
+      <div class="med-card-wrapper"${handCardFrameStyle}>
+        <div class="med-card-bg"></div>
+        <div class="med-card-cost"><span>${cardEnergyCost(card)}</span></div>
+        ${outerMetadataMarkup}
+        ${location === 'hand' ? '' : useBarMarkup}
+        ${cardCooldownOverlayMarkup(this, card)}
+        ${cardFaceMarkup}
       </div>
     `;
     fitCardElementText(element);
@@ -2280,6 +2314,32 @@ function kindLabel(kind) {
   return '附魔卡';
 }
 
+function cardKindIconMarkup(kind) {
+  const paths = {
+    summon: '<path d="M5 17v-6a7 7 0 0 1 14 0v6M5 13h4v6M19 13h-4v6M9 19h6"/>',
+    building: '<path d="M5 20h14M7 20V9h10v11M6 9V5h3v3h3V5h3v3h3v1M10 20v-5h4v5"/>',
+    spell: '<path d="m12 3 1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3Z"/><path d="m18.5 15 .7 2.3 2.3.7-2.3.7-.7 2.3-.7-2.3-2.3-.7 2.3-.7.7-2.3Z"/>',
+    enchant: '<path d="m12 3 7 6-7 12L5 9l7-6Z"/><path d="m5 9 7 3 7-3M12 3v9"/>',
+    tactic: '<path d="M6 21V4M7 5h11l-3 4 3 4H7"/>',
+    ability: '<circle cx="12" cy="12" r="8"/><path d="m13 5-5 8h4l-1 6 5-9h-4l1-5Z"/>'
+  };
+  const path = paths[kind] ?? paths.enchant;
+  return `<svg class="med-card-type-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${path}</svg>`;
+}
+
+function cardLevelIconMarkup(level) {
+  const value = Number.isFinite(Number(level)) ? Math.max(1, Math.floor(Number(level))) : 1;
+  return `
+    <span class="med-card-level-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" focusable="false">
+        <path d="m12 2.5 8 6-3 11H7l-3-11 8-6Z"/>
+        <path d="m7 8.5 5 2.5 5-2.5"/>
+      </svg>
+      <span>${value}</span>
+    </span>
+  `;
+}
+
 function shouldUseCardFaceGhost(card, pointerType) {
   // Touch input has no hover state. Mirror the source card while it is pulled
   // from the hand so every card type gets a readable deployment preview.
@@ -2300,9 +2360,25 @@ export function cardThemeColor(cardOrKind) {
   return CARD_KIND_COLORS[kind] ?? CARD_KIND_COLORS.enchant;
 }
 
-// The generated PNG set is currently unavailable, so keep card faces readable by
-// falling through to the built-in low-poly SVG renderers below.
-const BITMAP_CARD_ART = {};
+// Unit portraits share one explicit bitmap set so non-unit card art can keep
+// using the existing lightweight symbolic SVG renderers.
+const BITMAP_CARD_ART = {
+  raider: 'card-art/raider-imagegen-lowpoly-v1.png',
+  swordsman: 'card-art/swordsman-imagegen-lowpoly-v4.png',
+  knight: 'card-art/knight-imagegen-lowpoly-v1.png',
+  berserker: 'card-art/berserker-imagegen-lowpoly-v1.png',
+  archer: 'card-art/archer-imagegen-lowpoly-v1.png',
+  spearman: 'card-art/spearman-imagegen-lowpoly-v1.png',
+  towerShield: 'card-art/towerShield-imagegen-lowpoly-v1.png',
+  crossbowman: 'card-art/crossbowman-imagegen-lowpoly-v1.png',
+  waterMage: 'card-art/waterMage-imagegen-lowpoly-v1.png',
+  lightningMage: 'card-art/lightningMage-imagegen-lowpoly-v1.png',
+  rogue: 'card-art/rogue-imagegen-lowpoly-v1.png',
+  engineer: 'card-art/engineer-imagegen-lowpoly-v1.png',
+  physician: 'card-art/physician-imagegen-lowpoly-v1.png',
+  purifier: 'card-art/purifier-imagegen-lowpoly-v1.png',
+  warder: 'card-art/warder-imagegen-lowpoly-v1.png'
+};
 
 function resolveCardArtAsset(path) {
   const base = import.meta.env.BASE_URL || '/';

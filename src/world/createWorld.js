@@ -427,7 +427,7 @@ const WORLD_PRESETS = {
       fog: '#c9d8d8',
       fogNear: 42,
       fogFar: 255,
-      sun: '#fff1d6',
+      sun: '#fffaf0',
       sunIntensity: 3.18,
       shadowIntensity: 1,
       sunPosition: { x: -92, y: 29, z: 83 },

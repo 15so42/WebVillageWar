@@ -449,7 +449,7 @@ const SNOW_VALLEY_HEAD_RENDER_TUNING = Object.freeze({
   saturation: 1.12,
   hue: 0,
   warmth: 0.02,
-  sunColor: '#fff1d6',
+  sunColor: '#fffaf0',
   sunIntensity: 3.18,
   sunX: -92,
   sunY: 29,

@@ -3733,3 +3733,342 @@ body.is-game-active .run-shop-choice-card.is-compact-shop-picker .run-shop-choic
     bottom: 330px !important;
   }
 }
+
+/* Approved unit-card hand treatment: the extracted frame image owns the outer
+   metal construction. This only changes live-hand cards; reward, shop, pile,
+   and meta cards keep their existing layouts and card-use semantics. */
+body.is-game-active .card-hand .med-card-wrapper {
+  filter: drop-shadow(0 8px 6px rgba(5, 8, 7, 0.5));
+}
+
+body.is-game-active .card-hand .med-card-wrapper::before,
+body.is-game-active .card-hand .med-card-wrapper::after {
+  display: none;
+}
+
+body.is-game-active .card-hand .med-card-bg {
+  border: 0 !important;
+  border-radius: 0 !important;
+  clip-path: none !important;
+  background: var(--hand-card-frame) center / 100% 100% no-repeat !important;
+  box-shadow: none !important;
+  filter: brightness(0.82) saturate(0.7) sepia(0.08) hue-rotate(72deg);
+}
+
+body.is-game-active .card-hand .med-card-face {
+  display: grid !important;
+  grid-template-rows: minmax(0, 1fr) 30px 51px;
+  gap: 0;
+  width: 100% !important;
+  height: 100%;
+  margin: 0 !important;
+  padding: 19px 17px 31px !important;
+}
+
+body.is-game-active .card-hand .med-card-wrapper > .med-card-face > .med-card-art-container {
+  position: relative !important;
+  flex: none !important;
+  align-self: stretch;
+  width: 100% !important;
+  height: auto !important;
+  min-height: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  clip-path: none;
+  background:
+    radial-gradient(circle at 50% 35%, rgba(62, 83, 71, 0.76) 0%, rgba(24, 36, 31, 0.38) 70%),
+    transparent !important;
+  box-shadow: none !important;
+}
+
+body.is-game-active .card-hand .med-card-art-container .card-art-image,
+body.is-game-active .card-hand .med-card-art-container .card-art-svg {
+  transform: scale(1.18) !important;
+  transform-origin: center;
+  filter: saturate(0.94) contrast(1.04) brightness(0.98) drop-shadow(0 4px 2px rgba(7, 11, 9, 0.38)) !important;
+}
+
+body.is-game-active .card-hand .med-card-wrapper > .med-card-face > .med-card-bottom {
+  min-height: 0;
+  height: auto !important;
+  margin: 0 !important;
+  padding: 4px 2px 2px !important;
+  align-items: center !important;
+  justify-content: center !important;
+  overflow: hidden;
+  border: 0 !important;
+  border-top: 1px solid rgba(126, 134, 128, 0.3) !important;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none;
+}
+
+body.is-game-active .card-hand .med-card-meta-row {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 22px;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 2px;
+  overflow: hidden;
+  border: 0;
+  border-top: 1px solid rgba(134, 143, 136, 0.38);
+  border-bottom: 1px solid rgba(18, 23, 21, 0.88);
+  clip-path: none;
+  background: rgba(11, 16, 14, 0.28);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+
+body.is-game-active .card-hand .med-card-meta-row .med-card-kind,
+body.is-game-active .card-hand .med-card-meta-row .med-card-level {
+  position: static !important;
+  inset: auto !important;
+  min-width: 0 !important;
+  width: 20px !important;
+  height: 20px !important;
+  display: flex !important;
+  padding: 0 !important;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+  border: 0 !important;
+  clip-path: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: color-mix(in srgb, var(--card-color) 62%, #e1e4de);
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.72));
+}
+
+body.is-game-active .card-hand .med-card-meta-row .med-card-kind {
+  justify-self: start;
+}
+
+body.is-game-active .card-hand .med-card-meta-row .med-card-level {
+  justify-self: end;
+  color: #d0d1cb;
+}
+
+body.is-game-active .card-hand .med-card-type-icon {
+  width: 18px;
+  height: 18px;
+  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+body.is-game-active .card-hand .med-card-level-icon {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+}
+
+body.is-game-active .card-hand .med-card-level-icon > svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  fill: rgba(37, 45, 42, 0.92);
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+body.is-game-active .card-hand .med-card-level-icon > span {
+  position: relative;
+  z-index: 1;
+  padding-top: 1px;
+  color: #f0eadf;
+  font-family: var(--font-title);
+  font-size: 8px;
+  font-weight: 900;
+  line-height: 1;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.86);
+}
+
+body.is-game-active .card-hand .med-card-meta-row .med-card-name {
+  min-width: 0;
+  width: auto;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0 !important;
+  color: #e9e2d5 !important;
+  font-size: 8px;
+  line-height: 1;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.is-game-active .card-hand .med-card-desc {
+  width: 100%;
+  color: #aaafa9 !important;
+  font-size: 8px;
+  line-height: 1.22;
+  text-align: center;
+}
+
+body.is-game-active .card-hand .med-card-cost {
+  z-index: 6;
+  top: 1.476% !important;
+  right: auto !important;
+  left: 3.861% !important;
+  width: 33.663% !important;
+  height: 18.614% !important;
+  transform: none !important;
+  display: grid !important;
+  place-items: center !important;
+  overflow: visible;
+  border: 0 !important;
+  border-radius: 0 !important;
+  clip-path: none;
+  background: transparent !important;
+  box-shadow: none !important;
+  filter: none;
+}
+
+body.is-game-active .card-hand .med-card-cost::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  display: block;
+  clip-path: none;
+  background: var(--hand-card-cost-frame) center / 100% 100% no-repeat !important;
+  box-shadow: none;
+  filter: brightness(0.82) saturate(0.7) sepia(0.08) hue-rotate(72deg);
+}
+
+body.is-game-active .card-hand .med-card-cost span {
+  position: absolute !important;
+  z-index: 1;
+  inset: 0 !important;
+  width: auto !important;
+  height: auto !important;
+  display: grid !important;
+  place-items: center !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  font-size: 16px !important;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  transform: translate(0.5px, 1px);
+}
+
+body.is-game-active .card-hand .med-card-art-container > .card-use-bar {
+  top: auto !important;
+  right: 5px !important;
+  bottom: 4px !important;
+  left: 5px !important;
+  height: 9px !important;
+}
+
+body.is-game-active .card-hand .card:hover .med-card-bg,
+body.is-game-active .card-hand .card.is-dragging .med-card-bg,
+body.is-game-active .card-hand .card.is-hand-card-target .med-card-bg {
+  border: 0 !important;
+  box-shadow: none !important;
+  filter: brightness(0.9) saturate(0.74) sepia(0.08) hue-rotate(72deg);
+}
+
+@media (max-width: 900px) {
+  body.is-game-active .card-hand .med-card-face {
+    grid-template-rows: minmax(0, 1fr) 25px 39px;
+    gap: 0;
+    padding: 15px 12px 24px !important;
+  }
+
+  body.is-game-active .card-hand .med-card-cost span {
+    font-size: 13px !important;
+  }
+
+  body.is-game-active .card-hand .med-card-wrapper > .med-card-face > .med-card-bottom {
+    padding: 4px 1px 1px !important;
+  }
+
+  body.is-game-active .card-hand .med-card-meta-row {
+    grid-template-columns: 19px minmax(0, 1fr) 19px;
+    gap: 2px;
+    padding-inline: 3px;
+  }
+
+  body.is-game-active .card-hand .med-card-meta-row .med-card-kind,
+  body.is-game-active .card-hand .med-card-meta-row .med-card-level,
+  body.is-game-active .card-hand .med-card-level-icon {
+    width: 17px !important;
+    height: 17px !important;
+  }
+
+  body.is-game-active .card-hand .med-card-type-icon {
+    width: 16px;
+    height: 16px;
+  }
+
+  body.is-game-active .card-hand .med-card-level-icon > span {
+    font-size: 7px;
+  }
+
+  body.is-game-active .card-hand .med-card-meta-row .med-card-name {
+    font-size: 8px;
+  }
+
+  body.is-game-active .card-hand .med-card-desc {
+    font-size: 7px;
+    line-height: 1.16;
+  }
+
+  body.is-game-active .card-hand .med-card-art-container > .card-use-bar {
+    right: 4px !important;
+    bottom: 3px !important;
+    left: 4px !important;
+    height: 8px !important;
+  }
+}
+
+@media (max-width: 700px) and (orientation: portrait) {
+  body.is-game-active .card-hand .med-card-face {
+    grid-template-rows: minmax(0, 1fr) 22px 30px;
+    gap: 0;
+    padding: 12px 9px 20px !important;
+  }
+
+  body.is-game-active .card-hand .med-card-meta-row {
+    grid-template-columns: 16px minmax(0, 1fr) 16px;
+    gap: 1px;
+    padding-inline: 2px;
+  }
+
+  body.is-game-active .card-hand .med-card-meta-row .med-card-kind,
+  body.is-game-active .card-hand .med-card-meta-row .med-card-level,
+  body.is-game-active .card-hand .med-card-level-icon {
+    width: 15px !important;
+    height: 15px !important;
+  }
+
+  body.is-game-active .card-hand .med-card-type-icon {
+    width: 14px;
+    height: 14px;
+  }
+
+  body.is-game-active .card-hand .med-card-level-icon > span {
+    font-size: 6px;
+  }
+
+  body.is-game-active .card-hand .med-card-meta-row .med-card-name {
+    font-size: 7px !important;
+  }
+
+  body.is-game-active .card-hand .med-card-desc {
+    font-size: 6px !important;
+    line-height: 1.1 !important;
+  }
+}
