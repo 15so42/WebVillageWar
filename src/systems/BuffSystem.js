@@ -1,4 +1,5 @@
 import { BUFF_DEFINITIONS, TEAMS } from '../data/gameData.js';
+import { rollOverflowChance } from '../utils/chance.js';
 
 export class BuffSystem {
   constructor(game) {
@@ -507,6 +508,68 @@ export class BuffSystem {
       if (effect.vfx === 'thorns') {
         this.game.effects.spawnThorns(context.target.position);
       }
+      return;
+    }
+
+    if (effect.op === 'judgmentRetaliation') {
+      const defender = context.target;
+      const attacker = context.source;
+      if (!context.isAttack || !defender?.alive || !attacker?.alive) return;
+      if (defender.team === attacker.team || context.damageTypes?.has?.('judgment')) return;
+      const now = this.game.elapsedTime ?? 0;
+      const cooldown = Math.max(0, effect.cooldown ?? 5);
+      if ((context.buff?.judgmentReadyAt ?? -Infinity) > now) return;
+      context.buff.judgmentReadyAt = now + cooldown;
+      const damage = Math.max(0, resolveEffectNumber(effect, 'damage', context, 0));
+      if (damage <= 0) return;
+      const impactPoint = {
+        x: attacker.position.x,
+        y: attacker.position.y ?? 0,
+        z: attacker.position.z
+      };
+      this.game.effects.spawnJudgmentSword(impactPoint, 0.9, () => {
+        if (!attacker.alive) return;
+        this.game.combat.applyAttack(defender, attacker, {
+          damage,
+          attackDamageType: 'magic',
+          knockback: 0,
+          damageTypes: new Set(['judgment', 'undodgeable'])
+        });
+      });
+      return;
+    }
+
+    if (effect.op === 'gainMaxHealthChance') {
+      const unit = context.target;
+      const buff = context.buff;
+      if (!unit?.alive || !buff?.id || !unit.attributes) return;
+      const chance = Math.max(0, resolveEffectNumber(effect, 'chance', context, 0));
+      const successes = rollOverflowChance(chance);
+      if (successes <= 0) return;
+      const amountPerSuccess = Math.max(0, resolveEffectNumber(effect, 'amount', context, 1));
+      const amount = successes * amountPerSuccess;
+      if (amount <= 0) return;
+      buff.bodyForgingBonus = Math.max(0, buff.bodyForgingBonus ?? 0) + amount;
+      const modifierSource = `${buffModifierSource(buff.id)}:body-bonus`;
+      unit.attributes.removeModifiersBySource(modifierSource);
+      unit.attributes.addModifier({
+        stat: 'maxHealth',
+        type: 'add',
+        amount: buff.bodyForgingBonus
+      }, modifierSource);
+      unit.health += amount;
+      unit.clampToAttributeCaps?.();
+      unit.statusUiDirty = true;
+      this.game.effects.spawnRing(unit.position, effect.color ?? '#d9875f', 0.62, 0.38);
+      this.game.effects.spawnDamageNumber(unit.position, amount, {
+        text: `锻体+${formatEffectAmount(amount)}`,
+        color: effect.color ?? '#d9875f',
+        stroke: '#402018',
+        height: unit.projectileHitHeight ?? 1.55,
+        duration: 0.72,
+        fontSize: 78,
+        baseHeight: 0.48
+      });
       return;
     }
 

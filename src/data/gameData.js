@@ -2178,6 +2178,123 @@ export const UNIT_DEFINITIONS = {
       durabilityCost: 0
     }
   },
+  mireHunter: {
+    name: '瘴沼猎手',
+    role: 'ranged',
+    art: {
+      modelKey: 'unit.mireHunter',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Walk',
+        attack: 'Spear_Throw',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.82,
+          events: {
+            release: 0.58
+          }
+        },
+        hit: {
+          duration: 0.24
+        }
+      }
+    },
+    maxHealth: 142,
+    maxShield: 72,
+    collisionRadius: 0.5,
+    statusHeight: 2.28,
+    projectileHitHeight: 1.88,
+    speed: 2.32,
+    attackRange: 9.1,
+    attackRate: 0.46,
+    damage: 9.2,
+    armor: 5,
+    magicResistance: 7,
+    dodgeChance: 0.04,
+    knockback: 3.4,
+    knockbackResistance: 0.36,
+    aggroRange: 16.8,
+    projectileSpeed: 16.2,
+    projectileType: 'mireJavelin',
+    projectileColor: '#8abf68',
+    monsterAbility: {
+      type: 'mireJavelin',
+      key: 'mire-hunter-javelin',
+      cooldown: 8.2,
+      initialCooldown: 3.1,
+      range: 10.8,
+      damage: 14,
+      projectilePierce: 2,
+      poisonDuration: 4.5
+    },
+    weapon: {
+      name: '瘴藤长矛',
+      maxDurability: 68,
+      durabilityCost: 0
+    }
+  },
+  rotrootColossus: {
+    name: '腐根巨像',
+    role: 'melee',
+    art: {
+      modelKey: 'unit.rotrootColossus',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Heavy_Walk',
+        attack: 'Root_Slam',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 1.08,
+          events: {
+            impact: 0.68
+          }
+        },
+        hit: {
+          duration: 0.32
+        }
+      }
+    },
+    maxHealth: 232,
+    maxShield: 126,
+    collisionRadius: 1.08,
+    statusHeight: 3.18,
+    projectileHitHeight: 2.62,
+    speed: 1.42,
+    attackRange: 2.05,
+    attackRate: 0.38,
+    damage: 14.5,
+    armor: 9,
+    magicResistance: 10,
+    dodgeChance: 0,
+    knockback: 7.5,
+    knockbackResistance: 0.86,
+    aggroRange: 14.8,
+    monsterAbility: {
+      type: 'rootQuake',
+      key: 'rotroot-quake',
+      cooldown: 11.5,
+      initialCooldown: 4.8,
+      range: 5.2,
+      radius: 4.8,
+      damage: 17,
+      slowDuration: 2.8,
+      statusBuffId: 'mireSnared',
+      attackLockSeconds: 0.92
+    },
+    weapon: {
+      name: '腐根重臂',
+      maxDurability: 96,
+      durabilityCost: 0
+    }
+  },
   wolf: {
     name: '狼',
     role: 'melee',
@@ -2470,6 +2587,40 @@ export const BUFF_DEFINITIONS = {
         op: 'reflectDamage',
         amountPerLevel: 4,
         vfx: 'thorns'
+      }
+    ]
+  },
+  judgment: {
+    name: '审判',
+    category: 'enchantment',
+    color: '#f2cf75',
+    duration: 999,
+    level: 1,
+    effects: [
+      {
+        event: 'receiveDamage',
+        op: 'judgmentRetaliation',
+        damagePerLevel: 2,
+        cooldown: 5,
+        color: '#f2cf75'
+      }
+    ]
+  },
+  bodyForging: {
+    name: '锻体',
+    category: 'enchantment',
+    color: '#d9875f',
+    duration: 999,
+    level: 1,
+    tickInterval: 5,
+    effects: [
+      {
+        event: 'tick',
+        op: 'gainMaxHealthChance',
+        chanceBase: 0.2,
+        chancePerLevel: 0.1,
+        amount: 1,
+        color: '#d9875f'
       }
     ]
   },
@@ -3345,12 +3496,29 @@ export const BUFF_DEFINITIONS = {
         amount: 0.9
       }
     ]
+  },
+  mireSnared: {
+    name: '泥沼缠身',
+    category: 'status',
+    color: '#78985d',
+    duration: 2.8,
+    hidden: true,
+    negative: true,
+    modifiers: [
+      {
+        stat: 'moveSpeed',
+        type: 'multiply',
+        amount: 0.65
+      }
+    ]
   }
 };
 
 export const ENCHANTMENTS = {
   fire: BUFF_DEFINITIONS.fire,
   thorns: BUFF_DEFINITIONS.thorns,
+  judgment: BUFF_DEFINITIONS.judgment,
+  bodyForging: BUFF_DEFINITIONS.bodyForging,
   toughness: BUFF_DEFINITIONS.toughness,
   protection: BUFF_DEFINITIONS.protection,
   block: BUFF_DEFINITIONS.block,
@@ -3384,6 +3552,13 @@ export const ENCHANTMENTS = {
 };
 
 export const PLAYER_ABILITY_DEFINITIONS = {
+  inspiration: {
+    id: 'inspiration',
+    name: '灵感',
+    label: '灵',
+    color: '#8fd6e8',
+    summary: '每层令下一张非灵感牌以 +1 级效果打出'
+  },
   baseRecoveryPact: {
     id: 'baseRecoveryPact',
     name: '血契要塞',
@@ -3410,7 +3585,7 @@ export const PLAYER_ABILITY_DEFINITIONS = {
     name: '附魔共鸣',
     label: '响',
     color: '#b68cff',
-    summary: '使用附魔牌时，每层额外 +12% 概率再生效一次'
+    summary: '使用附魔牌时，每层提供 12% 额外生效次数；超过 100% 时先保证整次，再判定余数'
   },
   martyrdomLine: {
     id: 'martyrdomLine',
@@ -4148,11 +4323,11 @@ export const CARD_DEFINITIONS = [
     kind: 'tactic',
     label: '赌',
     artKey: 'tacticSilverGamble',
-    summary: '消耗 1 点能量：50% 概率银币翻倍、50% 概率减半；每级成功率 +4%（上限 70%）',
+    summary: '0 费：50% 概率将当前银币翻倍，50% 概率将银币清空',
     target: 'none',
     radius: 1,
     cooldown: 0,
-    energyCost: 1,
+    energyCost: 0,
     effect: {
       type: 'gamble-silver'
     },
@@ -4222,7 +4397,7 @@ export const CARD_DEFINITIONS = [
     kind: 'ability',
     label: '响',
     artKey: 'abilityEnchantEcho',
-    summary: '使用附魔牌时，每层 +12% 概率额外生效一次',
+    summary: '使用附魔牌时，每层提供 12% 额外生效次数；超过 100% 时先保证整次，再判定余数',
     target: 'none',
     radius: 1,
     cooldown: 0,
@@ -4597,6 +4772,25 @@ export const CARD_DEFINITIONS = [
     color: '#65e0c1'
   },
   {
+    id: 'inspiration',
+    name: '灵感',
+    kind: 'tactic',
+    label: '灵',
+    artKey: 'inspiration',
+    summary: '获得等同本牌等级的灵感层数；之后每层令下一张非灵感牌以 +1 级效果打出。',
+    target: 'none',
+    radius: 1,
+    cooldown: 0,
+    energyCost: 2,
+    effect: {
+      type: 'acquire-ability',
+      abilityId: 'inspiration',
+      stacksBase: 1,
+      stacksPerLevel: 1
+    },
+    color: '#8fd6e8'
+  },
+  {
     id: 'rune-expansion',
     name: '符文扩容',
     kind: 'tactic',
@@ -4649,6 +4843,42 @@ export const CARD_DEFINITIONS = [
       buffId: 'thorns'
     },
     color: '#4f8f43'
+  },
+  {
+    id: 'judgment-enchant',
+    name: '审判附魔',
+    kind: 'enchant',
+    label: '审',
+    artKey: 'judgment',
+    summary: '受到攻击时对攻击者降下巨剑，造成等级×2魔法伤害并触发自身攻击特效；5秒冷却。',
+    target: 'friendly-unit',
+    radius: 1.1,
+    cooldown: 0,
+    energyCost: 2,
+    enchantmentId: 'judgment',
+    effect: {
+      type: 'apply-buff',
+      buffId: 'judgment'
+    },
+    color: '#f2cf75'
+  },
+  {
+    id: 'body-forging-enchant',
+    name: '锻体附魔',
+    kind: 'enchant',
+    label: '锻',
+    artKey: 'bodyForging',
+    summary: '每5秒以（20+等级×10）%概率永久增加1点最大生命并恢复1点生命；概率溢出可循环判定。',
+    target: 'friendly-unit',
+    radius: 1.1,
+    cooldown: 0,
+    energyCost: 2,
+    enchantmentId: 'bodyForging',
+    effect: {
+      type: 'apply-buff',
+      buffId: 'bodyForging'
+    },
+    color: '#d9875f'
   },
   {
     id: 'toughness-enchant',
@@ -5653,6 +5883,38 @@ export const LEVEL_DEFINITIONS = [
     },
     world: {
       sceneKey: 'red-desert'
+    }
+  },
+  {
+    id: 'emerald-marsh',
+    name: '翡翠沼泽',
+    subtitle: '沿着沉木堤道穿过雾沼，摧毁腐根深处的敌营',
+    baseReward: 100,
+    targetTime: 1620,
+    baseDifficulty: 4,
+    waveDifficultyGrowth: 1.24,
+    enemyPool: [
+      { type: 'goblinSoldier', weight: 3, minThreat: 1, minDifficulty: 1 },
+      { type: 'spider', weight: 3, minThreat: 2, minDifficulty: 1 },
+      { type: 'goblinHunter', weight: 2, minThreat: 3, minDifficulty: 2 },
+      { type: 'goblinShaman', weight: 2, minThreat: 4, minDifficulty: 2 },
+      { type: 'venomArcher', weight: 2, minThreat: 5, minDifficulty: 3 },
+      { type: 'ogre', weight: 1, minThreat: 6, minDifficulty: 3 }
+    ],
+    elitePool: [
+      { type: 'mireHunter', weight: 1, minThreat: 4.2, minDifficulty: 4 }
+    ],
+    bossPool: [
+      { type: 'rotrootColossus', weight: 1, minThreat: 6.8, minDifficulty: 4 }
+    ],
+    enemyDirector: {
+      baseEnergyPerSecond: 0.74,
+      threatPerSecond: 0.024,
+      eliteMinThreat: 4.2,
+      bossMinThreat: 6.8
+    },
+    world: {
+      sceneKey: 'emerald-marsh'
     }
   }
 ];

@@ -2,6 +2,8 @@ import {
   createArcherModel,
   createArrowTowerModel,
   createMiniTurretModel,
+  createMireHunterModel,
+  createMireJavelinModel,
   createArrowModel,
   createBearModel,
   createBeaconModel,
@@ -40,6 +42,7 @@ import {
   createPurifierModel,
   createRaiderModel,
   createRepairStationModel,
+  createRotrootColossusModel,
   createRogueModel,
   createScorpionModel,
   createSandScorpionGuardModel,
@@ -113,6 +116,8 @@ const UNIT_FACTORIES = {
   boneVoicePriest: () => createBoneVoicePriestModel(),
   sandScorpionGuard: () => createSandScorpionGuardModel(),
   yellowSandOgre: () => createYellowSandOgreModel(),
+  mireHunter: () => createMireHunterModel(),
+  rotrootColossus: () => createRotrootColossusModel(),
   scorpion: () => createScorpionModel(),
   spider: () => createSpiderModel(),
   spiderEgg: () => createSpiderEggModel(),
@@ -132,6 +137,7 @@ const PROJECTILE_FACTORIES = {
   lanternBolt: ({ color }) => createLanternBoltModel(color),
   boneChantOrb: ({ color }) => createBoneChantOrbModel(color),
   venomArrow: ({ color }) => createVenomArrowModel(color),
+  mireJavelin: ({ color }) => createMireJavelinModel(color),
   bomb: () => createBombProjectileModel(),
   iceShard: ({ color }) => createIceShardModel(color),
   bolt: ({ color }) => createBoltModel(color),
@@ -369,6 +375,14 @@ function applyAttackPose(unit, root, t, pulse, variant = null) {
   if (unit.type === 'yellowSandOgre') {
     applyRaiderAttack(root, t, pulse);
     applyYellowSandOgreSmash(root, t, pulse);
+    return;
+  }
+  if (unit.type === 'mireHunter') {
+    applyMireHunterThrow(root, t, pulse);
+    return;
+  }
+  if (unit.type === 'rotrootColossus') {
+    applyRotrootSlam(root, t, pulse, variant);
     return;
   }
   if (unit.type === 'frostTrollBoss') {
@@ -844,6 +858,63 @@ function applyYellowSandOgreSmash(root, t, pulse) {
   const strike = smoothstep(0.38, 0.64, t) * (1 - smoothstep(0.78, 1, t));
   if (hammerHead) {
     hammerHead.scale.set(1 + strike * 0.06, 1 + strike * 0.06, 1 + strike * 0.06);
+  }
+}
+
+function applyMireHunterThrow(root, t, pulse) {
+  const { upperBodyPivot, weaponPivot, weaponSwingPivot, offhandPivot, javelinHead } = root.userData.parts ?? {};
+  if (!weaponPivot) return;
+  const aim = smoothstep(0, 0.4, t) * (1 - smoothstep(0.64, 0.84, t));
+  const release = smoothstep(0.48, 0.62, t) * (1 - smoothstep(0.76, 1, t));
+  const recover = smoothstep(0.76, 1, t);
+  root.rotation.z = -0.012 * pulse;
+  if (upperBodyPivot) {
+    upperBodyPivot.rotation.y += -0.42 * aim + 0.28 * release;
+    upperBodyPivot.rotation.x += -0.04 * aim + 0.06 * release;
+  }
+  weaponPivot.rotation.x += -1.06 * aim + 1.38 * release - 0.18 * recover;
+  weaponPivot.rotation.z += -0.32 * aim + 0.24 * release;
+  if (weaponSwingPivot) {
+    weaponSwingPivot.rotation.x += -0.28 * aim + 0.42 * release;
+    weaponSwingPivot.position.z += -0.1 * aim + 0.16 * release;
+  }
+  if (offhandPivot) {
+    offhandPivot.rotation.x += -0.18 * aim + 0.1 * release;
+    offhandPivot.rotation.z += 0.12 * aim;
+  }
+  if (javelinHead) {
+    javelinHead.scale.setScalar(1 + release * 0.12);
+  }
+}
+
+function applyRotrootSlam(root, t, pulse, variant = null) {
+  const { upperBodyPivot, weaponPivot, weaponSwingPivot, offhandPivot, coreStone, rightFist } = root.userData.parts ?? {};
+  const boost = variant === 'monsterAbility' ? 1.18 : 1;
+  const windup = smoothstep(0, 0.5, t) * (1 - smoothstep(0.6, 0.73, t));
+  const strike = smoothstep(0.56, 0.69, t) * (1 - smoothstep(0.8, 0.94, t));
+  const recover = smoothstep(0.82, 1, t);
+  root.position.y += windup * 0.055 - strike * 0.08 * boost;
+  root.rotation.z = -0.012 * pulse;
+  if (upperBodyPivot) {
+    upperBodyPivot.rotation.x += -0.09 * windup + 0.16 * strike * boost;
+    upperBodyPivot.rotation.z += 0.035 * windup - 0.045 * strike;
+  }
+  if (weaponPivot) {
+    weaponPivot.rotation.x += -1.42 * windup + 1.82 * strike * boost - 0.2 * recover;
+    weaponPivot.rotation.z += 0.18 * windup - 0.16 * strike;
+  }
+  if (weaponSwingPivot) {
+    weaponSwingPivot.rotation.x += -0.36 * windup + 0.54 * strike * boost;
+  }
+  if (offhandPivot) {
+    offhandPivot.rotation.x += -0.42 * windup + 0.54 * strike;
+    offhandPivot.rotation.z += -0.12 * windup + 0.09 * strike;
+  }
+  if (coreStone) {
+    coreStone.scale.setScalar(1 + windup * 0.14 + strike * 0.24 * boost);
+  }
+  if (rightFist) {
+    rightFist.scale.setScalar(1 + strike * 0.12 * boost);
   }
 }
 

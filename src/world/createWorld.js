@@ -1242,6 +1242,189 @@ const WORLD_PRESETS = {
         damagePerTick: 0.36
       }
     }
+  },
+  'emerald-marsh': {
+    sceneKey: 'emerald-marsh',
+    theme: 'emerald-marsh',
+    seed: 1409,
+    camera: {
+      initialPosition: { x: 0, y: 32, z: 65 },
+      minDistance: 12,
+      maxDistance: 78
+    },
+    sky: {
+      toneMapping: 'aces',
+      exposure: 0.94,
+      background: '#8e9f90',
+      skyGradient: {
+        top: '#687f79',
+        middle: '#8e9f90',
+        horizon: '#abb39b'
+      },
+      fog: '#84998c',
+      fogNear: 42,
+      fogFar: 168,
+      sun: '#e1e3c4',
+      sunIntensity: 2.9,
+      sunPosition: { x: -58, y: 66, z: 42 },
+      shadowIntensity: 0.78,
+      hemiSky: '#c2d0c5',
+      hemiGround: '#3d5142',
+      hemiIntensity: 0.98,
+      ambientColor: '#94a99b',
+      ambientIntensity: 0.54,
+      realtimeShadows: false,
+      bakedShadows: true,
+      shadowMapSize: 2048
+    },
+    materials: {
+      snow: '#5b6b48',
+      rock: '#566158',
+      tree: '#3b6045'
+    },
+    palette: {
+      base: '#5b6b48',
+      side: '#4d5b42',
+      north: '#637152',
+      valley: '#536348',
+      forest: '#40523e',
+      high: '#718064',
+      snow: '#5b6b48',
+      path: '#71684d',
+      mud: '#554f3c',
+      bank: '#465044',
+      puddle: '#386960'
+    },
+    ground: {
+      width: 180,
+      depth: 180,
+      flatShading: false
+    },
+    navigationBounds: {
+      minX: -43,
+      maxX: 43,
+      minZ: -43,
+      maxZ: 43
+    },
+    playerBasePosition: { x: 0, z: 31 },
+    enemyCampPosition: { x: -1, z: -32 },
+    pathWidth: 3.15,
+    pathOrganic: {
+      widthJitter: 0.2,
+      edgeJitter: 0.24
+    },
+    pathPoints: [
+      { x: 0, z: 31 },
+      { x: -6, z: 25 },
+      { x: -12, z: 18 },
+      { x: -10, z: 11 },
+      { x: -2, z: 6 },
+      { x: 9, z: 1 },
+      { x: 12, z: -7 },
+      { x: 7, z: -14 },
+      { x: -2, z: -19 },
+      { x: -7, z: -25 },
+      { x: -1, z: -32 }
+    ],
+    altars: [
+      { id: 'energy-altar-marsh-west', type: 'energy', position: { x: -18, z: 14 }, rotation: -0.42, clearingRadius: 6.3 },
+      { id: 'shield-altar-marsh-east', type: 'shield', position: { x: 16, z: -3 }, rotation: 0.38, clearingRadius: 6.3 },
+      { id: 'respite-altar-marsh-south', type: 'respite', position: { x: -10, z: -21 }, rotation: 0.12, clearingRadius: 6.1 }
+    ],
+    wildlife: [],
+    clearings: [
+      { x: 0, z: 31, r: 11.5 },
+      { x: -12, z: 18, r: 6.6 },
+      { x: -2, z: 6, r: 7.1 },
+      { x: 10, z: -7, r: 6.8 },
+      { x: -4, z: -22, r: 6.7 },
+      { x: -1, z: -32, r: 9.6 },
+      { x: -18, z: 14, r: 6.3 },
+      { x: 16, z: -3, r: 6.3 },
+      { x: -10, z: -21, r: 6.1 }
+    ],
+    forestZones: [],
+    forestPassages: [],
+    boulderClusters: [],
+    landmarkBoulders: [],
+    marshTreeZones: [
+      { x: -33, z: 29, rx: 12, rz: 10, count: 18 },
+      { x: 34, z: 26, rx: 7, rz: 8, count: 9 },
+      { x: -35, z: 5, rx: 7, rz: 11, count: 10 },
+      { x: 32, z: 8, rx: 12, rz: 15, count: 20 },
+      { x: -29, z: -17, rx: 12, rz: 14, count: 19 },
+      { x: 35, z: -18, rx: 7, rz: 10, count: 9 },
+      { x: -31, z: -35, rx: 8, rz: 6, count: 8 },
+      { x: 24, z: -35, rx: 14, rz: 7, count: 15 }
+    ],
+    marshReedZones: [
+      { x: 31, z: 9, rx: 15, rz: 10, count: 42 },
+      { x: -31, z: 5, rx: 9, rz: 7, count: 23 },
+      { x: -27, z: -17, rx: 15, rz: 11, count: 40 },
+      { x: 34, z: -18, rx: 8, rz: 6, count: 20 },
+      { x: 23, z: -35, rx: 13, rz: 6, count: 28 }
+    ],
+    marshLandmarks: [
+      { kind: 'watchtower', x: 19, z: 9, rot: -0.34, scale: 1.15 },
+      { kind: 'rootArch', x: -20, z: -14, rot: 0.48, scale: 1.2 },
+      { kind: 'rootWall', x: -1, z: -39, rot: 0.04, scale: 1.35 }
+    ],
+    marshBoardwalks: [
+      { from: { x: -13, z: 17 }, to: { x: -18, z: 14 }, width: 1.65 },
+      { from: { x: 11, z: -3 }, to: { x: 16, z: -3 }, width: 1.65 },
+      { from: { x: -5, z: -20 }, to: { x: -10, z: -21 }, width: 1.65 }
+    ],
+    marshHummocks: [
+      { x: 4, z: 16, rx: 4.8, rz: 3.2, rot: -0.18, trees: 3, log: true },
+      { x: -15, z: 3, rx: 3.9, rz: 2.7, rot: 0.34, trees: 2, log: true },
+      { x: -3, z: -9, rx: 4.2, rz: 2.8, rot: -0.28, trees: 3 },
+      { x: 16, z: 19, rx: 3.7, rz: 2.5, rot: 0.22, trees: 2, log: true }
+    ],
+    marshWaterHeight: 0.055,
+    marshPools: [
+      { x: -32, z: 29, rx: 16, rz: 10.5, rot: -0.24, irregularity: 0.15 },
+      { x: 34, z: 26, rx: 8.5, rz: 6.2, rot: 0.28, irregularity: 0.09 },
+      { x: -34, z: 5, rx: 9.5, rz: 7.2, rot: 0.34, irregularity: 0.1 },
+      { x: 31, z: 8, rx: 17, rz: 12.5, rot: -0.27, irregularity: 0.16 },
+      { x: -28, z: -17, rx: 17, rz: 13.5, rot: -0.2, irregularity: 0.16 },
+      { x: 34, z: -18, rx: 8.2, rz: 6.8, rot: 0.32, irregularity: 0.09 },
+      { x: -32, z: -35, rx: 8.6, rz: 5.3, rot: 0.2, irregularity: 0.09 },
+      { x: 23, z: -35, rx: 16, rz: 8.5, rot: -0.22, irregularity: 0.14 },
+      { x: -15.5, z: 16, rx: 9.2, rz: 4.8, rot: -0.5, irregularity: 0.12 },
+      { x: 14, z: -3, rx: 6.2, rz: 4.6, rot: 0.16, irregularity: 0.08 },
+      { x: -7.5, z: -20.5, rx: 8.4, rz: 4.2, rot: 0.06, irregularity: 0.11 }
+    ],
+    terrain: {
+      ...DEFAULT_TERRAIN_PROFILE,
+      baseHeight: 0.3,
+      northRise: 0.08,
+      sideRise: 0.08,
+      sideNorthRise: 0.06,
+      roughnessScale: 0.16,
+      valleyFloorBase: 0.28,
+      valleyNorthRise: 0.04,
+      valleySideRise: 0.04,
+      campTerrace: 0.34,
+      campTerraceOutward: 0.04,
+      waterHeight: -0.18,
+      hills: [
+        { x: -39, z: 23, rx: 10, rz: 18, height: 0.18 },
+        { x: 39, z: -10, rx: 10, rz: 20, height: 0.2 },
+        { x: -25, z: -40, rx: 18, rz: 8, height: 0.14 }
+      ],
+      ridges: [
+        { x: -45, z: 0, rx: 4, rz: 42, height: 0.22 },
+        { x: 45, z: -5, rx: 4, rz: 42, height: 0.22 },
+        { x: 0, z: -45, rx: 35, rz: 4, height: 0.16 }
+      ]
+    },
+    monsterCamp: { x: -1, z: -35.5, rot: -0.18, scale: 1.2, offset: 0.18 },
+    snowfall: {
+      enabled: false,
+      countScale: 0,
+      gustScale: 0,
+      windScale: 0
+    }
   }
 };
 
@@ -1342,6 +1525,8 @@ export function createWorld(scene, worldOptions = {}) {
     createDungeonDecor(scene, pathPoints);
   } else if (theme === 'red-desert') {
     createDesertDecor(scene, pathPoints);
+  } else if (theme === 'emerald-marsh') {
+    createMarshDecor(scene, pathPoints);
   } else {
     decorate(scene, pathPoints);
   }
@@ -1657,6 +1842,12 @@ export function terrainHeightAt(x, z) {
     height += desertValleySurfaceRippleAt(x, z, pathDistance);
   }
 
+  if (config.theme === 'emerald-marsh') {
+    const waterMask = marshWaterMaskAt(x, z);
+    const waterBed = terrain.waterHeight ?? -0.18;
+    return mix(height, waterBed, smoothstep(0.18, 0.76, waterMask));
+  }
+
   if (config.landmass) {
     const landMask = landmassMaskAt(x, z);
     const coastRim = smoothstep(0.48, 0.82, landMask) *
@@ -1684,6 +1875,10 @@ export function terrainHeightAt(x, z) {
 function worldSurfaceHeightAt(x, z) {
   if (worldConfig().theme === 'dungeon') {
     return dungeonWalkableHeightAt(x, z);
+  }
+  if (worldConfig().theme === 'emerald-marsh') {
+    const deckHeight = marshBoardwalkDeckHeightAt(x, z, 0.22);
+    if (deckHeight != null) return deckHeight;
   }
   return terrainHeightAt(x, z);
 }
@@ -1738,11 +1933,12 @@ function dungeonPlatformSurfaceHeightAt(x, z) {
 
 function createGroundMesh() {
   const config = worldConfig();
+  const isBroadMarsh = config.theme === 'emerald-marsh';
   const geometry = new THREE.PlaneGeometry(
     config.ground.width,
     config.ground.depth,
-    128,
-    124
+    isBroadMarsh ? 192 : 128,
+    isBroadMarsh ? 188 : 124
   );
   const position = geometry.attributes.position;
   for (let i = 0; i < position.count; i += 1) {
@@ -1831,6 +2027,9 @@ function terrainColorAt(x, z, height) {
   }
   if (config.theme === 'red-desert') {
     return desertTerrainColorAt(x, z, height, palette);
+  }
+  if (config.theme === 'emerald-marsh') {
+    return marshTerrainColorAt(x, z, height, palette);
   }
   const storybookSnow = config.sceneKey === 'snow-valley';
   const color = new THREE.Color(
@@ -2268,6 +2467,69 @@ function ellipseFalloffAt(x, z, ellipse, inner = 0, outer = 1) {
   return 1 - smoothstep(inner, outer, distance);
 }
 
+function marshWaterMaskAt(x, z) {
+  const config = worldConfig();
+  if (config.theme !== 'emerald-marsh') return 0;
+
+  let poolMask = 0;
+  (config.marshPools ?? []).forEach((pool) => {
+    const distance = landmassNormalizedDistanceAt(x, z, pool);
+    poolMask = Math.max(poolMask, 1 - smoothstep(0.7, 1.03, distance));
+  });
+  if (poolMask <= 0) return 0;
+
+  const pathDistance = distanceToPath(x, z, rawPathPoints());
+  const pathWidth = config.pathWidth ?? 3.15;
+  const pathReserve = 1 - smoothstep(pathWidth * 0.48, pathWidth * 0.82 + 0.9, pathDistance);
+  const base = config.playerBasePosition;
+  const camp = config.enemyCampPosition;
+  const baseReserve = 1 - smoothstep(6.8, 9.5, Math.hypot(x - base.x, z - base.z));
+  const campReserve = 1 - smoothstep(6.4, 8.8, Math.hypot(x - camp.x, z - camp.z));
+  const clearingReserve = (config.clearings ?? []).reduce((best, clearing) => {
+    const dryRadius = Math.min(clearing.r * 0.68, 4.4);
+    const distance = Math.hypot(x - clearing.x, z - clearing.z);
+    return Math.max(best, 1 - smoothstep(dryRadius, dryRadius + 1.5, distance));
+  }, 0);
+  const dryReserve = Math.max(pathReserve, baseReserve, campReserve, clearingReserve);
+  return clamp(poolMask * (1 - dryReserve), 0, 1);
+}
+
+function marshBoardwalkDeckHeightAt(x, z, margin = 0) {
+  const config = worldConfig();
+  if (config.theme !== 'emerald-marsh') return null;
+  const boardwalk = (config.marshBoardwalks ?? []).find((item) => (
+    distanceToSegment2D(x, z, item.from, item.to) <= (item.width ?? 1.65) * 0.5 + 0.08 + margin
+  ));
+  return boardwalk ? (config.marshWaterHeight ?? 0.055) + 0.18 : null;
+}
+
+function isMarshBoardwalkAt(x, z, margin = 0) {
+  return marshBoardwalkDeckHeightAt(x, z, margin) != null;
+}
+
+function marshTerrainColorAt(x, z, height, palette) {
+  const waterMask = marshWaterMaskAt(x, z);
+  const pathDistance = distanceToPath(x, z, rawPathPoints());
+  const facet = hash2(Math.floor(x * 0.3), Math.floor(z * 0.3)) - 0.5;
+  const broadPatch = hash2(Math.floor(x * 0.085), Math.floor(z * 0.085));
+  const color = new THREE.Color(palette.base);
+  const wetBank = smoothstep(0.05, 0.4, waterMask) * (1 - smoothstep(0.52, 0.9, waterMask));
+  const sideShade = smoothstep(14, 39, Math.abs(x));
+  color.lerp(new THREE.Color(palette.side), sideShade * 0.14);
+  color.lerp(new THREE.Color(palette.valley), smoothstep(0.56, 0.92, broadPatch) * 0.12);
+  color.lerp(new THREE.Color(palette.forest), wetBank * 0.48);
+  color.lerp(new THREE.Color(palette.bank ?? '#3f4939'), smoothstep(0.42, 0.82, waterMask) * 0.72);
+  color.lerp(new THREE.Color(palette.puddle), smoothstep(0.72, 0.98, waterMask) * 0.42);
+  color.lerp(new THREE.Color(palette.high), Math.max(0, height - 0.34) * 0.08);
+  color.offsetHSL((broadPatch - 0.5) * 0.01, 0.012 * facet, 0.024 * facet);
+
+  const pathNoise = hash2(x * 0.13, z * 0.13) * 1.2;
+  const pathWidth = worldConfig().pathWidth ?? 3.15;
+  const pathEdge = smoothstep(pathWidth * 0.5 + pathNoise, pathWidth * 0.5 - 0.72 + pathNoise, pathDistance);
+  color.lerp(new THREE.Color(palette.path), pathEdge * 0.74);
+  return color;
+}
+
 function desertTerrainColorAt(x, z, height, palette) {
   const color = new THREE.Color(palette.base);
   const pathDistance = distanceToPath(x, z, rawPathPoints());
@@ -2398,6 +2660,11 @@ function isWorldNavigationWalkableAt(x, z) {
     z > bounds.maxZ - WORLD_NAV_EDGE_MARGIN
   ) return false;
   if (config.landmass && landmassMaskAt(x, z) < WORLD_NAV_LAND_WALK_THRESHOLD) return false;
+  if (
+    config.theme === 'emerald-marsh' &&
+    marshWaterMaskAt(x, z) > 0.36 &&
+    !isMarshBoardwalkAt(x, z, 0.22)
+  ) return false;
   return !isInsideWorldNavigationBlocker(x, z);
 }
 
@@ -3791,6 +4058,557 @@ function createDesertDecor(scene, pathPoints) {
   placeDesertPebbles(scene, pathPoints, random);
   placeCacti(scene, pathPoints, random);
   placeDesertScrub(scene, pathPoints, random);
+}
+
+function createMarshDecor(scene, pathPoints) {
+  const seed = worldConfig().seed ?? 1409;
+  const random = seededRandom(seed);
+  createMarshWaterSurface(scene);
+  placeMarshMudPatches(scene, pathPoints, random);
+  placeMarshHummocks(scene, seededRandom(seed + 71));
+  createMarshBoardwalks(scene);
+  placeMarshTrees(scene, pathPoints, random);
+  placeMarshReeds(scene, pathPoints, random);
+  placeMarshLilyPads(scene, random);
+  placeMarshLandmarks(scene);
+  placeMarshStumps(scene, pathPoints, random);
+}
+
+function createMarshWaterSurface(scene) {
+  const config = worldConfig();
+  const bounds = worldNavigationBounds(config);
+  const step = 0.92;
+  const waterHeight = config.marshWaterHeight ?? 0.055;
+  const positions = [];
+  const indices = [];
+
+  for (let x = bounds.minX; x < bounds.maxX; x += step) {
+    for (let z = bounds.minZ; z < bounds.maxZ; z += step) {
+      const centerX = x + step * 0.5;
+      const centerZ = z + step * 0.5;
+      if (marshWaterMaskAt(centerX, centerZ) < 0.34) continue;
+      const vertexStart = positions.length / 3;
+      const ripple = Math.sin(centerX * 0.31 + centerZ * 0.17) * 0.004;
+      positions.push(
+        x, waterHeight + ripple, z,
+        x + step, waterHeight - ripple * 0.35, z,
+        x + step, waterHeight + ripple * 0.4, z + step,
+        x, waterHeight - ripple * 0.25, z + step
+      );
+      indices.push(
+        vertexStart, vertexStart + 2, vertexStart + 1,
+        vertexStart, vertexStart + 3, vertexStart + 2
+      );
+    }
+  }
+
+  if (positions.length === 0) return;
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  const material = new THREE.MeshStandardMaterial({
+    color: config.palette?.puddle ?? '#386960',
+    roughness: 0.48,
+    metalness: 0,
+    transparent: true,
+    opacity: 0.8,
+    depthWrite: true
+  });
+  const water = new THREE.Mesh(geometry, material);
+  water.receiveShadow = true;
+  water.renderOrder = 2;
+  scene.add(water);
+}
+
+function placeMarshHummocks(scene, random) {
+  const mossMaterial = mat('#6b7954', { roughness: 1 });
+  const rimMaterial = mat('#4d573f', { roughness: 1 });
+  const stoneMaterials = [
+    mat('#59645a', { roughness: 1 }),
+    mat('#667067', { roughness: 1 })
+  ];
+
+  (worldConfig().marshHummocks ?? []).forEach((hummock, hummockIndex) => {
+    const rim = createTerrainEllipseMesh(
+      { ...hummock, rx: hummock.rx * 1.06, rz: hummock.rz * 1.06 },
+      rimMaterial,
+      0.027,
+      14
+    );
+    const moss = createTerrainEllipseMesh(hummock, mossMaterial, 0.045, 14);
+    rim.renderOrder = 1;
+    moss.renderOrder = 2;
+    scene.add(rim, moss);
+
+    const treeLayout = [
+      { x: -0.24, z: 0.08 },
+      { x: 0.12, z: -0.22 },
+      { x: 0.27, z: 0.24 }
+    ];
+    for (let treeIndex = 0; treeIndex < (hummock.trees ?? 1); treeIndex += 1) {
+      const local = treeLayout[treeIndex % treeLayout.length];
+      const cos = Math.cos(hummock.rot ?? 0);
+      const sin = Math.sin(hummock.rot ?? 0);
+      const localX = local.x * hummock.rx;
+      const localZ = local.z * hummock.rz;
+      const x = hummock.x + localX * cos - localZ * sin;
+      const z = hummock.z + localX * sin + localZ * cos;
+      const tree = createMarshWillow(4.7 + random() * 0.75, false);
+      placeOnTerrain(tree, x, z, -0.07);
+      tree.rotation.y = random() * Math.PI * 2;
+      tree.scale.x *= 0.82 + random() * 0.12;
+      tree.scale.z *= 0.82 + random() * 0.12;
+      registerWorldNavigationBlocker(x, z, 0.62, `marsh-hummock-tree-${hummockIndex}-${treeIndex}`);
+      addStaticCulledObject(scene, tree, 2.8);
+    }
+
+    if (hummock.log) {
+      const logLength = hummock.rx * 0.72;
+      const logAngle = hummock.rot + 0.8;
+      const edgeOffset = new THREE.Vector3(-Math.sin(logAngle), 0, Math.cos(logAngle))
+        .multiplyScalar(hummock.rz * 0.52);
+      const center = new THREE.Vector3(hummock.x, 0, hummock.z).add(edgeOffset);
+      const direction = new THREE.Vector3(Math.cos(logAngle), 0.12, Math.sin(logAngle)).multiplyScalar(logLength * 0.5);
+      const log = createMarshBeam(
+        center.clone().sub(direction),
+        center.clone().add(direction),
+        0.2,
+        mat('#493d30', { roughness: 1 })
+      );
+      log.position.y += terrainHeightAt(hummock.x, hummock.z) + 0.2;
+      addStaticCulledObject(scene, log, 1.8);
+    }
+
+    for (let shrubIndex = 0; shrubIndex < 3; shrubIndex += 1) {
+      const angle = hummock.rot + shrubIndex * 2.15 + 0.35;
+      const x = hummock.x + Math.cos(angle) * hummock.rx * (0.38 + shrubIndex * 0.05);
+      const z = hummock.z + Math.sin(angle) * hummock.rz * (0.34 + shrubIndex * 0.05);
+      const shrub = createMarshShrub(0.72 + random() * 0.28);
+      placeOnTerrain(shrub, x, z, 0.01);
+      shrub.rotation.y = random() * Math.PI * 2;
+      addStaticCulledObject(scene, shrub, 0.9);
+    }
+
+    const detailCount = 7 + (hummockIndex % 3);
+    for (let detailIndex = 0; detailIndex < detailCount; detailIndex += 1) {
+      const point = randomPointInEllipse({
+        ...hummock,
+        rx: hummock.rx * 0.78,
+        rz: hummock.rz * 0.74
+      }, random);
+      if (detailIndex % 4 === 0) {
+        const size = 0.18 + random() * 0.2;
+        const stone = new THREE.Mesh(
+          new THREE.DodecahedronGeometry(size, 0),
+          stoneMaterials[(detailIndex + hummockIndex) % stoneMaterials.length]
+        );
+        stone.scale.set(1.25, 0.62, 0.95);
+        placeOnTerrain(stone, point.x, point.z, size * 0.18);
+        stone.rotation.y = random() * Math.PI * 2;
+        addStaticCulledObject(scene, stone, 0.65);
+      } else {
+        const tussock = createMarshGrassTussock(0.42 + random() * 0.34);
+        placeOnTerrain(tussock, point.x, point.z, 0.02);
+        tussock.rotation.y = random() * Math.PI * 2;
+        addStaticCulledObject(scene, tussock, 0.7);
+      }
+    }
+  });
+}
+
+function createMarshShrub(size) {
+  const group = new THREE.Group();
+  const materials = [
+    mat('#426046', { roughness: 0.98 }),
+    mat('#527052', { roughness: 0.98 })
+  ];
+  const layout = [
+    [-0.26, 0.22, 0],
+    [0.22, 0.27, -0.06],
+    [0.02, 0.34, 0.2]
+  ];
+  layout.forEach(([x, y, z], index) => {
+    const leaf = new THREE.Mesh(new THREE.DodecahedronGeometry(size * 0.42, 0), materials[index % materials.length]);
+    leaf.position.set(x * size, y * size, z * size);
+    leaf.scale.set(1.2, 0.72, 1.05);
+    leaf.rotation.y = index * 0.8;
+    group.add(leaf);
+  });
+  return group;
+}
+
+function createMarshGrassTussock(height) {
+  const group = new THREE.Group();
+  const materials = [
+    mat('#718054', { roughness: 1 }),
+    mat('#84905b', { roughness: 1 }),
+    mat('#5d714b', { roughness: 1 })
+  ];
+  for (let index = 0; index < 5; index += 1) {
+    const bladeHeight = height * (0.72 + (index % 3) * 0.14);
+    const blade = new THREE.Mesh(
+      new THREE.ConeGeometry(0.055, bladeHeight, 4),
+      materials[index % materials.length]
+    );
+    const angle = index * 2.18;
+    blade.position.set(Math.cos(angle) * 0.12, bladeHeight * 0.5, Math.sin(angle) * 0.12);
+    blade.rotation.z = Math.cos(angle) * 0.16;
+    group.add(blade);
+  }
+  return group;
+}
+
+function placeMarshMudPatches(scene, pathPoints, random) {
+  const material = mat(worldConfig().palette?.mud ?? '#4b4636', { roughness: 1 });
+  let placed = 0;
+  for (let attempt = 0; attempt < 120 && placed < 28; attempt += 1) {
+    const x = -39 + random() * 78;
+    const z = -39 + random() * 78;
+    const waterMask = marshWaterMaskAt(x, z);
+    if (waterMask < 0.08 || waterMask > 0.42) continue;
+    if (distanceToPath(x, z, pathPoints) < 2.5) continue;
+    const patch = {
+      x,
+      z,
+      rx: 1.2 + random() * 2.2,
+      rz: 0.7 + random() * 1.35,
+      rot: random() * Math.PI,
+      irregularity: 0.12
+    };
+    const mesh = createTerrainEllipseMesh(patch, material, 0.035, 12);
+    mesh.renderOrder = 1;
+    scene.add(mesh);
+    placed += 1;
+  }
+}
+
+function createMarshBoardwalks(scene) {
+  const plankMaterial = mat('#66523a', { roughness: 0.96 });
+  const darkWood = mat('#3d352a', { roughness: 1 });
+  (worldConfig().marshBoardwalks ?? []).forEach((boardwalk) => {
+    const from = boardwalk.from;
+    const to = boardwalk.to;
+    const dx = to.x - from.x;
+    const dz = to.z - from.z;
+    const length = Math.hypot(dx, dz);
+    const steps = Math.max(2, Math.ceil(length / 0.62));
+    const rotation = Math.atan2(dx, dz);
+    const group = new THREE.Group();
+    for (let index = 0; index <= steps; index += 1) {
+      const t = index / steps;
+      const x = from.x + dx * t;
+      const z = from.z + dz * t;
+      const plank = new THREE.Mesh(
+        new THREE.BoxGeometry((boardwalk.width ?? 1.65) * (0.94 + (index % 3) * 0.025), 0.12, 0.56),
+        index % 4 === 0 ? darkWood : plankMaterial
+      );
+      const deckHeight = marshBoardwalkDeckHeightAt(x, z) ?? worldSurfaceHeightAt(x, z) + 0.12;
+      plank.position.set(x, deckHeight - 0.06 + (index % 2) * 0.012, z);
+      plank.rotation.y = rotation + ((index % 3) - 1) * 0.018;
+      group.add(plank);
+    }
+    addStaticCulledObject(scene, group, 2.2);
+  });
+}
+
+function placeMarshTrees(scene, pathPoints, random) {
+  (worldConfig().marshTreeZones ?? []).forEach((zone) => {
+    let placed = 0;
+    for (let attempt = 0; attempt < zone.count * 4 && placed < zone.count; attempt += 1) {
+      const { x, z } = randomPointInEllipse(zone, random);
+      if (!isDecorationClear(x, z, pathPoints, 4.2)) continue;
+      if (marshWaterMaskAt(x, z) > 0.78) continue;
+      const height = 4.35 + random() * 1.9;
+      const tree = createMarshWillow(height, random() > 0.84);
+      placeOnTerrain(tree, x, z, -0.08);
+      tree.rotation.y = random() * Math.PI * 2;
+      tree.scale.x *= 0.9 + random() * 0.22;
+      tree.scale.z *= 0.9 + random() * 0.2;
+      addStaticCulledObject(scene, tree, 3.4);
+      placed += 1;
+    }
+  });
+}
+
+function createMarshWillow(height, sparse = false) {
+  const group = new THREE.Group();
+  const trunkMaterial = mat('#514332', { roughness: 1 });
+  const trunkDark = mat('#352f27', { roughness: 1 });
+  const leafMaterial = markWorldMaterial(mat(worldMaterialColor('tree', '#3b6045'), { roughness: 0.96 }), 'tree');
+  const leafLight = mat('#527353', { roughness: 0.96 });
+  const leafDark = mat('#33513a', { roughness: 0.98 });
+  const vineMaterial = mat('#426044', { roughness: 1 });
+  const vineLight = mat('#58704a', { roughness: 1 });
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.31, 0.5, height * 0.56, 7), trunkMaterial);
+  trunk.position.y = height * 0.28;
+  group.add(trunk);
+  for (let rootIndex = 0; rootIndex < 5; rootIndex += 1) {
+    const angle = rootIndex * Math.PI * 0.4 + 0.18;
+    const buttress = createMarshBeam(
+      new THREE.Vector3(0, 0.45, 0),
+      new THREE.Vector3(Math.cos(angle) * 0.86, 0.03, Math.sin(angle) * 0.86),
+      0.13,
+      trunkDark
+    );
+    group.add(buttress);
+  }
+
+  const branchY = height * 0.39;
+  const branchPaths = [
+    [
+      new THREE.Vector3(-height * 0.17, height * 0.56, height * 0.02),
+      new THREE.Vector3(-height * 0.34, height * 0.5, height * 0.12)
+    ],
+    [
+      new THREE.Vector3(height * 0.18, height * 0.58, -height * 0.04),
+      new THREE.Vector3(height * 0.35, height * 0.51, -height * 0.12)
+    ],
+    [
+      new THREE.Vector3(height * 0.03, height * 0.55, height * 0.17),
+      new THREE.Vector3(-height * 0.08, height * 0.48, height * 0.34)
+    ]
+  ];
+  branchPaths.slice(0, sparse ? 2 : 3).forEach(([elbow, tip], index) => {
+    const branchMaterial = index === 1 ? trunkDark : trunkMaterial;
+    group.add(
+      createMarshBeam(
+        new THREE.Vector3(0, branchY + index * 0.07, 0),
+        elbow,
+        0.145 - index * 0.012,
+        branchMaterial
+      ),
+      createMarshBeam(elbow, tip, 0.105 - index * 0.01, branchMaterial)
+    );
+  });
+
+  const crownLayout = [
+    [0, 0.64, 0, 1.28, 0.52, 1.14],
+    [-0.24, 0.61, 0.03, 1.2, 0.46, 1.02],
+    [0.24, 0.63, -0.04, 1.18, 0.48, 1.02],
+    [-0.08, 0.58, 0.22, 1.04, 0.43, 0.98],
+    [0.1, 0.67, -0.2, 1, 0.44, 0.94],
+    [-0.3, 0.53, 0.14, 0.7, 0.42, 0.72],
+    [0.31, 0.54, -0.1, 0.72, 0.42, 0.7]
+  ];
+  const crownCount = sparse ? 4 : crownLayout.length;
+  for (let crownIndex = 0; crownIndex < crownCount; crownIndex += 1) {
+    const [x, y, z, sx, sy, sz] = crownLayout[crownIndex];
+    const crown = new THREE.Mesh(
+      crownIndex % 2 === 0
+        ? new THREE.DodecahedronGeometry(1, 0)
+        : new THREE.BoxGeometry(1.65, 1.2, 1.55),
+      crownIndex === 1 ? leafLight : crownIndex === 4 ? leafDark : leafMaterial
+    );
+    crown.position.set(x * height, y * height, z * height);
+    crown.scale.set(sx * height * 0.175, sy * height * 0.175, sz * height * 0.175);
+    crown.rotation.y = crownIndex * 0.73;
+    crown.rotation.z = (crownIndex % 2 ? 1 : -1) * 0.045;
+    group.add(crown);
+  }
+
+  const vineAnchors = [
+    [-0.36, 0.61, 0.13, 0.32],
+    [0.36, 0.62, -0.1, 0.4],
+    [-0.2, 0.64, -0.3, 0.27],
+    [0.14, 0.66, 0.31, 0.37],
+    [0.4, 0.57, 0.18, 0.29],
+    [-0.39, 0.56, -0.12, 0.23],
+    [0.04, 0.6, -0.36, 0.34]
+  ];
+  vineAnchors.slice(0, sparse ? 4 : vineAnchors.length).forEach(([x, y, z, lengthScale], index) => {
+    const vineLength = height * lengthScale;
+    const vine = new THREE.Mesh(
+      new THREE.BoxGeometry(0.065, vineLength, 0.05),
+      index % 3 === 0 ? vineLight : vineMaterial
+    );
+    vine.position.set(x * height, y * height - vineLength * 0.5, z * height);
+    vine.rotation.z = (index % 2 ? -1 : 1) * 0.035;
+    group.add(vine);
+  });
+  return group;
+}
+
+function placeMarshReeds(scene, pathPoints, random) {
+  (worldConfig().marshReedZones ?? []).forEach((zone) => {
+    for (let index = 0; index < zone.count; index += 1) {
+      const { x, z } = randomPointInEllipse(zone, random);
+      const waterMask = marshWaterMaskAt(x, z);
+      if (waterMask < 0.18 || waterMask > 0.82) continue;
+      if (distanceToPath(x, z, pathPoints) < 3.6) continue;
+      if (worldConfig().clearings.some((clearing) => Math.hypot(x - clearing.x, z - clearing.z) < clearing.r)) continue;
+      const reeds = createMarshReedClump(0.75 + random() * 0.8);
+      placeOnTerrain(reeds, x, z, 0.02);
+      reeds.rotation.y = random() * Math.PI * 2;
+      addStaticCulledObject(scene, reeds, 1.1);
+    }
+  });
+}
+
+function placeMarshLilyPads(scene, random) {
+  const waterHeight = worldConfig().marshWaterHeight ?? 0.055;
+  const padMaterials = [
+    mat('#557544', { roughness: 0.92 }),
+    mat('#66844c', { roughness: 0.92 }),
+    mat('#45683f', { roughness: 0.94 })
+  ];
+  (worldConfig().marshPools ?? []).forEach((pool, poolIndex) => {
+    const targetCount = Math.max(5, Math.min(12, Math.round((pool.rx + pool.rz) * 0.45)));
+    let placed = 0;
+    for (let attempt = 0; attempt < targetCount * 5 && placed < targetCount; attempt += 1) {
+      const { x, z } = randomPointInEllipse(pool, random);
+      if (marshWaterMaskAt(x, z) < 0.62 || isMarshBoardwalkAt(x, z, 0.55)) continue;
+      const radius = 0.22 + random() * 0.24;
+      const shape = new THREE.Shape();
+      const gap = 0.32;
+      shape.moveTo(0, 0);
+      for (let segment = 0; segment <= 10; segment += 1) {
+        const angle = gap + ((Math.PI * 2 - gap * 2) * segment) / 10;
+        shape.lineTo(Math.cos(angle), Math.sin(angle));
+      }
+      shape.lineTo(0, 0);
+      const pad = new THREE.Mesh(new THREE.ShapeGeometry(shape), padMaterials[(poolIndex + placed) % padMaterials.length]);
+      pad.rotation.x = -Math.PI * 0.5;
+      pad.rotation.z = random() * Math.PI * 2;
+      pad.scale.setScalar(radius);
+      pad.position.set(x, waterHeight + 0.018 + (placed % 3) * 0.002, z);
+      pad.renderOrder = 3;
+      addStaticCulledObject(scene, pad, 0.55);
+      placed += 1;
+    }
+  });
+}
+
+function createMarshReedClump(height) {
+  const group = new THREE.Group();
+  const stemMaterial = mat('#718251', { roughness: 1 });
+  const tipMaterial = mat('#594b35', { roughness: 1 });
+  for (let index = 0; index < 5; index += 1) {
+    const angle = index * 2.1;
+    const offset = 0.08 + (index % 2) * 0.07;
+    const stemHeight = height * (0.78 + (index % 3) * 0.11);
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.026, stemHeight, 5), stemMaterial);
+    stem.position.set(Math.cos(angle) * offset, stemHeight * 0.5, Math.sin(angle) * offset);
+    stem.rotation.z = Math.cos(angle) * 0.08;
+    const tip = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 0.18, 5), tipMaterial);
+    tip.position.set(stem.position.x, stemHeight + 0.04, stem.position.z);
+    tip.rotation.z = stem.rotation.z;
+    group.add(stem, tip);
+  }
+  return group;
+}
+
+function placeMarshLandmarks(scene) {
+  (worldConfig().marshLandmarks ?? []).forEach((item) => {
+    const landmark = item.kind === 'watchtower'
+      ? createDrownedWatchtower()
+      : item.kind === 'rootArch'
+        ? createMarshRootArch()
+        : createMarshRootWall();
+    placeOnTerrain(landmark, item.x, item.z, 0.02);
+    landmark.rotation.y = item.rot ?? 0;
+    landmark.scale.setScalar(item.scale ?? 1);
+    registerWorldNavigationBlocker(
+      item.x,
+      item.z,
+      (item.kind === 'rootWall' ? 3.2 : item.kind === 'watchtower' ? 2.2 : 1.7) * (item.scale ?? 1),
+      `marsh-${item.kind}`
+    );
+    addStaticCulledObject(scene, landmark, 3.4);
+  });
+}
+
+function createDrownedWatchtower() {
+  const group = new THREE.Group();
+  const wood = mat('#514334', { roughness: 1 });
+  const darkWood = mat('#312d27', { roughness: 1 });
+  const moss = mat('#6f8050', { roughness: 0.98 });
+  const posts = [
+    [-0.72, -0.62, 2.7],
+    [0.72, -0.62, 2.45],
+    [-0.72, 0.62, 2.5],
+    [0.72, 0.62, 2.8]
+  ];
+  posts.forEach(([x, z, height], index) => {
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.18, height, 6), index % 2 ? darkWood : wood);
+    post.position.set(x, height * 0.5, z);
+    post.rotation.z = (index - 1.5) * 0.025;
+    group.add(post);
+  });
+  const platform = new THREE.Mesh(new THREE.BoxGeometry(2.15, 0.2, 1.85), wood);
+  platform.position.y = 2.05;
+  platform.rotation.z = -0.04;
+  const rail = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.16, 0.15), darkWood);
+  rail.position.set(0, 2.78, -0.82);
+  rail.rotation.z = 0.08;
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(1.35, 0.72, 4), moss);
+  roof.position.set(-0.15, 3.36, 0);
+  roof.rotation.y = Math.PI * 0.25;
+  roof.rotation.z = 0.12;
+  group.add(platform, rail, roof);
+  return group;
+}
+
+function createMarshRootArch() {
+  const group = new THREE.Group();
+  const rootMaterial = mat('#3b352c', { roughness: 1 });
+  const mossMaterial = mat('#66794b', { roughness: 0.96 });
+  group.add(
+    createMarshBeam(new THREE.Vector3(-1.45, 0, 0), new THREE.Vector3(-0.95, 2.8, 0.06), 0.24, rootMaterial),
+    createMarshBeam(new THREE.Vector3(1.35, 0, 0.1), new THREE.Vector3(0.86, 2.65, 0), 0.22, rootMaterial),
+    createMarshBeam(new THREE.Vector3(-1.02, 2.72, 0.03), new THREE.Vector3(0.9, 2.62, 0), 0.2, mossMaterial),
+    createMarshBeam(new THREE.Vector3(-0.62, 2.64, 0), new THREE.Vector3(0.12, 3.36, -0.04), 0.13, rootMaterial)
+  );
+  return group;
+}
+
+function createMarshRootWall() {
+  const group = new THREE.Group();
+  const rootMaterial = mat('#302f28', { roughness: 1 });
+  const mossMaterial = mat('#596c45', { roughness: 0.98 });
+  for (let index = 0; index < 9; index += 1) {
+    const x = -4.3 + index * 1.05;
+    const height = 2.4 + ((index * 5) % 6) * 0.42;
+    const root = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.32, height, 6), index % 3 === 0 ? mossMaterial : rootMaterial);
+    root.position.set(x, height * 0.5, (index % 2) * 0.3);
+    root.rotation.z = (index % 2 ? -1 : 1) * (0.08 + (index % 3) * 0.035);
+    group.add(root);
+  }
+  group.add(createMarshBeam(new THREE.Vector3(-4, 2.1, 0), new THREE.Vector3(4.1, 2.7, 0.2), 0.18, rootMaterial));
+  return group;
+}
+
+function placeMarshStumps(scene, pathPoints, random) {
+  for (let index = 0; index < 26; index += 1) {
+    const x = -36 + random() * 72;
+    const z = -36 + random() * 72;
+    if (!isDecorationClear(x, z, pathPoints, 4.8)) continue;
+    if (marshWaterMaskAt(x, z) > 0.44) continue;
+    const height = 0.45 + random() * 0.75;
+    const stump = new THREE.Group();
+    const wood = mat(index % 3 === 0 ? '#4b4233' : '#3a352c', { roughness: 1 });
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.32, height, 6), wood);
+    trunk.position.y = height * 0.5;
+    trunk.rotation.z = (random() - 0.5) * 0.16;
+    stump.add(trunk);
+    if (index % 2 === 0) {
+      stump.add(createMarshBeam(new THREE.Vector3(0, height * 0.7, 0), new THREE.Vector3(0.55, height + 0.38, 0.08), 0.08, wood));
+    }
+    placeOnTerrain(stump, x, z, -0.02);
+    stump.rotation.y = random() * Math.PI * 2;
+    addStaticCulledObject(scene, stump, 1.2);
+  }
+}
+
+function createMarshBeam(start, end, radius, material) {
+  const direction = end.clone().sub(start);
+  const beam = new THREE.Mesh(
+    new THREE.CylinderGeometry(radius * 0.82, radius, direction.length(), 6),
+    material
+  );
+  beam.position.copy(start).lerp(end, 0.5);
+  beam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize());
+  return beam;
 }
 
 function createDesertShadeDiscs(scene) {
@@ -5896,13 +6714,18 @@ function landmassMaskAt(x, z) {
   const clearingReserve = (config.clearings ?? []).reduce((best, clearing) => (
     Math.max(best, 1 - smoothstep(clearing.r * 0.72, clearing.r + 3, Math.hypot(x - clearing.x, z - clearing.z)))
   ), 0);
+  const boardwalkReserve = (config.marshBoardwalks ?? []).reduce((best, boardwalk) => {
+    const distance = distanceToSegment2D(x, z, boardwalk.from, boardwalk.to);
+    return Math.max(best, 1 - smoothstep((boardwalk.width ?? 1.6) * 0.5, (boardwalk.width ?? 1.6) * 0.5 + 2.2, distance));
+  }, 0);
 
   return clamp(Math.max(
     mask,
     roadReserve * 0.9,
     baseReserve,
     campReserve,
-    clearingReserve * 0.72
+    clearingReserve * 0.72,
+    boardwalkReserve * 0.88
   ), 0, 1);
 }
 

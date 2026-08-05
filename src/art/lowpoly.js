@@ -6516,6 +6516,245 @@ export function createYellowSandOgreModel() {
   return enableShadows(wrapPersistentModelScale(group, 1.16));
 }
 
+export function createMireHunterModel() {
+  const group = new THREE.Group();
+  const bark = mat('#3c503b');
+  const barkDark = mat('#26362d');
+  const leather = mat('#594b34');
+  const leatherDark = mat('#332d25');
+  const moss = mat('#607a45');
+  const mossLight = mat('#88a45c');
+  const cloth = mat('#314a42');
+  const poison = mat('#a1d56c', { emissive: '#557f35', emissiveIntensity: 0.28 });
+  const eye = mat('#d6e68a', { emissive: '#9ec653', emissiveIntensity: 0.52 });
+
+  const torso = mesh(
+    new THREE.CylinderGeometry(0.38, 0.29, 0.86, 5, 1, false, Math.PI / 5),
+    cloth,
+    new THREE.Vector3(0, 1.34, 0.01),
+    new THREE.Vector3(1.12, 1, 0.84)
+  );
+  const chestPlate = mesh(
+    new THREE.BoxGeometry(0.62, 0.48, 0.16),
+    bark,
+    new THREE.Vector3(0, 1.43, 0.31),
+    new THREE.Vector3(1, 1, 1)
+  );
+  chestPlate.rotation.z = -0.05;
+  const waist = mesh(
+    new THREE.CylinderGeometry(0.29, 0.33, 0.22, 6),
+    leatherDark,
+    new THREE.Vector3(0, 0.88, 0),
+    new THREE.Vector3(1, 1, 0.86)
+  );
+  const beltPlate = mesh(
+    new THREE.BoxGeometry(0.24, 0.22, 0.12),
+    mossLight,
+    new THREE.Vector3(0.02, 0.9, 0.33),
+    new THREE.Vector3(1, 1, 1)
+  );
+  beltPlate.rotation.z = 0.12;
+
+  const head = mesh(
+    new THREE.DodecahedronGeometry(0.27, 0),
+    leather,
+    new THREE.Vector3(0, 1.95, 0.02),
+    new THREE.Vector3(0.88, 1, 0.82)
+  );
+  const hood = mesh(
+    new THREE.ConeGeometry(0.42, 0.78, 5, 1, false, Math.PI / 5),
+    cloth,
+    new THREE.Vector3(0, 2.18, -0.03),
+    new THREE.Vector3(1, 1, 0.88)
+  );
+  hood.rotation.z = -0.06;
+  const mask = mesh(
+    new THREE.BoxGeometry(0.42, 0.19, 0.12),
+    barkDark,
+    new THREE.Vector3(0, 1.88, 0.27),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const eyeLeft = mesh(new THREE.BoxGeometry(0.055, 0.04, 0.025), eye, new THREE.Vector3(-0.1, 2, 0.3));
+  const eyeRight = eyeLeft.clone();
+  eyeRight.position.x = 0.1;
+  const cape = mesh(
+    new THREE.ConeGeometry(0.5, 1.02, 5, 1, true, Math.PI / 5),
+    barkDark,
+    new THREE.Vector3(0, 1.3, -0.25),
+    new THREE.Vector3(0.92, 1, 0.72)
+  );
+  cape.rotation.x = -0.12;
+
+  const shoulderLeft = mesh(new THREE.BoxGeometry(0.42, 0.22, 0.42), bark, new THREE.Vector3(0.48, 1.62, 0));
+  shoulderLeft.rotation.set(0.08, 0.14, -0.16);
+  const shoulderRight = mesh(new THREE.DodecahedronGeometry(0.27, 0), moss, new THREE.Vector3(-0.5, 1.63, 0), new THREE.Vector3(1.14, 0.68, 1));
+  shoulderRight.rotation.z = 0.2;
+
+  const rightArm = limb(new THREE.Vector3(-0.47, 1.57, 0), new THREE.Vector3(-0.67, 1.12, 0.18), { radius: 0.13, blocky: true }, leather);
+  const rightHand = mesh(new THREE.BoxGeometry(0.18, 0.2, 0.18), leather, new THREE.Vector3(-0.67, 1.08, 0.2));
+  const javelinShaft = cylinderBetween(
+    new THREE.Vector3(-0.7, 0.53, 0.15),
+    new THREE.Vector3(-0.65, 2.48, 0.42),
+    0.035,
+    0.03,
+    barkDark
+  );
+  const javelinHead = mesh(
+    new THREE.ConeGeometry(0.12, 0.35, 5),
+    poison,
+    new THREE.Vector3(-0.64, 2.67, 0.45),
+    new THREE.Vector3(1, 1, 1)
+  );
+  javelinHead.rotation.z = -0.03;
+  const binding = mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.18, 5), leatherDark, new THREE.Vector3(-0.65, 2.43, 0.42));
+  binding.rotation.z = -0.03;
+  const projectileSocket = new THREE.Object3D();
+  projectileSocket.position.set(-0.64, 2.73, 0.45);
+  const weaponSwingPivot = createPivot(
+    'mireHunterJavelinSwingPivot',
+    new THREE.Vector3(-0.66, 1.16, 0.2),
+    [javelinShaft, javelinHead, binding, projectileSocket]
+  );
+  const weaponPivot = createPivot(
+    'mireHunterWeaponPivot',
+    new THREE.Vector3(-0.47, 1.57, 0),
+    [rightArm, rightHand, weaponSwingPivot]
+  );
+
+  const leftArm = limb(new THREE.Vector3(0.47, 1.56, 0), new THREE.Vector3(0.61, 1.08, 0.25), { radius: 0.125, blocky: true }, leather);
+  const leftHand = mesh(new THREE.BoxGeometry(0.18, 0.2, 0.18), leather, new THREE.Vector3(0.61, 1.04, 0.26));
+  const offhandPivot = createPivot(
+    'mireHunterOffhandPivot',
+    new THREE.Vector3(0.47, 1.56, 0),
+    [leftArm, leftHand]
+  );
+
+  const upperBodyPivot = createPivot(
+    'mireHunterUpperBodyPivot',
+    new THREE.Vector3(0, 1.02, 0),
+    [torso, chestPlate, waist, beltPlate, head, hood, mask, eyeLeft, eyeRight, cape, shoulderLeft, shoulderRight, weaponPivot, offhandPivot]
+  );
+
+  const legLeft = mesh(new THREE.BoxGeometry(0.25, 0.72, 0.27), barkDark, new THREE.Vector3(-0.2, 0.5, 0));
+  const legRight = legLeft.clone();
+  legRight.position.x = 0.2;
+  const bootLeft = mesh(new THREE.BoxGeometry(0.3, 0.18, 0.42), leatherDark, new THREE.Vector3(-0.2, 0.1, 0.09));
+  const bootRight = bootLeft.clone();
+  bootRight.position.x = 0.2;
+
+  group.add(upperBodyPivot, legLeft, legRight, bootLeft, bootRight);
+  group.userData.parts = {
+    upperBodyPivot,
+    weaponPivot,
+    weaponSwingPivot,
+    offhandPivot,
+    projectileSocket,
+    javelinHead
+  };
+  centerModelFootprint(group);
+  return enableShadows(wrapPersistentModelScale(group, 1.05));
+}
+
+export function createRotrootColossusModel() {
+  const group = new THREE.Group();
+  const rootDark = mat('#2c3328');
+  const root = mat('#46513a');
+  const rootLight = mat('#65724c');
+  const moss = mat('#738a4e');
+  const stone = mat('#56625d');
+  const stoneLight = mat('#78837b');
+  const core = mat('#b8cf72', { emissive: '#718b3c', emissiveIntensity: 0.44 });
+
+  const waist = mesh(new THREE.DodecahedronGeometry(0.55, 0), rootDark, new THREE.Vector3(0, 0.96, 0), new THREE.Vector3(1.18, 0.7, 0.9));
+  const lowerTorso = mesh(new THREE.BoxGeometry(0.95, 0.58, 0.68), root, new THREE.Vector3(-0.04, 1.31, 0), new THREE.Vector3(1, 1, 1));
+  lowerTorso.rotation.z = -0.06;
+  const upperTorso = mesh(new THREE.DodecahedronGeometry(0.72, 0), rootLight, new THREE.Vector3(0.05, 1.76, 0), new THREE.Vector3(1.32, 0.72, 0.86));
+  upperTorso.rotation.z = 0.04;
+  const chestStoneLeft = mesh(new THREE.BoxGeometry(0.55, 0.5, 0.22), stone, new THREE.Vector3(-0.29, 1.82, 0.56));
+  chestStoneLeft.rotation.set(-0.08, -0.08, -0.12);
+  const chestStoneRight = mesh(new THREE.DodecahedronGeometry(0.34, 0), stoneLight, new THREE.Vector3(0.37, 1.7, 0.52), new THREE.Vector3(1.05, 0.72, 0.66));
+  const coreStone = mesh(new THREE.OctahedronGeometry(0.2, 0), core, new THREE.Vector3(0.04, 1.56, 0.65), new THREE.Vector3(0.86, 1.14, 0.62));
+
+  const neck = mesh(new THREE.CylinderGeometry(0.24, 0.31, 0.3, 6), rootDark, new THREE.Vector3(0, 2.24, 0));
+  const head = mesh(new THREE.DodecahedronGeometry(0.39, 0), root, new THREE.Vector3(0, 2.5, 0.03), new THREE.Vector3(1.02, 0.86, 0.82));
+  const brow = mesh(new THREE.BoxGeometry(0.58, 0.13, 0.16), stone, new THREE.Vector3(0, 2.58, 0.33));
+  brow.rotation.z = -0.07;
+  const eyeLeft = mesh(new THREE.OctahedronGeometry(0.055, 0), core, new THREE.Vector3(-0.13, 2.49, 0.38));
+  const eyeRight = eyeLeft.clone();
+  eyeRight.position.x = 0.13;
+  const crownRootLeft = mesh(new THREE.ConeGeometry(0.1, 0.68, 5), rootDark, new THREE.Vector3(-0.23, 2.9, -0.05));
+  crownRootLeft.rotation.z = 0.22;
+  const crownRootRight = mesh(new THREE.ConeGeometry(0.12, 0.82, 5), root, new THREE.Vector3(0.23, 2.95, -0.08));
+  crownRootRight.rotation.z = -0.18;
+  const backRoot = mesh(new THREE.ConeGeometry(0.17, 1.05, 5), rootDark, new THREE.Vector3(-0.44, 2.12, -0.32));
+  backRoot.rotation.z = -0.48;
+
+  const rightShoulder = mesh(new THREE.DodecahedronGeometry(0.43, 0), stone, new THREE.Vector3(-0.78, 1.92, 0), new THREE.Vector3(1.2, 0.78, 0.86));
+  const rightUpperArm = limb(new THREE.Vector3(-0.78, 1.82, 0), new THREE.Vector3(-1.04, 1.21, 0.16), { radius: 0.24, blocky: true }, root);
+  const rightForearm = mesh(new THREE.BoxGeometry(0.48, 0.72, 0.48), rootLight, new THREE.Vector3(-1.06, 0.85, 0.2));
+  rightForearm.rotation.z = -0.1;
+  const rightFist = mesh(new THREE.DodecahedronGeometry(0.34, 0), stoneLight, new THREE.Vector3(-1.08, 0.43, 0.26), new THREE.Vector3(1.15, 0.82, 1.02));
+  const rootClawA = mesh(new THREE.ConeGeometry(0.08, 0.42, 5), rootDark, new THREE.Vector3(-1.25, 0.18, 0.32));
+  rootClawA.rotation.z = 0.42;
+  const rootClawB = rootClawA.clone();
+  rootClawB.position.x = -0.98;
+  rootClawB.rotation.z = -0.34;
+  const weaponSwingPivot = createPivot(
+    'rotrootSlamPivot',
+    new THREE.Vector3(-1.04, 1.17, 0.16),
+    [rightForearm, rightFist, rootClawA, rootClawB]
+  );
+  const weaponPivot = createPivot(
+    'rotrootWeaponPivot',
+    new THREE.Vector3(-0.78, 1.82, 0),
+    [rightUpperArm, weaponSwingPivot]
+  );
+
+  const leftShoulder = mesh(new THREE.BoxGeometry(0.68, 0.42, 0.62), rootDark, new THREE.Vector3(0.76, 1.88, 0));
+  leftShoulder.rotation.z = -0.16;
+  const leftUpperArm = limb(new THREE.Vector3(0.76, 1.8, 0), new THREE.Vector3(1.0, 1.14, 0.08), { radius: 0.22, blocky: true }, rootDark);
+  const leftForearm = mesh(new THREE.DodecahedronGeometry(0.34, 0), root, new THREE.Vector3(1.03, 0.77, 0.16), new THREE.Vector3(0.92, 1.28, 0.92));
+  const leftFist = mesh(new THREE.DodecahedronGeometry(0.29, 0), stone, new THREE.Vector3(1.05, 0.39, 0.22), new THREE.Vector3(1.1, 0.82, 1));
+  const offhandPivot = createPivot(
+    'rotrootOffhandPivot',
+    new THREE.Vector3(0.76, 1.8, 0),
+    [leftUpperArm, leftForearm, leftFist]
+  );
+
+  const upperBodyPivot = createPivot(
+    'rotrootUpperBodyPivot',
+    new THREE.Vector3(0, 1.08, 0),
+    [waist, lowerTorso, upperTorso, chestStoneLeft, chestStoneRight, coreStone, neck, head, brow, eyeLeft, eyeRight, crownRootLeft, crownRootRight, backRoot, rightShoulder, leftShoulder, weaponPivot, offhandPivot]
+  );
+
+  const hipLeft = mesh(new THREE.DodecahedronGeometry(0.35, 0), rootDark, new THREE.Vector3(-0.34, 0.78, 0));
+  const hipRight = hipLeft.clone();
+  hipRight.position.x = 0.34;
+  const legLeft = mesh(new THREE.BoxGeometry(0.48, 0.78, 0.52), root, new THREE.Vector3(-0.34, 0.38, 0));
+  legLeft.rotation.z = 0.04;
+  const legRight = legLeft.clone();
+  legRight.position.x = 0.34;
+  legRight.rotation.z = -0.05;
+  const footLeft = mesh(new THREE.BoxGeometry(0.66, 0.24, 0.82), rootDark, new THREE.Vector3(-0.35, 0.08, 0.16));
+  const footRight = footLeft.clone();
+  footRight.position.x = 0.35;
+  const shinStoneLeft = mesh(new THREE.BoxGeometry(0.42, 0.34, 0.14), stone, new THREE.Vector3(-0.35, 0.42, 0.34));
+  const shinStoneRight = shinStoneLeft.clone();
+  shinStoneRight.position.x = 0.35;
+
+  group.add(upperBodyPivot, hipLeft, hipRight, legLeft, legRight, footLeft, footRight, shinStoneLeft, shinStoneRight);
+  group.userData.parts = {
+    upperBodyPivot,
+    weaponPivot,
+    weaponSwingPivot,
+    offhandPivot,
+    coreStone,
+    rightFist
+  };
+  centerModelFootprint(group);
+  return enableShadows(wrapPersistentModelScale(group, 1.2));
+}
+
 export function createFrostTrollBossModel() {
   const group = new THREE.Group();
   const bodyRoot = new THREE.Group();
@@ -6903,6 +7142,36 @@ export function createVenomArrowModel(color = '#87c75a') {
   const featherB = featherA.clone();
   featherB.rotation.z = -0.65;
   group.add(shaft, head, vial, featherA, featherB);
+  return enableShadows(group);
+}
+
+export function createMireJavelinModel(color = '#8abf68') {
+  const group = new THREE.Group();
+  const shaft = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.035, 0.03, 1.12, 5),
+    mat('#405035')
+  );
+  shaft.rotation.x = Math.PI / 2;
+  const head = new THREE.Mesh(
+    new THREE.ConeGeometry(0.12, 0.34, 5),
+    mat(color, { emissive: '#557f35', emissiveIntensity: 0.32 })
+  );
+  head.position.z = 0.72;
+  head.rotation.x = Math.PI / 2;
+  const binding = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.055, 0.055, 0.16, 5),
+    mat('#66513a')
+  );
+  binding.position.z = 0.49;
+  binding.rotation.x = Math.PI / 2;
+  const finLeft = new THREE.Mesh(new THREE.ConeGeometry(0.075, 0.22, 4), mat('#6d8650'));
+  finLeft.position.set(-0.06, 0, -0.51);
+  finLeft.rotation.set(-Math.PI / 2, 0.28, 0.4);
+  const finRight = finLeft.clone();
+  finRight.position.x = 0.06;
+  finRight.rotation.y = -0.28;
+  finRight.rotation.z = -0.4;
+  group.add(shaft, head, binding, finLeft, finRight);
   return enableShadows(group);
 }
 

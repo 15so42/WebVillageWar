@@ -97,7 +97,8 @@ export class AttackSystem {
     const isImpactAbility =
       ability.type === 'venomTail' ||
       ability.type === 'sandQuake' ||
-      ability.type === 'glacialSlam';
+      ability.type === 'glacialSlam' ||
+      ability.type === 'rootQuake';
     const eventName = isImpactAbility ? 'impact' : 'release';
     const duration = getAnimationDuration(unit, 'attack');
     unit.abilityCooldowns.set(key, Math.max(0.1, ability.cooldown ?? 8));
@@ -109,6 +110,13 @@ export class AttackSystem {
     playUnitAnimation(unit, 'attack', duration, {
       variant: ability.animationVariant ?? 'monsterAbility'
     });
+    if (ability.type === 'rootQuake') {
+      this.game.effects.spawnRootWarning(
+        unit.position,
+        Math.max(1, ability.radius ?? 4.8),
+        Math.max(0.2, getAnimationEventTime(unit, 'attack', 'impact'))
+      );
+    }
     this.queuePendingAttack({
       source: unit,
       target,
@@ -404,6 +412,10 @@ export class AttackSystem {
       this.fireLanternBolt(source, target, ability);
       return;
     }
+    if (ability.type === 'mireJavelin') {
+      this.fireMireJavelin(source, target, ability);
+      return;
+    }
     if (ability.type === 'frostNova') {
       this.castFrostNova(source, target, ability);
       return;
@@ -422,6 +434,10 @@ export class AttackSystem {
     }
     if (ability.type === 'glacialSlam') {
       this.castGlacialSlam(source, ability);
+      return;
+    }
+    if (ability.type === 'rootQuake') {
+      this.castRootQuake(source, ability);
     }
   }
 
@@ -480,6 +496,29 @@ export class AttackSystem {
       })
     });
     this.spawnMonsterAbilityText(source, '墓灯贯射', '#d7b66d');
+  }
+
+  fireMireJavelin(source, target, ability) {
+    this.spawnProjectile(source, target, {
+      projectileType: source.definition.projectileType ?? 'mireJavelin',
+      projectileColor: source.definition.projectileColor ?? '#8abf68',
+      projectileSpeed: source.definition.projectileSpeed ?? 16,
+      damage: Math.max(
+        1,
+        ability.damage ?? this.game.modifiers.getAttackDamage(source, source.definition.attackDamageType) * 1.45
+      ),
+      attackDamageType: source.definition.attackDamageType,
+      knockback: this.game.modifiers.getKnockback(source) * 0.72,
+      projectilePierce: {
+        radius: 0.46,
+        maxDistance: Math.max(ability.range ?? source.definition.attackRange ?? 10, 1),
+        maxHits: Math.max(1, Math.floor(ability.projectilePierce ?? 2))
+      },
+      onHit: (hitTarget) => this.applyStatus(hitTarget, 'poisoned', source, {
+        duration: ability.poisonDuration ?? 4.5
+      })
+    });
+    this.spawnMonsterAbilityText(source, '瘴藤贯矛', '#a1d56c');
   }
 
   castFrostNova(source, target, ability) {
@@ -585,6 +624,21 @@ export class AttackSystem {
     this.game.effects.spawnRing(source.position, '#d9f7ff', radius, 0.92);
     this.game.effects.spawnRing(source.position, '#62c9f3', radius * 0.68, 0.68);
     this.spawnMonsterAbilityText(source, '冰川践踏', '#bceeff');
+  }
+
+  castRootQuake(source, ability) {
+    const radius = Math.max(1, ability.radius ?? 4.8);
+    const damage = Math.max(1, ability.damage ?? 17);
+    this.damageTargetsInRadius(source, source.position, radius, damage, {
+      defenseDamageType: 'magic',
+      damageTypes: new Set(['undodgeable']),
+      knockback: this.game.modifiers.getKnockback(source) * 1.12,
+      onHit: (hitTarget) => this.applyStatus(hitTarget, ability.statusBuffId ?? 'mireSnared', source, {
+        duration: ability.slowDuration ?? 2.8
+      })
+    });
+    this.game.effects.spawnRootEruption(source.position, radius);
+    this.spawnMonsterAbilityText(source, '腐根震裂', '#b8cf72');
   }
 
   damageTargetsInRadius(source, center, radius, damage, options = {}) {

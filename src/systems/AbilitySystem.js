@@ -1,4 +1,5 @@
 import { PLAYER_ABILITY_DEFINITIONS, TEAMS } from '../data/gameData.js';
+import { rollOverflowChance } from '../utils/chance.js';
 import { distance2D } from '../utils/math.js';
 
 const KILL_HARVEST_ENERGY_PER_STACK = 0.2;
@@ -89,6 +90,42 @@ export class AbilitySystem {
     this.triggerRandomHeal(card);
     this.triggerRevivalMatrix(card);
     this.triggerWarDrum(card);
+  }
+
+  prepareCardForPlay(card) {
+    if (!card || card.id === 'inspiration' || this.getStacks('inspiration') <= 0) {
+      return card;
+    }
+    const originalLevel = Math.max(1, Math.floor(card.level ?? 1));
+    return {
+      ...card,
+      level: originalLevel + 1
+    };
+  }
+
+  consumePreparedCardPlay(originalCard, preparedCard) {
+    if (!originalCard || preparedCard === originalCard || originalCard.id === 'inspiration') {
+      return false;
+    }
+    const inspiration = this.abilities.get('inspiration');
+    if (!inspiration || inspiration.stacks <= 0) return false;
+    inspiration.stacks = Math.max(0, inspiration.stacks - 1);
+    const remaining = inspiration.stacks;
+    if (remaining <= 0) {
+      this.abilities.delete('inspiration');
+    }
+    this.game.effects.spawnDamageNumber(this.game.playerBase.position, 1, {
+      text: `灵感 +1级${remaining > 0 ? ` · 余${remaining}` : ''}`,
+      color: inspiration.color,
+      stroke: '#1d2531',
+      height: 3.1,
+      duration: 0.78,
+      fontSize: 76,
+      baseHeight: 0.5
+    });
+    this.updateUi();
+    this.game.networkBridge?.markPrivateStateDirty?.(this.playerSlot);
+    return true;
   }
 
   onEnemyKilled(unit, position = null) {
@@ -223,15 +260,7 @@ export class AbilitySystem {
 
   rollSummonReinforcementBonus(stacks, card = null) {
     if (stacks <= 0) return 0;
-    let remainingChance = stacks * SUMMON_REINFORCEMENT_CHANCE_PER_STACK;
-    let bonus = 0;
-    while (remainingChance >= 1) {
-      bonus += 1;
-      remainingChance -= 1;
-    }
-    if (remainingChance > 0 && Math.random() < remainingChance) {
-      bonus += 1;
-    }
+    const bonus = rollOverflowChance(stacks * SUMMON_REINFORCEMENT_CHANCE_PER_STACK);
     if (bonus > 0 && card?.energyCost != null) {
       this.game.effects.spawnDamageNumber(this.game.playerBase.position, 1, {
         text: `增援x${bonus}`,
@@ -249,16 +278,19 @@ export class AbilitySystem {
   tryEchoEnchant(card, drag) {
     const stacks = this.getStacks('enchantResonance');
     if (stacks <= 0) return;
-    const chance = Math.min(1, ENCHANT_RESONANCE_CHANCE_PER_STACK * stacks);
-    if (Math.random() >= chance) return;
-    const repeated = this.game.cardEffects.resolve({
-      ...drag,
-      card,
-      skipAbilityTriggers: true
-    });
-    if (repeated) {
+    const repeatCount = rollOverflowChance(ENCHANT_RESONANCE_CHANCE_PER_STACK * stacks);
+    let appliedCount = 0;
+    for (let index = 0; index < repeatCount; index += 1) {
+      const repeated = this.game.cardEffects.resolve({
+        ...drag,
+        card,
+        skipAbilityTriggers: true
+      });
+      if (repeated) appliedCount += 1;
+    }
+    if (appliedCount > 0) {
       this.game.effects.spawnDamageNumber(this.game.playerBase.position, 1, {
-        text: '附魔共鸣',
+        text: appliedCount > 1 ? `附魔共鸣x${appliedCount}` : '附魔共鸣',
         color: '#d8b7ff',
         stroke: '#21132f',
         height: 3,

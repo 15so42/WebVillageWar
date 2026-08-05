@@ -19,6 +19,49 @@ assert.equal(CARD_DEFINITIONS.find((card) => card.id === 'self-destruct-enchant'
 assert.equal(BUFF_DEFINITIONS.rebirthTotem.retired, true);
 assert.match(CARD_DEFINITIONS.find((card) => card.id === 'self-destruct-enchant')?.summary ?? '', /等级 ×4/);
 assert.equal(CARD_DEFINITIONS.find((card) => card.id === 'high-explosive-ability')?.effect?.abilityId, 'highExplosive');
+const silverGambleCard = CARD_DEFINITIONS.find((card) => card.id === 'silver-gamble');
+assert.equal(silverGambleCard?.energyCost, 0);
+assert.match(silverGambleCard?.summary ?? '', /银币清空/);
+
+const silverMessages = [];
+const silverGame = {
+  activeEconomySlot: 'p2',
+  localPlayerSlot: 'p1',
+  silverByPlayer: { p2: 80 },
+  getSilver(playerId) {
+    return this.silverByPlayer[playerId];
+  },
+  setSilver(value, playerId) {
+    this.silverByPlayer[playerId] = value;
+  },
+  playerBase: { position: { x: 0, y: 0, z: 0 } },
+  effects: {
+    spawnDamageNumber(position, amount, options) {
+      silverMessages.push(options.text);
+    },
+    spawnRing() {}
+  },
+  updateHud() {}
+};
+const silverEffects = new CardEffectSystem(silverGame);
+const silverRandom = Math.random;
+Math.random = () => 0.49;
+try {
+  assert.equal(silverEffects.gambleSilver({ card: silverGambleCard }), true);
+} finally {
+  Math.random = silverRandom;
+}
+assert.equal(silverGame.silverByPlayer.p2, 160);
+assert.equal(silverMessages.at(-1), '银币翻倍');
+silverGame.silverByPlayer.p2 = 80;
+Math.random = () => 0.5;
+try {
+  assert.equal(silverEffects.gambleSilver({ card: silverGambleCard }), true);
+} finally {
+  Math.random = silverRandom;
+}
+assert.equal(silverGame.silverByPlayer.p2, 0);
+assert.equal(silverMessages.at(-1), '银币清空');
 
 const highExplosiveCombat = new CombatSystem({
   getAbilityStacks: (abilityId) => abilityId === 'highExplosive' ? 1 : 0

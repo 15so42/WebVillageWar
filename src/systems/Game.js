@@ -543,6 +543,42 @@ const RED_DESERT_HEAD_RENDER_TUNING = Object.freeze({
   outlineColor: '#442211',
   outlineThreshold: 0.18
 });
+const EMERALD_MARSH_HEAD_RENDER_TUNING = Object.freeze({
+  toneMapping: 'aces',
+  exposure: 0.94,
+  brightness: 1.04,
+  contrast: 1.06,
+  saturation: 1.03,
+  hue: 0,
+  warmth: 0,
+  sunColor: '#e1e3c4',
+  sunIntensity: 2.9,
+  sunX: -58,
+  sunY: 66,
+  sunZ: 42,
+  shadowIntensity: 0.78,
+  hemiIntensity: 0.98,
+  hemiSky: '#c2d0c5',
+  hemiGround: '#3d5142',
+  ambientColor: '#94a99b',
+  ambientIntensity: 0.54,
+  background: '#8e9f90',
+  fogColor: '#84998c',
+  fogNear: 42,
+  fogFar: 168,
+  aoIntensity: 0.025,
+  aoScale: 3.2,
+  aoKernelRadius: 10,
+  aoBias: 0.14,
+  bloomStrength: 0.035,
+  vignetteStrength: 0.025,
+  snowColor: '#5b6b48',
+  rockColor: '#566158',
+  treeColor: '#3b6045',
+  outlineThickness: 0,
+  outlineColor: '#34443d',
+  outlineThreshold: 0.24
+});
 const CAMERA_FOG_COMPENSATION_START = 0.46;
 const CAMERA_FOG_COMPENSATION_NEAR_SCALE = 0.34;
 const CAMERA_FOG_COMPENSATION_FAR_SCALE = 2.4;
@@ -10131,6 +10167,7 @@ function renderTuningHeadDefaultsForWorld(worldConfig = BALANCE.world) {
   if (worldConfig.sceneKey === 'snow-valley') return SNOW_VALLEY_HEAD_RENDER_TUNING;
   if (worldConfig.sceneKey === 'dungeon-halls') return DUNGEON_HALLS_HEAD_RENDER_TUNING;
   if (worldConfig.sceneKey === 'red-desert') return RED_DESERT_HEAD_RENDER_TUNING;
+  if (worldConfig.sceneKey === 'emerald-marsh') return EMERALD_MARSH_HEAD_RENDER_TUNING;
   return null;
 }
 

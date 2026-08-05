@@ -34,4 +34,21 @@ assert.equal(auraGame.effects.ensureRecoveryAura({ x: 3, y: 0, z: 4 }, 6), true)
 assert.deepEqual(auraEvents, [{ name: 'fx_recovery_aura', x: 3, y: 0, z: 4, radius: 6 }]);
 restoreAura();
 
+const judgmentEvents = [];
+const judgmentGame = {
+  effects: {
+    spawnJudgmentSword: () => true
+  }
+};
+const restoreJudgment = installHostEffectsRelay(judgmentGame, (event) => judgmentEvents.push(event));
+assert.equal(judgmentGame.effects.spawnJudgmentSword({ x: 5, y: 1, z: 7 }, 0.9), true);
+assert.deepEqual(judgmentEvents, [{
+  name: 'fx_judgment_sword',
+  x: 5,
+  y: 1,
+  z: 7,
+  radius: 0.9
+}]);
+restoreJudgment();
+
 console.log('Network FX relay rate-limit checks passed.');

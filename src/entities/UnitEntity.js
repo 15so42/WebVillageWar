@@ -144,6 +144,7 @@ export class UnitEntity {
     const runtimeState = preserveEnchantmentRuntimeState(existing, id, isEnchantment);
     const previousMaxDurability = this.weapon?.maxDurability ?? 0;
     this.attributes.removeModifiersBySource(buffModifierSource(id));
+    this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:body-bonus`);
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:focus-range`);
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:nearby`);
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:advantage`);
@@ -187,6 +188,7 @@ export class UnitEntity {
     this.buffs.delete(id);
     this.attributes.removeModifiersBySource(buffModifierSource(id));
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:soul-bonus`);
+    this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:body-bonus`);
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:focus-range`);
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:nearby`);
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:advantage`);
@@ -432,7 +434,9 @@ function preserveEnchantmentRuntimeState(existing, id, isEnchantment) {
   if (!existing || !isEnchantment) return {};
   const preserved = {};
   copyFiniteRuntimeValue(preserved, existing, 'soulBonus');
+  copyFiniteRuntimeValue(preserved, existing, 'bodyForgingBonus');
   copyFiniteRuntimeValue(preserved, existing, 'focusRangeBonus');
+  copyFiniteRuntimeValue(preserved, existing, 'judgmentReadyAt');
   copyFiniteRuntimeValue(preserved, existing, `deathCooldown:${id}`);
   return preserved;
 }
@@ -447,6 +451,16 @@ function restoreEnchantmentRuntimeModifiers(unit, buff, isEnchantment) {
       stat: 'maxHealth',
       type: 'add',
       amount: buff.soulBonus
+    }, source);
+  }
+
+  if (buff.bodyForgingBonus > 0) {
+    const source = `${buffModifierSource(buff.id)}:body-bonus`;
+    unit.attributes.removeModifiersBySource(source);
+    unit.attributes.addModifier({
+      stat: 'maxHealth',
+      type: 'add',
+      amount: buff.bodyForgingBonus
     }, source);
   }
 

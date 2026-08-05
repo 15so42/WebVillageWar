@@ -216,19 +216,23 @@ export class CardEffectSystem {
   }
 
   gambleSilver({ card }) {
-    const before = Math.max(0, this.game.silver ?? 0);
-    // 成功率随等级提升：Lv1 50%，每级 +4%（上限 70%）
-    const level = Math.max(1, Math.floor(card?.level ?? 1));
-    const winChance = Math.min(0.7, 0.5 + 0.04 * Math.max(0, level - 1));
-    const doubled = Math.random() < winChance;
-    const after = doubled ? before * 2 : before * 0.5;
-    this.game.silver = Math.max(0, after);
+    const playerId = this.game.activeEconomySlot
+      ?? this.game.cardSystem?.playerSlot
+      ?? this.game.localPlayerSlot;
+    const before = Math.max(0, this.game.getSilver?.(playerId) ?? this.game.silver ?? 0);
+    const doubled = Math.random() < 0.5;
+    const after = doubled ? before * 2 : 0;
+    if (typeof this.game.setSilver === 'function') {
+      this.game.setSilver(after, playerId);
+    } else {
+      this.game.silver = after;
+    }
     const position = this.game.playerBase?.position ?? null;
     this.game.updateHud(0);
     if (this.game.runShopOpen) this.game.renderRunShop();
     if (position) {
       this.game.effects.spawnDamageNumber(position, 1, {
-        text: doubled ? '银币翻倍' : '银币减半',
+        text: doubled ? '银币翻倍' : '银币清空',
         color: doubled ? '#ffe08a' : '#d8a0a0',
         stroke: doubled ? '#4a3818' : '#3a2020',
         height: 3.05,

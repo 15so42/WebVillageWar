@@ -851,10 +851,16 @@ export class CardSystem {
       this.flashEnergyPanel();
       return false;
     }
-    if (!this.resolveCard(drag)) return false;
+    const abilities = this.game.abilitiesFor?.(this.playerSlot);
+    const preparedCard = abilities?.prepareCardForPlay?.(drag.card) ?? drag.card;
+    const preparedDrag = preparedCard === drag.card
+      ? drag
+      : { ...drag, card: preparedCard };
+    if (!this.resolveCard(preparedDrag)) return false;
+    abilities?.consumePreparedCardPlay?.(drag.card, preparedCard);
     this.spendEnergy(cost);
     this.game.runCardsPlayedCount = (this.game.runCardsPlayedCount ?? 0) + 1;
-    this.game.abilitiesFor?.(this.playerSlot)?.onCardPlayed(drag.card, drag);
+    abilities?.onCardPlayed(preparedCard, preparedDrag);
     if (isTerrainCard(drag.card) && !cardHasUseLimit(drag.card)) {
       this.startCardCooldown(drag.card);
       this.renderHand();
@@ -968,18 +974,19 @@ export class CardSystem {
       }
       return;
     }
-    // 倒计时结束：扣除能量并施放一次附魔（本地/房主）
-    this.spendEnergy(hold.cost);
-    this.game.cardEffects.resolve({
+    // 本地/房主也必须走正式出牌入口。此前直接调用 cardEffects.resolve 会绕过
+    // onCardPlayed，导致附魔共鸣、节能术、生机回流等能力在长按期间全部失效。
+    const applied = this.playDraggedCard({
       ...hold.drag,
       targetUnit: hold.target
-    });
+    }, { hold: true });
+    if (!applied) {
+      this.stopEnchantHold({ commit: false });
+      this.setHint('附魔结算失败：长按已停止，松手完成使用', 'card-drag');
+      return;
+    }
     if (hold.remainingUses != null) {
-      hold.remainingUses = Math.max(0, hold.remainingUses - 1);
-      if (cardHasUseLimit(hold.drag.card)) {
-        if (!Number.isFinite(hold.drag.card.maxUses)) hold.drag.card.maxUses = cardMaxUses(hold.drag.card);
-        hold.drag.card.remainingUses = hold.remainingUses;
-      }
+      hold.remainingUses = Math.max(0, Number(hold.drag.card.remainingUses ?? hold.remainingUses - 1));
     }
     hold.tickCount += 1;
     this.updateEnchantHoldUi();
@@ -2674,6 +2681,17 @@ const CARD_ART_RENDERERS = {
     <polygon fill="#dff8ff" points="49,27 63,34 60,48 49,55 38,48 35,34" />
     <polygon fill="#6b9ab8" points="49,32 57,36 55,45 49,49 43,45 41,36" />
   `),
+  inspiration: () => artSvg(`
+    <polygon fill="#243644" points="0,51 18,42 42,44 69,38 96,49 96,64 0,64" />
+    <polygon fill="#567d91" points="22,24 58,24 70,35 34,35" />
+    <polygon fill="#739fb0" points="26,17 62,17 73,28 37,28" />
+    <polygon fill="#d9edf0" points="31,10 67,10 77,21 41,21" />
+    <path fill="none" stroke="#fff4bd" stroke-width="3" d="M51 46 C51 37 55 31 63 26" />
+    <polygon fill="#ffe58a" points="66,7 70,17 81,18 72,24 74,35 66,29 57,35 60,24 51,18 62,17" />
+    <polygon fill="#fff7d5" points="66,12 68,19 74,20 69,23 70,29 66,26 61,29 63,23 58,20 64,19" />
+    <circle fill="#8fd6e8" opacity="0.42" cx="34" cy="43" r="9" />
+    <polygon fill="#d9edf0" points="34,34 38,42 46,44 38,47 34,55 30,47 22,44 30,42" />
+  `),
   meteor: () => artSvg(`
     <polygon fill="#28333d" points="0,47 18,39 39,43 62,36 96,46 96,64 0,64" />
     <polygon fill="#ffe49a" opacity="0.9" points="20,2 68,31 59,39 12,10" />
@@ -2703,6 +2721,28 @@ const CARD_ART_RENDERERS = {
     <polygon fill="#fff2c7" points="26,33 32,28 34,38" />
     <polygon fill="#fff2c7" points="58,27 65,22 65,33" />
     <polygon fill="#fff2c7" points="69,46 76,43 73,53" />
+  `),
+  judgment: () => artSvg(`
+    <polygon fill="#302d2a" points="0,52 18,42 43,44 68,38 96,49 96,64 0,64" />
+    <polygon fill="#f4edcf" points="47,5 54,5 53,40 48,48 43,40" />
+    <polygon fill="#aeb9bd" points="47,5 49,40 44,40" />
+    <polygon fill="#d6aa4a" points="27,38 68,38 73,43 51,45 23,43" />
+    <polygon fill="#6a4930" points="45,44 52,44 53,57 44,57" />
+    <polygon fill="#d6aa4a" points="48,54 55,59 48,63 41,59" />
+    <path fill="none" stroke="#ffe58a" stroke-width="2.5" d="M48 2 L48 13 M25 12 L34 21 M72 12 L62 22 M17 31 L31 32 M80 31 L66 32" />
+    <polygon fill="#ffe58a" opacity="0.38" points="48,2 76,35 62,60 34,60 20,35" />
+  `),
+  bodyForging: () => artSvg(`
+    <polygon fill="#3b2d28" points="0,52 18,42 43,44 68,38 96,49 96,64 0,64" />
+    <polygon fill="#9c5b43" points="30,22 41,12 55,12 67,22 63,49 48,58 33,49" />
+    <polygon fill="#d99a74" points="39,14 48,8 57,14 54,26 42,26" />
+    <polygon fill="#754330" points="34,28 46,23 48,35 50,23 62,28 59,48 48,55 37,48" />
+    <polygon fill="#e9b084" points="31,25 20,34 24,43 39,32" />
+    <polygon fill="#e9b084" points="65,25 76,34 72,43 57,32" />
+    <polygon fill="#f0c46b" points="48,29 54,36 52,47 48,51 44,47 42,36" />
+    <path fill="none" stroke="#ffe0a0" stroke-width="2.4" d="M48 32 L48 47 M39 39 L45 42 M57 39 L51 42" />
+    <polygon fill="#d9875f" points="14,18 21,9 28,18 25,31 17,31" />
+    <path fill="none" stroke="#ffe0a0" stroke-width="2" d="M21 12 L21 27 M16 21 L26 21" />
   `),
   toughness: () => artSvg(`
     <polygon fill="#3a352b" points="0,52 18,42 45,44 69,38 96,49 96,64 0,64" />

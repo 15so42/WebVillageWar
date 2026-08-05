@@ -137,6 +137,77 @@ export class EffectsSystem {
     }, () => this.releasePooledEffect(poolKey, ring));
   }
 
+  spawnRootWarning(position, radius = 4.8, duration = 0.72) {
+    const group = new THREE.Group();
+    group.position.set(position.x, (position.y ?? 0) + 0.075, position.z);
+    const ringMaterial = basicMat('#9ebf68', {
+      transparent: true,
+      opacity: 0.5,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      depthTest: false
+    }).clone();
+    const innerMaterial = ringMaterial.clone();
+    innerMaterial.color.set('#5f7f4a');
+    const ring = new THREE.Mesh(new THREE.RingGeometry(radius * 0.88, radius, 40), ringMaterial);
+    ring.rotation.x = -Math.PI / 2;
+    ring.renderOrder = 1510;
+    const inner = new THREE.Mesh(new THREE.RingGeometry(radius * 0.48, radius * 0.55, 32), innerMaterial);
+    inner.rotation.x = -Math.PI / 2;
+    inner.renderOrder = 1510;
+    group.add(ring, inner);
+    this.addEffect(group, Math.max(0.2, duration), (_, t) => {
+      const pulse = 0.82 + Math.sin(t * Math.PI * 5) * 0.08;
+      ring.scale.setScalar(pulse);
+      inner.scale.setScalar(0.9 + t * 0.1);
+      ringMaterial.opacity = 0.22 + t * 0.46;
+      innerMaterial.opacity = 0.18 + t * 0.34;
+    });
+  }
+
+  spawnRootEruption(position, radius = 4.8) {
+    const group = new THREE.Group();
+    group.position.set(position.x, (position.y ?? 0) + 0.04, position.z);
+    const rootMaterial = mat('#46513a', { roughness: 0.96 }).clone();
+    const mossMaterial = mat('#789451', { roughness: 0.92 }).clone();
+    const shardCount = 13;
+    for (let index = 0; index < shardCount; index += 1) {
+      const angle = (index / shardCount) * Math.PI * 2 + (index % 2) * 0.14;
+      const distance = radius * (0.34 + ((index * 7) % 11) / 16);
+      const height = 0.7 + ((index * 5) % 7) * 0.16;
+      const spike = new THREE.Mesh(
+        new THREE.ConeGeometry(0.16 + (index % 3) * 0.035, height, 5),
+        index % 4 === 0 ? mossMaterial : rootMaterial
+      );
+      spike.position.set(Math.cos(angle) * distance, height * 0.5, Math.sin(angle) * distance);
+      spike.rotation.z = Math.cos(angle) * 0.32;
+      spike.rotation.x = -Math.sin(angle) * 0.32;
+      spike.scale.y = 0.02;
+      group.add(spike);
+    }
+    const ringMaterial = basicMat('#b8cf72', {
+      transparent: true,
+      opacity: 0.68,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      depthTest: false
+    }).clone();
+    const ring = new THREE.Mesh(new THREE.RingGeometry(radius * 0.58, radius * 0.72, 40), ringMaterial);
+    ring.rotation.x = -Math.PI / 2;
+    ring.renderOrder = 1512;
+    group.add(ring);
+    this.addEffect(group, 0.62, (_, t) => {
+      const rise = Math.min(1, t / 0.28);
+      const sink = 1 - Math.max(0, (t - 0.68) / 0.32);
+      group.children.forEach((child) => {
+        if (child === ring) return;
+        child.scale.y = Math.max(0.02, rise * sink);
+      });
+      ring.scale.setScalar(0.72 + t * 0.78);
+      ringMaterial.opacity = (1 - t) * 0.68;
+    });
+  }
+
   spawnLightningChain(start, end, options = {}) {
     if (!start || !end) return;
     const distance = start.distanceTo(end);
@@ -1311,6 +1382,125 @@ export class EffectsSystem {
       z: aura.center.z,
       radius: aura.radius
     };
+  }
+
+  spawnJudgmentSword(position, radius = 0.9, onImpact) {
+    const root = new THREE.Group();
+    root.position.set(position.x, (position.y ?? 0) + 0.06, position.z);
+
+    const sword = new THREE.Group();
+    const bladeMaterial = mat('#e8edf0', {
+      emissive: '#d9c77b',
+      emissiveIntensity: 0.28,
+      metalness: 0.72,
+      roughness: 0.28
+    });
+    const goldMaterial = mat('#d6aa4a', {
+      emissive: '#f1d77d',
+      emissiveIntensity: 0.36,
+      metalness: 0.58,
+      roughness: 0.3
+    });
+    const gripMaterial = mat('#443126', {
+      metalness: 0.16,
+      roughness: 0.72
+    });
+
+    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.34, 0.62, 4), bladeMaterial);
+    tip.position.y = 0.31;
+    tip.rotation.z = Math.PI;
+    sword.add(tip);
+
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.5, 3.15, 0.18), bladeMaterial);
+    blade.position.y = 2.15;
+    sword.add(blade);
+
+    const fuller = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.75, 0.195), goldMaterial);
+    fuller.position.y = 2.28;
+    sword.add(fuller);
+
+    const guard = new THREE.Mesh(new THREE.BoxGeometry(2.05, 0.24, 0.32), goldMaterial);
+    guard.position.y = 3.82;
+    sword.add(guard);
+
+    const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 0.86, 6), gripMaterial);
+    grip.position.y = 4.36;
+    sword.add(grip);
+
+    const pommel = new THREE.Mesh(new THREE.OctahedronGeometry(0.25, 0), goldMaterial);
+    pommel.position.y = 4.92;
+    sword.add(pommel);
+    sword.rotation.y = 0.34;
+    root.add(sword);
+
+    const beamMaterial = basicMat('#ffe58a', {
+      transparent: true,
+      opacity: 0.34,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    }).clone();
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.62, 7.4, 8, 1, true), beamMaterial);
+    beam.position.y = 4.1;
+    root.add(beam);
+
+    const markerMaterial = basicMat('#d6aa4a', {
+      transparent: true,
+      opacity: 0.28,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    }).clone();
+    const marker = new THREE.Mesh(new THREE.RingGeometry(radius * 0.58, radius, 28), markerMaterial);
+    marker.rotation.x = -Math.PI / 2;
+    marker.position.y = 0.025;
+    root.add(marker);
+
+    sword.position.y = 8.8;
+    let impacted = false;
+    this.addEffect(root, 0.86, (_, t) => {
+      const fallProgress = clamp(t / 0.82, 0, 1);
+      const ease = fallProgress * fallProgress * (3 - 2 * fallProgress);
+      sword.position.y = lerp(8.8, 0, ease);
+      sword.rotation.y = 0.34 + t * 0.72;
+      beam.scale.set(1 + (1 - t) * 0.5, 1, 1 + (1 - t) * 0.5);
+      beamMaterial.opacity = 0.18 + (1 - fallProgress) * 0.28;
+      marker.scale.setScalar(0.84 + fallProgress * 0.16);
+      markerMaterial.opacity = 0.16 + fallProgress * 0.36;
+      if (!impacted && t >= 0.82) {
+        impacted = true;
+        this.spawnJudgmentImpact(position, radius);
+        onImpact?.();
+      }
+    });
+  }
+
+  spawnJudgmentImpact(position, radius = 0.9) {
+    const group = new THREE.Group();
+    group.position.set(position.x, (position.y ?? 0) + 0.08, position.z);
+    const flashMaterial = basicMat('#ffe58a', {
+      transparent: true,
+      opacity: 0.78,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    }).clone();
+    const flash = new THREE.Mesh(new THREE.OctahedronGeometry(radius * 0.42, 0), flashMaterial);
+    flash.position.y = radius * 0.35;
+    group.add(flash);
+    const ringMaterial = basicMat('#d6aa4a', {
+      transparent: true,
+      opacity: 0.68,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    }).clone();
+    const ring = new THREE.Mesh(new THREE.RingGeometry(radius * 0.56, radius * 0.72, 30), ringMaterial);
+    ring.rotation.x = -Math.PI / 2;
+    group.add(ring);
+    this.addEffect(group, 0.42, (_, t) => {
+      flash.scale.setScalar(1 + t * 2.4);
+      flashMaterial.opacity = (1 - t) * 0.78;
+      ring.scale.setScalar(1 + t * 1.6);
+      ringMaterial.opacity = (1 - t) * 0.68;
+    });
   }
 
   spawnFallingStar(position, radius, onImpact) {

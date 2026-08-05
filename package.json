@@ -14,6 +14,8 @@
     "test:unit-resource-sync": "node scripts/test-unit-resource-sync.mjs",
     "test:dual-attack": "node scripts/test-dual-attack.mjs",
     "test:card-effects": "node scripts/test-card-effects.mjs",
+    "test:new-cards": "node scripts/test-new-cards.mjs",
+    "test:emerald-marsh": "node scripts/test-emerald-marsh.mjs",
     "test:electric-mage": "node scripts/test-electric-mage.mjs",
     "test:rebirth-rules": "node scripts/test-rebirth-rules.mjs",
     "test:spells": "node scripts/test-spell-system.mjs",
