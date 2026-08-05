@@ -36,6 +36,7 @@ import {
   cardThemeColor,
   cardUseBarMarkup,
   createCardArtMarkup,
+  createForgedCardMarkup,
   fitStrategyRewardCards
 } from './CardSystem.js';
 import { CombatSystem } from './CombatSystem.js';
@@ -48,6 +49,7 @@ import { LootDropSystem } from './LootDropSystem.js';
 import { AttributeSet, bindAttributeGetter } from './AttributeSet.js';
 import { AreaEffectSystem } from './AreaEffectSystem.js';
 import { AbilitySystem } from './AbilitySystem.js';
+import { BattleDebugPanel } from './BattleDebugPanel.js';
 import { ModifierSystem } from './ModifierSystem.js';
 import { RecoverySystem } from './RecoverySystem.js';
 import { SpellSystem } from './SpellSystem.js';
@@ -1044,6 +1046,7 @@ export class Game {
     this.strategyEventUi = createStrategyEventUi();
     this.runShopUi = createRunShopUi();
     this.bindRunShopUi();
+    this.battleDebugPanel = this.levelSession.debug ? null : new BattleDebugPanel(this);
     this.syncSettingsControls();
     this.syncRenderTuningPanel();
     this.syncPauseErrorControls();
@@ -1208,6 +1211,8 @@ export class Game {
     this.networkBridge?.unbindGame();
     this.networkAnalysisUi?.destroy();
     this.networkAnalysisUi = null;
+    this.battleDebugPanel?.destroy();
+    this.battleDebugPanel = null;
     this.clearCoopRewardAutoSelectTimer();
     this.disposeNavDebug();
     this.renderer.dispose();
@@ -1216,7 +1221,13 @@ export class Game {
     this.runShopUi?.overlay?.remove();
     this.networkTerminatedOverlay?.remove();
     this.networkTerminatedOverlay = null;
-    document.body.classList.remove('is-game-active', 'is-game-paused', 'is-strategy-event-open', 'is-run-shop-open');
+    document.body.classList.remove(
+      'is-game-active',
+      'is-game-paused',
+      'is-strategy-event-open',
+      'is-run-shop-open',
+      'is-battle-debug-open'
+    );
     if (this.dom.settingsButton) this.dom.settingsButton.hidden = true;
     if (this.runShopUi?.toggle) this.runShopUi.toggle.hidden = true;
     if (this.dom.fpsMeter) this.dom.fpsMeter.hidden = true;
@@ -2543,11 +2554,14 @@ export class Game {
       const categoryMeta = RUN_SHOP_CATEGORIES.find((entry) => entry.key === this.runShopActiveCategory);
       const isPicker = Boolean(categoryMeta?.picker);
       const isCatalogPicker = Boolean(categoryMeta?.catalogPicker);
-      const useCardFaceGrid = isPicker || isCatalogPicker
-        || this.runShopActiveCategory === 'temporary';
-      const useHorizontalRow = useCardFaceGrid && !isCatalogPicker;
+      const useAttributeTrainingStyle = this.runShopActiveCategory === 'attribute';
+      const useSpecializationStyle = this.runShopActiveCategory === 'trait';
+      const useWaveRewardStyle = runShopCategoryUsesWaveRewardCards(this.runShopActiveCategory);
+      const useCardPresentation = useAttributeTrainingStyle || useSpecializationStyle || useWaveRewardStyle;
+      const useCardFaceGrid = isPicker || isCatalogPicker || useCardPresentation;
+      const useHorizontalRow = useCardPresentation && !isCatalogPicker;
       this.runShopUi.root.classList.add('is-detail');
-      this.runShopUi.root.classList.toggle('is-wave-card-picker', useHorizontalRow);
+      this.runShopUi.root.classList.toggle('is-wave-card-picker', useCardPresentation);
       if (this.runShopUi.kicker) {
         this.runShopUi.kicker.textContent = this.runShopFreeReward
           ? `Boss 战利 #${this.bossesDefeated} · 免费一次${formatCoopRewardCountdownSuffix(this.runShopAutoSelectSecondsRemaining)}`
@@ -2561,11 +2575,15 @@ export class Game {
       this.runShopUi.choiceList?.classList.toggle('is-card-picker', useCardFaceGrid);
       this.runShopUi.choiceList?.classList.toggle('is-catalog-picker', isCatalogPicker);
       this.runShopUi.choiceList?.classList.toggle('is-horizontal-row', useHorizontalRow);
+      this.runShopUi.choiceList?.classList.toggle('is-training-card-picker', useAttributeTrainingStyle);
+      this.runShopUi.choiceList?.classList.toggle('is-specialization-card-picker', useSpecializationStyle);
       if (this.runShopUi.choiceList) {
         this.runShopUi.choiceList.innerHTML = this.runShopChoices
           .map((choice, index) => runShopChoiceMarkup(choice, index, {
             game: this,
-            useWaveRewardStyle: useHorizontalRow
+            useWaveRewardStyle,
+            useAttributeTrainingStyle,
+            useSpecializationStyle
           }))
           .join('');
         fitStrategyRewardCards(this.runShopUi.choiceList);
@@ -2591,7 +2609,13 @@ export class Game {
     if (this.runShopUi.skip) {
       this.runShopUi.skip.hidden = !this.runShopFreeReward;
     }
-    this.runShopUi.choiceList?.classList.remove('is-card-picker', 'is-catalog-picker', 'is-horizontal-row');
+    this.runShopUi.choiceList?.classList.remove(
+      'is-card-picker',
+      'is-catalog-picker',
+      'is-horizontal-row',
+      'is-training-card-picker',
+      'is-specialization-card-picker'
+    );
     if (this.runShopUi.choices) this.runShopUi.choices.hidden = true;
     if (this.runShopUi.choiceList) this.runShopUi.choiceList.innerHTML = '';
   }
@@ -3439,7 +3463,7 @@ export class Game {
         compactActionLabel: actionLabel.replace('卡牌', ''),
         title: card.name,
         compactPicker: true,
-        description: '',
+        description: card.summary ?? descriptionSuffix ?? '',
         card,
         targetCard: card
       };
@@ -6648,6 +6672,10 @@ export class Game {
     }
     if (key === 'escape') {
       event.preventDefault();
+      if (this.battleDebugPanel?.isOpen()) {
+        this.battleDebugPanel.close();
+        return;
+      }
       if (this.runShopOpen) {
         if (this.runShopActiveCategory) {
           if (this.networkBridge?.shouldRouteLocalCommands?.()) {
@@ -6676,9 +6704,13 @@ export class Game {
     }
     if (key === 'n') {
       event.preventDefault();
+      if (!event.shiftKey) {
+        this.battleDebugPanel?.toggle();
+        return;
+      }
       this.setNavDebugEnabled(!this.navDebugEnabled);
       this.cardSystem?.setHint?.(
-        this.navDebugEnabled ? '寻路网格：开启（N 关闭）' : '寻路网格：关闭（N 开启）',
+        this.navDebugEnabled ? '寻路网格：开启（Shift+N 关闭）' : '寻路网格：关闭（Shift+N 开启）',
         'nav-debug'
       );
       return;
@@ -8970,34 +9002,67 @@ function randomItem(items) {
 function strategyRewardMarkup(choice, index, options = {}) {
   const visual = strategyRewardVisualMeta(choice);
   const card = resolveStrategyChoiceCard(choice, index);
+  const isSpecializationReward = choice.action === 'apply-team-special-upgrade' ||
+    choice.upgrade?.kind === 'unit-special';
+  if (isSpecializationReward) {
+    return unitSpecializationRewardMarkup(choice, index, options);
+  }
   const cardAccent = cardThemeColor(card);
   const title = choice.title ?? choice.card?.name ?? '奖励';
   const description = choice.description ?? choice.card?.summary ?? '';
-  const meta = choice.metaText ? `<span class="meta-card-footer">${escapeHtml(choice.metaText)}</span>` : '';
   const disabledAttr = choice.disabled ? ' disabled aria-disabled="true"' : '';
   const choiceIndexAttribute = options.choiceIndexAttribute ?? 'data-strategy-choice-index';
   const extraClass = options.extraClass ? ` ${options.extraClass}` : '';
+  const actionLabel = choice.actionLabel ?? visual.actionLabel;
   return `
     <button
-      class="strategy-reward-option strategy-reward-card meta-card is-${visual.kindKey}${extraClass}${choice.disabled ? ' is-disabled' : ''}"
+      class="strategy-reward-option strategy-reward-card meta-card is-forged-reward is-${visual.kindKey}${extraClass}${choice.disabled ? ' is-disabled' : ''}"
       type="button"
-      ${choiceIndexAttribute}="${index}"
-      style="--reward-accent:${visual.accent};--card-accent:${cardAccent};--card-color:${cardAccent}"${disabledAttr}
+      ${choiceIndexAttribute}="${index}"${disabledAttr}
+      style="--reward-accent:${visual.accent};--card-accent:${cardAccent};--card-color:${cardAccent}"
+      aria-label="${escapeHtml(actionLabel)}：${escapeHtml(title)}"
     >
-      <span class="meta-card-cost" aria-label="费用 ${cardEnergyCost(card)}">${cardEnergyCost(card)}</span>
-      <span class="meta-card-level">Lv.${card.level ?? 1}</span>
-      <div class="meta-card-face">
-        <div class="meta-card-header">
-          <span class="meta-card-rune">${escapeHtml(card.label ?? '')}</span>
-          <span>${escapeHtml(strategyRewardKindLabel(choice, card))}</span>
-        </div>
-        ${createCardArtMarkup(card)}
-        <strong class="card-name">${escapeHtml(title)}</strong>
-        <div class="card-text">${escapeHtml(description)}</div>
-        ${meta}
+      <div class="wave-reward-card-frame">
+        ${createForgedCardMarkup(card, {
+          title,
+          summary: description
+        })}
       </div>
-      <span class="meta-card-action">${escapeHtml(choice.actionLabel ?? visual.actionLabel)}</span>
-      ${cardUseBarMarkup(card, 'meta-card-use-bar')}
+    </button>
+  `;
+}
+
+function unitSpecializationRewardMarkup(choice, index, options = {}) {
+  const card = resolveStrategyChoiceCard(choice, index);
+  const unitType = choice.unitType ?? card?.unitType ?? '';
+  const unitName = UNIT_DEFINITIONS[unitType]?.name ?? '兵种';
+  const specializationName = choice.upgrade?.name ?? choice.title ?? card?.name ?? '专精';
+  const fullTitle = choice.title ?? `${unitName}·${specializationName}`;
+  const description = choice.description ?? choice.upgrade?.summary ?? card?.summary ?? '';
+  const accent = specializationIconColor(unitType);
+  const disabledAttr = choice.disabled ? ' disabled aria-disabled="true"' : '';
+  const choiceIndexAttribute = options.choiceIndexAttribute ?? 'data-strategy-choice-index';
+  const extraClass = options.extraClass ? ` ${options.extraClass}` : '';
+  const actionLabel = choice.actionLabel ?? '兵种专精';
+  return `
+    <button
+      class="strategy-reward-option strategy-reward-card meta-card is-forged-reward is-specialization-reward is-trait${extraClass}${choice.disabled ? ' is-disabled' : ''}"
+      type="button"
+      ${choiceIndexAttribute}="${index}"${disabledAttr}
+      style="--training-accent:${accent};--card-accent:${accent};--reward-accent:${accent}"
+      aria-label="${escapeHtml(actionLabel)}：${escapeHtml(fullTitle)}"
+    >
+      <div class="attribute-training-card unit-specialization-card" data-specialization-unit="${escapeHtml(unitType)}">
+        <div class="attribute-training-art unit-specialization-art">
+          <div class="unit-specialization-portrait">${createCardArtMarkup(card)}</div>
+          <span class="attribute-training-discipline">${escapeHtml(unitName)}</span>
+        </div>
+        <div class="attribute-training-title-row unit-specialization-title-row">
+          <strong class="med-card-name">${escapeHtml(specializationName)}</strong>
+        </div>
+        <div class="attribute-training-description med-card-desc">${escapeHtml(description)}</div>
+        <div class="attribute-training-footer">选择后立即生效</div>
+      </div>
     </button>
   `;
 }
@@ -9336,6 +9401,95 @@ function runShopServiceMarkup(category, game) {
   `;
 }
 
+function runShopCategoryUsesWaveRewardCards(category) {
+  return [
+    'unit',
+    'trait',
+    'copy',
+    'remove',
+    'upgrade',
+    'temporary'
+  ].includes(category);
+}
+
+function attributeTrainingVisual(upgrade) {
+  const stat = upgrade?.stat ?? 'training';
+  if (stat === 'vitality') {
+    return { stat, label: '体魄操练', accent: '#bb6658' };
+  }
+  if (stat === 'attack') {
+    return { stat, label: '兵刃操练', accent: '#c58a52' };
+  }
+  if (stat === 'armor') {
+    return { stat, label: '披甲操练', accent: '#78918b' };
+  }
+  if (stat === 'magicResistance') {
+    return { stat, label: '抗咒操练', accent: '#7784ad' };
+  }
+  return { stat: 'training', label: '全军操练', accent: '#a98c5f' };
+}
+
+function attributeTrainingIconMarkup(stat) {
+  if (stat === 'vitality') {
+    return `
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <path d="M32 7 50 14v14c0 13-7 22-18 29C21 50 14 41 14 28V14z" />
+        <path d="M32 20v22M21 31h22" />
+      </svg>
+    `;
+  }
+  if (stat === 'attack') {
+    return `
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <path d="m13 11 13 7-7 7 27 27 7-7-27-27 7-7z" />
+        <path d="m51 11-13 7 7 7-27 27-7-7 27-27-7-7z" />
+      </svg>
+    `;
+  }
+  if (stat === 'armor') {
+    return `
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <path d="M19 10 8 20l8 12 6-5v27h20V27l6 5 8-12-11-10-8 6H27z" />
+        <path d="M27 16c1 7 9 7 10 0M22 38h20" />
+      </svg>
+    `;
+  }
+  return `
+    <svg viewBox="0 0 64 64" aria-hidden="true">
+      <path d="m32 7 18 14-7 30H21l-7-30z" />
+      <path d="m32 17 9 10-9 20-9-20zM14 31h11M39 31h11" />
+    </svg>
+  `;
+}
+
+function runShopAttributeTrainingMarkup(choice, index) {
+  const title = choice.title ?? choice.upgrade?.name ?? '属性集训';
+  const description = choice.description ?? choice.upgrade?.summary ?? '';
+  const visual = attributeTrainingVisual(choice.upgrade);
+  const disabledAttr = choice.disabled ? ' disabled aria-disabled="true"' : '';
+  return `
+    <button
+      class="strategy-reward-option strategy-reward-card meta-card is-forged-reward is-training-reward${choice.disabled ? ' is-disabled' : ''}"
+      type="button"
+      data-run-shop-choice-index="${index}"${disabledAttr}
+      style="--training-accent:${visual.accent};--card-accent:${visual.accent}"
+      aria-label="属性集训：${escapeHtml(title)}"
+    >
+      <div class="attribute-training-card" data-training-stat="${escapeHtml(visual.stat)}">
+        <div class="attribute-training-art">
+          <span class="attribute-training-crest">${attributeTrainingIconMarkup(visual.stat)}</span>
+          <span class="attribute-training-discipline">${escapeHtml(visual.label)}</span>
+        </div>
+        <div class="attribute-training-title-row">
+          <strong class="med-card-name">${escapeHtml(title)}</strong>
+        </div>
+        <div class="attribute-training-description med-card-desc">${escapeHtml(description)}</div>
+        <div class="attribute-training-footer">选择后立即生效</div>
+      </div>
+    </button>
+  `;
+}
+
 function runShopChoiceUsesCardFace(choice) {
   const card = choice.targetCard ?? choice.card ?? choice.temporaryCard;
   if (!card) return false;
@@ -9367,7 +9521,16 @@ function runShopCardFaceInnerMarkup(card) {
 
 function runShopChoiceMarkup(choice, index, options = {}) {
   const card = choice.targetCard ?? choice.card ?? choice.temporaryCard;
-  if (options.useWaveRewardStyle && runShopChoiceUsesCardFace(choice)) {
+  if (options.useAttributeTrainingStyle) {
+    return runShopAttributeTrainingMarkup(choice, index);
+  }
+  if (options.useSpecializationStyle) {
+    return unitSpecializationRewardMarkup(choice, index, {
+      choiceIndexAttribute: 'data-run-shop-choice-index',
+      extraClass: 'run-shop-reward-option'
+    });
+  }
+  if (options.useWaveRewardStyle && card) {
     return strategyRewardMarkup(choice, index, {
       choiceIndexAttribute: 'data-run-shop-choice-index',
       extraClass: 'run-shop-reward-option'

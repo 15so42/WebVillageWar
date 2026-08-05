@@ -63,6 +63,18 @@ import {
 } from './lowpoly.js';
 import * as THREE from 'three';
 
+function createSharedRaiderVisual() {
+  return createRaiderModel({
+    team: 'player',
+    fieldStyle: true,
+    panelColor: '#7f3932',
+    beltColor: '#4d3024',
+    leatherColor: '#4d3024',
+    headbandColor: '#3a261e',
+    shoulderSide: 1
+  });
+}
+
 const UNIT_FACTORIES = {
   knight: ({ team }) => createKnightModel(team),
   spearman: ({ team }) => createSpearmanModel(team),
@@ -78,8 +90,8 @@ const UNIT_FACTORIES = {
   physician: ({ team }) => createPhysicianModel(team),
   purifier: ({ team }) => createPurifierModel(team),
   warder: ({ team }) => createWarderModel(team),
-  raider: () => createRaiderModel({ team: 'player' }),
-  enemyRaider: () => createRaiderModel(),
+  raider: () => createSharedRaiderVisual(),
+  enemyRaider: () => createSharedRaiderVisual(),
   ogre: () => createOgreModel(),
   skeletonSoldier: () => createSkeletonSoldierModel(),
   skeletonArcher: () => createSkeletonArcherModel(),

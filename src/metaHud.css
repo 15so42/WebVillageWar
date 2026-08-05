@@ -2752,3 +2752,432 @@
     padding: 8px !important;
   }
 }
+
+/* Shop and upgrade cards reuse the exact live-hand forged card face. The
+   purchase controls stay outside the card so the playable-card silhouette and
+   information hierarchy remain identical to battle. */
+.meta-shell:is(.view-shop, .view-upgrades) .meta-card-grid {
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  align-items: start;
+  gap: 22px 12px;
+}
+
+.meta-root .meta-card.meta-forged-hand-card {
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+  padding: 0 0 5px;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  clip-path: none;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.meta-root .meta-card.meta-forged-hand-card::before,
+.meta-root .meta-card.meta-forged-hand-card::after {
+  display: none;
+}
+
+.meta-forged-card-shell {
+  position: relative;
+  isolation: isolate;
+  width: 184px;
+  height: 289.143px;
+  flex: 0 0 289.143px;
+  pointer-events: none;
+}
+
+.meta-forged-card-shell .med-card-wrapper {
+  position: relative;
+  width: 140px;
+  height: 220px;
+  filter: drop-shadow(0 8px 6px rgba(5, 8, 7, 0.5));
+  transform: scale(1.3142857);
+  transform-origin: top left;
+}
+
+.meta-forged-card-shell .med-card-wrapper::before,
+.meta-forged-card-shell .med-card-wrapper::after {
+  display: none;
+}
+
+.meta-forged-card-shell .med-card-bg {
+  position: absolute;
+  inset: 0;
+  border: 0 !important;
+  border-radius: 0 !important;
+  clip-path: none !important;
+  background: var(--hand-card-frame) center / 100% 100% no-repeat !important;
+  box-shadow: none !important;
+  filter: brightness(0.82) saturate(0.7) sepia(0.08) hue-rotate(72deg);
+}
+
+.meta-forged-card-shell .med-card-face {
+  position: relative;
+  z-index: 2;
+  display: grid !important;
+  grid-template-rows: minmax(0, 1fr) 30px 51px;
+  gap: 0;
+  width: 100% !important;
+  height: 100%;
+  box-sizing: border-box;
+  margin: 0 !important;
+  padding: 19px 17px 31px !important;
+}
+
+.meta-forged-card-shell .med-card-wrapper > .med-card-face > .med-card-art-container {
+  position: relative !important;
+  flex: none !important;
+  align-self: stretch;
+  width: 100% !important;
+  height: auto !important;
+  min-height: 0 !important;
+  overflow: hidden;
+  border: 0 !important;
+  border-radius: 0 !important;
+  clip-path: none;
+  background:
+    radial-gradient(circle at 50% 35%, rgba(62, 83, 71, 0.76) 0%, rgba(24, 36, 31, 0.38) 70%),
+    transparent !important;
+  box-shadow: none !important;
+}
+
+.meta-forged-card-shell .med-card-art-container .card-art {
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.meta-forged-card-shell .med-card-art-container .card-art::after {
+  opacity: 0.12;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.42), transparent 40%);
+}
+
+.meta-forged-card-shell .med-card-art-container .card-art-image,
+.meta-forged-card-shell .med-card-art-container .card-art-svg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scale(1.18) !important;
+  transform-origin: center;
+  filter: saturate(0.94) contrast(1.04) brightness(0.98) drop-shadow(0 4px 2px rgba(7, 11, 9, 0.38)) !important;
+}
+
+.meta-forged-card-shell .med-card-wrapper > .med-card-face > .med-card-bottom {
+  min-height: 0;
+  height: auto !important;
+  display: flex;
+  flex-direction: column;
+  margin: 0 !important;
+  padding: 4px 2px 2px !important;
+  align-items: center !important;
+  justify-content: center !important;
+  overflow: hidden;
+  border: 0 !important;
+  border-top: 1px solid rgba(126, 134, 128, 0.3) !important;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none;
+}
+
+.meta-forged-card-shell .med-card-meta-row {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 22px;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  overflow: hidden;
+  border: 0;
+  border-top: 1px solid rgba(134, 143, 136, 0.38);
+  border-bottom: 1px solid rgba(18, 23, 21, 0.88);
+  clip-path: none;
+  background: rgba(11, 16, 14, 0.28);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+
+.meta-forged-card-shell .med-card-meta-row .med-card-kind,
+.meta-forged-card-shell .med-card-meta-row .med-card-level {
+  position: static !important;
+  inset: auto !important;
+  min-width: 0 !important;
+  width: 20px !important;
+  height: 20px !important;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  padding: 0 !important;
+  overflow: visible;
+  border: 0 !important;
+  clip-path: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: color-mix(in srgb, var(--card-color) 62%, #e1e4de);
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.72));
+}
+
+.meta-forged-card-shell .med-card-meta-row .med-card-kind {
+  justify-self: start;
+}
+
+.meta-forged-card-shell .med-card-meta-row .med-card-level {
+  justify-self: end;
+  color: #d0d1cb;
+}
+
+.meta-forged-card-shell .med-card-type-icon {
+  width: 18px;
+  height: 18px;
+  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.meta-forged-card-shell .med-card-level-icon {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+}
+
+.meta-forged-card-shell .med-card-level-icon > svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  fill: rgba(37, 45, 42, 0.92);
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.meta-forged-card-shell .med-card-level-icon > span {
+  position: relative;
+  z-index: 1;
+  padding-top: 1px;
+  color: #f0eadf;
+  font-family: var(--font-title);
+  font-size: 8px;
+  font-weight: 900;
+  line-height: 1;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.86);
+}
+
+.meta-forged-card-shell .med-card-meta-row .med-card-name {
+  min-width: 0;
+  width: auto;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0 !important;
+  color: #e9e2d5 !important;
+  font-family: var(--font-title);
+  font-size: 8px;
+  font-weight: 900;
+  line-height: 1;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow: 0 2px 2px rgba(0, 0, 0, 0.68);
+}
+
+.meta-forged-card-shell .med-card-desc {
+  width: 100%;
+  overflow: hidden;
+  color: #aaafa9 !important;
+  font-family: var(--font-body);
+  font-size: 8px;
+  font-weight: 650;
+  line-height: 1.22;
+  text-align: center;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.46);
+}
+
+.meta-forged-card-shell .med-card-cost {
+  position: absolute;
+  z-index: 6;
+  top: 1.476% !important;
+  right: auto !important;
+  left: 3.861% !important;
+  width: 33.663% !important;
+  height: 18.614% !important;
+  transform: none !important;
+  display: grid !important;
+  place-items: center !important;
+  overflow: visible;
+  border: 0 !important;
+  border-radius: 0 !important;
+  clip-path: none;
+  background: transparent !important;
+  box-shadow: none !important;
+  filter: none;
+}
+
+.meta-forged-card-shell .med-card-cost::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  display: block;
+  clip-path: none;
+  background: var(--hand-card-cost-frame) center / 100% 100% no-repeat !important;
+  box-shadow: none;
+  filter: brightness(0.82) saturate(0.7) sepia(0.08) hue-rotate(72deg);
+}
+
+.meta-forged-card-shell .med-card-cost span {
+  position: absolute !important;
+  z-index: 1;
+  inset: 0 !important;
+  width: auto !important;
+  height: auto !important;
+  display: grid !important;
+  place-items: center !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  color: #f3eadb !important;
+  font-family: var(--font-title);
+  font-size: 16px !important;
+  font-weight: 900;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  text-shadow: 0 2px 2px rgba(0, 0, 0, 0.78) !important;
+  transform: translate(0.5px, 1px);
+}
+
+.meta-forged-card-shell .med-card-art-container > .card-use-bar {
+  position: absolute !important;
+  z-index: 4 !important;
+  top: auto !important;
+  right: 5px !important;
+  bottom: 4px !important;
+  left: 5px !important;
+  width: auto !important;
+  height: 9px !important;
+  box-sizing: border-box;
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 2px !important;
+  padding: 2px 3px 2px 25px !important;
+  overflow: hidden;
+  border: 0 !important;
+  border-radius: 0 !important;
+  clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.07), transparent 42%),
+    linear-gradient(180deg, #3b3e3c, #202322) !important;
+  box-shadow:
+    inset 0 0 0 1px #777168,
+    inset 0 0 0 3px #191c1b,
+    0 3px 4px rgba(0, 0, 0, 0.42) !important;
+}
+
+.meta-forged-card-shell .card-use-bar::before {
+  content: attr(data-remaining) "/" attr(data-max);
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 19px;
+  color: #bcb3a5;
+  font-size: 7px;
+  font-weight: 900;
+  line-height: 9px;
+  text-align: center;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.72);
+}
+
+.meta-forged-card-shell .card-use-bar span {
+  flex: 1 1 0 !important;
+  width: auto !important;
+  min-width: 5px;
+  min-height: 0 !important;
+  height: 5px;
+  max-height: none;
+  box-sizing: border-box;
+  border: 1px solid #5f625e !important;
+  border-radius: 0 !important;
+  clip-path: polygon(2px 0, 100% 0, 100% calc(100% - 2px), calc(100% - 2px) 100%, 0 100%, 0 2px);
+  background: #252928 !important;
+  box-shadow: inset 0 0 0 1px rgba(8, 10, 9, 0.38) !important;
+}
+
+.meta-forged-card-shell .card-use-bar span.is-filled {
+  border-color: #b9b29f !important;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.54) 0 22%, transparent 23%),
+    linear-gradient(180deg, color-mix(in srgb, var(--card-color) 48%, #d8ccb3), color-mix(in srgb, var(--card-color) 48%, #5a5f59)) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(238, 229, 208, 0.18),
+    0 0 4px color-mix(in srgb, var(--card-color) 34%, transparent) !important;
+}
+
+.meta-root .meta-card.meta-forged-hand-card .meta-card-action {
+  width: 164px !important;
+  min-height: 36px;
+  box-sizing: border-box;
+  margin: 0 !important;
+  padding: 8px 9px !important;
+}
+
+.meta-forged-card-footer {
+  width: 164px;
+  min-height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  box-sizing: border-box;
+  padding: 4px 6px;
+  border: 1px solid rgba(132, 133, 126, 0.34);
+  color: #bdb7aa;
+  background: #1c201e;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  font-size: 8px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+@media (max-width: 560px) {
+  .meta-shell:is(.view-shop, .view-upgrades) .meta-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px 6px;
+  }
+
+  .meta-forged-card-shell {
+    width: 140px !important;
+    max-width: 100%;
+    height: 220px;
+    flex-basis: 220px;
+  }
+
+  .meta-root .meta-card.meta-forged-hand-card .meta-card-action,
+  .meta-forged-card-footer {
+    width: 124px !important;
+    max-width: 100%;
+  }
+
+  .meta-forged-card-shell .med-card-wrapper {
+    transform: none;
+  }
+}

@@ -6,7 +6,13 @@ import {
 } from '../data/gameData.js';
 import { buildEnchantmentEncyclopediaSections } from '../data/enchantmentEncyclopedia.js';
 import { TEST_VERSION_LABEL } from '../version.js';
-import { cardEnergyCost, cardThemeColor, cardUseBarMarkup, createCardArtMarkup } from './CardSystem.js';
+import {
+  cardEnergyCost,
+  cardThemeColor,
+  cardUseBarMarkup,
+  createCardArtMarkup,
+  createForgedCardMarkup
+} from './CardSystem.js';
 import { calculateLevelReward } from '../utils/levelRewards.js';
 import { CHALLENGE_MODE, isEndlessMode, normalizeChallengeMode } from './endlessMode.js';
 import { deckValidationMessage, validateDeckSelection } from './deckRules.js';
@@ -842,6 +848,17 @@ const DEVELOPMENT_CHANGELOG_ARCHIVE = [
 
 const CHANGELOG_ENTRIES = [
   {
+    date: '2026-08-05',
+    title: '敌军模型、卡牌终端与战斗调试完善',
+    items: [
+      '全面重塑敌方人形、亡灵、野兽与蝎类单位的低多边形结构，统一为更成熟的块面比例；蛮兵与掠袭蛮兵共用同一模型，并修复哥布林猎手围巾、精灵狙击手斗篷未随上半身转动的问题。',
+      '波次奖励、军需铺服务与局外升级页面统一采用战斗手牌的锻铁卡面语言；兵种专精和属性集训使用无费用、无类型、无等级角标的专用卡框，奖励卡改为直接点击获得。',
+      '全部局外可用卡牌改为默认解锁，旧存档载入时会自动补齐；移除购买卡牌流程，主菜单炼金工坊与战后入口直接进入卡牌升级页面。',
+      '战斗场景新增 N 键密码调试面板，可补充测试卡牌、能量与银币并生成敌军；原寻路网格调试入口调整为 Shift+N。',
+      '雪原首关地面材质关闭平滑着色，保留低多边形地形块面；同步完成主界面卡牌尺寸、购买按钮宽度和卡框对齐修正。'
+    ]
+  },
+  {
     date: '2026-08-04',
     title: '单位卡面、战斗手牌与场上模型美术升级',
     items: [
@@ -1220,10 +1237,11 @@ export class MetaGameSystem {
   }
 
   show(view = this.view, options = {}) {
-    if (!options.keepNotice && view !== this.view) {
+    const targetView = view === 'shop' ? 'upgrades' : view;
+    if (!options.keepNotice && targetView !== this.view) {
       this.clearNotice();
     }
-    this.view = view;
+    this.view = targetView;
     this.root.hidden = false;
     document.body.classList.add('is-meta-open');
     this.render(options);
@@ -1313,7 +1331,7 @@ export class MetaGameSystem {
       return;
     }
     if (action === 'shop') {
-      this.show('shop');
+      this.show('upgrades');
       return;
     }
     if (action === 'upgrades') {
@@ -1401,10 +1419,6 @@ export class MetaGameSystem {
     }
     if (action === 'start-level') {
       this.startLevel();
-      return;
-    }
-    if (action === 'buy-card') {
-      this.buyCard(actionTarget.dataset.cardId);
       return;
     }
     if (action === 'upgrade-card') {
@@ -1536,7 +1550,6 @@ export class MetaGameSystem {
     if (this.view === 'menu') return this.renderMainMenu();
     if (this.view === 'levels') return this.renderLevels();
     if (this.view === 'deck') return this.renderDeckBuilder();
-    if (this.view === 'shop') return this.renderShop();
     if (this.view === 'guide') return this.renderGuide();
     if (this.view === 'encyclopedia') return this.renderEnchantmentEncyclopedia();
     if (this.view === 'changelog') return this.renderChangelog();
@@ -1753,7 +1766,7 @@ export class MetaGameSystem {
                   <span class="btn-text-sub">Embark</span>
               </button>
               <button class="med-btn-epic mw-menu-button mw-menu-button-secondary" type="button" data-action="coop"><span class="mw-button-label">多人联机</span><span class="mw-button-caption">Co-op</span></button>
-              <button class="med-btn-epic mw-menu-button mw-menu-button-secondary" type="button" data-action="shop"><span class="mw-button-label">炼金工坊</span><span class="mw-button-caption">Workshop</span></button>
+              <button class="med-btn-epic mw-menu-button mw-menu-button-secondary" type="button" data-action="upgrades"><span class="mw-button-label">炼金工坊</span><span class="mw-button-caption">Workshop</span></button>
               <div class="med-menu-row mw-menu-utility-row">
                   <button class="med-btn-epic-small mw-menu-button mw-menu-button-utility" type="button" data-action="guide">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg><span>战术<br>典籍</span>
@@ -1947,31 +1960,6 @@ export class MetaGameSystem {
     `;
   }
 
-  renderShop() {
-    const unowned = CARD_DEFINITIONS.filter((card) => (
-      !card.lootOnly && !card.retired && !this.progress.ownedCards.includes(card.id)
-    ));
-    return `
-      <main class="meta-deck">
-        <section class="meta-panel">
-          <div class="meta-section-title">卡牌商店</div>
-          <p>购买后会进入局外卡牌库，并可自由加入出战牌组。</p>
-          <button class="meta-secondary-button" type="button" data-action="upgrades">升级已有卡牌</button>
-        </section>
-        <section class="meta-card-grid">
-          ${unowned.length ? unowned.map((card) => {
-            const cost = CARD_META[card.id]?.buyCost ?? 80;
-            return this.renderMetaCard({ ...card, level: 1 }, {
-              action: 'buy-card',
-              stateText: `购买 ${cost}`,
-              disabled: this.progress.coins < cost
-            });
-          }).join('') : '<div class="meta-empty">商店已经清空。</div>'}
-        </section>
-      </main>
-    `;
-  }
-
   renderGuide() {
     return `
       <main class="meta-page meta-guide-page">
@@ -1994,7 +1982,7 @@ export class MetaGameSystem {
           </article>
           <article class="meta-panel">
             <div class="meta-section-title">成长</div>
-            <p>通关后获得金币并解锁更高难度。商店可购买新卡，也可以升级已拥有卡牌。</p>
+            <p>全部局外可用卡牌默认解锁。通关后获得金币并解锁更高难度，金币可在炼金工坊中用于升级卡牌。</p>
           </article>
         </section>
       </main>
@@ -2061,7 +2049,7 @@ export class MetaGameSystem {
       <main class="meta-deck">
         <section class="meta-panel">
           <div class="meta-section-title">卡牌升级</div>
-          <p>升级消耗金币翻倍，并提高卡牌基础等级。局内事件升级只在当局生效；附魔牌的局内升级会提高施加的附魔等级。</p>
+          <p>全部局外可用卡牌均已解锁。升级消耗金币翻倍，并提高卡牌基础等级；局内事件升级只在当局生效，附魔牌的局内升级会提高施加的附魔等级。</p>
         </section>
         <section class="meta-card-grid">
           ${this.progress.ownedCards.map((id) => {
@@ -2070,6 +2058,7 @@ export class MetaGameSystem {
             return this.renderMetaCard(card, {
               action: 'upgrade-card',
               stateText: `升级 ${cost}`,
+              handStyle: true,
               disabled: this.progress.coins < cost,
               footer: `<span>当前 Lv.${card.level}</span><span>下级费用 ${cost}</span>`
             });
@@ -2106,7 +2095,7 @@ export class MetaGameSystem {
           <div class="meta-action-row">
             ${result.returnToMenu
               ? '<button class="meta-primary-button" type="button" data-action="menu">返回主菜单</button>'
-              : '<button class="meta-primary-button" type="button" data-action="levels">继续选关</button><button class="meta-secondary-button" type="button" data-action="shop">商店</button>'}
+              : '<button class="meta-primary-button" type="button" data-action="levels">继续选关</button><button class="meta-secondary-button" type="button" data-action="upgrades">升级卡牌</button>'}
           </div>
         </section>
       </main>
@@ -2125,6 +2114,25 @@ export class MetaGameSystem {
     const deckMarkMarkup = options.deckState
       ? '<div class="meta-card-deck-mark" aria-hidden="true"><span></span></div>'
       : '';
+    if (options.handStyle) {
+      return `
+        <article class="meta-card meta-forged-hand-card is-kind-${card.kind}" style="--card-color:${cardThemeColor(card)}" aria-label="${card.name}">
+          <div class="meta-forged-card-shell">
+            ${createForgedCardMarkup(card)}
+          </div>
+          ${options.footer ? `<div class="meta-forged-card-footer">${options.footer}</div>` : ''}
+          <button
+            class="meta-card-action${actionClass}"
+            type="button"
+            ${actionAttribute}="${options.action}"
+            data-card-id="${card.id}"
+            ${disabled}
+          >
+            ${options.stateText}
+          </button>
+        </article>
+      `;
+    }
     return `
       <article class="meta-card is-kind-${card.kind}${selected}${deckState}" style="--card-color:${cardThemeColor(card)}">
         <div class="meta-card-cost">${cardEnergyCost(card)}</div>
@@ -2252,19 +2260,6 @@ export class MetaGameSystem {
     return true;
   }
 
-  buyCard(id) {
-    if (this.progress.ownedCards.includes(id)) return;    const card = CARD_DEFINITIONS.find((definition) => definition.id === id);
-    if (!card || card.retired) return;
-    const cost = CARD_META[id]?.buyCost ?? 80;
-    if (this.progress.coins < cost) return;
-    this.progress.coins -= cost;
-    this.progress.ownedCards.push(id);
-    this.progress.cardLevels[id] = Math.max(1, this.progress.cardLevels[id] ?? 1);
-    this.setNotice(`已购买 ${card?.name ?? '卡牌'}`);
-    saveProgress(this.progress);
-    this.show('shop', { preserveScroll: true, keepNotice: true });
-  }
-
   upgradeCard(id) {
     if (!this.progress.ownedCards.includes(id)) return;
     const level = Math.max(1, this.progress.cardLevels[id] ?? 1);
@@ -2287,7 +2282,7 @@ export class MetaGameSystem {
       };
     });
     if (!validateDeckSelection(deckIds).valid) {
-      this.setNotice('当前没有可出战的单位卡，请先在炼金工坊购买卡牌');
+      this.setNotice('当前没有可出战的单位卡，请检查卡牌数据');
       return;
     }
     const difficulty = Math.min(
@@ -2352,7 +2347,6 @@ function pageTitleForView(view) {
   const titles = {
     levels: '选关',
     deck: '选择牌组',
-    shop: '商店',
     upgrades: '升级卡牌',
     guide: '玩法说明',
     encyclopedia: '附魔百科',
@@ -2364,7 +2358,7 @@ function pageTitleForView(view) {
 
 function loadProgress() {
   const raw = readStoredProgress();
-  const ownedCards = normalizeOwnedCards(raw?.ownedCards);
+  const ownedCards = normalizeOwnedCards();
   const cardLevels = {};
   ownedCards.forEach((id) => {
     cardLevels[id] = Math.max(1, Math.floor(raw?.cardLevels?.[id] ?? 1));
@@ -2468,16 +2462,10 @@ function normalizeDeckSelection(rawDeckSelection, ownedCards, options = {}) {
   return result;
 }
 
-function normalizeOwnedCards(rawOwnedCards) {
-  const validIds = new Set(
-    CARD_DEFINITIONS.filter((card) => !card.lootOnly && !card.retired).map((card) => card.id)
-  );
-  const result = [];
-  [...STARTER_CARD_IDS, ...(rawOwnedCards ?? [])].forEach((id) => {
-    if (!validIds.has(id) || result.includes(id)) return;
-    result.push(id);
-  });
-  return result;
+function normalizeOwnedCards() {
+  return CARD_DEFINITIONS
+    .filter((card) => !card.lootOnly && !card.retired)
+    .map((card) => card.id);
 }
 
 function upgradeCost(id, level) {

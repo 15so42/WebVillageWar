@@ -184,57 +184,28 @@ export class CardSystem {
     element.dataset.kind = card.kind;
     const cardLevel = card.level ?? 1;
     const useBarMarkup = cardUseBarMarkup(card);
-    const handCardFrameStyle = location === 'hand'
-      ? ` style="--hand-card-frame: url('${resolveCardArtAsset('card-art/unit-hand-frame-imagegen-v1.png')}'); --hand-card-cost-frame: url('${resolveCardArtAsset('card-art/unit-cost-frame-v1.png')}')"`
-      : '';
-    const outerMetadataMarkup = location === 'hand'
-      ? ''
+    const cooldownMarkup = cardCooldownOverlayMarkup(this, card);
+    element.innerHTML = location === 'hand'
+      ? createForgedCardMarkup(card, { cooldownMarkup })
       : `
-        <div class="med-card-kind">${kindLabel(card.kind)}</div>
-        <div class="med-card-level">Lv.${cardLevel}</div>
-      `;
-    const cardFaceMarkup = location === 'hand'
-      ? `
-        <div class="med-card-face">
-          <div class="med-card-art-container">
-            ${createCardArtMarkup(card)}
-            ${useBarMarkup}
-          </div>
-          <div class="med-card-meta-row">
-            <div class="med-card-kind" role="img" aria-label="${kindLabel(card.kind)}" title="${kindLabel(card.kind)}">
-              ${cardKindIconMarkup(card.kind)}
+        <div class="med-card-wrapper">
+          <div class="med-card-bg"></div>
+          <div class="med-card-cost"><span>${cardEnergyCost(card)}</span></div>
+          <div class="med-card-kind">${kindLabel(card.kind)}</div>
+          <div class="med-card-level">Lv.${cardLevel}</div>
+          ${useBarMarkup}
+          ${cooldownMarkup}
+          <div class="med-card-face">
+            <div class="med-card-art-container">
+              ${createCardArtMarkup(card)}
             </div>
-            <div class="med-card-name">${card.name}</div>
-            <div class="med-card-level" role="img" aria-label="等级 ${cardLevel}" title="等级 ${cardLevel}">
-              ${cardLevelIconMarkup(cardLevel)}
+            <div class="med-card-bottom">
+              <div class="med-card-name">${card.name}</div>
+              <div class="med-card-desc">${card.summary}</div>
             </div>
-          </div>
-          <div class="med-card-bottom">
-            <div class="med-card-desc">${card.summary}</div>
-          </div>
-        </div>
-      `
-      : `
-        <div class="med-card-face">
-          <div class="med-card-art-container">
-            ${createCardArtMarkup(card)}
-          </div>
-          <div class="med-card-bottom">
-            <div class="med-card-name">${card.name}</div>
-            <div class="med-card-desc">${card.summary}</div>
           </div>
         </div>
       `;
-    element.innerHTML = `
-      <div class="med-card-wrapper"${handCardFrameStyle}>
-        <div class="med-card-bg"></div>
-        <div class="med-card-cost"><span>${cardEnergyCost(card)}</span></div>
-        ${outerMetadataMarkup}
-        ${location === 'hand' ? '' : useBarMarkup}
-        ${cardCooldownOverlayMarkup(this, card)}
-        ${cardFaceMarkup}
-      </div>
-    `;
     fitCardElementText(element);
     bindScrollableCardText(element);
     if (isDrawn) {
@@ -2292,6 +2263,44 @@ export function cardUseBarMarkup(card, className = 'card-use-bar') {
   return `<div class="${className}" data-remaining="${remaining}" data-max="${max}" aria-label="剩余使用次数 ${remaining}/${max}">${segments.join('')}</div>`;
 }
 
+export function createForgedCardMarkup(card, options = {}) {
+  const cardLevel = card.level ?? 1;
+  const title = options.title ?? card.name ?? '';
+  const summary = options.summary ?? card.summary ?? '';
+  const cooldownMarkup = options.cooldownMarkup ?? '';
+  const titleOnlyMeta = options.titleOnlyMeta === true;
+  const useBarMarkup = cardUseBarMarkup(card);
+  const frameStyle = [
+    `--hand-card-frame: url('${resolveCardArtAsset('card-art/unit-hand-frame-imagegen-v1.png')}')`,
+    `--hand-card-cost-frame: url('${resolveCardArtAsset('card-art/unit-cost-frame-v1.png')}')`
+  ].join('; ');
+  return `
+    <div class="med-card-wrapper" style="${frameStyle}">
+      <div class="med-card-bg"></div>
+      <div class="med-card-cost"><span>${cardEnergyCost(card)}</span></div>
+      ${cooldownMarkup}
+      <div class="med-card-face">
+        <div class="med-card-art-container">
+          ${createCardArtMarkup(card)}
+          ${useBarMarkup}
+        </div>
+        <div class="med-card-meta-row${titleOnlyMeta ? ' is-title-only' : ''}">
+          ${titleOnlyMeta ? '' : `<div class="med-card-kind" role="img" aria-label="${kindLabel(card.kind)}" title="${kindLabel(card.kind)}">
+            ${cardKindIconMarkup(card.kind)}
+          </div>`}
+          <div class="med-card-name">${escapeHtml(title)}</div>
+          ${titleOnlyMeta ? '' : `<div class="med-card-level" role="img" aria-label="等级 ${cardLevel}" title="等级 ${cardLevel}">
+            ${cardLevelIconMarkup(cardLevel)}
+          </div>`}
+        </div>
+        <div class="med-card-bottom">
+          <div class="med-card-desc">${escapeHtml(summary)}</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function cardCooldownOverlayMarkup(cardSystem, card) {
   if (!isTerrainCard(card)) return '';
   const remaining = cardSystem.getCardCooldownRemaining(card);
@@ -3405,9 +3414,22 @@ export function fitStrategyRewardCards(root) {
 function fitCardElementText(element) {
   window.requestAnimationFrame(() => {
     const isCompactShopPicker = element.classList.contains('is-compact-shop-picker');
-    if (!isCompactShopPicker) fitTextBlock(element.querySelector('.card-name'), 15, 11);
-    const text = element.querySelector('.card-text');
-    if (!isCompactShopPicker) fitTextBlock(text, 11, 8);
+    const isForgedReward = element.classList.contains('is-forged-reward');
+    const isSpecializationReward = element.classList.contains('is-specialization-reward');
+    const isTrainingReward = element.classList.contains('is-training-reward');
+    const isSpecialReward = isSpecializationReward || isTrainingReward;
+    const name = element.querySelector(isForgedReward ? '.med-card-name' : '.card-name');
+    if (!isCompactShopPicker) {
+      fitTextBlock(
+        name,
+        isForgedReward ? 11 : 15,
+        isSpecialReward ? 8 : (isForgedReward ? 8 : 11)
+      );
+    }
+    const text = element.querySelector(isForgedReward ? '.med-card-desc' : '.card-text');
+    if (!isCompactShopPicker) {
+      fitTextBlock(text, isForgedReward ? 9 : 11, isForgedReward ? 7 : 8);
+    }
     const overflowDistance = text
       ? Math.max(0, Math.ceil(text.scrollHeight - text.clientHeight))
       : 0;

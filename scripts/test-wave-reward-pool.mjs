@@ -5,7 +5,7 @@ assert.equal(shouldConsumeWaveRewardCard({
   rewardSource: 'wave-reward-deck',
   action: 'add-card',
   card: { kind: 'summon', unitType: 'raider' }
-}), false, 'summon cards stay in the wave reward pool');
+}), true, 'summon reward cards are one-time offers');
 
 assert.equal(shouldConsumeWaveRewardCard({
   rewardSource: 'wave-reward-deck',

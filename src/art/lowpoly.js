@@ -445,6 +445,177 @@ function createPlayerShortTunicStructure(team, material, trimMaterial) {
   return structure;
 }
 
+function addFirstLevelGoblinDetails(group, {
+  skinColor,
+  armorColor,
+  leatherColor,
+  helmet = false
+}) {
+  const skinMaterial = mat(skinColor);
+  const armorMaterial = mat(armorColor, { metalness: 0.1, roughness: 0.78 });
+  const leatherMaterial = mat(leatherColor);
+
+  const earLeft = mesh(
+    new THREE.ConeGeometry(0.045, 0.21, 4),
+    skinMaterial,
+    new THREE.Vector3(-0.19, 1.56, 0),
+    new THREE.Vector3(1, 1, 0.7)
+  );
+  earLeft.rotation.z = Math.PI / 2;
+  const earRight = earLeft.clone();
+  earRight.position.x = 0.19;
+  earRight.rotation.z = -Math.PI / 2;
+
+  const bootLeft = mesh(
+    new THREE.BoxGeometry(0.19, 0.13, 0.26),
+    leatherMaterial,
+    new THREE.Vector3(-0.14, 0.065, 0.04),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const bootRight = bootLeft.clone();
+  bootRight.position.x = 0.14;
+  const shinLeft = mesh(
+    new THREE.BoxGeometry(0.17, 0.19, 0.055),
+    leatherMaterial,
+    new THREE.Vector3(-0.14, 0.29, 0.095),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const shinRight = shinLeft.clone();
+  shinRight.position.x = 0.14;
+
+  const helmetParts = [];
+  if (helmet) {
+    const cap = mesh(
+      new THREE.BoxGeometry(0.29, 0.11, 0.25),
+      armorMaterial,
+      new THREE.Vector3(0, 1.69, -0.01),
+      new THREE.Vector3(1, 1, 1)
+    );
+    const band = mesh(
+      new THREE.BoxGeometry(0.29, 0.045, 0.045),
+      leatherMaterial,
+      new THREE.Vector3(0, 1.62, 0.2),
+      new THREE.Vector3(1, 1, 1)
+    );
+    helmetParts.push(cap, band);
+  }
+
+  group.add(bootLeft, bootRight, shinLeft, shinRight);
+  const upperBodyPivot = group.userData.parts?.upperBodyPivot;
+  const headParts = [earLeft, earRight, ...helmetParts];
+  if (upperBodyPivot) {
+    headParts.forEach((part) => {
+      part.position.sub(upperBodyPivot.position);
+      upperBodyPivot.add(part);
+    });
+  } else {
+    group.add(...headParts);
+  }
+  return group;
+}
+
+function addGoblinEarPair(group, skinColor, {
+  centerY = 1.54,
+  offsetX = 0.19,
+  length = 0.2
+} = {}) {
+  const skinMaterial = mat(skinColor);
+  const earLeft = mesh(
+    new THREE.ConeGeometry(0.043, length, 4),
+    skinMaterial,
+    new THREE.Vector3(-offsetX, centerY, 0),
+    new THREE.Vector3(1, 1, 0.7)
+  );
+  earLeft.rotation.z = Math.PI / 2;
+  const earRight = earLeft.clone();
+  earRight.position.x = offsetX;
+  earRight.rotation.z = -Math.PI / 2;
+  group.add(earLeft, earRight);
+  return group;
+}
+
+function addRaiderFieldDetails(group, {
+  leatherColor,
+  panelColor,
+  headbandColor,
+  helmet = false,
+  shoulderSide = -1
+}) {
+  const leatherMaterial = mat(leatherColor);
+  const panelMaterial = mat(panelColor, { metalness: 0.08, roughness: 0.8 });
+  const headbandMaterial = mat(headbandColor);
+
+  const bootLeft = mesh(
+    new THREE.BoxGeometry(0.21, 0.13, 0.28),
+    leatherMaterial,
+    new THREE.Vector3(-0.15, 0.065, 0.045),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const bootRight = bootLeft.clone();
+  bootRight.position.x = 0.15;
+  const shinLeft = mesh(
+    new THREE.BoxGeometry(0.18, 0.2, 0.06),
+    leatherMaterial,
+    new THREE.Vector3(-0.15, 0.29, 0.105),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const shinRight = shinLeft.clone();
+  shinRight.position.x = 0.15;
+
+  const tassetLeft = mesh(
+    new THREE.BoxGeometry(0.22, 0.2, 0.055),
+    panelMaterial,
+    new THREE.Vector3(-0.13, 0.57, 0.255),
+    new THREE.Vector3(1, 1, 1)
+  );
+  tassetLeft.rotation.z = 0.07;
+  const tassetRight = tassetLeft.clone();
+  tassetRight.position.x = 0.13;
+  tassetRight.rotation.z = -0.07;
+
+  const shoulderGuard = mesh(
+    new THREE.BoxGeometry(0.27, 0.12, 0.23),
+    panelMaterial,
+    new THREE.Vector3(shoulderSide * 0.36, 1.15, 0.02),
+    new THREE.Vector3(1, 1, 1)
+  );
+  shoulderGuard.rotation.z = shoulderSide * 0.2;
+
+  const headwearParts = helmet
+    ? [
+      mesh(
+        new THREE.BoxGeometry(0.34, 0.14, 0.3),
+        panelMaterial,
+        new THREE.Vector3(0, 1.68, -0.01),
+        new THREE.Vector3(1, 1, 1)
+      ),
+      mesh(
+        new THREE.BoxGeometry(0.3, 0.055, 0.05),
+        headbandMaterial,
+        new THREE.Vector3(0, 1.61, 0.16),
+        new THREE.Vector3(1, 1, 1)
+      )
+    ]
+    : [mesh(
+      new THREE.BoxGeometry(0.31, 0.055, 0.045),
+      headbandMaterial,
+      new THREE.Vector3(0, 1.62, 0.2),
+      new THREE.Vector3(1, 1, 1)
+    )];
+
+  group.add(
+    bootLeft,
+    bootRight,
+    shinLeft,
+    shinRight,
+    tassetLeft,
+    tassetRight,
+    shoulderGuard,
+    ...headwearParts
+  );
+  return group;
+}
+
 function boxBetween(start, end, width, depth, material) {
   const center = start.clone().lerp(end, 0.5);
   const direction = end.clone().sub(start);
@@ -475,6 +646,17 @@ function cylinderBetween(start, end, radiusStart, radiusEnd, material) {
   return object;
 }
 
+function scorpionCarapace(material, position, width, height, length, frontScale = 0.84, rearScale = 1) {
+  const object = mesh(
+    new THREE.CylinderGeometry(frontScale, rearScale, 1, 6, 1, false, Math.PI / 6),
+    material,
+    position,
+    new THREE.Vector3(width * 0.5, length, height * 0.5)
+  );
+  object.rotation.x = Math.PI / 2;
+  return object;
+}
+
 function createPivot(name, position, children) {
   const pivot = new THREE.Group();
   pivot.name = name;
@@ -498,6 +680,15 @@ function centerModelFootprint(group) {
     child.position.z -= center.z;
   });
   return group;
+}
+
+function wrapPersistentModelScale(group, scale) {
+  if (!Number.isFinite(scale) || Math.abs(scale - 1) < 0.001) return group;
+  const root = new THREE.Group();
+  group.scale.setScalar(scale);
+  root.add(group);
+  root.userData.parts = group.userData.parts;
+  return root;
 }
 
 export function createHealthBar({ hpColor = '#62d56f', tickColor = '#120f0d' } = {}) {
@@ -2257,6 +2448,7 @@ export function createBerserkerModel(team) {
 
 export function createArcherModel(team, options = {}) {
   const group = new THREE.Group();
+  const geometryTeam = team === 'player' || options.blockyStyle ? 'player' : team;
   const tunic = options.tunicColor ?? (team === 'player' ? '#3f8f68' : '#8c6b6d');
   const skin = options.skinColor ?? '#d9a16f';
   const skinMat = mat(skin);
@@ -2265,37 +2457,51 @@ export function createArcherModel(team, options = {}) {
   const hoodMaterial = mat(options.hoodColor ?? '#324c37');
 
   const body = mesh(
-    humanoidTorsoGeometry(0.48, team),
+    humanoidTorsoGeometry(options.blockyStyle ? 0.44 : 0.48, geometryTeam),
     tunicMaterial,
     new THREE.Vector3(0, 0.9, 0),
-    new THREE.Vector3(0.76, 1.18, 0.58)
+    options.blockyStyle
+      ? new THREE.Vector3(0.74, 1.08, 0.58)
+      : new THREE.Vector3(0.76, 1.18, 0.58)
   );
   const head = mesh(
-    humanoidHeadGeometry(0.26, team),
+    options.facetedHead
+      ? new THREE.DodecahedronGeometry(options.headRadius ?? 0.23, 0)
+      : humanoidHeadGeometry(0.26, geometryTeam),
     mat(skin),
     new THREE.Vector3(0, 1.55, 0),
-    new THREE.Vector3(1, 1, 1)
+    options.facetedHead
+      ? new THREE.Vector3(0.92, 1, 0.84)
+      : new THREE.Vector3(1, 1, 1)
   );
   const eyeLeft = mesh(
     new THREE.BoxGeometry(0.04, 0.032, 0.02),
     mat('#24201c'),
-    new THREE.Vector3(-0.075, 1.59, 0.235),
+    new THREE.Vector3(
+      -0.075,
+      1.59,
+      options.eyeZ ?? (options.facetedHead ? 0.2 : options.blockyStyle ? 0.15 : 0.235)
+    ),
     new THREE.Vector3(1, 1, 1)
   );
   const eyeRight = eyeLeft.clone();
   eyeRight.position.x = 0.075;
   styleHumanoidEyes(team, eyeLeft, eyeRight);
   const hood = mesh(
-    humanoidHeadwearGeometry(0.31, 0.42, team),
+    humanoidHeadwearGeometry(
+      options.blockyStyle ? 0.275 : 0.31,
+      options.blockyStyle ? 0.34 : 0.42,
+      geometryTeam
+    ),
     hoodMaterial,
-    new THREE.Vector3(0, 1.78, 0),
+    new THREE.Vector3(0, options.blockyStyle ? 1.75 : 1.78, 0),
     new THREE.Vector3(1, 1, 1)
   );
   hood.visible = options.hideHood !== true;
   const hoodFrame = options.hideHood === true
     ? null
     : createPlayerHoodFrame({
-      team,
+      team: geometryTeam,
       centerY: 1.54,
       width: 0.42,
       height: 0.31,
@@ -2303,7 +2509,7 @@ export function createArcherModel(team, options = {}) {
       material: hoodMaterial
     });
   const torsoStructure = createPlayerTorsoStructure({
-    team,
+    team: geometryTeam,
     centerY: 0.9,
     width: 0.64,
     height: 0.76,
@@ -2336,11 +2542,11 @@ export function createArcherModel(team, options = {}) {
   const leftArm = limb(
     new THREE.Vector3(0.3, 1.2, 0.08),
     new THREE.Vector3(0.04, 1.04, 0.57),
-    humanoidArmRadius(0.055, team),
+    humanoidArmRadius(0.055, geometryTeam),
     skinMat
   );
   const leftSleeve = createPlayerSleeve(
-    team,
+    geometryTeam,
     new THREE.Vector3(0.3, 1.2, 0.08),
     new THREE.Vector3(0.04, 1.04, 0.57),
     0.064,
@@ -2353,11 +2559,11 @@ export function createArcherModel(team, options = {}) {
   const rightUpperArm = limb(
     rightShoulder,
     rightElbow,
-    humanoidArmRadius(0.055, team),
+    humanoidArmRadius(0.055, geometryTeam),
     skinMat
   );
   const rightSleeve = createPlayerSleeve(
-    team,
+    geometryTeam,
     rightShoulder,
     rightElbow,
     0.064,
@@ -2367,17 +2573,17 @@ export function createArcherModel(team, options = {}) {
   const rightForearm = limb(
     rightElbow,
     rightHandPosition,
-    humanoidArmRadius(0.055, team),
+    humanoidArmRadius(0.055, geometryTeam),
     skinMat
   );
   const leftHand = mesh(
-    humanoidHandGeometry(0.09, team),
+    humanoidHandGeometry(0.09, geometryTeam),
     skinMat,
     new THREE.Vector3(0.04, 1.04, 0.57),
     new THREE.Vector3(1, 1, 1)
   );
   const rightHand = mesh(
-    humanoidHandGeometry(0.09, team),
+    humanoidHandGeometry(0.09, geometryTeam),
     skinMat,
     rightHandPosition,
     new THREE.Vector3(1, 1, 1)
@@ -2709,24 +2915,36 @@ export function createCrossbowmanModel(team) {
 }
 
 export function createGoblinArcherModel() {
-  return createArcherModel('enemy', {
+  const group = createArcherModel('enemy', {
+    blockyStyle: true,
+    facetedHead: true,
+    headRadius: 0.22,
     skinColor: '#7fb65c',
     tunicColor: '#5d6e3d',
     hoodColor: '#395431',
     leatherColor: '#5b3c28',
     legColor: '#243024',
-    scale: 0.86
+    scale: 0.9
   });
+  addFirstLevelGoblinDetails(group, {
+    skinColor: '#7fb65c',
+    armorColor: '#4d6545',
+    leatherColor: '#5b3c28'
+  });
+  return enableShadows(group);
 }
 
 export function createGoblinHunterModel() {
   const group = createArcherModel('enemy', {
+    blockyStyle: true,
+    facetedHead: true,
+    headRadius: 0.22,
     skinColor: '#78b45b',
     tunicColor: '#43512f',
     hoodColor: '#263c27',
     leatherColor: '#4d3325',
     legColor: '#202821',
-    scale: 0.88
+    scale: 0.92
   });
   const mask = mesh(
     new THREE.BoxGeometry(0.26, 0.12, 0.045),
@@ -2763,7 +2981,21 @@ export function createGoblinHunterModel() {
   toothLeft.rotation.x = Math.PI;
   const toothRight = toothLeft.clone();
   toothRight.position.x = 0.12;
-  group.add(mask, scarf, shoulderPad, trapPack, toothLeft, toothRight);
+  const upperBodyPivot = group.userData.parts?.upperBodyPivot;
+  const upperBodyDetails = [mask, scarf, shoulderPad, trapPack, toothLeft, toothRight];
+  if (upperBodyPivot) {
+    upperBodyDetails.forEach((part) => {
+      part.position.sub(upperBodyPivot.position);
+      upperBodyPivot.add(part);
+    });
+  } else {
+    group.add(...upperBodyDetails);
+  }
+  addFirstLevelGoblinDetails(group, {
+    skinColor: '#78b45b',
+    armorColor: '#556044',
+    leatherColor: '#4d3325'
+  });
   return enableShadows(group);
 }
 
@@ -2774,25 +3006,24 @@ export function createElfSniperModel() {
     hoodColor: '#203b36',
     leatherColor: '#6d5730',
     legColor: '#26322e',
-    scale: 0.96
+    blockyStyle: true
   });
-  group.scale.y *= 1.08;
   const cloak = mesh(
-    new THREE.CylinderGeometry(0.34, 0.52, 1.08, 6, 1, true),
+    new THREE.CylinderGeometry(0.31, 0.45, 0.94, 6, 1, true),
     mat('#253735', { transparent: true, opacity: 0.86 }),
-    new THREE.Vector3(0, 0.86, -0.16),
+    new THREE.Vector3(0, 0.91, -0.16),
     new THREE.Vector3(0.9, 1, 0.62)
   );
   cloak.rotation.x = -0.08;
   const earLeft = mesh(
-    new THREE.ConeGeometry(0.055, 0.28, 5),
+    new THREE.ConeGeometry(0.045, 0.19, 5),
     mat('#d8cfae'),
-    new THREE.Vector3(-0.28, 1.58, 0.03),
+    new THREE.Vector3(-0.22, 1.57, 0.03),
     new THREE.Vector3(1, 1, 1)
   );
   earLeft.rotation.z = Math.PI / 2;
   const earRight = earLeft.clone();
-  earRight.position.x = 0.28;
+  earRight.position.x = 0.22;
   earRight.rotation.z = -Math.PI / 2;
   const longBowTop = cylinderBetween(
     new THREE.Vector3(0.38, 1.08, 0.62),
@@ -2814,12 +3045,32 @@ export function createElfSniperModel() {
     new THREE.Vector3(0.13, 1.2, 0.68),
     new THREE.Vector3(1, 1, 1)
   );
-  group.add(cloak, earLeft, earRight, longBowTop, longBowBottom, sightGem);
+  cloak.name = 'elfSniperCloak';
+  const upperBodyPivot = group.userData.parts?.upperBodyPivot;
+  const bowPivot = group.userData.parts?.bowPivot;
+  if (upperBodyPivot) {
+    [cloak, earLeft, earRight].forEach((part) => {
+      part.position.sub(upperBodyPivot.position);
+      upperBodyPivot.add(part);
+    });
+  } else {
+    group.add(cloak, earLeft, earRight);
+  }
+  if (bowPivot) {
+    [longBowTop, longBowBottom, sightGem].forEach((part) => {
+      part.position.sub(bowPivot.position);
+      bowPivot.add(part);
+    });
+  } else {
+    group.add(longBowTop, longBowBottom, sightGem);
+  }
+  group.userData.parts.elfSniperCloak = cloak;
   return enableShadows(group);
 }
 
 export function createPriestModel(team, options = {}) {
   const group = new THREE.Group();
+  const geometryTeam = team === 'player' || options.blockyStyle ? 'player' : team;
   const skinMat = mat(options.skinColor ?? '#d9a16f');
   const robeColor = options.robeColor ?? (team === 'player' ? '#7889c7' : '#8f6658');
   const trimColor = options.trimColor ?? (team === 'player' ? '#f0e8c6' : '#d0b08b');
@@ -2830,23 +3081,23 @@ export function createPriestModel(team, options = {}) {
   const hoodMaterial = mat(hoodColor);
   const trimMaterial = mat(trimColor);
   const battleCoat = options.bodyStyle === 'battleCoat'
-    ? createPlayerBattleCoatStructure(team, robeMaterial, trimMaterial)
+    ? createPlayerBattleCoatStructure(geometryTeam, robeMaterial, trimMaterial)
     : null;
   const shortTunic = options.bodyStyle === 'shortTunic'
-    ? createPlayerShortTunicStructure(team, robeMaterial, trimMaterial)
+    ? createPlayerShortTunicStructure(geometryTeam, robeMaterial, trimMaterial)
     : null;
-  const isPlayerCombatOutfit = team === 'player'
+  const isPlayerCombatOutfit = geometryTeam === 'player'
     && (options.bodyStyle === 'battleCoat' || options.bodyStyle === 'shortTunic');
 
   const robe = options.bodyStyle === 'tunic'
     ? mesh(
-      humanoidTorsoGeometry(0.5, team),
+      humanoidTorsoGeometry(0.5, geometryTeam),
       robeMaterial,
       new THREE.Vector3(0, 0.9, 0),
       new THREE.Vector3(0.86, 1.02, 0.66)
     )
-    : battleCoat ?? shortTunic ?? createPlayerRobeStructure(team, robeMaterial) ?? mesh(
-      humanoidRobeGeometry(0.42, 0.56, 1.18, team),
+    : battleCoat ?? shortTunic ?? createPlayerRobeStructure(geometryTeam, robeMaterial) ?? mesh(
+      humanoidRobeGeometry(0.42, 0.56, 1.18, geometryTeam),
       robeMaterial,
       new THREE.Vector3(0, 0.78, 0),
       new THREE.Vector3(1, 1, 1)
@@ -2868,13 +3119,17 @@ export function createPriestModel(team, options = {}) {
     )
     : null;
   const head = mesh(
-    humanoidHeadGeometry(0.26, team),
+    options.facetedHead
+      ? new THREE.DodecahedronGeometry(options.headRadius ?? 0.23, 0)
+      : humanoidHeadGeometry(0.26, geometryTeam),
     skinMat,
     new THREE.Vector3(0, 1.5, 0),
-    new THREE.Vector3(1, 1, 1)
+    options.facetedHead
+      ? new THREE.Vector3(0.92, 1, 0.84)
+      : new THREE.Vector3(1, 1, 1)
   );
   const hood = mesh(
-    humanoidHeadwearGeometry(0.3, 0.36, team),
+    humanoidHeadwearGeometry(0.3, 0.36, geometryTeam),
     hoodMaterial,
     new THREE.Vector3(0, 1.74, 0),
     new THREE.Vector3(1, 1, 1)
@@ -2882,7 +3137,7 @@ export function createPriestModel(team, options = {}) {
   const hoodFrame = options.hideHood
     ? null
     : createPlayerHoodFrame({
-      team,
+      team: geometryTeam,
       centerY: 1.49,
       width: 0.41,
       height: 0.3,
@@ -2892,7 +3147,11 @@ export function createPriestModel(team, options = {}) {
   const eyeLeft = mesh(
     new THREE.BoxGeometry(0.04, 0.032, 0.02),
     mat('#24201c'),
-    new THREE.Vector3(-0.075, 1.54, 0.235),
+    new THREE.Vector3(
+      -0.075,
+      1.54,
+      options.eyeZ ?? (options.facetedHead ? 0.2 : options.blockyStyle ? 0.15 : 0.235)
+    ),
     new THREE.Vector3(1, 1, 1)
   );
   const eyeRight = eyeLeft.clone();
@@ -2901,11 +3160,11 @@ export function createPriestModel(team, options = {}) {
   const rightArm = limb(
     new THREE.Vector3(-0.32, 1.14, 0.05),
     new THREE.Vector3(-0.36, 0.78, 0.36),
-    humanoidArmRadius(0.055, team),
+    humanoidArmRadius(0.055, geometryTeam),
     skinMat
   );
   const rightSleeve = createPlayerSleeve(
-    team,
+    geometryTeam,
     new THREE.Vector3(-0.32, 1.14, 0.05),
     new THREE.Vector3(-0.36, 0.78, 0.36),
     0.066,
@@ -2913,7 +3172,7 @@ export function createPriestModel(team, options = {}) {
     0.52
   );
   const rightHand = mesh(
-    humanoidHandGeometry(0.09, team),
+    humanoidHandGeometry(0.09, geometryTeam),
     skinMat,
     new THREE.Vector3(-0.36, 0.78, 0.36),
     new THREE.Vector3(1, 1, 1)
@@ -2944,11 +3203,11 @@ export function createPriestModel(team, options = {}) {
   const leftArm = limb(
     new THREE.Vector3(0.32, 1.13, 0.05),
     new THREE.Vector3(0.28, 0.94, 0.42),
-    humanoidArmRadius(0.052, team),
+    humanoidArmRadius(0.052, geometryTeam),
     skinMat
   );
   const leftSleeve = createPlayerSleeve(
-    team,
+    geometryTeam,
     new THREE.Vector3(0.32, 1.13, 0.05),
     new THREE.Vector3(0.28, 0.94, 0.42),
     0.064,
@@ -2956,7 +3215,7 @@ export function createPriestModel(team, options = {}) {
     0.52
   );
   const leftHand = mesh(
-    humanoidHandGeometry(0.085, team),
+    humanoidHandGeometry(0.085, geometryTeam),
     skinMat,
     new THREE.Vector3(0.28, 0.94, 0.42),
     new THREE.Vector3(1, 1, 1)
@@ -3690,6 +3949,8 @@ export function createLightningMageModel(team) {
 
 export function createWizardModel() {
   const group = createPriestModel('enemy', {
+    blockyStyle: true,
+    bodyStyle: 'battleCoat',
     skinColor: '#8f6aa8',
     robeColor: '#3a264d',
     hoodColor: '#241936',
@@ -3702,21 +3963,21 @@ export function createWizardModel() {
   });
   const { projectileSocket } = group.userData.parts ?? {};
   const brim = mesh(
-    new THREE.CylinderGeometry(0.48, 0.54, 0.06, 6),
+    new THREE.CylinderGeometry(0.35, 0.4, 0.055, 6),
     mat('#1d142d'),
     new THREE.Vector3(0, 1.75, 0),
     new THREE.Vector3(1, 1, 0.72)
   );
   const hat = mesh(
-    new THREE.ConeGeometry(0.31, 0.72, 6),
+    new THREE.ConeGeometry(0.23, 0.56, 6),
     mat('#241936'),
-    new THREE.Vector3(-0.04, 2.1, 0.02),
+    new THREE.Vector3(-0.03, 2.01, 0.02),
     new THREE.Vector3(0.88, 1, 0.88)
   );
   hat.rotation.z = -0.34;
   hat.rotation.x = 0.08;
   const band = mesh(
-    new THREE.BoxGeometry(0.62, 0.055, 0.09),
+    new THREE.BoxGeometry(0.45, 0.05, 0.075),
     mat('#9f6bff'),
     new THREE.Vector3(0, 1.78, 0.25),
     new THREE.Vector3(1, 1, 1)
@@ -3754,6 +4015,10 @@ export function createWizardModel() {
 
 export function createGoblinShamanModel() {
   const group = createPriestModel('enemy', {
+    blockyStyle: true,
+    facetedHead: true,
+    headRadius: 0.22,
+    bodyStyle: 'battleCoat',
     skinColor: '#78ad5c',
     robeColor: '#334226',
     hoodColor: '#20311d',
@@ -3765,19 +4030,19 @@ export function createGoblinShamanModel() {
   });
   const { projectileSocket } = group.userData.parts ?? {};
   const mask = mesh(
-    new THREE.BoxGeometry(0.36, 0.24, 0.06),
+    new THREE.BoxGeometry(0.3, 0.2, 0.055),
     mat('#d4c58b'),
     new THREE.Vector3(0, 1.52, 0.275),
     new THREE.Vector3(1, 1, 1)
   );
   const maskStripe = mesh(
-    new THREE.BoxGeometry(0.05, 0.26, 0.025),
+    new THREE.BoxGeometry(0.045, 0.22, 0.022),
     mat('#476b38'),
     new THREE.Vector3(0, 1.52, 0.32),
     new THREE.Vector3(1, 1, 1)
   );
   const hornLeft = mesh(
-    new THREE.ConeGeometry(0.045, 0.32, 5),
+    new THREE.ConeGeometry(0.04, 0.25, 5),
     mat('#d9d0a8'),
     new THREE.Vector3(-0.2, 1.72, 0.03),
     new THREE.Vector3(1, 1, 1)
@@ -3807,31 +4072,44 @@ export function createGoblinShamanModel() {
   totemRing.rotation.y = Math.PI / 2;
   projectileSocket?.add(totemRing);
   group.add(mask, maskStripe, hornLeft, hornRight, herbBundle, boneCharm);
+  addGoblinEarPair(group, '#78ad5c');
   return enableShadows(group);
 }
 
 export function createRaiderModel(options = {}) {
   const group = new THREE.Group();
   const team = options.team ?? 'enemy';
+  const geometryTeam = team === 'player' || options.blockyStyle ? 'player' : team;
+  const sleeveTeam = options.hideSleeves ? 'enemy' : geometryTeam;
   const skinMat = mat(options.skinColor ?? '#b97a56');
   const legMat = options.skeletalLegs ? skinMat : mat(options.legColor ?? '#312923');
   const bodyMaterial = mat(options.bodyColor ?? '#8f3b34');
   const body = mesh(
-    humanoidTorsoGeometry(0.5, team),
+    humanoidTorsoGeometry(options.blockyStyle ? 0.45 : 0.5, geometryTeam),
     bodyMaterial,
     new THREE.Vector3(0, 0.86, 0),
-    new THREE.Vector3(0.84, 1.16, 0.66)
+    options.blockyStyle
+      ? new THREE.Vector3(0.74, 1.06, 0.6)
+      : new THREE.Vector3(0.84, 1.16, 0.66)
   );
   const head = mesh(
-    humanoidHeadGeometry(0.27, team),
+    options.facetedHead
+      ? new THREE.DodecahedronGeometry(options.headRadius ?? 0.23, 0)
+      : humanoidHeadGeometry(0.27, geometryTeam),
     skinMat,
     new THREE.Vector3(0, 1.5, 0),
-    new THREE.Vector3(1, 1, 1)
+    options.facetedHead
+      ? new THREE.Vector3(0.94, 1, 0.84)
+      : new THREE.Vector3(1, 1, 1)
   );
   const eyeLeft = mesh(
     new THREE.BoxGeometry(0.045, 0.035, 0.02),
     mat(options.eyeColor ?? '#241817'),
-    new THREE.Vector3(-0.08, 1.54, 0.245),
+    new THREE.Vector3(
+      -0.08,
+      1.54,
+      options.eyeZ ?? (options.facetedHead ? 0.2 : options.blockyStyle ? 0.15 : 0.245)
+    ),
     new THREE.Vector3(1, 1, 1)
   );
   const eyeRight = eyeLeft.clone();
@@ -3863,22 +4141,22 @@ export function createRaiderModel(options = {}) {
     playerHeadDetails.push(hairTop, hairBack, beard);
   }
   const torsoStructure = createPlayerTorsoStructure({
-    team,
+    team: geometryTeam,
     centerY: 0.86,
     width: 0.7,
     height: 0.8,
     depth: 0.48,
-    panelMaterial: mat(options.bodyColor ?? '#8f3b34'),
-    beltMaterial: mat('#5b3a28')
+    panelMaterial: mat(options.panelColor ?? options.bodyColor ?? '#8f3b34'),
+    beltMaterial: mat(options.beltColor ?? '#5b3a28')
   });
   const rightArm = limb(
     new THREE.Vector3(-0.32, 1.14, 0.04),
     new THREE.Vector3(-0.25, 0.7, 0.38),
-    humanoidArmRadius(0.065, team),
+    humanoidArmRadius(0.065, geometryTeam),
     skinMat
   );
   const rightSleeve = createPlayerSleeve(
-    team,
+    sleeveTeam,
     new THREE.Vector3(-0.32, 1.14, 0.04),
     new THREE.Vector3(-0.25, 0.7, 0.38),
     0.074,
@@ -3886,7 +4164,7 @@ export function createRaiderModel(options = {}) {
     0.36
   );
   const rightHand = mesh(
-    humanoidHandGeometry(0.095, team),
+    humanoidHandGeometry(0.095, geometryTeam),
     skinMat,
     new THREE.Vector3(-0.25, 0.7, 0.38),
     new THREE.Vector3(1, 1, 1)
@@ -3894,11 +4172,11 @@ export function createRaiderModel(options = {}) {
   const leftArm = limb(
     new THREE.Vector3(0.32, 1.12, 0.04),
     new THREE.Vector3(0.43, 0.82, 0.12),
-    humanoidArmRadius(0.058, team),
+    humanoidArmRadius(0.058, geometryTeam),
     skinMat
   );
   const leftSleeve = createPlayerSleeve(
-    team,
+    sleeveTeam,
     new THREE.Vector3(0.32, 1.12, 0.04),
     new THREE.Vector3(0.43, 0.82, 0.12),
     0.068,
@@ -3906,7 +4184,7 @@ export function createRaiderModel(options = {}) {
     0.36
   );
   const leftHand = mesh(
-    humanoidHandGeometry(0.085, team),
+    humanoidHandGeometry(0.085, geometryTeam),
     skinMat,
     new THREE.Vector3(0.43, 0.82, 0.12),
     new THREE.Vector3(1, 1, 1)
@@ -3927,7 +4205,7 @@ export function createRaiderModel(options = {}) {
     ? limb(
       new THREE.Vector3(-0.15, 0.52, 0.02),
       new THREE.Vector3(-0.17, 0.04, 0.04),
-      0.055,
+      humanoidArmRadius(0.06, geometryTeam),
       legMat
     )
     : mesh(
@@ -3940,7 +4218,7 @@ export function createRaiderModel(options = {}) {
     ? limb(
       new THREE.Vector3(0.15, 0.52, 0.02),
       new THREE.Vector3(0.17, 0.04, 0.04),
-      0.055,
+      humanoidArmRadius(0.06, geometryTeam),
       legMat
     )
     : leg.clone();
@@ -3976,6 +4254,15 @@ export function createRaiderModel(options = {}) {
     weaponSwingPivot,
     offhandPivot
   };
+  if (options.fieldStyle) {
+    addRaiderFieldDetails(group, {
+      leatherColor: options.leatherColor ?? options.beltColor ?? '#4a3024',
+      panelColor: options.panelColor ?? options.bodyColor ?? '#6e4334',
+      headbandColor: options.headbandColor ?? '#3b281f',
+      helmet: options.helmet === true,
+      shoulderSide: options.shoulderSide ?? -1
+    });
+  }
   if (Number.isFinite(options.scale)) {
     group.scale.setScalar(options.scale);
   }
@@ -3983,29 +4270,49 @@ export function createRaiderModel(options = {}) {
 }
 
 export function createGoblinSoldierModel() {
-  return createRaiderModel({
+  const group = createRaiderModel({
+    blockyStyle: true,
+    facetedHead: true,
+    headRadius: 0.22,
     skinColor: '#7fb65c',
     bodyColor: '#6a5236',
+    panelColor: '#536043',
+    beltColor: '#4b3428',
     eyeColor: '#182015',
     weaponColor: '#5a3d2a',
     legColor: '#253024',
-    scale: 0.88
+    scale: 0.92
   });
+  addFirstLevelGoblinDetails(group, {
+    skinColor: '#7fb65c',
+    armorColor: '#59634d',
+    leatherColor: '#4b3428',
+    helmet: true
+  });
+  return enableShadows(group);
 }
 
 export function createGoblinTrollModel() {
-  const group = createRaiderModel({
+  const bodyRoot = createRaiderModel({
+    blockyStyle: true,
+    facetedHead: true,
+    headRadius: 0.245,
+    fieldStyle: true,
     skinColor: '#6fa34f',
     bodyColor: '#6f4a34',
+    panelColor: '#596047',
+    beltColor: '#3f2d24',
+    leatherColor: '#4b3226',
     eyeColor: '#1b2415',
+    eyeZ: 0.2,
     weaponColor: '#54351f',
     legColor: '#253024',
-    scale: 2.07
+    shoulderSide: 1
   });
   const brow = mesh(
     new THREE.BoxGeometry(0.36, 0.07, 0.075),
     mat('#3f3327'),
-    new THREE.Vector3(0, 1.58, 0.26),
+    new THREE.Vector3(0, 1.58, 0.14),
     new THREE.Vector3(1, 1, 1)
   );
   const hump = mesh(
@@ -4023,7 +4330,11 @@ export function createGoblinTrollModel() {
   tuskLeft.rotation.x = Math.PI / 2;
   const tuskRight = tuskLeft.clone();
   tuskRight.position.x = 0.1;
-  group.add(hump, brow, tuskLeft, tuskRight);
+  bodyRoot.add(hump, brow, tuskLeft, tuskRight);
+  bodyRoot.scale.setScalar(1.42);
+  const group = new THREE.Group();
+  group.add(bodyRoot);
+  group.userData.parts = bodyRoot.userData.parts;
   return enableShadows(group);
 }
 
@@ -4038,10 +4349,10 @@ export function createGoblinBomberModel() {
   const ember = mat('#ff9a3d', { emissive: '#ff5c18', emissiveIntensity: 0.55 });
 
   const body = mesh(
-    new THREE.DodecahedronGeometry(0.5, 0),
+    humanoidTorsoGeometry(0.45, 'player'),
     clothMat,
-    new THREE.Vector3(0, 0.78, 0),
-    new THREE.Vector3(0.86, 0.92, 0.72)
+    new THREE.Vector3(0, 0.86, 0),
+    new THREE.Vector3(0.76, 1.08, 0.62)
   );
   const bellyPlate = mesh(
     new THREE.BoxGeometry(0.42, 0.3, 0.08),
@@ -4050,22 +4361,22 @@ export function createGoblinBomberModel() {
     new THREE.Vector3(1, 1, 1)
   );
   const head = mesh(
-    new THREE.DodecahedronGeometry(0.27, 0),
+    new THREE.DodecahedronGeometry(0.22, 0),
     skinMat,
-    new THREE.Vector3(0, 1.35, 0.03),
-    new THREE.Vector3(1.08, 0.9, 1)
+    new THREE.Vector3(0, 1.52, 0.03),
+    new THREE.Vector3(0.92, 1, 0.84)
   );
   const nose = mesh(
     new THREE.ConeGeometry(0.055, 0.16, 5),
     skinMat,
-    new THREE.Vector3(0, 1.33, 0.29),
+    new THREE.Vector3(0, 1.49, 0.21),
     new THREE.Vector3(1, 1, 1)
   );
   nose.rotation.x = Math.PI / 2;
   const goggleLeft = mesh(
     new THREE.CylinderGeometry(0.06, 0.06, 0.028, 8),
     metal,
-    new THREE.Vector3(-0.08, 1.42, 0.255),
+    new THREE.Vector3(-0.075, 1.57, 0.205),
     new THREE.Vector3(1, 1, 1)
   );
   goggleLeft.rotation.x = Math.PI / 2;
@@ -4074,14 +4385,14 @@ export function createGoblinBomberModel() {
   const goggleBand = mesh(
     new THREE.BoxGeometry(0.32, 0.035, 0.035),
     leather,
-    new THREE.Vector3(0, 1.42, 0.23),
+    new THREE.Vector3(0, 1.57, 0.185),
     new THREE.Vector3(1, 1, 1)
   );
   const cap = mesh(
-    new THREE.ConeGeometry(0.3, 0.24, 6),
+    new THREE.BoxGeometry(0.28, 0.1, 0.24),
     darkCloth,
-    new THREE.Vector3(0, 1.58, 0),
-    new THREE.Vector3(1.05, 0.82, 1.05)
+    new THREE.Vector3(0, 1.7, -0.01),
+    new THREE.Vector3(1, 1, 1)
   );
   const keg = mesh(
     new THREE.CylinderGeometry(0.2, 0.2, 0.54, 8),
@@ -4113,11 +4424,11 @@ export function createGoblinBomberModel() {
     leather
   );
 
-  const rightShoulder = new THREE.Vector3(-0.34, 1.04, 0.04);
-  const rightHandPos = new THREE.Vector3(-0.38, 0.74, 0.5);
-  const rightArm = limb(rightShoulder, rightHandPos, 0.058, skinMat);
+  const rightShoulder = new THREE.Vector3(-0.32, 1.14, 0.04);
+  const rightHandPos = new THREE.Vector3(-0.36, 0.78, 0.5);
+  const rightArm = limb(rightShoulder, rightHandPos, humanoidArmRadius(0.06, 'player'), skinMat);
   const rightHand = mesh(
-    new THREE.DodecahedronGeometry(0.086, 0),
+    humanoidHandGeometry(0.086, 'player'),
     skinMat,
     rightHandPos,
     new THREE.Vector3(1, 1, 1)
@@ -4155,11 +4466,11 @@ export function createGoblinBomberModel() {
     [rightArm, rightHand, weaponSwingPivot]
   );
 
-  const leftShoulder = new THREE.Vector3(0.32, 1.02, 0.03);
+  const leftShoulder = new THREE.Vector3(0.32, 1.12, 0.03);
   const leftHandPos = new THREE.Vector3(0.42, 0.82, 0.24);
-  const leftArm = limb(leftShoulder, leftHandPos, 0.054, skinMat);
+  const leftArm = limb(leftShoulder, leftHandPos, humanoidArmRadius(0.058, 'player'), skinMat);
   const leftHand = mesh(
-    new THREE.DodecahedronGeometry(0.082, 0),
+    humanoidHandGeometry(0.082, 'player'),
     skinMat,
     leftHandPos,
     new THREE.Vector3(1, 1, 1)
@@ -4184,15 +4495,23 @@ export function createGoblinBomberModel() {
   );
 
   const legLeft = mesh(
-    new THREE.BoxGeometry(0.17, 0.44, 0.17),
+    new THREE.BoxGeometry(0.17, 0.5, 0.17),
     darkCloth,
-    new THREE.Vector3(-0.14, 0.24, 0),
+    new THREE.Vector3(-0.14, 0.26, 0),
     new THREE.Vector3(1, 1, 1)
   );
   legLeft.rotation.z = 0.08;
   const legRight = legLeft.clone();
   legRight.position.x = 0.14;
   legRight.rotation.z = -0.08;
+  const bootLeft = mesh(
+    new THREE.BoxGeometry(0.2, 0.13, 0.27),
+    leather,
+    new THREE.Vector3(-0.14, 0.065, 0.04),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const bootRight = bootLeft.clone();
+  bootRight.position.x = 0.14;
 
   group.add(
     body,
@@ -4211,10 +4530,12 @@ export function createGoblinBomberModel() {
     weaponPivot,
     offhandPivot,
     legLeft,
-    legRight
+    legRight,
+    bootLeft,
+    bootRight
   );
+  addGoblinEarPair(group, '#79b75a', { centerY: 1.54 });
   centerModelFootprint(group);
-  group.scale.setScalar(0.9);
   group.userData.parts = {
     weaponPivot,
     weaponSwingPivot,
@@ -4223,7 +4544,7 @@ export function createGoblinBomberModel() {
     spark,
     matchTip
   };
-  return enableShadows(group);
+  return enableShadows(wrapPersistentModelScale(group, 0.9));
 }
 
 export function createShieldBearerModel() {
@@ -4236,10 +4557,10 @@ export function createShieldBearerModel() {
   const shieldTrim = mat('#a49a7a', { metalness: 0.12 });
 
   const body = mesh(
-    new THREE.DodecahedronGeometry(0.55, 0),
+    humanoidTorsoGeometry(0.48, 'player'),
     darkArmor,
     new THREE.Vector3(0, 0.9, 0),
-    new THREE.Vector3(1.02, 1.12, 0.78)
+    new THREE.Vector3(0.84, 1.12, 0.68)
   );
   const chestPlate = mesh(
     new THREE.BoxGeometry(0.54, 0.44, 0.1),
@@ -4248,27 +4569,27 @@ export function createShieldBearerModel() {
     new THREE.Vector3(1, 1, 1)
   );
   const head = mesh(
-    new THREE.DodecahedronGeometry(0.28, 0),
+    new THREE.DodecahedronGeometry(0.225, 0),
     skinMat,
     new THREE.Vector3(0, 1.53, 0.02),
-    new THREE.Vector3(1.08, 0.98, 1)
+    new THREE.Vector3(0.94, 1, 0.84)
   );
   const helmet = mesh(
-    new THREE.CylinderGeometry(0.27, 0.31, 0.2, 7),
+    new THREE.CylinderGeometry(0.23, 0.26, 0.16, 6),
     armor,
-    new THREE.Vector3(0, 1.65, 0),
+    new THREE.Vector3(0, 1.67, 0),
     new THREE.Vector3(1, 1, 1)
   );
   const brow = mesh(
     new THREE.BoxGeometry(0.38, 0.075, 0.08),
     darkArmor,
-    new THREE.Vector3(0, 1.55, 0.25),
+    new THREE.Vector3(0, 1.56, 0.17),
     new THREE.Vector3(1, 1, 1)
   );
   const eyeLeft = mesh(
     new THREE.BoxGeometry(0.045, 0.03, 0.02),
     mat('#161b14'),
-    new THREE.Vector3(-0.08, 1.54, 0.29),
+    new THREE.Vector3(-0.08, 1.54, 0.215),
     new THREE.Vector3(1, 1, 1)
   );
   const eyeRight = eyeLeft.clone();
@@ -4276,9 +4597,9 @@ export function createShieldBearerModel() {
 
   const rightShoulder = new THREE.Vector3(-0.34, 1.18, 0.06);
   const rightHandPos = new THREE.Vector3(-0.28, 0.82, 0.42);
-  const rightArm = limb(rightShoulder, rightHandPos, 0.066, skinMat);
+  const rightArm = limb(rightShoulder, rightHandPos, humanoidArmRadius(0.07, 'player'), skinMat);
   const rightHand = mesh(
-    new THREE.DodecahedronGeometry(0.095, 0),
+    humanoidHandGeometry(0.095, 'player'),
     skinMat,
     rightHandPos,
     new THREE.Vector3(1, 1, 1)
@@ -4315,9 +4636,9 @@ export function createShieldBearerModel() {
 
   const leftShoulder = new THREE.Vector3(0.34, 1.16, 0.06);
   const leftHandPos = new THREE.Vector3(0.34, 0.9, 0.42);
-  const leftArm = limb(leftShoulder, leftHandPos, 0.068, skinMat);
+  const leftArm = limb(leftShoulder, leftHandPos, humanoidArmRadius(0.072, 'player'), skinMat);
   const leftHand = mesh(
-    new THREE.DodecahedronGeometry(0.095, 0),
+    humanoidHandGeometry(0.095, 'player'),
     skinMat,
     leftHandPos,
     new THREE.Vector3(1, 1, 1)
@@ -4362,6 +4683,14 @@ export function createShieldBearerModel() {
   );
   const legRight = legLeft.clone();
   legRight.position.x = 0.17;
+  const bootLeft = mesh(
+    new THREE.BoxGeometry(0.23, 0.14, 0.29),
+    leather,
+    new THREE.Vector3(-0.17, 0.07, 0.04),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const bootRight = bootLeft.clone();
+  bootRight.position.x = 0.17;
 
   group.add(
     body,
@@ -4374,8 +4703,11 @@ export function createShieldBearerModel() {
     weaponPivot,
     shieldPivot,
     legLeft,
-    legRight
+    legRight,
+    bootLeft,
+    bootRight
   );
+  addGoblinEarPair(group, '#6fa756', { centerY: 1.54 });
   group.userData.parts = {
     weaponPivot,
     weaponSwingPivot,
@@ -4395,16 +4727,16 @@ export function createVenomArcherModel() {
   const bone = mat('#d8d0a4');
 
   const body = mesh(
-    new THREE.DodecahedronGeometry(0.46, 0),
+    humanoidTorsoGeometry(0.44, 'player'),
     cloak,
     new THREE.Vector3(0, 0.86, 0),
     new THREE.Vector3(0.76, 1.08, 0.58)
   );
   const head = mesh(
-    new THREE.DodecahedronGeometry(0.25, 0),
+    new THREE.DodecahedronGeometry(0.215, 0),
     skinMat,
     new THREE.Vector3(0, 1.5, 0.02),
-    new THREE.Vector3(1, 0.92, 1)
+    new THREE.Vector3(0.94, 1, 0.84)
   );
   const mask = mesh(
     new THREE.BoxGeometry(0.24, 0.12, 0.05),
@@ -4421,7 +4753,7 @@ export function createVenomArcherModel() {
   const eyeRight = eyeLeft.clone();
   eyeRight.position.x = 0.075;
   const hood = mesh(
-    new THREE.ConeGeometry(0.31, 0.36, 6),
+    humanoidHeadwearGeometry(0.265, 0.34, 'player'),
     mat('#1f2f24'),
     new THREE.Vector3(0, 1.71, 0),
     new THREE.Vector3(1, 1, 1)
@@ -4477,11 +4809,11 @@ export function createVenomArcherModel() {
   const leftArm = limb(
     new THREE.Vector3(0.3, 1.16, 0.08),
     new THREE.Vector3(0.04, 1.02, 0.58),
-    0.052,
+    humanoidArmRadius(0.058, 'player'),
     skinMat
   );
   const leftHand = mesh(
-    new THREE.DodecahedronGeometry(0.086, 0),
+    humanoidHandGeometry(0.086, 'player'),
     skinMat,
     new THREE.Vector3(0.04, 1.02, 0.58),
     new THREE.Vector3(1, 1, 1)
@@ -4489,10 +4821,10 @@ export function createVenomArcherModel() {
   const rightShoulder = new THREE.Vector3(-0.3, 1.15, 0.08);
   const rightElbow = new THREE.Vector3(-0.34, 1.1, 0.4);
   const rightHandPosition = new THREE.Vector3(-0.23, 1.06, 0.63);
-  const rightUpperArm = limb(rightShoulder, rightElbow, 0.052, skinMat);
-  const rightForearm = limb(rightElbow, rightHandPosition, 0.052, skinMat);
+  const rightUpperArm = limb(rightShoulder, rightElbow, humanoidArmRadius(0.058, 'player'), skinMat);
+  const rightForearm = limb(rightElbow, rightHandPosition, humanoidArmRadius(0.058, 'player'), skinMat);
   const rightHand = mesh(
-    new THREE.DodecahedronGeometry(0.086, 0),
+    humanoidHandGeometry(0.086, 'player'),
     skinMat,
     rightHandPosition,
     new THREE.Vector3(1, 1, 1)
@@ -4526,6 +4858,14 @@ export function createVenomArcherModel() {
   const legRight = legLeft.clone();
   legRight.position.x = 0.13;
   legRight.rotation.z = -0.08;
+  const bootLeft = mesh(
+    new THREE.BoxGeometry(0.19, 0.13, 0.26),
+    leather,
+    new THREE.Vector3(-0.13, 0.065, 0.04),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const bootRight = bootLeft.clone();
+  bootRight.position.x = 0.13;
 
   const bowPivot = createPivot(
     'venomBowPivot',
@@ -4548,9 +4888,9 @@ export function createVenomArcherModel() {
     [body, head, mask, eyeLeft, eyeRight, hood, quiver, vialA, vialB]
   );
 
-  group.add(upperBodyPivot, bowPivot, drawPivot, legLeft, legRight);
+  group.add(upperBodyPivot, bowPivot, drawPivot, legLeft, legRight, bootLeft, bootRight);
+  addGoblinEarPair(group, '#74ac54', { centerY: 1.52, offsetX: 0.18, length: 0.18 });
   centerModelFootprint(group);
-  group.scale.setScalar(0.88);
   group.userData.parts = {
     upperBodyPivot,
     bowPivot,
@@ -4562,7 +4902,7 @@ export function createVenomArcherModel() {
     venomVial: vialA,
     rightHand
   };
-  return enableShadows(group);
+  return enableShadows(wrapPersistentModelScale(group, 0.88));
 }
 
 export function createFrostAcolyteModel() {
@@ -4574,30 +4914,33 @@ export function createFrostAcolyteModel() {
   const ice = mat('#9bdcff', { emissive: '#4fbaff', emissiveIntensity: 0.42 });
   const wood = mat('#4a3a34');
 
-  const robe = mesh(
-    new THREE.CylinderGeometry(0.36, 0.54, 1.18, 6),
-    robeMat,
-    new THREE.Vector3(0, 0.78, 0),
-    new THREE.Vector3(1, 1, 1)
-  );
+  const robe = createPlayerBattleCoatStructure('player', robeMat, robeDark);
   const frontPanel = mesh(
-    new THREE.BoxGeometry(0.16, 0.76, 0.045),
+    new THREE.BoxGeometry(0.14, 0.42, 0.045),
     trim,
-    new THREE.Vector3(0, 0.78, 0.43),
+    new THREE.Vector3(0, 0.94, 0.31),
     new THREE.Vector3(1, 1, 1)
   );
   const head = mesh(
-    new THREE.DodecahedronGeometry(0.25, 0),
+    humanoidHeadGeometry(0.26, 'player'),
     skinMat,
     new THREE.Vector3(0, 1.48, 0.02),
-    new THREE.Vector3(0.95, 1, 0.95)
+    new THREE.Vector3(1, 1, 1)
   );
   const hood = mesh(
-    new THREE.ConeGeometry(0.33, 0.42, 6),
+    humanoidHeadwearGeometry(0.275, 0.36, 'player'),
     robeDark,
     new THREE.Vector3(0, 1.72, 0),
     new THREE.Vector3(1, 1, 1)
   );
+  const hoodFrame = createPlayerHoodFrame({
+    team: 'player',
+    centerY: 1.49,
+    width: 0.41,
+    height: 0.3,
+    depth: 0.09,
+    material: robeDark
+  });
   const eyeLeft = mesh(
     new THREE.BoxGeometry(0.04, 0.03, 0.02),
     ice,
@@ -4626,9 +4969,9 @@ export function createFrostAcolyteModel() {
 
   const rightShoulder = new THREE.Vector3(-0.3, 1.12, 0.05);
   const rightHandPos = new THREE.Vector3(-0.37, 0.78, 0.38);
-  const rightArm = limb(rightShoulder, rightHandPos, 0.052, skinMat);
+  const rightArm = limb(rightShoulder, rightHandPos, humanoidArmRadius(0.058, 'player'), skinMat);
   const rightHand = mesh(
-    new THREE.DodecahedronGeometry(0.085, 0),
+    humanoidHandGeometry(0.085, 'player'),
     skinMat,
     rightHandPos,
     new THREE.Vector3(1, 1, 1)
@@ -4677,9 +5020,9 @@ export function createFrostAcolyteModel() {
 
   const leftShoulder = new THREE.Vector3(0.3, 1.12, 0.05);
   const leftHandPos = new THREE.Vector3(0.28, 0.96, 0.45);
-  const leftArm = limb(leftShoulder, leftHandPos, 0.05, skinMat);
+  const leftArm = limb(leftShoulder, leftHandPos, humanoidArmRadius(0.056, 'player'), skinMat);
   const leftHand = mesh(
-    new THREE.DodecahedronGeometry(0.083, 0),
+    humanoidHandGeometry(0.083, 'player'),
     skinMat,
     leftHandPos,
     new THREE.Vector3(1, 1, 1)
@@ -4697,13 +5040,21 @@ export function createFrostAcolyteModel() {
   );
 
   const legLeft = mesh(
-    new THREE.BoxGeometry(0.14, 0.34, 0.14),
+    new THREE.BoxGeometry(0.16, 0.5, 0.16),
     robeDark,
-    new THREE.Vector3(-0.12, 0.18, 0),
+    new THREE.Vector3(-0.13, 0.26, 0),
     new THREE.Vector3(1, 1, 1)
   );
   const legRight = legLeft.clone();
-  legRight.position.x = 0.12;
+  legRight.position.x = 0.13;
+  const bootLeft = mesh(
+    new THREE.BoxGeometry(0.19, 0.13, 0.26),
+    wood,
+    new THREE.Vector3(-0.13, 0.065, 0.04),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const bootRight = bootLeft.clone();
+  bootRight.position.x = 0.13;
 
   group.add(
     robe,
@@ -4711,13 +5062,16 @@ export function createFrostAcolyteModel() {
     collar,
     head,
     hood,
+    hoodFrame,
     eyeLeft,
     eyeRight,
     shardRing,
     weaponPivot,
     offhandPivot,
     legLeft,
-    legRight
+    legRight,
+    bootLeft,
+    bootRight
   );
   centerModelFootprint(group);
   group.userData.parts = {
@@ -4734,28 +5088,43 @@ export function createFrostAcolyteModel() {
 
 export function createSkeletonSoldierModel() {
   const group = createRaiderModel({
+    blockyStyle: true,
+    facetedHead: true,
+    headRadius: 0.225,
     skinColor: '#d8d1bc',
     bodyColor: '#3b3830',
     eyeColor: '#101010',
     weaponColor: '#c3c6c2',
     legColor: '#4d493d',
     hideBody: true,
+    hideSleeves: true,
     skeletalLegs: true,
-    scale: 0.92
+    scale: 0.96
   });
   const boneMat = mat('#d8d1bc');
   const darkMat = mat('#101010');
+  const armorMat = mat('#4d493d', { metalness: 0.08, roughness: 0.82 });
 
-  const skullBrow = mesh(
-    new THREE.BoxGeometry(0.28, 0.05, 0.04),
+  const skullBrowLeft = mesh(
+    new THREE.BoxGeometry(0.11, 0.045, 0.04),
+    boneMat,
+    new THREE.Vector3(-0.075, 1.59, 0.16),
+    new THREE.Vector3(1, 1, 1)
+  );
+  skullBrowLeft.rotation.z = 0.1;
+  const skullBrowRight = skullBrowLeft.clone();
+  skullBrowRight.position.x = 0.075;
+  skullBrowRight.rotation.z = -0.1;
+  const noseGap = mesh(
+    new THREE.BoxGeometry(0.04, 0.07, 0.022),
     darkMat,
-    new THREE.Vector3(0, 1.57, 0.27),
+    new THREE.Vector3(0, 1.47, 0.16),
     new THREE.Vector3(1, 1, 1)
   );
   const jaw = mesh(
     new THREE.BoxGeometry(0.22, 0.08, 0.06),
     boneMat,
-    new THREE.Vector3(0, 1.34, 0.23),
+    new THREE.Vector3(0, 1.34, 0.16),
     new THREE.Vector3(1, 1, 1)
   );
   const spine = mesh(
@@ -4804,33 +5173,72 @@ export function createSkeletonSoldierModel() {
     );
     ribs.add(leftRib, rightRib);
   }
-  group.add(skullBrow, jaw, spine, collar, pelvisLeft, pelvisRight, ribs);
+  const shoulderGuard = mesh(
+    new THREE.BoxGeometry(0.26, 0.12, 0.22),
+    armorMat,
+    new THREE.Vector3(0.34, 1.14, 0.03),
+    new THREE.Vector3(1, 1, 1)
+  );
+  shoulderGuard.rotation.z = -0.18;
+  const pelvisGuard = mesh(
+    new THREE.BoxGeometry(0.48, 0.13, 0.28),
+    armorMat,
+    new THREE.Vector3(0, 0.55, 0.04),
+    new THREE.Vector3(1, 1, 1)
+  );
+  group.add(
+    skullBrowLeft,
+    skullBrowRight,
+    noseGap,
+    jaw,
+    spine,
+    collar,
+    pelvisLeft,
+    pelvisRight,
+    ribs,
+    shoulderGuard,
+    pelvisGuard
+  );
   return enableShadows(group);
 }
 
 export function createSkeletonArcherModel() {
   const group = createArcherModel('enemy', {
+    blockyStyle: true,
+    facetedHead: true,
+    headRadius: 0.225,
     skinColor: '#d8d1bc',
     tunicColor: '#3b3830',
     hoodColor: '#d8d1bc',
     leatherColor: '#6a5841',
     legColor: '#4d493d',
     hideHood: true,
-    scale: 0.9
+    scale: 0.94
   });
   const boneMat = mat('#d8d1bc');
   const darkMat = mat('#101010');
+  const leatherMat = mat('#6a5841');
 
   const jaw = mesh(
     new THREE.BoxGeometry(0.2, 0.07, 0.055),
     boneMat,
-    new THREE.Vector3(0, 1.33, 0.23),
+    new THREE.Vector3(0, 1.34, 0.155),
     new THREE.Vector3(1, 1, 1)
   );
-  const brow = mesh(
-    new THREE.BoxGeometry(0.25, 0.045, 0.04),
+  const browLeft = mesh(
+    new THREE.BoxGeometry(0.105, 0.042, 0.038),
+    boneMat,
+    new THREE.Vector3(-0.07, 1.6, 0.158),
+    new THREE.Vector3(1, 1, 1)
+  );
+  browLeft.rotation.z = 0.1;
+  const browRight = browLeft.clone();
+  browRight.position.x = 0.07;
+  browRight.rotation.z = -0.1;
+  const noseGap = mesh(
+    new THREE.BoxGeometry(0.038, 0.065, 0.022),
     darkMat,
-    new THREE.Vector3(0, 1.57, 0.26),
+    new THREE.Vector3(0, 1.48, 0.158),
     new THREE.Vector3(1, 1, 1)
   );
   const spine = mesh(
@@ -4861,29 +5269,60 @@ export function createSkeletonArcherModel() {
   }
   const upperBodyPivot = group.userData.parts?.upperBodyPivot;
   if (upperBodyPivot) {
-    [jaw, brow, spine, ribs].forEach((part) => {
+    [jaw, browLeft, browRight, noseGap, spine, ribs].forEach((part) => {
       part.position.sub(upperBodyPivot.position);
       upperBodyPivot.add(part);
     });
   } else {
-    group.add(jaw, brow, spine, ribs);
+    group.add(jaw, browLeft, browRight, noseGap, spine, ribs);
   }
+  const bootLeft = mesh(
+    new THREE.BoxGeometry(0.2, 0.13, 0.27),
+    leatherMat,
+    new THREE.Vector3(-0.14, 0.065, 0.04),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const bootRight = bootLeft.clone();
+  bootRight.position.x = 0.14;
+  const shoulderGuard = mesh(
+    new THREE.BoxGeometry(0.25, 0.11, 0.21),
+    leatherMat,
+    new THREE.Vector3(-0.34, 1.18, 0.03),
+    new THREE.Vector3(1, 1, 1)
+  );
+  shoulderGuard.rotation.z = 0.18;
+  if (upperBodyPivot) {
+    shoulderGuard.position.sub(upperBodyPivot.position);
+    upperBodyPivot.add(shoulderGuard);
+  } else {
+    group.add(shoulderGuard);
+  }
+  group.add(bootLeft, bootRight);
   return enableShadows(group);
 }
 
 export function createOgreModel() {
-  const group = createRaiderModel({
+  const bodyRoot = createRaiderModel({
+    blockyStyle: true,
+    facetedHead: true,
+    headRadius: 0.25,
+    fieldStyle: true,
     skinColor: '#8f9d63',
     bodyColor: '#6d4a36',
+    panelColor: '#596047',
+    beltColor: '#3f2d24',
+    leatherColor: '#4b3226',
+    headbandColor: '#493226',
     eyeColor: '#1d2014',
+    eyeZ: 0.195,
     weaponColor: '#57351f',
     legColor: '#303226',
-    scale: 2.13
+    shoulderSide: 1
   });
   const brow = mesh(
     new THREE.BoxGeometry(0.42, 0.08, 0.08),
     mat('#4d3929'),
-    new THREE.Vector3(0, 1.61, 0.25),
+    new THREE.Vector3(0, 1.61, 0.14),
     new THREE.Vector3(1, 1, 1)
   );
   const tuskLeft = mesh(
@@ -4895,7 +5334,12 @@ export function createOgreModel() {
   tuskLeft.rotation.x = Math.PI / 2;
   const tuskRight = tuskLeft.clone();
   tuskRight.position.x = 0.11;
-  group.add(brow, tuskLeft, tuskRight);
+  bodyRoot.add(brow, tuskLeft, tuskRight);
+  bodyRoot.scale.setScalar(1.55);
+
+  const group = new THREE.Group();
+  group.add(bodyRoot);
+  group.userData.parts = bodyRoot.userData.parts;
   return enableShadows(group);
 }
 
@@ -4912,47 +5356,32 @@ export function createFrostScoutModel() {
   const ice = mat('#8fdcff', { emissive: '#5bb8e8', emissiveIntensity: 0.28 });
   const eye = mat('#17232d');
 
-  const body = mesh(
-    new THREE.DodecahedronGeometry(0.5, 0),
-    coat,
-    new THREE.Vector3(0, 0.91, 0),
-    new THREE.Vector3(0.82, 1.18, 0.62)
-  );
-  const coatTail = mesh(
-    new THREE.ConeGeometry(0.43, 0.82, 6),
-    coatDark,
-    new THREE.Vector3(0, 0.57, -0.09),
-    new THREE.Vector3(0.92, 1, 0.72)
-  );
-  const belt = mesh(
-    new THREE.CylinderGeometry(0.34, 0.37, 0.09, 6),
-    leather,
-    new THREE.Vector3(0, 0.82, 0),
-    new THREE.Vector3(1, 0.72, 0.82)
-  );
+  const body = createPlayerBattleCoatStructure('player', coat, leather);
   const head = mesh(
-    new THREE.DodecahedronGeometry(0.28, 0),
+    new THREE.DodecahedronGeometry(0.225, 0),
     skin,
-    new THREE.Vector3(0, 1.58, 0.02),
-    new THREE.Vector3(1, 1, 1)
+    new THREE.Vector3(0, 1.56, 0.02),
+    new THREE.Vector3(0.94, 1, 0.84)
   );
   const hood = mesh(
-    new THREE.ConeGeometry(0.34, 0.5, 6),
+    humanoidHeadwearGeometry(0.3, 0.4, 'player'),
     coatDark,
-    new THREE.Vector3(0, 1.87, -0.01),
-    new THREE.Vector3(1, 1, 0.9)
+    new THREE.Vector3(0, 1.83, -0.01),
+    new THREE.Vector3(1, 1, 1)
   );
   hood.rotation.z = -0.08;
-  const furBrim = mesh(
-    new THREE.CylinderGeometry(0.31, 0.34, 0.09, 6),
-    fur,
-    new THREE.Vector3(0, 1.72, 0.02),
-    new THREE.Vector3(1, 0.72, 0.84)
-  );
+  const hoodFrame = createPlayerHoodFrame({
+    team: 'player',
+    centerY: 1.62,
+    width: 0.44,
+    height: 0.38,
+    depth: 0.07,
+    material: fur
+  });
   const eyeLeft = mesh(
     new THREE.BoxGeometry(0.046, 0.034, 0.02),
     eye,
-    new THREE.Vector3(-0.08, 1.61, 0.26),
+    new THREE.Vector3(-0.08, 1.61, 0.205),
     new THREE.Vector3(1, 1, 1)
   );
   const eyeRight = eyeLeft.clone();
@@ -4960,17 +5389,19 @@ export function createFrostScoutModel() {
   const cheekScarf = mesh(
     new THREE.BoxGeometry(0.42, 0.13, 0.055),
     fur,
-    new THREE.Vector3(0, 1.46, 0.25),
+    new THREE.Vector3(0, 1.46, 0.205),
     new THREE.Vector3(1, 1, 1)
   );
   const shoulderFur = mesh(
-    new THREE.DodecahedronGeometry(0.17, 0),
+    new THREE.BoxGeometry(0.25, 0.11, 0.22),
     fur,
     new THREE.Vector3(-0.34, 1.19, 0.03),
-    new THREE.Vector3(1.25, 0.55, 0.78)
+    new THREE.Vector3(1, 1, 1)
   );
+  shoulderFur.rotation.z = 0.18;
   const shoulderFurRight = shoulderFur.clone();
   shoulderFurRight.position.x = 0.34;
+  shoulderFurRight.rotation.z = -0.18;
 
   const bowCurve = new THREE.CatmullRomCurve3([
     new THREE.Vector3(-0.08, -0.64, 0),
@@ -4991,11 +5422,18 @@ export function createFrostScoutModel() {
   const leftArm = limb(
     new THREE.Vector3(0.31, 1.2, 0.04),
     new THREE.Vector3(0.05, 1.1, 0.59),
-    0.058,
+    humanoidArmRadius(0.064, 'player'),
     skin
   );
+  const leftSleeve = createPlayerSleeve(
+    'player',
+    new THREE.Vector3(0.31, 1.2, 0.04),
+    new THREE.Vector3(0.05, 1.1, 0.59),
+    0.072,
+    coat
+  );
   const leftHand = mesh(
-    new THREE.DodecahedronGeometry(0.09, 0),
+    humanoidHandGeometry(0.09, 'player'),
     skin,
     new THREE.Vector3(0.05, 1.1, 0.59),
     new THREE.Vector3(1, 1, 1)
@@ -5003,10 +5441,11 @@ export function createFrostScoutModel() {
   const rightShoulder = new THREE.Vector3(-0.31, 1.19, 0.04);
   const rightElbow = new THREE.Vector3(-0.35, 1.14, 0.41);
   const rightHandPos = new THREE.Vector3(-0.22, 1.1, 0.65);
-  const rightUpperArm = limb(rightShoulder, rightElbow, 0.058, skin);
-  const rightForearm = limb(rightElbow, rightHandPos, 0.056, skin);
+  const rightUpperArm = limb(rightShoulder, rightElbow, humanoidArmRadius(0.064, 'player'), skin);
+  const rightSleeve = createPlayerSleeve('player', rightShoulder, rightElbow, 0.072, coat);
+  const rightForearm = limb(rightElbow, rightHandPos, humanoidArmRadius(0.06, 'player'), skin);
   const rightHand = mesh(
-    new THREE.DodecahedronGeometry(0.09, 0),
+    humanoidHandGeometry(0.09, 'player'),
     skin,
     rightHandPos,
     new THREE.Vector3(1, 1, 1)
@@ -5055,22 +5494,38 @@ export function createFrostScoutModel() {
   );
   const legRight = legLeft.clone();
   legRight.position.x = 0.14;
+  const bootLeft = mesh(
+    new THREE.BoxGeometry(0.2, 0.13, 0.27),
+    leather,
+    new THREE.Vector3(-0.14, 0.065, 0.04),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const bootRight = bootLeft.clone();
+  bootRight.position.x = 0.14;
+  const shinLeft = mesh(
+    new THREE.BoxGeometry(0.18, 0.2, 0.055),
+    coatDark,
+    new THREE.Vector3(-0.14, 0.29, 0.095),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const shinRight = shinLeft.clone();
+  shinRight.position.x = 0.14;
 
   const upperBodyPivot = createPivot(
     'frostScoutUpperBodyPivot',
     new THREE.Vector3(0, 0.84, 0),
-    [body, coatTail, belt, head, hood, furBrim, eyeLeft, eyeRight, cheekScarf, shoulderFur, shoulderFurRight, quiver, fletching]
+    [body, head, hood, hoodFrame, eyeLeft, eyeRight, cheekScarf, shoulderFur, shoulderFurRight, quiver, fletching]
   );
   const bowPivot = createPivot(
     'frostScoutBowPivot',
     new THREE.Vector3(0.31, 1.2, 0.04),
-    [leftArm, leftHand, bow, string]
+    [leftArm, leftSleeve, leftHand, bow, string]
   );
   const drawForearmPivot = createPivot('frostScoutDrawForearmPivot', rightElbow, [rightForearm, rightHand, scatterArrows]);
-  const drawPivot = createPivot('frostScoutDrawPivot', rightShoulder, [rightUpperArm, drawForearmPivot]);
+  const drawPivot = createPivot('frostScoutDrawPivot', rightShoulder, [rightUpperArm, rightSleeve, drawForearmPivot]);
   drawPivot.rotation.y = THREE.MathUtils.degToRad(10);
 
-  group.add(upperBodyPivot, bowPivot, drawPivot, legLeft, legRight);
+  group.add(upperBodyPivot, bowPivot, drawPivot, legLeft, legRight, bootLeft, bootRight, shinLeft, shinRight);
   group.userData.parts = {
     upperBodyPivot,
     bowPivot,
@@ -5081,8 +5536,7 @@ export function createFrostScoutModel() {
     fanArrows: scatterArrows
   };
   centerModelFootprint(group);
-  group.scale.setScalar(1.04);
-  return enableShadows(group);
+  return enableShadows(wrapPersistentModelScale(group, 1.04));
 }
 
 export function createSnowDuskShamanModel() {
@@ -5095,59 +5549,64 @@ export function createSnowDuskShamanModel() {
   const skin = mat('#9caebd');
   const shadow = mat('#111d2c');
 
-  const robe = mesh(
-    new THREE.ConeGeometry(0.55, 1.52, 7),
-    cloak,
-    new THREE.Vector3(0, 0.77, 0),
-    new THREE.Vector3(0.98, 1, 0.78)
-  );
-  const robeFront = mesh(
-    new THREE.ConeGeometry(0.32, 1.16, 5),
-    cloakDark,
-    new THREE.Vector3(0, 0.75, 0.4),
-    new THREE.Vector3(0.75, 1, 0.28)
-  );
+  const robe = createPlayerBattleCoatStructure('player', cloak, cloakDark);
   const mantle = mesh(
-    new THREE.DodecahedronGeometry(0.42, 0),
+    new THREE.CylinderGeometry(0.37, 0.45, 0.16, 5, 1, false, Math.PI / 2),
     frost,
     new THREE.Vector3(0, 1.37, -0.01),
-    new THREE.Vector3(1.32, 0.44, 0.82)
+    new THREE.Vector3(1.08, 1, 0.74)
   );
   const head = mesh(
-    new THREE.DodecahedronGeometry(0.31, 0),
+    new THREE.DodecahedronGeometry(0.24, 0),
     skin,
-    new THREE.Vector3(0, 1.78, 0.04),
-    new THREE.Vector3(0.94, 1.02, 0.92)
+    new THREE.Vector3(0, 1.72, 0.04),
+    new THREE.Vector3(0.94, 1, 0.84)
   );
   const hood = mesh(
-    new THREE.ConeGeometry(0.4, 0.76, 6),
+    humanoidHeadwearGeometry(0.33, 0.5, 'player'),
     cloakDark,
-    new THREE.Vector3(0.01, 2.12, -0.02),
-    new THREE.Vector3(1, 1, 0.88)
+    new THREE.Vector3(0.01, 2.03, -0.02),
+    new THREE.Vector3(1, 1, 1)
   );
   hood.rotation.z = -0.14;
+  const hoodFrame = createPlayerHoodFrame({
+    team: 'player',
+    centerY: 1.76,
+    width: 0.49,
+    height: 0.43,
+    depth: 0.075,
+    material: cloakDark
+  });
   const faceVeil = mesh(
-    new THREE.BoxGeometry(0.35, 0.23, 0.05),
+    new THREE.BoxGeometry(0.29, 0.18, 0.045),
     shadow,
-    new THREE.Vector3(0, 1.78, 0.3),
+    new THREE.Vector3(0, 1.7, 0.225),
     new THREE.Vector3(1, 1, 1)
   );
   const eyeLeft = mesh(
     new THREE.BoxGeometry(0.055, 0.026, 0.018),
     ice,
-    new THREE.Vector3(-0.1, 1.82, 0.335),
+    new THREE.Vector3(-0.08, 1.76, 0.255),
     new THREE.Vector3(1, 1, 1)
   );
   const eyeRight = eyeLeft.clone();
-  eyeRight.position.x = 0.1;
+  eyeRight.position.x = 0.08;
   const leftArm = limb(
     new THREE.Vector3(0.39, 1.38, 0.02),
     new THREE.Vector3(0.49, 1.06, 0.38),
-    0.07,
+    humanoidArmRadius(0.078, 'player'),
     cloak
   );
+  const leftSleeve = createPlayerSleeve(
+    'player',
+    new THREE.Vector3(0.39, 1.38, 0.02),
+    new THREE.Vector3(0.49, 1.06, 0.38),
+    0.088,
+    cloak,
+    0.55
+  );
   const leftHand = mesh(
-    new THREE.DodecahedronGeometry(0.105, 0),
+    humanoidHandGeometry(0.105, 'player'),
     skin,
     new THREE.Vector3(0.49, 1.06, 0.38),
     new THREE.Vector3(1, 1, 1)
@@ -5155,11 +5614,19 @@ export function createSnowDuskShamanModel() {
   const rightArm = limb(
     new THREE.Vector3(-0.38, 1.38, 0.02),
     new THREE.Vector3(-0.28, 1.23, 0.33),
-    0.07,
+    humanoidArmRadius(0.078, 'player'),
     cloak
   );
+  const rightSleeve = createPlayerSleeve(
+    'player',
+    new THREE.Vector3(-0.38, 1.38, 0.02),
+    new THREE.Vector3(-0.28, 1.23, 0.33),
+    0.088,
+    cloak,
+    0.55
+  );
   const rightHand = mesh(
-    new THREE.DodecahedronGeometry(0.105, 0),
+    humanoidHandGeometry(0.105, 'player'),
     skin,
     new THREE.Vector3(-0.28, 1.23, 0.33),
     new THREE.Vector3(1, 1, 1)
@@ -5208,12 +5675,12 @@ export function createSnowDuskShamanModel() {
   const weaponPivot = createPivot(
     'snowDuskStaffPivot',
     new THREE.Vector3(-0.38, 1.38, 0.02),
-    [rightArm, rightHand, weaponSwingPivot]
+    [rightArm, rightSleeve, rightHand, weaponSwingPivot]
   );
   const offhandPivot = createPivot(
     'snowDuskOffhandPivot',
     new THREE.Vector3(0.39, 1.38, 0.02),
-    [leftArm, leftHand]
+    [leftArm, leftSleeve, leftHand]
   );
   const shardRing = new THREE.Group();
   for (let i = 0; i < 5; i += 1) {
@@ -5236,8 +5703,16 @@ export function createSnowDuskShamanModel() {
   );
   const legRight = legLeft.clone();
   legRight.position.x = 0.15;
+  const bootLeft = mesh(
+    new THREE.BoxGeometry(0.21, 0.13, 0.28),
+    shadow,
+    new THREE.Vector3(-0.15, 0.065, 0.04),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const bootRight = bootLeft.clone();
+  bootRight.position.x = 0.15;
 
-  group.add(robe, robeFront, mantle, head, hood, faceVeil, eyeLeft, eyeRight, shardRing, weaponPivot, offhandPivot, legLeft, legRight);
+  group.add(robe, mantle, head, hood, hoodFrame, faceVeil, eyeLeft, eyeRight, shardRing, weaponPivot, offhandPivot, legLeft, legRight, bootLeft, bootRight);
   group.userData.parts = {
     weaponPivot,
     weaponSwingPivot,
@@ -5247,8 +5722,7 @@ export function createSnowDuskShamanModel() {
     focus
   };
   centerModelFootprint(group);
-  group.scale.setScalar(1.22);
-  return enableShadows(group);
+  return enableShadows(wrapPersistentModelScale(group, 1.12));
 }
 
 export function createTombLanternCrossbowmanModel() {
@@ -5302,37 +5776,37 @@ export function createTombLanternCrossbowmanModel() {
     bone
   );
   const skull = mesh(
-    new THREE.DodecahedronGeometry(0.3, 0),
+    new THREE.DodecahedronGeometry(0.225, 0),
     bone,
     new THREE.Vector3(0, 1.66, 0.02),
-    new THREE.Vector3(1, 0.95, 0.92)
+    new THREE.Vector3(0.94, 1, 0.84)
   );
   const jaw = mesh(
-    new THREE.BoxGeometry(0.24, 0.09, 0.07),
+    new THREE.BoxGeometry(0.19, 0.075, 0.06),
     boneDark,
-    new THREE.Vector3(0, 1.47, 0.23),
+    new THREE.Vector3(0, 1.5, 0.2),
     new THREE.Vector3(1, 1, 1)
   );
   const eyeLeft = mesh(
     new THREE.BoxGeometry(0.065, 0.045, 0.022),
     eye,
-    new THREE.Vector3(-0.09, 1.67, 0.28),
+    new THREE.Vector3(-0.07, 1.68, 0.205),
     new THREE.Vector3(1, 1, 1)
   );
   const eyeRight = eyeLeft.clone();
-  eyeRight.position.x = 0.09;
+  eyeRight.position.x = 0.07;
   const hood = mesh(
-    new THREE.ConeGeometry(0.4, 0.6, 6),
+    humanoidHeadwearGeometry(0.28, 0.38, 'player'),
     cloth,
-    new THREE.Vector3(0, 1.97, -0.02),
+    new THREE.Vector3(0, 1.9, -0.02),
     new THREE.Vector3(1, 1, 0.88)
   );
   hood.rotation.z = 0.1;
   const shoulderWrap = mesh(
-    new THREE.DodecahedronGeometry(0.38, 0),
+    new THREE.CylinderGeometry(0.34, 0.4, 0.14, 5),
     cloth,
     new THREE.Vector3(0, 1.29, -0.06),
-    new THREE.Vector3(1.22, 0.42, 0.72)
+    new THREE.Vector3(1.1, 0.88, 0.72)
   );
   const legLeft = mesh(
     new THREE.BoxGeometry(0.13, 0.55, 0.13),
@@ -5342,6 +5816,14 @@ export function createTombLanternCrossbowmanModel() {
   );
   const legRight = legLeft.clone();
   legRight.position.x = 0.13;
+  const footLeft = mesh(
+    new THREE.BoxGeometry(0.18, 0.1, 0.24),
+    boneDark,
+    new THREE.Vector3(-0.13, 0.05, 0.055),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const footRight = footLeft.clone();
+  footRight.position.x = 0.13;
 
   const leftArm = limb(
     new THREE.Vector3(0.31, 1.25, 0.04),
@@ -5443,7 +5925,7 @@ export function createTombLanternCrossbowmanModel() {
   const offhandPivot = createPivot('tombLanternOffhandPivot', new THREE.Vector3(0.31, 1.25, 0.04), [leftArm, leftHand, lanternFrame]);
   const gripPivot = createPivot('tombLanternGripPivot', new THREE.Vector3(-0.31, 1.25, 0.04), [rightArm, rightHand]);
 
-  group.add(upperBodyPivot, weaponPivot, offhandPivot, gripPivot, legLeft, legRight);
+  group.add(upperBodyPivot, weaponPivot, offhandPivot, gripPivot, legLeft, legRight, footLeft, footRight);
   group.userData.parts = {
     upperBodyPivot,
     weaponPivot,
@@ -5455,8 +5937,7 @@ export function createTombLanternCrossbowmanModel() {
     lanternGlow: lanternCore
   };
   centerModelFootprint(group);
-  group.scale.setScalar(1.04);
-  return enableShadows(group);
+  return enableShadows(wrapPersistentModelScale(group, 1.04));
 }
 
 export function createBoneVoicePriestModel() {
@@ -5469,20 +5950,17 @@ export function createBoneVoicePriestModel() {
   const shadow = mat('#19141d');
   const wood = mat('#5c4738');
 
-  const robeBody = mesh(
-    new THREE.ConeGeometry(0.58, 1.6, 7),
-    robe,
-    new THREE.Vector3(0, 0.8, 0),
-    new THREE.Vector3(1, 1, 0.8)
-  );
+  const robeBody = createPlayerBattleCoatStructure('player', robe, robeDark);
   const robeRipLeft = mesh(
-    new THREE.ConeGeometry(0.2, 0.62, 5),
+    new THREE.BoxGeometry(0.2, 0.5, 0.07),
     robeDark,
-    new THREE.Vector3(-0.32, 0.36, 0.2),
-    new THREE.Vector3(0.9, 1, 0.45)
+    new THREE.Vector3(-0.18, 0.43, 0.31),
+    new THREE.Vector3(0.9, 1, 1)
   );
+  robeRipLeft.rotation.z = 0.08;
   const robeRipRight = robeRipLeft.clone();
-  robeRipRight.position.x = 0.32;
+  robeRipRight.position.x = 0.18;
+  robeRipRight.rotation.z = -0.08;
   const chest = mesh(
     new THREE.DodecahedronGeometry(0.36, 0),
     agedBone,
@@ -5496,40 +5974,40 @@ export function createBoneVoicePriestModel() {
     new THREE.Vector3(1, 1, 1)
   );
   const skull = mesh(
-    new THREE.DodecahedronGeometry(0.34, 0),
+    new THREE.DodecahedronGeometry(0.245, 0),
     bone,
     new THREE.Vector3(0, 1.91, 0.02),
-    new THREE.Vector3(1, 0.95, 0.92)
+    new THREE.Vector3(0.94, 1, 0.84)
   );
   const jaw = mesh(
-    new THREE.BoxGeometry(0.28, 0.09, 0.07),
+    new THREE.BoxGeometry(0.2, 0.075, 0.06),
     agedBone,
-    new THREE.Vector3(0, 1.72, 0.26),
+    new THREE.Vector3(0, 1.74, 0.215),
     new THREE.Vector3(1, 1, 1)
   );
   const eyeLeft = mesh(
     new THREE.BoxGeometry(0.07, 0.045, 0.022),
     soul,
-    new THREE.Vector3(-0.11, 1.92, 0.32),
+    new THREE.Vector3(-0.075, 1.93, 0.225),
     new THREE.Vector3(1, 1, 1)
   );
   const eyeRight = eyeLeft.clone();
-  eyeRight.position.x = 0.11;
+  eyeRight.position.x = 0.075;
   const crown = new THREE.Group();
   for (let i = -2; i <= 2; i += 1) {
     const spike = mesh(
-      new THREE.ConeGeometry(0.055, 0.38 + Math.abs(i) * 0.045, 5),
+      new THREE.ConeGeometry(0.042, 0.25 + Math.abs(i) * 0.025, 5),
       bone,
-      new THREE.Vector3(i * 0.12, 2.27 + (i === 0 ? 0.06 : 0), -0.01),
+      new THREE.Vector3(i * 0.085, 2.19 + (i === 0 ? 0.04 : 0), -0.01),
       new THREE.Vector3(1, 1, 1)
     );
     spike.rotation.z = -i * 0.16;
     crown.add(spike);
   }
   const crownBand = mesh(
-    new THREE.TorusGeometry(0.3, 0.035, 5, 12),
+    new THREE.TorusGeometry(0.225, 0.028, 5, 12),
     agedBone,
-    new THREE.Vector3(0, 2.16, 0.01),
+    new THREE.Vector3(0, 2.12, 0.01),
     new THREE.Vector3(1, 0.72, 0.88)
   );
   crownBand.rotation.x = Math.PI / 2;
@@ -5615,8 +6093,16 @@ export function createBoneVoicePriestModel() {
   );
   const legRight = legLeft.clone();
   legRight.position.x = 0.15;
+  const bootLeft = mesh(
+    new THREE.BoxGeometry(0.2, 0.12, 0.27),
+    shadow,
+    new THREE.Vector3(-0.15, 0.06, 0.04),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const bootRight = bootLeft.clone();
+  bootRight.position.x = 0.15;
 
-  group.add(robeBody, robeRipLeft, robeRipRight, chest, spine, skull, jaw, eyeLeft, eyeRight, crown, crownBand, ribRing, weaponPivot, offhandPivot, legLeft, legRight);
+  group.add(robeBody, robeRipLeft, robeRipRight, chest, spine, skull, jaw, eyeLeft, eyeRight, crown, crownBand, ribRing, weaponPivot, offhandPivot, legLeft, legRight, bootLeft, bootRight);
   group.userData.parts = {
     weaponPivot,
     weaponSwingPivot,
@@ -5626,8 +6112,7 @@ export function createBoneVoicePriestModel() {
     staffSoul
   };
   centerModelFootprint(group);
-  group.scale.setScalar(1.27);
-  return enableShadows(group);
+  return enableShadows(wrapPersistentModelScale(group, 1.06));
 }
 
 export function createSandScorpionGuardModel() {
@@ -5639,50 +6124,78 @@ export function createSandScorpionGuardModel() {
   const teal = mat('#66d1c1', { emissive: '#278a80', emissiveIntensity: 0.32 });
   const eye = mat('#13100c');
 
-  const thorax = mesh(
-    new THREE.DodecahedronGeometry(0.55, 0),
+  const thorax = scorpionCarapace(
     shell,
-    new THREE.Vector3(0, 0.47, -0.03),
-    new THREE.Vector3(1.16, 0.58, 1.35)
+    new THREE.Vector3(0, 0.49, -0.06),
+    1.18,
+    0.4,
+    0.78,
+    0.88,
+    1
   );
-  const abdomen = mesh(
-    new THREE.DodecahedronGeometry(0.46, 0),
+  const abdomen = scorpionCarapace(
     shellDark,
-    new THREE.Vector3(0, 0.49, -0.63),
-    new THREE.Vector3(1.15, 0.58, 0.96)
+    new THREE.Vector3(0, 0.47, -0.66),
+    0.92,
+    0.34,
+    0.56,
+    0.76,
+    1
   );
-  const neck = mesh(
-    new THREE.DodecahedronGeometry(0.34, 0),
+  const neck = scorpionCarapace(
     shell,
-    new THREE.Vector3(0, 0.5, 0.56),
-    new THREE.Vector3(1.04, 0.63, 0.82)
+    new THREE.Vector3(0, 0.5, 0.48),
+    0.78,
+    0.3,
+    0.34,
+    0.82,
+    1
   );
-  const head = mesh(
-    new THREE.DodecahedronGeometry(0.29, 0),
+  const head = scorpionCarapace(
     plate,
-    new THREE.Vector3(0, 0.53, 0.87),
-    new THREE.Vector3(1.05, 0.64, 0.78)
+    new THREE.Vector3(0, 0.53, 0.79),
+    0.64,
+    0.28,
+    0.38,
+    0.72,
+    1
   );
+  const browPlate = mesh(
+    new THREE.BoxGeometry(0.56, 0.08, 0.24),
+    shellDark,
+    new THREE.Vector3(0, 0.63, 0.85),
+    new THREE.Vector3(1, 1, 1)
+  );
+  browPlate.rotation.x = -0.08;
   const eyeLeft = mesh(
     new THREE.BoxGeometry(0.045, 0.035, 0.02),
     eye,
-    new THREE.Vector3(-0.1, 0.62, 1.06),
+    new THREE.Vector3(-0.1, 0.59, 1.01),
     new THREE.Vector3(1, 1, 1)
   );
   const eyeRight = eyeLeft.clone();
   eyeRight.position.x = 0.1;
-  const headPivot = createPivot('sandScorpionHeadPivot', new THREE.Vector3(0, 0.5, 0.57), [neck, head, eyeLeft, eyeRight]);
+  const headPivot = createPivot(
+    'sandScorpionHeadPivot',
+    new THREE.Vector3(0, 0.5, 0.52),
+    [neck, head, browPlate, eyeLeft, eyeRight]
+  );
   const armorPlates = new THREE.Group();
+  armorPlates.name = 'sandScorpionArmorPlates';
   for (let i = 0; i < 3; i += 1) {
-    const plateMesh = mesh(
-      new THREE.DodecahedronGeometry(0.25 - i * 0.015, 0),
+    const plateMesh = scorpionCarapace(
       plate,
-      new THREE.Vector3(0, 0.79, -0.2 - i * 0.28),
-      new THREE.Vector3(1.22, 0.22, 0.72)
+      new THREE.Vector3(0, 0.7 - i * 0.012, 0.17 - i * 0.3),
+      0.96 - i * 0.07,
+      0.11,
+      0.3,
+      0.82,
+      0.98
     );
     armorPlates.add(plateMesh);
   }
   const legs = new THREE.Group();
+  legs.name = 'sandScorpionLegs';
   for (let i = 0; i < 4; i += 1) {
     const z = 0.42 - i * 0.34;
     const wide = 0.56 + i * 0.06;
@@ -5691,36 +6204,66 @@ export function createSandScorpionGuardModel() {
       const hip = new THREE.Vector3(side * 0.42, 0.43, z);
       const knee = new THREE.Vector3(side * wide, 0.23, z + sideStep);
       const foot = new THREE.Vector3(side * (0.96 + i * 0.03), 0.1, z + sideStep * 1.65);
+      const kneePlate = mesh(
+        new THREE.BoxGeometry(0.13, 0.09, 0.12),
+        plate,
+        knee,
+        new THREE.Vector3(1, 1, 1)
+      );
+      kneePlate.rotation.y = side * (0.16 + i * 0.035);
+      kneePlate.rotation.z = side * 0.08;
       legs.add(
-        cylinderBetween(hip, knee, 0.042, 0.032, legMat),
-        cylinderBetween(knee, foot, 0.032, 0.022, legMat)
+        boxBetween(hip, knee, 0.09, 0.075, legMat),
+        boxBetween(knee, foot, 0.064, 0.052, legMat),
+        kneePlate
       );
     }
   }
-  const leftArm = cylinderBetween(
-    new THREE.Vector3(-0.38, 0.48, 0.66),
-    new THREE.Vector3(-0.88, 0.39, 1.08),
-    0.065,
-    0.05,
+  const createGuardClaw = (side) => {
+    const claw = new THREE.Group();
+    const palm = scorpionCarapace(
+      plate,
+      new THREE.Vector3(side * 1.01, 0.39, 1.17),
+      0.38,
+      0.2,
+      0.34,
+      0.72,
+      1
+    );
+    palm.rotation.y = side * 0.32;
+    const upperPincer = boxBetween(
+      new THREE.Vector3(side * 1.04, 0.43, 1.29),
+      new THREE.Vector3(side * 1.16, 0.46, 1.55),
+      0.105,
+      0.078,
+      plate
+    );
+    const lowerPincer = boxBetween(
+      new THREE.Vector3(side * 1.04, 0.35, 1.29),
+      new THREE.Vector3(side * 1.17, 0.28, 1.49),
+      0.095,
+      0.07,
+      shellDark
+    );
+    claw.add(palm, upperPincer, lowerPincer);
+    return claw;
+  };
+  const leftArm = boxBetween(
+    new THREE.Vector3(-0.38, 0.48, 0.64),
+    new THREE.Vector3(-0.88, 0.39, 1.07),
+    0.13,
+    0.1,
     shell
   );
-  const rightArm = cylinderBetween(
-    new THREE.Vector3(0.38, 0.48, 0.66),
-    new THREE.Vector3(0.88, 0.39, 1.08),
-    0.065,
-    0.05,
+  const rightArm = boxBetween(
+    new THREE.Vector3(0.38, 0.48, 0.64),
+    new THREE.Vector3(0.88, 0.39, 1.07),
+    0.13,
+    0.1,
     shell
   );
-  const leftClaw = mesh(
-    new THREE.DodecahedronGeometry(0.24, 0),
-    plate,
-    new THREE.Vector3(-1.05, 0.39, 1.22),
-    new THREE.Vector3(1, 0.6, 0.75)
-  );
-  leftClaw.rotation.y = -0.5;
-  const rightClaw = leftClaw.clone();
-  rightClaw.position.x = 1.05;
-  rightClaw.rotation.y = 0.5;
+  const leftClaw = createGuardClaw(-1);
+  const rightClaw = createGuardClaw(1);
   const frontPivot = createPivot(
     'sandScorpionFrontPivot',
     new THREE.Vector3(0, 0.46, 0.62),
@@ -5735,13 +6278,20 @@ export function createSandScorpionGuardModel() {
     new THREE.Vector3(0, 1.28, 0.25)
   ];
   for (let i = 0; i < tailPoints.length - 1; i += 1) {
+    const jointSize = 0.2 - i * 0.018;
     tail.add(
-      cylinderBetween(tailPoints[i], tailPoints[i + 1], 0.085 - i * 0.007, 0.065 - i * 0.007, shellDark),
+      boxBetween(
+        tailPoints[i],
+        tailPoints[i + 1],
+        0.17 - i * 0.014,
+        0.14 - i * 0.012,
+        shellDark
+      ),
       mesh(
-        new THREE.DodecahedronGeometry(0.13 - i * 0.01, 0),
+        new THREE.BoxGeometry(jointSize, jointSize * 0.7, jointSize * 1.12),
         i % 2 === 0 ? plate : shellDark,
         tailPoints[i + 1],
-        new THREE.Vector3(1, 0.8, 1)
+        new THREE.Vector3(1, 1, 1)
       )
     );
   }
@@ -5756,7 +6306,6 @@ export function createSandScorpionGuardModel() {
   const tailPivot = createPivot('sandScorpionTailPivot', new THREE.Vector3(0, 0.58, -0.85), [tail]);
 
   group.add(thorax, abdomen, armorPlates, legs, headPivot, frontPivot, tailPivot);
-  group.scale.setScalar(1.07);
   group.userData.parts = {
     headPivot,
     frontPivot,
@@ -5765,13 +6314,14 @@ export function createSandScorpionGuardModel() {
     sting
   };
   centerModelFootprint(group);
-  return enableShadows(group);
+  return enableShadows(wrapPersistentModelScale(group, 1.07));
 }
 
 export function createYellowSandOgreModel() {
   const group = new THREE.Group();
   const skin = mat('#c38e4e');
   const skinDark = mat('#8b633d');
+  const skinLight = mat('#d3a15d');
   const wrap = mat('#705238');
   const cloth = mat('#b66d35');
   const rock = mat('#6d6255');
@@ -5779,12 +6329,43 @@ export function createYellowSandOgreModel() {
   const tusk = mat('#f1d7a0');
   const eye = mat('#2a1c13');
 
-  const torso = mesh(
-    new THREE.DodecahedronGeometry(0.72, 0),
-    skin,
-    new THREE.Vector3(0, 1.26, 0),
-    new THREE.Vector3(1.02, 1.13, 0.76)
+  const torso = new THREE.Group();
+  const waistChunk = mesh(
+    new THREE.DodecahedronGeometry(0.43, 0),
+    skinDark,
+    new THREE.Vector3(-0.03, 0.95, 0),
+    new THREE.Vector3(1.2, 0.58, 0.82)
   );
+  waistChunk.rotation.z = -0.05;
+  const bellyChunk = mesh(
+    new THREE.DodecahedronGeometry(0.56, 0),
+    skin,
+    new THREE.Vector3(0.06, 1.24, 0.04),
+    new THREE.Vector3(1.08, 0.7, 0.82)
+  );
+  bellyChunk.rotation.z = 0.045;
+  const chestChunk = mesh(
+    new THREE.DodecahedronGeometry(0.5, 0),
+    skinLight,
+    new THREE.Vector3(-0.04, 1.58, 0),
+    new THREE.Vector3(1.34, 0.62, 0.76)
+  );
+  chestChunk.rotation.z = -0.035;
+  const sideChunkLeft = mesh(
+    new THREE.DodecahedronGeometry(0.28, 0),
+    skinDark,
+    new THREE.Vector3(-0.42, 1.27, -0.02),
+    new THREE.Vector3(0.9, 0.82, 0.78)
+  );
+  sideChunkLeft.rotation.z = 0.18;
+  const sideChunkRight = mesh(
+    new THREE.DodecahedronGeometry(0.25, 0),
+    skin,
+    new THREE.Vector3(0.43, 1.34, 0.01),
+    new THREE.Vector3(0.86, 0.78, 0.72)
+  );
+  sideChunkRight.rotation.z = -0.2;
+  torso.add(waistChunk, bellyChunk, chestChunk, sideChunkLeft, sideChunkRight);
   const bellyWrap = mesh(
     new THREE.CylinderGeometry(0.58, 0.63, 0.2, 7),
     wrap,
@@ -5800,21 +6381,21 @@ export function createYellowSandOgreModel() {
   const shoulderRight = shoulderLeft.clone();
   shoulderRight.position.x = 0.62;
   const head = mesh(
-    new THREE.DodecahedronGeometry(0.43, 0),
+    new THREE.DodecahedronGeometry(0.36, 0),
     skin,
     new THREE.Vector3(0, 2.08, 0.04),
-    new THREE.Vector3(1, 0.88, 0.9)
+    new THREE.Vector3(1, 0.92, 0.86)
   );
   const brow = mesh(
     new THREE.BoxGeometry(0.58, 0.1, 0.09),
     skinDark,
-    new THREE.Vector3(0, 2.18, 0.37),
+    new THREE.Vector3(0, 2.18, 0.325),
     new THREE.Vector3(1, 1, 1)
   );
   const eyeLeft = mesh(
     new THREE.BoxGeometry(0.06, 0.042, 0.022),
     eye,
-    new THREE.Vector3(-0.13, 2.08, 0.41),
+    new THREE.Vector3(-0.12, 2.08, 0.35),
     new THREE.Vector3(1, 1, 1)
   );
   const eyeRight = eyeLeft.clone();
@@ -5822,13 +6403,13 @@ export function createYellowSandOgreModel() {
   const nose = mesh(
     new THREE.DodecahedronGeometry(0.11, 0),
     skinDark,
-    new THREE.Vector3(0, 1.96, 0.45),
+    new THREE.Vector3(0, 1.96, 0.385),
     new THREE.Vector3(0.9, 0.75, 0.7)
   );
   const tuskLeft = mesh(
     new THREE.ConeGeometry(0.06, 0.28, 5),
     tusk,
-    new THREE.Vector3(-0.18, 1.87, 0.42),
+    new THREE.Vector3(-0.18, 1.87, 0.37),
     new THREE.Vector3(1, 1, 1)
   );
   tuskLeft.rotation.x = Math.PI / 2;
@@ -5932,8 +6513,7 @@ export function createYellowSandOgreModel() {
     hammerHead
   };
   centerModelFootprint(group);
-  group.scale.setScalar(1.3);
-  return enableShadows(group);
+  return enableShadows(wrapPersistentModelScale(group, 1.16));
 }
 
 export function createFrostTrollBossModel() {
@@ -5963,22 +6543,23 @@ export function createFrostTrollBossModel() {
   const gem = mat('#f4f8fc', { emissive: '#b8cadc', emissiveIntensity: 0.42 });
 
   const torso = mesh(
-    new THREE.DodecahedronGeometry(0.86, 0),
+    humanoidTorsoGeometry(1.06, 'player'),
     skin,
     new THREE.Vector3(0, 1.22, 0.04),
-    new THREE.Vector3(1.24, 1.02, 0.92)
+    new THREE.Vector3(0.94, 1.06, 0.8)
   );
   const chestRock = mesh(
-    new THREE.DodecahedronGeometry(0.42, 0),
+    new THREE.BoxGeometry(0.98, 0.58, 0.24),
     rockPlate,
-    new THREE.Vector3(0, 1.48, 0.3),
-    new THREE.Vector3(1.18, 0.86, 0.72)
+    new THREE.Vector3(0, 1.48, 0.62),
+    new THREE.Vector3(1, 1, 1)
   );
+  chestRock.rotation.x = -0.08;
   const belly = mesh(
-    new THREE.DodecahedronGeometry(0.64, 0),
+    new THREE.CylinderGeometry(0.55, 0.65, 0.7, 6, 1, false, Math.PI / 6),
     grime,
     new THREE.Vector3(0, 0.92, 0.16),
-    new THREE.Vector3(1.14, 0.88, 0.98)
+    new THREE.Vector3(1.06, 1, 0.82)
   );
   const bellyPatch = mesh(
     new THREE.BoxGeometry(0.54, 0.28, 0.1),
@@ -5986,11 +6567,12 @@ export function createFrostTrollBossModel() {
     new THREE.Vector3(0.02, 0.88, 0.4)
   );
   const backHump = mesh(
-    new THREE.DodecahedronGeometry(0.4, 0),
+    new THREE.BoxGeometry(0.78, 0.66, 0.46),
     skinDark,
     new THREE.Vector3(0, 1.42, -0.32),
-    new THREE.Vector3(1.18, 0.78, 0.76)
+    new THREE.Vector3(1, 1, 1)
   );
+  backHump.rotation.x = 0.18;
 
   const neck = mesh(
     new THREE.CylinderGeometry(0.26, 0.34, 0.32, 6),
@@ -5999,10 +6581,10 @@ export function createFrostTrollBossModel() {
     new THREE.Vector3(0.96, 1, 0.88)
   );
   const head = mesh(
-    new THREE.DodecahedronGeometry(0.52, 0),
+    new THREE.DodecahedronGeometry(0.48, 0),
     skin,
     new THREE.Vector3(0, 2.14, 0.12),
-    new THREE.Vector3(1.12, 0.84, 1.02)
+    new THREE.Vector3(0.96, 0.84, 0.82)
   );
   const brow = mesh(
     new THREE.BoxGeometry(0.68, 0.14, 0.12),
@@ -6016,37 +6598,37 @@ export function createFrostTrollBossModel() {
     new THREE.Vector3(1, 0.78, 0.92)
   );
   const jaw = mesh(
-    new THREE.DodecahedronGeometry(0.36, 0),
+    new THREE.DodecahedronGeometry(0.35, 0),
     skinDark,
     new THREE.Vector3(0, 1.84, 0.32),
-    new THREE.Vector3(1.16, 0.58, 0.84)
+    new THREE.Vector3(1.05, 0.5, 0.75)
   );
   const eyeLeft = mesh(
-    new THREE.SphereGeometry(0.07, 6, 5),
+    new THREE.BoxGeometry(0.12, 0.1, 0.055),
     eye,
     new THREE.Vector3(-0.16, 2.18, 0.46)
   );
   const eyeRight = eyeLeft.clone();
   eyeRight.position.x = 0.16;
   const eyeCoreLeft = mesh(
-    new THREE.SphereGeometry(0.032, 5, 4),
+    new THREE.BoxGeometry(0.045, 0.04, 0.025),
     eyeCore,
     new THREE.Vector3(-0.16, 2.18, 0.5)
   );
   const eyeCoreRight = eyeCoreLeft.clone();
   eyeCoreRight.position.x = 0.16;
   const earLeft = mesh(
-    new THREE.ConeGeometry(0.14, 0.52, 4),
+    new THREE.ConeGeometry(0.12, 0.36, 4),
     skinDark,
-    new THREE.Vector3(-0.38, 2.36, -0.02),
+    new THREE.Vector3(-0.39, 2.32, -0.02),
     new THREE.Vector3(0.88, 1, 0.76)
   );
   earLeft.rotation.z = -0.48;
   earLeft.rotation.x = -0.22;
   const earInnerLeft = mesh(
-    new THREE.ConeGeometry(0.08, 0.34, 4),
+    new THREE.ConeGeometry(0.065, 0.23, 4),
     mat('#9a9084'),
-    new THREE.Vector3(-0.37, 2.36, 0.02),
+    new THREE.Vector3(-0.385, 2.32, 0.02),
     new THREE.Vector3(0.76, 0.88, 0.76)
   );
   earInnerLeft.rotation.copy(earLeft.rotation);
@@ -6073,13 +6655,13 @@ export function createFrostTrollBossModel() {
   necklace.rotation.x = Math.PI / 2;
   necklace.rotation.z = 0.1;
   const skullCharm = mesh(
-    new THREE.SphereGeometry(0.17, 7, 6),
+    new THREE.DodecahedronGeometry(0.17, 0),
     skull,
     new THREE.Vector3(0, 1.5, 0.42),
-    new THREE.Vector3(1.08, 0.96, 0.92)
+    new THREE.Vector3(0.92, 1, 0.78)
   );
   const skullEyeLeft = mesh(
-    new THREE.SphereGeometry(0.028, 5, 4),
+    new THREE.BoxGeometry(0.045, 0.04, 0.025),
     skullDark,
     new THREE.Vector3(-0.05, 1.54, 0.54)
   );
@@ -6112,10 +6694,12 @@ export function createFrostTrollBossModel() {
     new THREE.DodecahedronGeometry(0.42, 0),
     skinDark,
     new THREE.Vector3(0.88, 1.58, -0.06),
-    new THREE.Vector3(1.22, 0.84, 0.88)
+    new THREE.Vector3(1.3, 0.72, 0.9)
   );
+  shoulderLeft.rotation.z = -0.2;
   const shoulderRight = shoulderLeft.clone();
   shoulderRight.position.x = -0.88;
+  shoulderRight.rotation.z = 0.2;
 
   const legLeft = mesh(
     new THREE.BoxGeometry(0.38, 0.92, 0.38),
@@ -6125,10 +6709,10 @@ export function createFrostTrollBossModel() {
   const legRight = legLeft.clone();
   legRight.position.x = -0.34;
   const footLeft = mesh(
-    new THREE.DodecahedronGeometry(0.3, 0),
+    new THREE.DodecahedronGeometry(0.32, 0),
     skin,
     new THREE.Vector3(0.34, 0.06, 0.18),
-    new THREE.Vector3(1.28, 0.5, 1.48)
+    new THREE.Vector3(1.1, 0.52, 1.25)
   );
   const footRight = footLeft.clone();
   footRight.position.x = -0.34;
@@ -6143,12 +6727,12 @@ export function createFrostTrollBossModel() {
 
   const leftShoulderPos = new THREE.Vector3(0.84, 1.56, -0.02);
   const leftHandPos = new THREE.Vector3(1.22, 0.84, 0.5);
-  const leftArm = limb(leftShoulderPos, leftHandPos, 0.17, skin);
+  const leftArm = limb(leftShoulderPos, leftHandPos, humanoidArmRadius(0.2, 'player'), skin);
   const leftHand = mesh(
     new THREE.DodecahedronGeometry(0.28, 0),
     skinLight,
     leftHandPos,
-    new THREE.Vector3(1.12, 0.68, 1.12)
+    new THREE.Vector3(1.05, 0.82, 0.94)
   );
   const leftRock = mesh(
     new THREE.DodecahedronGeometry(0.22, 0),
@@ -6158,12 +6742,12 @@ export function createFrostTrollBossModel() {
   );
   const rightShoulderPos = new THREE.Vector3(-0.84, 1.56, -0.02);
   const rightHandPos = new THREE.Vector3(-1.16, 1.06, 0.52);
-  const rightArm = limb(rightShoulderPos, rightHandPos, 0.17, skin);
+  const rightArm = limb(rightShoulderPos, rightHandPos, humanoidArmRadius(0.2, 'player'), skin);
   const rightHand = mesh(
-    new THREE.DodecahedronGeometry(0.26, 0),
+    new THREE.DodecahedronGeometry(0.27, 0),
     skinLight,
     rightHandPos,
-    new THREE.Vector3(1.06, 0.7, 1.06)
+    new THREE.Vector3(1.05, 0.82, 0.94)
   );
 
   const hammerGrip = new THREE.Vector3(-1.14, 1.1, 0.48);
@@ -6175,11 +6759,12 @@ export function createFrostTrollBossModel() {
     wood
   );
   const hammerHead = mesh(
-    new THREE.DodecahedronGeometry(0.58, 0),
+    new THREE.DodecahedronGeometry(0.52, 0),
     rock,
     new THREE.Vector3(-1.14, 2.36, 0.62),
-    new THREE.Vector3(1.72, 1.02, 1.08)
+    new THREE.Vector3(1.7, 0.82, 0.78)
   );
+  hammerHead.rotation.z = -0.08;
   const hammerPoreA = mesh(
     new THREE.DodecahedronGeometry(0.22, 0),
     rockLight,
@@ -6254,7 +6839,6 @@ export function createFrostTrollBossModel() {
     clawLeft,
     clawRight
   );
-  bodyRoot.scale.setScalar(2.5);
   group.add(bodyRoot);
   group.userData.parts = {
     weaponPivot,
@@ -7286,90 +7870,120 @@ export function createWolfModel() {
   const body = mesh(
     new THREE.DodecahedronGeometry(0.5, 0),
     fur,
-    new THREE.Vector3(0, 0.63, 0),
-    new THREE.Vector3(0.82, 0.72, 1.34)
+    new THREE.Vector3(0, 0.64, -0.04),
+    new THREE.Vector3(0.72, 0.62, 1.55)
   );
   const chest = mesh(
-    new THREE.DodecahedronGeometry(0.32, 0),
+    new THREE.DodecahedronGeometry(0.3, 0),
     mat('#6f7b80'),
-    new THREE.Vector3(0, 0.68, 0.36),
-    new THREE.Vector3(1.02, 0.9, 0.78)
+    new THREE.Vector3(0, 0.7, 0.4),
+    new THREE.Vector3(1, 0.96, 0.86)
+  );
+  const neck = mesh(
+    new THREE.DodecahedronGeometry(0.27, 0),
+    darkFur,
+    new THREE.Vector3(0, 0.82, 0.59),
+    new THREE.Vector3(0.86, 0.92, 1.18)
   );
   const head = mesh(
-    new THREE.DodecahedronGeometry(0.32, 0),
+    new THREE.DodecahedronGeometry(0.25, 0),
     fur,
-    new THREE.Vector3(0, 0.94, 0.72),
-    new THREE.Vector3(1, 0.82, 1.08)
+    new THREE.Vector3(0, 0.94, 0.82),
+    new THREE.Vector3(0.96, 0.78, 1.15)
   );
   const snout = mesh(
-    new THREE.BoxGeometry(0.32, 0.18, 0.32),
+    new THREE.DodecahedronGeometry(0.18, 0),
     darkFur,
-    new THREE.Vector3(0, 0.87, 1),
-    new THREE.Vector3(1, 1, 1)
+    new THREE.Vector3(0, 0.88, 1.1),
+    new THREE.Vector3(0.84, 0.48, 1.24)
   );
   const nose = mesh(
     new THREE.DodecahedronGeometry(0.07, 0),
     eyeMat,
-    new THREE.Vector3(0, 0.9, 1.18),
+    new THREE.Vector3(0, 0.9, 1.31),
     new THREE.Vector3(1, 0.72, 0.72)
   );
   const eyeLeft = mesh(
     new THREE.BoxGeometry(0.035, 0.035, 0.018),
     eyeMat,
-    new THREE.Vector3(-0.11, 0.99, 1.02),
+    new THREE.Vector3(-0.08, 0.99, 1.06),
     new THREE.Vector3(1, 1, 1)
   );
   const eyeRight = eyeLeft.clone();
-  eyeRight.position.x = 0.11;
+  eyeRight.position.x = 0.08;
   const earLeft = mesh(
-    new THREE.ConeGeometry(0.1, 0.24, 4),
+    new THREE.ConeGeometry(0.075, 0.2, 4),
     darkFur,
-    new THREE.Vector3(-0.18, 1.2, 0.68),
+    new THREE.Vector3(-0.14, 1.15, 0.76),
     new THREE.Vector3(1, 1, 1)
   );
   earLeft.rotation.z = -0.24;
   const earRight = earLeft.clone();
-  earRight.position.x = 0.18;
+  earRight.position.x = 0.14;
   earRight.rotation.z = 0.24;
   const headPivot = createPivot(
     'wolfHeadPivot',
-    new THREE.Vector3(0, 0.86, 0.52),
-    [head, snout, nose, eyeLeft, eyeRight, earLeft, earRight]
+    new THREE.Vector3(0, 0.84, 0.54),
+    [neck, head, snout, nose, eyeLeft, eyeRight, earLeft, earRight]
   );
 
   const legMat = mat('#3f484d');
-  const frontLeft = mesh(
-    new THREE.BoxGeometry(0.13, 0.58, 0.13),
-    legMat,
-    new THREE.Vector3(-0.28, 0.3, 0.35),
-    new THREE.Vector3(1, 1, 1)
-  );
-  const frontRight = frontLeft.clone();
-  frontRight.position.x = 0.28;
+  const createWolfLeg = (side, z, shoulderY, pawZ) => {
+    const leg = new THREE.Group();
+    const hip = new THREE.Vector3(side * 0.28, shoulderY, z);
+    const knee = new THREE.Vector3(side * 0.3, 0.34, z + 0.025);
+    const ankle = new THREE.Vector3(side * 0.3, 0.11, pawZ);
+    leg.add(
+      cylinderBetween(hip, knee, 0.085, 0.062, legMat),
+      cylinderBetween(knee, ankle, 0.064, 0.045, legMat),
+      mesh(
+        new THREE.DodecahedronGeometry(0.065, 0),
+        legMat,
+        knee,
+        new THREE.Vector3(0.95, 0.72, 0.95)
+      ),
+      mesh(
+        new THREE.BoxGeometry(0.13, 0.075, 0.23),
+        darkFur,
+        new THREE.Vector3(side * 0.3, 0.055, pawZ + 0.055),
+        new THREE.Vector3(1, 1, 1)
+      )
+    );
+    return leg;
+  };
+  const frontLeft = createWolfLeg(-1, 0.35, 0.68, 0.42);
+  const frontRight = createWolfLeg(1, 0.35, 0.68, 0.42);
   const frontPivot = createPivot(
     'wolfFrontPivot',
     new THREE.Vector3(0, 0.62, 0.34),
     [frontLeft, frontRight]
   );
-  const hindLeft = mesh(
-    new THREE.BoxGeometry(0.14, 0.54, 0.14),
-    legMat,
-    new THREE.Vector3(-0.28, 0.29, -0.48),
-    new THREE.Vector3(1, 1, 1)
-  );
-  const hindRight = hindLeft.clone();
-  hindRight.position.x = 0.28;
-  const tail = cylinderBetween(
-    new THREE.Vector3(0, 0.75, -0.62),
-    new THREE.Vector3(0, 1.02, -1.08),
+  const hindLeft = createWolfLeg(-1, -0.48, 0.65, -0.44);
+  const hindRight = createWolfLeg(1, -0.48, 0.65, -0.44);
+  const tailBase = cylinderBetween(
+    new THREE.Vector3(0, 0.73, -0.66),
+    new THREE.Vector3(0.04, 0.79, -0.98),
     0.08,
-    0.045,
+    0.058,
     darkFur
+  );
+  const tailTip = cylinderBetween(
+    new THREE.Vector3(0.04, 0.79, -0.98),
+    new THREE.Vector3(0.08, 0.67, -1.3),
+    0.06,
+    0.028,
+    darkFur
+  );
+  const tailTuft = mesh(
+    new THREE.DodecahedronGeometry(0.075, 0),
+    darkFur,
+    new THREE.Vector3(0.08, 0.67, -1.3),
+    new THREE.Vector3(0.8, 0.7, 1.15)
   );
   const tailPivot = createPivot(
     'wolfTailPivot',
-    new THREE.Vector3(0, 0.75, -0.62),
-    [tail]
+    new THREE.Vector3(0, 0.73, -0.66),
+    [tailBase, tailTip, tailTuft]
   );
 
   group.add(body, chest, headPivot, frontPivot, hindLeft, hindRight, tailPivot);
@@ -7387,52 +8001,66 @@ export function createBearModel() {
   const darkFur = mat('#3b2b22');
   const eyeMat = mat('#1b1612');
 
-  const body = mesh(
-    new THREE.DodecahedronGeometry(0.62, 0),
+  const body = new THREE.Group();
+  const barrel = mesh(
+    new THREE.DodecahedronGeometry(0.55, 0),
     fur,
-    new THREE.Vector3(0, 0.74, 0),
-    new THREE.Vector3(1.2, 0.9, 1.55)
+    new THREE.Vector3(0, 0.73, -0.08),
+    new THREE.Vector3(1.14, 0.82, 1.34)
   );
+  const shoulderMass = mesh(
+    new THREE.DodecahedronGeometry(0.5, 0),
+    mat('#765039'),
+    new THREE.Vector3(0, 0.84, 0.34),
+    new THREE.Vector3(1.3, 0.86, 0.92)
+  );
+  const haunchMass = mesh(
+    new THREE.DodecahedronGeometry(0.47, 0),
+    darkFur,
+    new THREE.Vector3(0, 0.72, -0.58),
+    new THREE.Vector3(1.22, 0.76, 1.02)
+  );
+  body.add(barrel, shoulderMass, haunchMass);
   const hump = mesh(
-    new THREE.DodecahedronGeometry(0.42, 0),
+    new THREE.DodecahedronGeometry(0.36, 0),
     mat('#7a563d'),
-    new THREE.Vector3(0, 1.02, -0.18),
-    new THREE.Vector3(1.18, 0.72, 1.1)
+    new THREE.Vector3(0, 1.08, 0.18),
+    new THREE.Vector3(1.28, 0.5, 0.88)
   );
   const head = mesh(
-    new THREE.DodecahedronGeometry(0.42, 0),
+    new THREE.DodecahedronGeometry(0.34, 0),
     fur,
-    new THREE.Vector3(0, 1.02, 0.75),
-    new THREE.Vector3(1.1, 0.88, 1)
+    new THREE.Vector3(0, 1.01, 0.78),
+    new THREE.Vector3(1.08, 0.84, 1.02)
   );
   const muzzle = mesh(
-    new THREE.BoxGeometry(0.46, 0.24, 0.34),
+    new THREE.DodecahedronGeometry(0.24, 0),
     darkFur,
     new THREE.Vector3(0, 0.93, 1.08),
-    new THREE.Vector3(1, 1, 1)
+    new THREE.Vector3(1.05, 0.5, 1.02)
   );
   const nose = mesh(
     new THREE.DodecahedronGeometry(0.09, 0),
     eyeMat,
-    new THREE.Vector3(0, 0.98, 1.3),
+    new THREE.Vector3(0, 0.97, 1.3),
     new THREE.Vector3(1, 0.74, 0.74)
   );
   const eyeLeft = mesh(
     new THREE.BoxGeometry(0.04, 0.04, 0.02),
     eyeMat,
-    new THREE.Vector3(-0.14, 1.1, 1.02),
+    new THREE.Vector3(-0.11, 1.08, 1.03),
     new THREE.Vector3(1, 1, 1)
   );
   const eyeRight = eyeLeft.clone();
-  eyeRight.position.x = 0.14;
+  eyeRight.position.x = 0.11;
   const earLeft = mesh(
-    new THREE.DodecahedronGeometry(0.12, 0),
+    new THREE.DodecahedronGeometry(0.09, 0),
     darkFur,
-    new THREE.Vector3(-0.27, 1.32, 0.68),
+    new THREE.Vector3(-0.23, 1.27, 0.7),
     new THREE.Vector3(1, 0.85, 1)
   );
   const earRight = earLeft.clone();
-  earRight.position.x = 0.27;
+  earRight.position.x = 0.23;
   const headPivot = createPivot(
     'bearHeadPivot',
     new THREE.Vector3(0, 0.96, 0.58),
@@ -7440,27 +8068,32 @@ export function createBearModel() {
   );
 
   const legMat = mat('#4a3428');
-  const frontLeft = mesh(
-    new THREE.BoxGeometry(0.22, 0.7, 0.22),
-    legMat,
-    new THREE.Vector3(-0.4, 0.36, 0.38),
-    new THREE.Vector3(1, 1, 1)
-  );
-  const frontRight = frontLeft.clone();
-  frontRight.position.x = 0.4;
+  const createBearLeg = (side, z, shoulderY) => {
+    const leg = new THREE.Group();
+    const hip = new THREE.Vector3(side * 0.4, shoulderY, z);
+    const knee = new THREE.Vector3(side * 0.42, 0.36, z + 0.02);
+    const ankle = new THREE.Vector3(side * 0.42, 0.12, z + 0.08);
+    leg.add(
+      cylinderBetween(hip, knee, 0.14, 0.115, legMat),
+      cylinderBetween(knee, ankle, 0.118, 0.085, legMat),
+      mesh(
+        new THREE.BoxGeometry(0.2, 0.11, 0.32),
+        darkFur,
+        new THREE.Vector3(side * 0.42, 0.07, z + 0.15),
+        new THREE.Vector3(1, 1, 1)
+      )
+    );
+    return leg;
+  };
+  const frontLeft = createBearLeg(-1, 0.38, 0.82);
+  const frontRight = createBearLeg(1, 0.38, 0.82);
   const frontPivot = createPivot(
     'bearFrontPivot',
     new THREE.Vector3(0, 0.78, 0.38),
     [frontLeft, frontRight]
   );
-  const hindLeft = mesh(
-    new THREE.BoxGeometry(0.24, 0.66, 0.24),
-    legMat,
-    new THREE.Vector3(-0.42, 0.34, -0.52),
-    new THREE.Vector3(1, 1, 1)
-  );
-  const hindRight = hindLeft.clone();
-  hindRight.position.x = 0.42;
+  const hindLeft = createBearLeg(-1, -0.52, 0.78);
+  const hindRight = createBearLeg(1, -0.52, 0.78);
   const tail = mesh(
     new THREE.DodecahedronGeometry(0.12, 0),
     darkFur,
@@ -7484,89 +8117,166 @@ export function createScorpionModel() {
   const legMat = mat('#4c2a24');
   const eyeMat = mat('#15100d');
 
-  const body = mesh(
-    new THREE.DodecahedronGeometry(0.48, 0),
-    shellMat,
-    new THREE.Vector3(0, 0.42, -0.05),
-    new THREE.Vector3(1.1, 0.54, 1.45)
+  const body = new THREE.Group();
+  body.name = 'scorpionCarapace';
+  const frontPlate = scorpionCarapace(
+    clawMat,
+    new THREE.Vector3(0, 0.44, 0.31),
+    0.82,
+    0.26,
+    0.42,
+    0.78,
+    1
   );
-  const abdomen = mesh(
-    new THREE.DodecahedronGeometry(0.38, 0),
+  const centerPlate = scorpionCarapace(
+    shellMat,
+    new THREE.Vector3(0, 0.46, -0.04),
+    0.92,
+    0.3,
+    0.44,
+    0.86,
+    1
+  );
+  const rearPlate = scorpionCarapace(
     darkShell,
-    new THREE.Vector3(0, 0.45, -0.56),
-    new THREE.Vector3(1.06, 0.5, 0.92)
+    new THREE.Vector3(0, 0.45, -0.41),
+    0.84,
+    0.27,
+    0.4,
+    0.78,
+    1
   );
-  const head = mesh(
-    new THREE.DodecahedronGeometry(0.3, 0),
+  body.add(frontPlate, centerPlate, rearPlate);
+  const abdomen = scorpionCarapace(
+    darkShell,
+    new THREE.Vector3(0, 0.44, -0.69),
+    0.68,
+    0.25,
+    0.32,
+    0.68,
+    1
+  );
+  const head = scorpionCarapace(
     shellMat,
-    new THREE.Vector3(0, 0.48, 0.66),
-    new THREE.Vector3(0.98, 0.62, 0.82)
+    new THREE.Vector3(0, 0.46, 0.68),
+    0.55,
+    0.22,
+    0.34,
+    0.7,
+    1
   );
+  const facePlate = mesh(
+    new THREE.BoxGeometry(0.48, 0.08, 0.24),
+    darkShell,
+    new THREE.Vector3(0, 0.55, 0.75),
+    new THREE.Vector3(1, 1, 1)
+  );
+  facePlate.rotation.x = -0.08;
   const eyeLeft = mesh(
-    new THREE.BoxGeometry(0.04, 0.035, 0.02),
+    new THREE.BoxGeometry(0.028, 0.024, 0.016),
     eyeMat,
-    new THREE.Vector3(-0.09, 0.58, 0.86),
+    new THREE.Vector3(-0.075, 0.52, 0.88),
     new THREE.Vector3(1, 1, 1)
   );
   const eyeRight = eyeLeft.clone();
-  eyeRight.position.x = 0.09;
+  eyeRight.position.x = 0.075;
   const headPivot = createPivot(
     'scorpionHeadPivot',
     new THREE.Vector3(0, 0.44, 0.52),
-    [head, eyeLeft, eyeRight]
+    [head, facePlate, eyeLeft, eyeRight]
   );
 
   const legs = new THREE.Group();
+  legs.name = 'scorpionLegs';
   for (let i = 0; i < 4; i += 1) {
     const z = 0.46 - i * 0.32;
     const outward = 0.46 + i * 0.04;
     const bend = 0.12 + i * 0.02;
-    legs.add(
-      cylinderBetween(
-        new THREE.Vector3(-0.36, 0.35, z),
-        new THREE.Vector3(-outward, 0.17, z + bend),
-        0.035,
-        0.026,
-        legMat
-      ),
-      cylinderBetween(
-        new THREE.Vector3(0.36, 0.35, z),
-        new THREE.Vector3(outward, 0.17, z + bend),
-        0.035,
-        0.026,
-        legMat
-      )
-    );
+    for (const side of [-1, 1]) {
+      const hip = new THREE.Vector3(side * 0.36, 0.35, z);
+      const knee = new THREE.Vector3(side * outward, 0.22, z + bend);
+      const foot = new THREE.Vector3(side * (outward + 0.3), 0.08, z + bend * 1.55);
+      const kneePlate = mesh(
+        new THREE.BoxGeometry(0.105, 0.075, 0.095),
+        shellMat,
+        knee,
+        new THREE.Vector3(1, 1, 1)
+      );
+      kneePlate.rotation.y = side * (0.14 + i * 0.03);
+      kneePlate.rotation.z = side * 0.08;
+      legs.add(
+        boxBetween(hip, knee, 0.078, 0.064, legMat),
+        boxBetween(knee, foot, 0.056, 0.044, legMat),
+        kneePlate
+      );
+    }
   }
 
-  const leftClawArm = cylinderBetween(
-    new THREE.Vector3(-0.32, 0.44, 0.62),
-    new THREE.Vector3(-0.74, 0.34, 0.98),
-    0.05,
-    0.04,
+  const leftElbow = new THREE.Vector3(-0.58, 0.42, 0.83);
+  const rightElbow = new THREE.Vector3(0.58, 0.42, 0.83);
+  const leftClawUpper = boxBetween(
+    new THREE.Vector3(-0.32, 0.44, 0.58),
+    leftElbow,
+    0.13,
+    0.1,
     clawMat
   );
-  const rightClawArm = cylinderBetween(
-    new THREE.Vector3(0.32, 0.44, 0.62),
-    new THREE.Vector3(0.74, 0.34, 0.98),
-    0.05,
-    0.04,
+  const rightClawUpper = boxBetween(
+    new THREE.Vector3(0.32, 0.44, 0.58),
+    rightElbow,
+    0.13,
+    0.1,
     clawMat
   );
-  const leftClaw = mesh(
-    new THREE.DodecahedronGeometry(0.18, 0),
-    clawMat,
-    new THREE.Vector3(-0.88, 0.34, 1.12),
-    new THREE.Vector3(1, 0.62, 0.72)
+  const leftClawArm = boxBetween(
+    leftElbow,
+    new THREE.Vector3(-0.86, 0.35, 1.08),
+    0.105,
+    0.082,
+    clawMat
   );
-  leftClaw.rotation.y = -0.42;
-  const rightClaw = leftClaw.clone();
-  rightClaw.position.x = 0.88;
-  rightClaw.rotation.y = 0.42;
+  const rightClawArm = boxBetween(
+    rightElbow,
+    new THREE.Vector3(0.86, 0.35, 1.08),
+    0.105,
+    0.082,
+    clawMat
+  );
+  const createClaw = (side) => {
+    const claw = new THREE.Group();
+    const palm = scorpionCarapace(
+      clawMat,
+      new THREE.Vector3(side * 0.9, 0.35, 1.12),
+      0.31,
+      0.16,
+      0.28,
+      0.72,
+      1
+    );
+    palm.rotation.y = side * 0.26;
+    const upperPincer = boxBetween(
+      new THREE.Vector3(side * 0.92, 0.39, 1.18),
+      new THREE.Vector3(side * 1.05, 0.43, 1.39),
+      0.1,
+      0.075,
+      clawMat
+    );
+    const lowerPincer = boxBetween(
+      new THREE.Vector3(side * 0.92, 0.31, 1.18),
+      new THREE.Vector3(side * 1.06, 0.24, 1.34),
+      0.09,
+      0.068,
+      darkShell
+    );
+    claw.add(palm, upperPincer, lowerPincer);
+    return claw;
+  };
+  const leftClaw = createClaw(-1);
+  const rightClaw = createClaw(1);
   const frontPivot = createPivot(
     'scorpionFrontPivot',
     new THREE.Vector3(0, 0.43, 0.58),
-    [leftClawArm, rightClawArm, leftClaw, rightClaw]
+    [leftClawUpper, rightClawUpper, leftClawArm, rightClawArm, leftClaw, rightClaw]
   );
 
   const tail = new THREE.Group();
@@ -7578,16 +8288,23 @@ export function createScorpionModel() {
     new THREE.Vector3(0, 0.86, 0.2)
   ];
   for (let i = 0; i < tailPoints.length - 1; i += 1) {
-    tail.add(cylinderBetween(tailPoints[i], tailPoints[i + 1], 0.055, 0.043, darkShell));
+    tail.add(boxBetween(
+      tailPoints[i],
+      tailPoints[i + 1],
+      0.14 - i * 0.013,
+      0.11 - i * 0.01,
+      darkShell
+    ));
+    const jointSize = 0.16 - i * 0.015;
     tail.add(mesh(
-      new THREE.DodecahedronGeometry(0.1, 0),
+      new THREE.BoxGeometry(jointSize, jointSize * 0.7, jointSize * 1.12),
       darkShell,
       tailPoints[i + 1],
-      new THREE.Vector3(1, 0.8, 1)
+      new THREE.Vector3(1, 1, 1)
     ));
   }
   const sting = mesh(
-    new THREE.ConeGeometry(0.065, 0.22, 5),
+    new THREE.ConeGeometry(0.085, 0.28, 5),
     mat('#232018'),
     new THREE.Vector3(0, 0.78, 0.32),
     new THREE.Vector3(1, 1, 1)
@@ -7601,13 +8318,12 @@ export function createScorpionModel() {
   );
 
   group.add(body, abdomen, legs, headPivot, frontPivot, tailPivot);
-  group.scale.setScalar(0.92);
   group.userData.parts = {
     headPivot,
     frontPivot,
     tailPivot
   };
-  return enableShadows(group);
+  return enableShadows(wrapPersistentModelScale(group, 0.92));
 }
 
 export function createSpiderModel() {
@@ -7631,10 +8347,10 @@ export function createSpiderModel() {
     new THREE.Vector3(1.02, 0.56, 0.92)
   );
   const head = mesh(
-    new THREE.DodecahedronGeometry(0.24, 0),
+    new THREE.DodecahedronGeometry(0.21, 0),
     shellMat,
     new THREE.Vector3(0, 0.47, 0.66),
-    new THREE.Vector3(1, 0.64, 0.8)
+    new THREE.Vector3(0.9, 0.66, 1.02)
   );
   const eyeLeft = mesh(
     new THREE.BoxGeometry(0.045, 0.035, 0.018),
@@ -7669,8 +8385,14 @@ export function createSpiderModel() {
       const knee = new THREE.Vector3(side * (0.5 + i * 0.035), 0.22 + lift, z + sweep);
       const foot = new THREE.Vector3(side * (0.82 + i * 0.045), 0.12, z + sweep * 1.6);
       legs.add(
-        cylinderBetween(hip, knee, 0.032, 0.027, legMat),
-        cylinderBetween(knee, foot, 0.027, 0.02, legMat)
+        cylinderBetween(hip, knee, 0.045, 0.034, legMat),
+        cylinderBetween(knee, foot, 0.035, 0.021, legMat),
+        mesh(
+          new THREE.DodecahedronGeometry(0.05, 0),
+          shellMat,
+          knee,
+          new THREE.Vector3(1, 0.68, 1)
+        )
       );
     }
   }
@@ -7678,15 +8400,15 @@ export function createSpiderModel() {
   const frontLeft = cylinderBetween(
     new THREE.Vector3(-0.18, 0.43, 0.58),
     new THREE.Vector3(-0.42, 0.28, 0.88),
-    0.036,
-    0.025,
+    0.05,
+    0.034,
     legMat
   );
   const frontRight = cylinderBetween(
     new THREE.Vector3(0.18, 0.43, 0.58),
     new THREE.Vector3(0.42, 0.28, 0.88),
-    0.036,
-    0.025,
+    0.05,
+    0.034,
     legMat
   );
   const frontPivot = createPivot(
@@ -7702,8 +8424,15 @@ export function createSpiderModel() {
     new THREE.Vector3(1, 1, 1)
   );
   marking.rotation.x = -0.14;
+  const shellPlate = mesh(
+    new THREE.BoxGeometry(0.48, 0.1, 0.38),
+    shellMat,
+    new THREE.Vector3(0, 0.59, -0.2),
+    new THREE.Vector3(1, 1, 1)
+  );
+  shellPlate.rotation.x = -0.12;
 
-  group.add(abdomen, thorax, marking, legs, headPivot, frontPivot);
+  group.add(abdomen, thorax, shellPlate, marking, legs, headPivot, frontPivot);
   group.userData.parts = {
     headPivot,
     frontPivot
@@ -7755,8 +8484,7 @@ export function createSpiderEggModel() {
   );
 
   group.add(egg, cap, spotA, spotB, crackA, crackB);
-  group.scale.setScalar(0.92);
-  return enableShadows(group);
+  return enableShadows(wrapPersistentModelScale(group, 0.92));
 }
 
 export function createReticle() {

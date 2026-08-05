@@ -464,7 +464,8 @@ const WORLD_PRESETS = {
     },
     ground: {
       width: 344,
-      depth: 264
+      depth: 264,
+      flatShading: true
     },
     navigationBounds: {
       minX: -50,
@@ -1800,7 +1801,7 @@ function createGroundMaterial() {
     vertexColors: true,
     roughness: storybookSnow ? 0.95 : 0.9,
     metalness: 0.0,
-    flatShading: false
+    flatShading: worldConfig().ground?.flatShading === true
   }), { storybookSnow });
 }
 
