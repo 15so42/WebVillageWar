@@ -1254,46 +1254,50 @@ const WORLD_PRESETS = {
     },
     sky: {
       toneMapping: 'aces',
-      exposure: 0.94,
-      background: '#8e9f90',
+      exposure: 0.97,
+      background: '#93a893',
       skyGradient: {
-        top: '#687f79',
-        middle: '#8e9f90',
-        horizon: '#abb39b'
+        top: '#5c7a74',
+        middle: '#93a893',
+        horizon: '#c8cba9'
       },
-      fog: '#84998c',
-      fogNear: 42,
-      fogFar: 168,
-      sun: '#e1e3c4',
-      sunIntensity: 2.9,
-      sunPosition: { x: -58, y: 66, z: 42 },
-      shadowIntensity: 0.78,
-      hemiSky: '#c2d0c5',
-      hemiGround: '#3d5142',
-      hemiIntensity: 0.98,
-      ambientColor: '#94a99b',
-      ambientIntensity: 0.54,
+      fog: '#9cb2a0',
+      fogNear: 38,
+      fogFar: 152,
+      sun: '#ffd9a6',
+      sunIntensity: 3.5,
+      sunPosition: { x: -62, y: 54, z: 40 },
+      shadowIntensity: 0.82,
+      hemiSky: '#b8d0c6',
+      hemiGround: '#2f4638',
+      hemiIntensity: 0.92,
+      ambientColor: '#7d98a0',
+      ambientIntensity: 0.5,
       realtimeShadows: false,
       bakedShadows: true,
       shadowMapSize: 2048
     },
     materials: {
-      snow: '#5b6b48',
-      rock: '#566158',
-      tree: '#3b6045'
+      snow: '#5f7050',
+      rock: '#5a655b',
+      tree: '#3f6849'
     },
     palette: {
-      base: '#5b6b48',
-      side: '#4d5b42',
-      north: '#637152',
-      valley: '#536348',
-      forest: '#40523e',
-      high: '#718064',
-      snow: '#5b6b48',
-      path: '#71684d',
-      mud: '#554f3c',
-      bank: '#465044',
-      puddle: '#386960'
+      base: '#5f7050',
+      side: '#4c5a45',
+      north: '#5a6c4f',
+      valley: '#57694d',
+      forest: '#3f5340',
+      high: '#7a8a6b',
+      snow: '#5f7050',
+      path: '#7d7154',
+      pathCenter: '#8d8163',
+      moss: '#6d7f52',
+      mud: '#57503c',
+      bank: '#46523f',
+      puddle: '#31615a',
+      waterShallow: '#71906f',
+      waterDeep: '#2c5450'
     },
     ground: {
       width: 180,
@@ -1308,114 +1312,144 @@ const WORLD_PRESETS = {
     },
     playerBasePosition: { x: 0, z: 31 },
     enemyCampPosition: { x: -1, z: -32 },
-    pathWidth: 3.15,
+    pathWidth: 3.3,
     pathOrganic: {
-      widthJitter: 0.2,
-      edgeJitter: 0.24
+      widthJitter: 0.22,
+      edgeJitter: 0.26
     },
     pathPoints: [
       { x: 0, z: 31 },
-      { x: -6, z: 25 },
-      { x: -12, z: 18 },
-      { x: -10, z: 11 },
-      { x: -2, z: 6 },
-      { x: 9, z: 1 },
-      { x: 12, z: -7 },
-      { x: 7, z: -14 },
-      { x: -2, z: -19 },
-      { x: -7, z: -25 },
+      { x: -4.5, z: 26 },
+      { x: -10.5, z: 20 },
+      { x: -11, z: 12.5 },
+      { x: -4, z: 6.5 },
+      { x: 3.5, z: 2.5 },
+      { x: 10, z: -3.5 },
+      { x: 9.5, z: -10.5 },
+      { x: 3.5, z: -16 },
+      { x: -3.5, z: -21.5 },
+      { x: -2.5, z: -27 },
       { x: -1, z: -32 }
     ],
     altars: [
-      { id: 'energy-altar-marsh-west', type: 'energy', position: { x: -18, z: 14 }, rotation: -0.42, clearingRadius: 6.3 },
-      { id: 'shield-altar-marsh-east', type: 'shield', position: { x: 16, z: -3 }, rotation: 0.38, clearingRadius: 6.3 },
-      { id: 'respite-altar-marsh-south', type: 'respite', position: { x: -10, z: -21 }, rotation: 0.12, clearingRadius: 6.1 }
+      { id: 'energy-altar-marsh-west', type: 'energy', position: { x: -18.5, z: 17 }, rotation: -0.42, clearingRadius: 6.2 },
+      { id: 'shield-altar-marsh-east', type: 'shield', position: { x: 15.5, z: -6.5 }, rotation: 0.38, clearingRadius: 6.2 },
+      { id: 'respite-altar-marsh-south', type: 'respite', position: { x: -10.5, z: -25 }, rotation: 0.12, clearingRadius: 6.1 }
     ],
     wildlife: [],
     clearings: [
       { x: 0, z: 31, r: 11.5 },
-      { x: -12, z: 18, r: 6.6 },
-      { x: -2, z: 6, r: 7.1 },
-      { x: 10, z: -7, r: 6.8 },
-      { x: -4, z: -22, r: 6.7 },
+      { x: -10.5, z: 20, r: 7.4 },
+      { x: -11, z: 12.5, r: 5.8 },
+      { x: -4, z: 6.5, r: 5.4 },
+      { x: 3.5, z: 2.5, r: 5.2 },
+      { x: 10, z: -3.5, r: 5.8 },
+      { x: 9.5, z: -10.5, r: 7.2 },
+      { x: 3.5, z: -16, r: 5.6 },
+      { x: -3.5, z: -21.5, r: 7.2 },
+      { x: -2.5, z: -27, r: 5.6 },
       { x: -1, z: -32, r: 9.6 },
-      { x: -18, z: 14, r: 6.3 },
-      { x: 16, z: -3, r: 6.3 },
-      { x: -10, z: -21, r: 6.1 }
+      { x: -18.5, z: 17, r: 6.2 },
+      { x: 15.5, z: -6.5, r: 6.2 },
+      { x: -10.5, z: -25, r: 6.1 }
     ],
     forestZones: [],
     forestPassages: [],
     boulderClusters: [],
     landmarkBoulders: [],
     marshTreeZones: [
-      { x: -33, z: 29, rx: 12, rz: 10, count: 18 },
-      { x: 34, z: 26, rx: 7, rz: 8, count: 9 },
-      { x: -35, z: 5, rx: 7, rz: 11, count: 10 },
-      { x: 32, z: 8, rx: 12, rz: 15, count: 20 },
-      { x: -29, z: -17, rx: 12, rz: 14, count: 19 },
-      { x: 35, z: -18, rx: 7, rz: 10, count: 9 },
-      { x: -31, z: -35, rx: 8, rz: 6, count: 8 },
-      { x: 24, z: -35, rx: 14, rz: 7, count: 15 }
+      // 西岸镜湖林：沿湖东岸弧线列植，倒映湖面
+      { x: -14, z: 22, rx: 4.5, rz: 8, rot: 0.24, count: 7, clusters: 3 },
+      { x: -36, z: 27, rx: 5.5, rz: 6, count: 7, clusters: 2 },
+      // 镜湖北岸与西北边缘
+      { x: -30, z: 29.5, rx: 8, rz: 4, count: 6, clusters: 2 },
+      // 西湖与北塘之间的西侧密林
+      { x: -38.5, z: 4, rx: 4.5, rz: 13, count: 9, clusters: 3 },
+      // 西湖西南岸林，衔接西南死水
+      { x: -33, z: -13, rx: 6.5, rz: 8, count: 10, clusters: 3 },
+      { x: -30, z: -34, rx: 7, rz: 4.5, count: 6, clusters: 2 },
+      // 东北高地林：框住主路第一个弯
+      { x: 20, z: 26, rx: 9, rz: 6.5, rot: -0.2, count: 9, clusters: 3 },
+      { x: 36.5, z: 12, rx: 5, rz: 11, count: 8, clusters: 3 },
+      // 东部腐湖东侧林带，把视线收向湖面
+      { x: 37, z: -6, rx: 4.5, rz: 11, count: 8, clusters: 3 },
+      { x: 31, z: -18, rx: 7, rz: 7, count: 9, clusters: 3 },
+      // 东南至敌营方向的暗林，强化纵深压迫感
+      { x: 23, z: -33.5, rx: 12, rz: 5, count: 10, clusters: 3 },
+      // 堤道东侧小丛，与草丘呼应
+      { x: 17.5, z: 6.5, rx: 3.2, rz: 3.6, count: 3, clusters: 1 },
+      // 基地西北入口两侧夹道林
+      { x: -16.5, z: 25.5, rx: 4.5, rz: 3.5, rot: 0.4, count: 5, clusters: 2 },
+      // 敌营后方两侧暗林，框住终点
+      { x: -13, z: -36.5, rx: 5.5, rz: 3.5, rot: -0.2, count: 5, clusters: 2 }
     ],
     marshReedZones: [
-      { x: 31, z: 9, rx: 15, rz: 10, count: 42 },
-      { x: -31, z: 5, rx: 9, rz: 7, count: 23 },
-      { x: -27, z: -17, rx: 15, rz: 11, count: 40 },
-      { x: 34, z: -18, rx: 8, rz: 6, count: 20 },
-      { x: 23, z: -35, rx: 13, rz: 6, count: 28 }
+      { x: -15, z: 13, rx: 5, rz: 11, count: 26 },
+      { x: 17, z: -1, rx: 5, rz: 10, count: 24 },
+      { x: -20, z: 31, rx: 7, rz: 4, count: 16 },
+      { x: -18, z: -27, rx: 6, rz: 5, count: 16 },
+      { x: 27, z: -24, rx: 5, rz: 4, count: 12 },
+      { x: -7, z: -1, rx: 4, rz: 4, count: 10 },
+      { x: 12, z: 5, rx: 4, rz: 4, count: 10 },
+      { x: 2, z: -41, rx: 9, rz: 2.5, count: 12 }
     ],
     marshLandmarks: [
-      { kind: 'watchtower', x: 19, z: 9, rot: -0.34, scale: 1.15 },
-      { kind: 'rootArch', x: -20, z: -14, rot: 0.48, scale: 1.2 },
-      { kind: 'rootWall', x: -1, z: -39, rot: 0.04, scale: 1.35 }
+      { kind: 'watchtower', x: -19.5, z: 8.5, rot: -0.5, scale: 1.2 },
+      { kind: 'watchtower', x: 23.5, z: 8, rot: 0.62, scale: 0.95 },
+      { kind: 'rootArch', x: -14.5, z: 5.5, rot: 0.5, scale: 1.15 },
+      { kind: 'rootWall', x: -1, z: -39.5, rot: 0.04, scale: 1.4 }
     ],
     marshBoardwalks: [
-      { from: { x: -13, z: 17 }, to: { x: -18, z: 14 }, width: 1.65 },
-      { from: { x: 11, z: -3 }, to: { x: 16, z: -3 }, width: 1.65 },
-      { from: { x: -5, z: -20 }, to: { x: -10, z: -21 }, width: 1.65 }
+      { from: { x: -14.2, z: 18.4 }, to: { x: -17.5, z: 17.6 }, width: 1.65 },
+      { from: { x: 11.6, z: -5.6 }, to: { x: 14.8, z: -6.2 }, width: 1.65 },
+      { from: { x: -5.6, z: -22.6 }, to: { x: -9.6, z: -24.4 }, width: 1.65 },
+      { from: { x: -14.5, z: 13.2 }, to: { x: -19, z: 11.6 }, width: 1.5 }
     ],
     marshHummocks: [
-      { x: 4, z: 16, rx: 4.8, rz: 3.2, rot: -0.18, trees: 3, log: true },
-      { x: -15, z: 3, rx: 3.9, rz: 2.7, rot: 0.34, trees: 2, log: true },
-      { x: -3, z: -9, rx: 4.2, rz: 2.8, rot: -0.28, trees: 3 },
-      { x: 16, z: 19, rx: 3.7, rz: 2.5, rot: 0.22, trees: 2, log: true }
+      { x: -0.5, z: 10.5, rx: 4.4, rz: 3, rot: -0.2, trees: 3, log: true },
+      { x: 12.5, z: 7.5, rx: 3.6, rz: 2.5, rot: 0.3, trees: 2, log: true },
+      { x: -8, z: -12.5, rx: 4, rz: 2.7, rot: -0.3, trees: 3 },
+      { x: 15, z: -18, rx: 3.6, rz: 2.4, rot: 0.2, trees: 2, log: true },
+      { x: -14, z: 26.5, rx: 3.2, rz: 2.3, rot: 0.5, trees: 2 }
     ],
     marshWaterHeight: 0.055,
     marshPools: [
-      { x: -32, z: 29, rx: 16, rz: 10.5, rot: -0.24, irregularity: 0.15 },
-      { x: 34, z: 26, rx: 8.5, rz: 6.2, rot: 0.28, irregularity: 0.09 },
-      { x: -34, z: 5, rx: 9.5, rz: 7.2, rot: 0.34, irregularity: 0.1 },
-      { x: 31, z: 8, rx: 17, rz: 12.5, rot: -0.27, irregularity: 0.16 },
-      { x: -28, z: -17, rx: 17, rz: 13.5, rot: -0.2, irregularity: 0.16 },
-      { x: 34, z: -18, rx: 8.2, rz: 6.8, rot: 0.32, irregularity: 0.09 },
-      { x: -32, z: -35, rx: 8.6, rz: 5.3, rot: 0.2, irregularity: 0.09 },
-      { x: 23, z: -35, rx: 16, rz: 8.5, rot: -0.22, irregularity: 0.14 },
-      { x: -15.5, z: 16, rx: 9.2, rz: 4.8, rot: -0.5, irregularity: 0.12 },
-      { x: 14, z: -3, rx: 6.2, rz: 4.6, rot: 0.16, irregularity: 0.08 },
-      { x: -7.5, z: -20.5, rx: 8.4, rz: 4.2, rot: 0.06, irregularity: 0.11 }
+      { x: -27, z: 12, rx: 16, rz: 19, rot: -0.22, irregularity: 0.14 },
+      { x: 26, z: -2, rx: 14, rz: 15.5, rot: 0.24, irregularity: 0.15 },
+      { x: -9, z: 2, rx: 8, rz: 6.5, rot: -0.3, irregularity: 0.12 },
+      { x: 13.5, z: 0.5, rx: 8, rz: 6.5, rot: 0.3, irregularity: 0.11 },
+      { x: -24, z: 31, rx: 11.5, rz: 7.5, rot: -0.16, irregularity: 0.13 },
+      { x: -22, z: -27, rx: 11, rz: 8.5, rot: 0.18, irregularity: 0.13 },
+      { x: 29, z: -24, rx: 8.5, rz: 7, rot: 0.28, irregularity: 0.1 },
+      { x: 0, z: -40, rx: 15, rz: 4.8, rot: -0.04, irregularity: 0.12 }
     ],
     terrain: {
       ...DEFAULT_TERRAIN_PROFILE,
-      baseHeight: 0.3,
-      northRise: 0.08,
-      sideRise: 0.08,
-      sideNorthRise: 0.06,
-      roughnessScale: 0.16,
-      valleyFloorBase: 0.28,
-      valleyNorthRise: 0.04,
-      valleySideRise: 0.04,
-      campTerrace: 0.34,
-      campTerraceOutward: 0.04,
+      baseHeight: 0.34,
+      northRise: 0.32,
+      sideRise: 0.62,
+      sideNorthRise: 0.5,
+      roughnessScale: 0.3,
+      valleyFloorBase: 0.3,
+      valleyNorthRise: 0.12,
+      valleySideRise: 0.1,
+      campTerrace: 0.58,
+      campTerraceOutward: 0.1,
+      campShelfInner: 5.5,
+      campShelfOuter: 11,
       waterHeight: -0.18,
       hills: [
-        { x: -39, z: 23, rx: 10, rz: 18, height: 0.18 },
-        { x: 39, z: -10, rx: 10, rz: 20, height: 0.2 },
-        { x: -25, z: -40, rx: 18, rz: 8, height: 0.14 }
+        { x: -21, z: 25, rx: 11, rz: 8, height: 0.8 },
+        { x: 19, z: 15, rx: 12, rz: 9, height: 0.72 },
+        { x: -24, z: -6, rx: 10, rz: 12, height: 0.88 },
+        { x: 23, z: -19, rx: 11, rz: 10, height: 0.78 },
+        { x: 0, z: -38.5, rx: 17, rz: 7, height: 0.66 }
       ],
       ridges: [
-        { x: -45, z: 0, rx: 4, rz: 42, height: 0.22 },
-        { x: 45, z: -5, rx: 4, rz: 42, height: 0.22 },
-        { x: 0, z: -45, rx: 35, rz: 4, height: 0.16 }
+        { x: -45, z: 0, rx: 5, rz: 47, height: 1.6 },
+        { x: 45, z: 0, rx: 5, rz: 47, height: 1.6 },
+        { x: 0, z: -45.5, rx: 40, rz: 5, height: 1.35 },
+        { x: 0, z: 46, rx: 40, rz: 5, height: 1.05 }
       ]
     },
     monsterCamp: { x: -1, z: -35.5, rot: -0.18, scale: 1.2, offset: 0.18 },
@@ -2517,16 +2551,48 @@ function marshTerrainColorAt(x, z, height, palette) {
   const sideShade = smoothstep(14, 39, Math.abs(x));
   color.lerp(new THREE.Color(palette.side), sideShade * 0.14);
   color.lerp(new THREE.Color(palette.valley), smoothstep(0.56, 0.92, broadPatch) * 0.12);
+
+  // 低频苔藓斑块：双线性插值的值噪声，让大片草地出现柔和的深绿/亮绿分区
+  const mossU = x * 0.045 + 31.7;
+  const mossV = z * 0.045 - 12.3;
+  const mossX = Math.floor(mossU);
+  const mossZ = Math.floor(mossV);
+  const mossFx = mossU - mossX;
+  const mossFz = mossV - mossZ;
+  const mossNoise =
+    (hash2(mossX, mossZ) * (1 - mossFx) + hash2(mossX + 1, mossZ) * mossFx) * (1 - mossFz) +
+    (hash2(mossX, mossZ + 1) * (1 - mossFx) + hash2(mossX + 1, mossZ + 1) * mossFx) * mossFz;
+  color.lerp(new THREE.Color(palette.moss ?? '#6d7f52'), smoothstep(0.6, 0.9, mossNoise) * 0.26 * (1 - wetBank * 0.7));
+
+  // 草地色斑：中频值噪声在地面"画"出疏草区（偏黄亮）与密草区（偏暗绿），
+  // 代替 3D 草丛物件，俯视角自然且零几何成本
+  const grassU = x * 0.13 - 7.4;
+  const grassV = z * 0.13 + 19.2;
+  const grassX = Math.floor(grassU);
+  const grassZ = Math.floor(grassV);
+  const grassFx = grassU - grassX;
+  const grassFz = grassV - grassZ;
+  const smoothFx = grassFx * grassFx * (3 - 2 * grassFx);
+  const smoothFz = grassFz * grassFz * (3 - 2 * grassFz);
+  const grassNoise =
+    (hash2(grassX, grassZ) * (1 - smoothFx) + hash2(grassX + 1, grassZ) * smoothFx) * (1 - smoothFz) +
+    (hash2(grassX, grassZ + 1) * (1 - smoothFx) + hash2(grassX + 1, grassZ + 1) * smoothFx) * smoothFz;
+  const grassKeep = (1 - wetBank) * smoothstep(1.2, 2.8, pathDistance);
+  color.lerp(new THREE.Color('#7c8d58'), smoothstep(0.62, 0.92, grassNoise) * 0.2 * grassKeep);
+  color.lerp(new THREE.Color('#4e6247'), smoothstep(0.34, 0.08, grassNoise) * 0.16 * grassKeep);
+
   color.lerp(new THREE.Color(palette.forest), wetBank * 0.48);
   color.lerp(new THREE.Color(palette.bank ?? '#3f4939'), smoothstep(0.42, 0.82, waterMask) * 0.72);
   color.lerp(new THREE.Color(palette.puddle), smoothstep(0.72, 0.98, waterMask) * 0.42);
-  color.lerp(new THREE.Color(palette.high), Math.max(0, height - 0.34) * 0.08);
+  color.lerp(new THREE.Color(palette.high), smoothstep(0.4, 1.3, height) * 0.2);
   color.offsetHSL((broadPatch - 0.5) * 0.01, 0.012 * facet, 0.024 * facet);
 
   const pathNoise = hash2(x * 0.13, z * 0.13) * 1.2;
   const pathWidth = worldConfig().pathWidth ?? 3.15;
   const pathEdge = smoothstep(pathWidth * 0.5 + pathNoise, pathWidth * 0.5 - 0.72 + pathNoise, pathDistance);
   color.lerp(new THREE.Color(palette.path), pathEdge * 0.74);
+  // 主路中线提亮：踩实的路芯比路缘更干、更亮，强化行军引导
+  color.lerp(new THREE.Color(palette.pathCenter ?? palette.path), pathEdge * (1 - smoothstep(0.32, 1.1, pathDistance)) * 0.55);
   return color;
 }
 
@@ -2828,22 +2894,31 @@ function createPath(scene, points) {
 
   const theme = worldConfig().theme ?? 'snow';
   const random = seededRandom(worldConfig().seed ?? 8899);
+  const markerIndices = theme === 'emerald-marsh' ? [2, 5, 8, 10] : [1, 3, 6, 8];
 
   for (let i = 0; i < points.length; i += 1) {
-    if (![1, 3, 6, 8].includes(i)) continue;
+    if (!markerIndices.includes(i)) continue;
     const size = 0.42 + (i % 2) * 0.16;
     const marker = (theme === 'snow')
       ? createLowpolySnowRock(size, random, {
           color: worldMaterialColor('rock', '#687378'),
           snowCap: true
         })
-      : createRock(size, {
-          color: '#7d8788',
-          snowCap: true
-        });
+      : theme === 'emerald-marsh'
+        ? createRock(size, {
+            color: '#5f6d5c',
+            snowCap: false
+          })
+        : createRock(size, {
+            color: '#7d8788',
+            snowCap: true
+          });
     const side = i % 2 === 0 ? 1 : -1;
-    const x = points[i].x + side * 2.9;
+    let x = points[i].x + side * 2.9;
     const z = points[i].z;
+    if (theme === 'emerald-marsh' && marshWaterMaskAt(x, z) > 0.3) {
+      x = points[i].x - side * 2.9;
+    }
     const offset = (theme === 'snow' ? -0.06 * size : 0);
     marker.position.set(x, terrainHeightAt(x, z) + offset, z);
     marker.rotation.y = i * 0.7;
@@ -4063,6 +4138,7 @@ function createDesertDecor(scene, pathPoints) {
 function createMarshDecor(scene, pathPoints) {
   const seed = worldConfig().seed ?? 1409;
   const random = seededRandom(seed);
+  createMarshBackdrop(scene, seededRandom(seed + 191));
   createMarshWaterSurface(scene);
   placeMarshMudPatches(scene, pathPoints, random);
   placeMarshHummocks(scene, seededRandom(seed + 71));
@@ -4072,6 +4148,63 @@ function createMarshDecor(scene, pathPoints) {
   placeMarshLilyPads(scene, random);
   placeMarshLandmarks(scene);
   placeMarshStumps(scene, pathPoints, random);
+  placeMarshGroundScatter(scene, pathPoints, seededRandom(seed + 313));
+}
+
+// 远景剪影环：场外两层枯林 + 低丘，合并成 3 个 mesh，
+// 靠雾效与逐层提亮形成大气透视的远景层次
+function createMarshBackdrop(scene, random) {
+  const cone = new THREE.ConeGeometry(1, 1, 5);
+  cone.translate(0, 0.5, 0);
+  const nearGeometries = [];
+  const farGeometries = [];
+  const hillGeometries = [];
+
+  const treeCount = 96;
+  for (let index = 0; index < treeCount; index += 1) {
+    const angle = (index / treeCount) * Math.PI * 2 + (random() - 0.5) * 0.14;
+    const radius = 54 + random() * 26;
+    const x = Math.cos(angle) * radius;
+    const z = Math.sin(angle) * radius;
+    const height = 6.5 + random() * 7;
+    const girth = 1.7 + random() * 1.6;
+    const geometry = cone.clone();
+    geometry.applyMatrix4(new THREE.Matrix4().compose(
+      new THREE.Vector3(x, terrainHeightAt(x, z) - 0.4, z),
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(0, random() * Math.PI * 2, 0)),
+      new THREE.Vector3(girth, height, girth)
+    ));
+    (radius < 68 ? nearGeometries : farGeometries).push(geometry);
+  }
+
+  for (let index = 0; index < 9; index += 1) {
+    const angle = (index / 9) * Math.PI * 2 + (random() - 0.5) * 0.42;
+    const radius = 62 + random() * 20;
+    const x = Math.cos(angle) * radius;
+    const z = Math.sin(angle) * radius;
+    const spread = 16 + random() * 14;
+    const geometry = new THREE.IcosahedronGeometry(1, 0);
+    geometry.applyMatrix4(new THREE.Matrix4().compose(
+      new THREE.Vector3(x, terrainHeightAt(x, z) - 1.4, z),
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(0, random() * Math.PI, 0)),
+      new THREE.Vector3(spread, 5 + random() * 4.5, spread * (0.7 + random() * 0.3))
+    ));
+    hillGeometries.push(geometry);
+  }
+  cone.dispose();
+
+  const addLayer = (geometries, color) => {
+    if (geometries.length === 0) return;
+    const merged = mergeGeometries(geometries);
+    geometries.forEach((geometry) => geometry.dispose());
+    if (!merged) return;
+    const mesh = new THREE.Mesh(merged, mat(color, { roughness: 1 }));
+    mesh.renderOrder = -1;
+    scene.add(mesh);
+  };
+  addLayer(hillGeometries, '#4a5f52');
+  addLayer(nearGeometries, '#2f4a40');
+  addLayer(farGeometries, '#415a50');
 }
 
 function createMarshWaterSurface(scene) {
@@ -4079,8 +4212,22 @@ function createMarshWaterSurface(scene) {
   const bounds = worldNavigationBounds(config);
   const step = 0.92;
   const waterHeight = config.marshWaterHeight ?? 0.055;
+  const shallowColor = new THREE.Color(config.palette?.waterShallow ?? '#71906f');
+  const deepColor = new THREE.Color(config.palette?.waterDeep ?? '#2c5450');
+  const foamColor = new THREE.Color('#96a37e');
   const positions = [];
+  const colors = [];
   const indices = [];
+  const scratch = new THREE.Color();
+
+  // 顶点色随水深过渡：浅岸绿 → 深潭青，岸缘叠一圈浮沫亮边
+  const pushVertexColor = (x, z) => {
+    const mask = marshWaterMaskAt(x, z);
+    scratch.copy(shallowColor).lerp(deepColor, smoothstep(0.34, 0.94, mask));
+    const foam = smoothstep(0.3, 0.46, mask) * (1 - smoothstep(0.52, 0.66, mask));
+    scratch.lerp(foamColor, foam * 0.4);
+    colors.push(scratch.r, scratch.g, scratch.b);
+  };
 
   for (let x = bounds.minX; x < bounds.maxX; x += step) {
     for (let z = bounds.minZ; z < bounds.maxZ; z += step) {
@@ -4088,13 +4235,14 @@ function createMarshWaterSurface(scene) {
       const centerZ = z + step * 0.5;
       if (marshWaterMaskAt(centerX, centerZ) < 0.34) continue;
       const vertexStart = positions.length / 3;
-      const ripple = Math.sin(centerX * 0.31 + centerZ * 0.17) * 0.004;
-      positions.push(
-        x, waterHeight + ripple, z,
-        x + step, waterHeight - ripple * 0.35, z,
-        x + step, waterHeight + ripple * 0.4, z + step,
-        x, waterHeight - ripple * 0.25, z + step
-      );
+      positions.push(x, waterHeight, z);
+      pushVertexColor(x, z);
+      positions.push(x + step, waterHeight, z);
+      pushVertexColor(x + step, z);
+      positions.push(x + step, waterHeight, z + step);
+      pushVertexColor(x + step, z + step);
+      positions.push(x, waterHeight, z + step);
+      pushVertexColor(x, z + step);
       indices.push(
         vertexStart, vertexStart + 2, vertexStart + 1,
         vertexStart, vertexStart + 3, vertexStart + 2
@@ -4105,20 +4253,62 @@ function createMarshWaterSurface(scene) {
   if (positions.length === 0) return;
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
+
+  const timeUniform = { value: 0 };
   const material = new THREE.MeshStandardMaterial({
-    color: config.palette?.puddle ?? '#386960',
-    roughness: 0.48,
+    vertexColors: true,
+    roughness: 0.34,
     metalness: 0,
     transparent: true,
-    opacity: 0.8,
+    opacity: 0.86,
     depthWrite: true
   });
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uMarshTime = timeUniform;
+    shader.vertexShader = `
+      uniform float uMarshTime;
+      varying vec3 vMarshWorldPos;
+      ${shader.vertexShader}
+    `.replace(
+      '#include <begin_vertex>',
+      `
+      #include <begin_vertex>
+      vMarshWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
+      transformed.y += sin(vMarshWorldPos.x * 0.5 + uMarshTime * 0.85 + vMarshWorldPos.z * 0.34) * 0.011
+        + sin(vMarshWorldPos.z * 0.66 - uMarshTime * 0.6 + vMarshWorldPos.x * 0.21) * 0.009;
+      `
+    );
+    shader.fragmentShader = `
+      uniform float uMarshTime;
+      varying vec3 vMarshWorldPos;
+      ${shader.fragmentShader}
+    `.replace(
+      '#include <normal_fragment_begin>',
+      `
+      #include <normal_fragment_begin>
+      {
+        float marshWaveDX = cos(vMarshWorldPos.x * 0.5 + uMarshTime * 0.85 + vMarshWorldPos.z * 0.34) * 0.0055
+          + cos(vMarshWorldPos.z * 0.66 - uMarshTime * 0.6 + vMarshWorldPos.x * 0.21) * 0.00189;
+        float marshWaveDZ = cos(vMarshWorldPos.x * 0.5 + uMarshTime * 0.85 + vMarshWorldPos.z * 0.34) * 0.00374
+          + cos(vMarshWorldPos.z * 0.66 - uMarshTime * 0.6 + vMarshWorldPos.x * 0.21) * 0.00594;
+        // 放大坡度让高光随波面流动，但不破坏整体平滑感
+        vec3 marshWaveNormal = vec3(-marshWaveDX * 26.0, 1.0, -marshWaveDZ * 26.0);
+        normal = normalize((viewMatrix * vec4(marshWaveNormal, 0.0)).xyz);
+      }
+      `
+    );
+  };
   const water = new THREE.Mesh(geometry, material);
   water.receiveShadow = true;
   water.renderOrder = 2;
+  water.userData.updateWorldDecoration = (elapsed) => {
+    timeUniform.value = elapsed;
+  };
   scene.add(water);
+  activeAnimatedDecorations?.push(water);
 }
 
 function placeMarshHummocks(scene, random) {
@@ -4314,19 +4504,51 @@ function createMarshBoardwalks(scene) {
 
 function placeMarshTrees(scene, pathPoints, random) {
   (worldConfig().marshTreeZones ?? []).forEach((zone) => {
+    // 组团式种植：先选若干丛锚点，树贴着锚点落位，形成有体积感的树丛而非均匀噪声
+    const clusterCount = zone.clusters ?? 2;
+    const anchors = [];
+    for (let cluster = 0; cluster < clusterCount; cluster += 1) {
+      // 每丛由一株主树带头、周围伴生小树，形成高低错落的轮廓节奏，避免齐高的"树墙"
+      const lead = cluster === 0 || random() < 0.4;
+      anchors.push({
+        point: randomPointInEllipse(zone, random),
+        scale: lead ? 1.02 + random() * 0.2 : 0.76 + random() * 0.24,
+        heightBase: lead ? 5.5 + random() * 1.4 : 3.7 + random() * 1.2
+      });
+    }
     let placed = 0;
-    for (let attempt = 0; attempt < zone.count * 4 && placed < zone.count; attempt += 1) {
-      const { x, z } = randomPointInEllipse(zone, random);
+    for (let attempt = 0; attempt < zone.count * 5 && placed < zone.count; attempt += 1) {
+      const anchor = anchors[Math.floor(random() * anchors.length)];
+      const spreadAngle = random() * Math.PI * 2;
+      const spreadRadius = random() * random() * 3.2;
+      const x = anchor.point.x + Math.cos(spreadAngle) * spreadRadius;
+      const z = anchor.point.z + Math.sin(spreadAngle) * spreadRadius;
       if (!isDecorationClear(x, z, pathPoints, 4.2)) continue;
       if (marshWaterMaskAt(x, z) > 0.78) continue;
-      const height = 4.35 + random() * 1.9;
-      const tree = createMarshWillow(height, random() > 0.84);
+      const height = (anchor.heightBase + random() * 1.1) * anchor.scale;
+      // 小树更容易以疏林形态出现，大树保持饱满冠幅
+      const tree = createMarshWillow(height, height < 4.5 && random() > 0.5);
       placeOnTerrain(tree, x, z, -0.08);
       tree.rotation.y = random() * Math.PI * 2;
-      tree.scale.x *= 0.9 + random() * 0.22;
-      tree.scale.z *= 0.9 + random() * 0.2;
+      tree.scale.x *= (0.9 + random() * 0.22) * anchor.scale;
+      tree.scale.z *= (0.9 + random() * 0.2) * anchor.scale;
       addStaticCulledObject(scene, tree, 3.4);
       placed += 1;
+    }
+    // 林缘游离树：贴树丛外沿零星落一两棵小树，软化林地与空地的边界
+    const satellites = zone.count >= 6 ? 2 : 1;
+    for (let index = 0; index < satellites; index += 1) {
+      const angle = random() * Math.PI * 2;
+      const edge = ellipseBoundaryPoint(zone, angle);
+      const reach = 0.98 + random() * 0.18;
+      const x = zone.x + (edge.x - zone.x) * reach;
+      const z = zone.z + (edge.z - zone.z) * reach;
+      if (!isDecorationClear(x, z, pathPoints, 4.2)) continue;
+      if (marshWaterMaskAt(x, z) > 0.78) continue;
+      const tree = createMarshWillow(3.5 + random() * 1.3, random() > 0.45);
+      placeOnTerrain(tree, x, z, -0.08);
+      tree.rotation.y = random() * Math.PI * 2;
+      addStaticCulledObject(scene, tree, 3);
     }
   });
 }
@@ -4432,12 +4654,14 @@ function createMarshWillow(height, sparse = false) {
 function placeMarshReeds(scene, pathPoints, random) {
   (worldConfig().marshReedZones ?? []).forEach((zone) => {
     for (let index = 0; index < zone.count; index += 1) {
+      // 整体降三成密度：芦苇丛更稀、每丛更壮，读起来是"一丛丛"而不是碎杆噪声
+      if (random() < 0.3) continue;
       const { x, z } = randomPointInEllipse(zone, random);
       const waterMask = marshWaterMaskAt(x, z);
       if (waterMask < 0.18 || waterMask > 0.82) continue;
       if (distanceToPath(x, z, pathPoints) < 3.6) continue;
       if (worldConfig().clearings.some((clearing) => Math.hypot(x - clearing.x, z - clearing.z) < clearing.r)) continue;
-      const reeds = createMarshReedClump(0.75 + random() * 0.8);
+      const reeds = createMarshReedClump(0.9 + random() * 0.9);
       placeOnTerrain(reeds, x, z, 0.02);
       reeds.rotation.y = random() * Math.PI * 2;
       addStaticCulledObject(scene, reeds, 1.1);
@@ -4485,13 +4709,14 @@ function createMarshReedClump(height) {
   const tipMaterial = mat('#594b35', { roughness: 1 });
   for (let index = 0; index < 5; index += 1) {
     const angle = index * 2.1;
-    const offset = 0.08 + (index % 2) * 0.07;
+    const offset = 0.09 + (index % 2) * 0.08;
     const stemHeight = height * (0.78 + (index % 3) * 0.11);
-    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.026, stemHeight, 5), stemMaterial);
+    // 茎秆加粗，中远景不再糊成细针噪点
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.05, stemHeight, 5), stemMaterial);
     stem.position.set(Math.cos(angle) * offset, stemHeight * 0.5, Math.sin(angle) * offset);
     stem.rotation.z = Math.cos(angle) * 0.08;
-    const tip = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 0.18, 5), tipMaterial);
-    tip.position.set(stem.position.x, stemHeight + 0.04, stem.position.z);
+    const tip = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.07, 0.24, 5), tipMaterial);
+    tip.position.set(stem.position.x, stemHeight + 0.05, stem.position.z);
     tip.rotation.z = stem.rotation.z;
     group.add(stem, tip);
   }
@@ -4597,6 +4822,101 @@ function placeMarshStumps(scene, pathPoints, random) {
     placeOnTerrain(stump, x, z, -0.02);
     stump.rotation.y = random() * Math.PI * 2;
     addStaticCulledObject(scene, stump, 1.2);
+  }
+}
+
+// 地面散布：色斑、碎石、倒木与低灌木覆盖干燥地面；
+// 草地本身由地形顶点色的草斑噪声表现，不再摆放 3D 草丛（俯视角会读成碎块）
+function placeMarshGroundScatter(scene, pathPoints, random) {
+  const config = worldConfig();
+  const stoneMaterial = mat('#5d675c', { roughness: 1 });
+  const branchMaterial = mat('#4a3d2e', { roughness: 1 });
+  // 共享几何体 + 缓存材质，静态批处理能按签名合批
+  const stoneGeometry = new THREE.DodecahedronGeometry(0.16, 0);
+
+  const canScatterAt = (x, z, pathClearance) => {
+    if (marshWaterMaskAt(x, z) > 0.3) return false;
+    if (isMarshBoardwalkAt(x, z, 0.5)) return false;
+    if (distanceToPath(x, z, pathPoints) < pathClearance) return false;
+    if (Math.hypot(x - config.playerBasePosition.x, z - config.playerBasePosition.z) < 5.5) return false;
+    if (Math.hypot(x - config.enemyCampPosition.x, z - config.enemyCampPosition.z) < 6) return false;
+    return true;
+  };
+
+  const placeStone = (x, z) => {
+    const stone = new THREE.Mesh(stoneGeometry, stoneMaterial);
+    const size = 0.5 + random() * 1.25;
+    stone.scale.set(size * 1.25, size * 0.5, size * 0.9);
+    placeOnTerrain(stone, x, z, size * 0.1);
+    stone.rotation.y = random() * Math.PI * 2;
+    addStaticCulledObject(scene, stone, 0.7);
+  };
+
+  const placeFallenBranch = (x, z) => {
+    const branch = new THREE.Mesh(
+      new THREE.BoxGeometry(0.09, 0.08, 1.2 + random() * 1.5),
+      branchMaterial
+    );
+    placeOnTerrain(branch, x, z, 0.03);
+    branch.rotation.y = random() * Math.PI * 2;
+    branch.rotation.x = (random() - 0.5) * 0.1;
+    addStaticCulledObject(scene, branch, 1);
+  };
+
+  // 1) 地被色斑：低饱和的苔绿/枯黄色块打破大面积单调草地，中远景也能读出来
+  const coverMaterials = [
+    mat('#74855b', { roughness: 1 }),
+    mat('#57684a', { roughness: 1 }),
+    mat('#7a7a52', { roughness: 1 })
+  ];
+  let coverPlaced = 0;
+  for (let attempt = 0; attempt < 240 && coverPlaced < 30; attempt += 1) {
+    const x = -39 + random() * 78;
+    const z = -39 + random() * 78;
+    if (!canScatterAt(x, z, 2.6)) continue;
+    const patch = {
+      x,
+      z,
+      rx: 1.4 + random() * 2.6,
+      rz: 0.9 + random() * 1.7,
+      rot: random() * Math.PI,
+      irregularity: 0.16
+    };
+    const mesh = createTerrainEllipseMesh(patch, coverMaterials[Math.floor(random() * coverMaterials.length)], 0.03, 12);
+    mesh.renderOrder = 1;
+    scene.add(mesh);
+    coverPlaced += 1;
+  }
+
+  // 2) 碎石与倒木：点状细节填充中景空地
+  let stonePlaced = 0;
+  for (let attempt = 0; attempt < 420 && stonePlaced < 72; attempt += 1) {
+    const x = -40 + random() * 80;
+    const z = -40 + random() * 80;
+    if (!canScatterAt(x, z, 2.6)) continue;
+    placeStone(x, z);
+    stonePlaced += 1;
+  }
+  let branchPlaced = 0;
+  for (let attempt = 0; attempt < 190 && branchPlaced < 30; attempt += 1) {
+    const x = -38 + random() * 76;
+    const z = -38 + random() * 76;
+    if (!canScatterAt(x, z, 2.8)) continue;
+    placeFallenBranch(x, z);
+    branchPlaced += 1;
+  }
+
+  // 3) 低灌木：填补树丛边缘与中景空白
+  let shrubPlaced = 0;
+  for (let attempt = 0; attempt < 400 && shrubPlaced < 50; attempt += 1) {
+    const x = -38 + random() * 76;
+    const z = -38 + random() * 76;
+    if (!canScatterAt(x, z, 3.4)) continue;
+    const shrub = createMarshShrub(0.6 + random() * 0.45);
+    placeOnTerrain(shrub, x, z, 0.01);
+    shrub.rotation.y = random() * Math.PI * 2;
+    addStaticCulledObject(scene, shrub, 1);
+    shrubPlaced += 1;
   }
 }
 
@@ -6403,8 +6723,16 @@ function flushBakedGroundShadows(ground = null) {
     ? '#2a1412'
     : theme === 'dungeon'
       ? '#050407'
-      : '#263233';
-  const opacity = theme === 'dungeon' ? 0.24 : theme === 'red-desert' ? 0.2 : 0.17;
+      : theme === 'emerald-marsh'
+        ? '#24343d'
+        : '#263233';
+  const opacity = theme === 'dungeon'
+    ? 0.24
+    : theme === 'red-desert'
+      ? 0.2
+      : theme === 'emerald-marsh'
+        ? 0.22
+        : 0.17;
   const material = basicMat(color, {
     transparent: true,
     opacity,
