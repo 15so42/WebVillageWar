@@ -1,14 +1,22 @@
 import assert from 'node:assert/strict';
-import { BUFF_DEFINITIONS, CARD_DEFINITIONS } from '../src/data/gameData.js';
+import { BUFF_DEFINITIONS, CARD_DEFINITIONS, UNIT_DEFINITIONS } from '../src/data/gameData.js';
 import { AbilitySystem } from '../src/systems/AbilitySystem.js';
 import { BuffSystem } from '../src/systems/BuffSystem.js';
-import { CardSystem } from '../src/systems/CardSystem.js';
+import { resolveSupportAmount } from '../src/systems/UnitLogicSystem.js';
+import {
+  CardSystem,
+  findFriendlyUnitScreenTarget,
+  toRomanNumeral
+} from '../src/systems/CardSystem.js';
+import { isEnchantmentCardBlocked } from '../src/systems/enchantmentSlots.js';
 import { rollOverflowChance } from '../src/utils/chance.js';
+import { UNIT_SPECIAL_UPGRADES } from '../src/data/cardUpgrades.js';
 
 const inspirationCard = CARD_DEFINITIONS.find((card) => card.id === 'inspiration');
 const judgmentCard = CARD_DEFINITIONS.find((card) => card.id === 'judgment-enchant');
 const bodyForgingCard = CARD_DEFINITIONS.find((card) => card.id === 'body-forging-enchant');
 const enchantResonanceCard = CARD_DEFINITIONS.find((card) => card.id === 'enchant-echo-ability');
+const lightningMageCard = CARD_DEFINITIONS.find((card) => card.id === 'lightning-mages');
 
 assert.equal(inspirationCard?.effect?.abilityId, 'inspiration');
 assert.equal(inspirationCard?.effect?.stacksBase, 1);
@@ -19,6 +27,138 @@ assert.equal(BUFF_DEFINITIONS.judgment.effects[0].cooldown, 5);
 assert.equal(BUFF_DEFINITIONS.judgment.effects[0].damagePerLevel, 2);
 assert.equal(BUFF_DEFINITIONS.bodyForging.tickInterval, 5);
 assert.match(enchantResonanceCard?.summary ?? '', /超过 100%/);
+assert.equal(lightningMageCard?.energyCost, 4, '雷法师应固定消耗 4 点能量');
+assert.equal(
+  UNIT_SPECIAL_UPGRADES.archer.find((upgrade) => upgrade.id === 'archer-eagle-eye')?.modifiers
+    ?.some((modifier) => modifier.stat === 'projectileSpeed'),
+  false,
+  '单位专精不应提高投射物速度'
+);
+assert.equal(
+  BUFF_DEFINITIONS.waveRanged.modifiers?.some((modifier) => modifier.stat === 'projectileSpeed'),
+  false,
+  '怪物远射词缀不应提高投射物速度'
+);
+assert.equal(UNIT_DEFINITIONS.engineer.support.repairAura.amount, 10);
+assert.equal(UNIT_DEFINITIONS.engineer.support.repairAura.spellPowerFactor, 0.5);
+assert.equal(resolveSupportAmount({
+  modifiers: { getMagicAttack: () => 8 }
+}, {}, UNIT_DEFINITIONS.engineer.support.repairAura), 14, '工匠修理应获得 50% 魔攻加成');
+assert.equal(toRomanNumeral(1), 'I');
+assert.equal(toRomanNumeral(2), 'II');
+assert.equal(toRomanNumeral(11), 'XI');
+assert.equal(
+  Math.max(...CARD_DEFINITIONS.filter((card) => !card.retired).map((card) => [...card.name].length)),
+  4,
+  '可用卡牌名称最多四个汉字，手机标题行不应再依赖省略号'
+);
+
+const touchTarget = { id: 21, alive: true, canReceiveBuffs: true, screen: { x: 100, y: 100 } };
+const closerTarget = { id: 22, alive: true, canReceiveBuffs: true, screen: { x: 160, y: 142 } };
+assert.equal(findFriendlyUnitScreenTarget(
+  [touchTarget, closerTarget],
+  [{ x: 100, y: 142 }, { x: 100, y: 100 }],
+  (unit) => unit.screen,
+  { acquireRadius: 84, stickyRadius: 112 }
+), touchTarget, '触摸命中应同时检查指尖位置与指尖上方的可见单位');
+assert.equal(findFriendlyUnitScreenTarget(
+  [touchTarget],
+  [{ x: 100, y: 0 }],
+  (unit) => unit.screen,
+  { acquireRadius: 84, stickyRadius: 112, previousTarget: touchTarget }
+), touchTarget, '松手轻微漂移到获取半径之外时应粘住已高亮的附魔目标');
+
+const fullEnchantTarget = {
+  alive: true,
+  position: { x: 0, y: 0, z: 0 },
+  projectileHitHeight: 1.5,
+  maxEnchantmentSlots: 2,
+  enchantments: new Map([['fire', {}], ['thorns', {}]])
+};
+assert.equal(isEnchantmentCardBlocked(judgmentCard, fullEnchantTarget), true);
+assert.equal(isEnchantmentCardBlocked({ ...judgmentCard, enchantmentId: 'fire', effect: { buffId: 'fire' } }, fullEnchantTarget), false);
+
+let blockedNetworkCommands = 0;
+let blockedSlotVisuals = 0;
+let blockedHint = '';
+const blockedCardSystem = Object.assign(Object.create(CardSystem.prototype), {
+  playerSlot: 'p2',
+  energy: 12,
+  game: {
+    networkBridge: {
+      shouldRouteLocalCommands: () => true,
+      commandSender: {
+        playCard() {
+          blockedNetworkCommands += 1;
+          return true;
+        }
+      }
+    },
+    cardEffects: {
+      showEnchantmentSlotFailure() {
+        blockedSlotVisuals += 1;
+      }
+    }
+  },
+  setHint(text) {
+    blockedHint = text;
+  }
+});
+assert.equal(blockedCardSystem.playDraggedCard({
+  card: { ...judgmentCard, instanceId: 'judgment-full-slot' },
+  targetUnit: fullEnchantTarget
+}, { hold: true }), false);
+assert.equal(blockedCardSystem.energy, 12, '槽位已满时不得预扣客户端能量');
+assert.equal(blockedNetworkCommands, 0, '槽位已满时不得发送长按附魔命令');
+assert.equal(blockedSlotVisuals, 1);
+assert.match(blockedHint, /附魔槽已满.*未消耗能量/);
+
+let blockedHoldStopped = false;
+blockedCardSystem.enchantHold = {
+  drag: { card: { ...judgmentCard, instanceId: 'judgment-full-slot-hold' } },
+  target: fullEnchantTarget,
+  cost: 3,
+  remainingUses: 4,
+  tickCount: 0
+};
+blockedCardSystem.stopEnchantHold = () => {
+  blockedHoldStopped = true;
+  blockedCardSystem.enchantHold = null;
+};
+blockedCardSystem.rejectFullEnchantmentTarget = CardSystem.prototype.rejectFullEnchantmentTarget;
+CardSystem.prototype.tickEnchantHold.call(blockedCardSystem);
+assert.equal(blockedHoldStopped, true);
+assert.equal(blockedCardSystem.energy, 12, '持续附魔检测到满槽时不得消耗能量');
+assert.equal(blockedNetworkCommands, 0);
+
+let zeroTickPlayedDrag = null;
+const zeroTickHoldSystem = {
+  drag: {
+    card: { ...judgmentCard, instanceId: 'judgment-mobile-release' },
+    targetUnit: touchTarget,
+    mode: 'play',
+    valid: true
+  },
+  enchantHold: {
+    drag: null,
+    target: touchTarget,
+    tickCount: 0
+  },
+  enchantHoldInterval: null,
+  clearEnchantHoldStartTimer() {},
+  hideEnchantHoldUi() {},
+  cleanupDrag() {
+    this.drag = null;
+  },
+  playDraggedCard(drag) {
+    zeroTickPlayedDrag = drag;
+    return true;
+  },
+  game: { networkBridge: { shouldRouteLocalCommands: () => false } }
+};
+CardSystem.prototype.stopEnchantHold.call(zeroTickHoldSystem, { commit: true });
+assert.equal(zeroTickPlayedDrag?.targetUnit, touchTarget);
+assert.equal(zeroTickPlayedDrag?.card?.id, 'judgment-enchant');
 
 assert.equal(rollOverflowChance(0, () => 0), 0);
 assert.equal(rollOverflowChance(0.3, () => 0.29), 1);
@@ -114,6 +254,7 @@ const holdCardSystem = {
     throw new Error('有效的长按附魔不应提前停止');
   },
   setHint() {},
+  rejectFullEnchantmentTarget: CardSystem.prototype.rejectFullEnchantmentTarget,
   playDraggedCard: CardSystem.prototype.playDraggedCard
 };
 const holdRandom = Math.random;
@@ -153,6 +294,7 @@ const cardPlayGame = {
 const cardSystem = {
   game: cardPlayGame,
   playerSlot: 'p1',
+  rejectFullEnchantmentTarget: CardSystem.prototype.rejectFullEnchantmentTarget,
   isCardOnCooldown: () => false,
   canSpend: () => true,
   resolveCard(drag) {

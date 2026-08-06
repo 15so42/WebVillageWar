@@ -1,16 +1,21 @@
 import assert from 'node:assert/strict';
 import {
   applyEndlessDifficulty,
+  applyEndlessPerformanceMultiplier,
   calculateEndlessReward,
   endlessDifficultyDelta,
   endlessEnchantCount,
   endlessEnchantLevel,
   endlessEnemyClass,
+  endlessEnemyDifficultyValue,
+  endlessDifficultyReferenceHealth,
   endlessEnemyStatFactors,
   endlessExpectedLifetime,
-  endlessPlayerUnitDeathDifficultyDelta,
+  endlessKillPerformanceDelta,
+  endlessPlayerUnitDeathPerformanceDelta,
   normalizeChallengeMode,
-  resetEndlessDeckLevels
+  resetEndlessDeckLevels,
+  resolveEndlessEnemyDefeat
 } from '../src/systems/endlessMode.js';
 import { AttributeSet } from '../src/systems/AttributeSet.js';
 import { ModifierSystem } from '../src/systems/ModifierSystem.js';
@@ -25,48 +30,88 @@ assert.equal(endlessEnemyClass({ isBoss: true }), 'boss');
 assert.equal(endlessExpectedLifetime({ baseHealth: 18 }), 5);
 assert.equal(endlessExpectedLifetime({ baseHealth: 64, enemyClass: 'elite' }), 8.75);
 assert.equal(endlessExpectedLifetime({ baseHealth: 150, enemyClass: 'boss' }), 17.5);
+assert.equal(endlessDifficultyReferenceHealth({
+  definition: { maxHealth: 110 },
+  maxHealth: 742
+}), 110, '难度权重不应再次计入已经放大的实际生命');
+assert.equal(endlessDifficultyReferenceHealth({ maxHealth: 64 }), 64);
 
-assert.equal(endlessDifficultyDelta({
-  baseHealth: 18,
-  lifetime: 5,
-  expectedLifetime: 5,
-  enemyClass: 'normal'
-}), 0);
-assert.equal(endlessDifficultyDelta({
-  baseHealth: 18,
-  lifetime: 0.01,
-  expectedLifetime: 5,
-  enemyClass: 'normal'
-}), 0.168);
-assert.equal(endlessDifficultyDelta({
+assert.equal(endlessEnemyDifficultyValue({ baseHealth: 18, enemyClass: 'normal' }), 0.168);
+assert.equal(endlessEnemyDifficultyValue({ baseHealth: 90, enemyClass: 'normal' }), 0.84);
+assert.equal(endlessEnemyDifficultyValue({ baseHealth: 150, enemyClass: 'boss' }), 7);
+assert.equal(endlessDifficultyDelta({ baseHealth: 90, performanceMultiplier: 1 }), 0.84);
+assert.equal(endlessDifficultyDelta({ baseHealth: 90, performanceMultiplier: 2 }), 1.68);
+assert.equal(endlessDifficultyDelta({ baseHealth: 90, performanceMultiplier: -0.5 }), -0.42);
+
+assert.equal(endlessKillPerformanceDelta({ lifetime: 0, expectedLifetime: 5 }), 0.1);
+assert.equal(endlessKillPerformanceDelta({ lifetime: 2.5, expectedLifetime: 5 }), 0.05);
+assert.equal(endlessKillPerformanceDelta({ lifetime: 5, expectedLifetime: 5 }), 0);
+assert.equal(endlessKillPerformanceDelta({ lifetime: 7.5, expectedLifetime: 5 }), -0.025);
+assert.equal(endlessKillPerformanceDelta({ lifetime: 10, expectedLifetime: 5 }), -0.05);
+assert.equal(endlessKillPerformanceDelta({ lifetime: 20, expectedLifetime: 5 }), -0.05);
+assert.equal(applyEndlessPerformanceMultiplier(1, 0.1), 1.1);
+assert.equal(applyEndlessPerformanceMultiplier(0.05, -0.1), -0.05);
+assert.equal(endlessPlayerUnitDeathPerformanceDelta(), -0.1);
+
+assert.deepEqual(resolveEndlessEnemyDefeat({
   baseHealth: 90,
-  lifetime: 0.01,
+  lifetime: 0,
   expectedLifetime: 5,
-  enemyClass: 'normal'
-}), 0.84);
-assert.equal(endlessDifficultyDelta({
-  baseHealth: 150,
-  lifetime: 0.01,
-  expectedLifetime: 17.5,
-  enemyClass: 'boss'
-}), 7);
-assert(endlessDifficultyDelta({
-  baseHealth: 18,
-  lifetime: 10,
+  enemyClass: 'normal',
+  performanceMultiplier: 1
+}), {
+  performanceDelta: 0.1,
+  performanceMultiplier: 1.1,
+  enemyDifficulty: 0.84,
+  difficultyDelta: 0.924
+});
+assert.deepEqual(resolveEndlessEnemyDefeat({
+  baseHealth: 90,
+  lifetime: 0,
   expectedLifetime: 5,
-  enemyClass: 'normal'
-}) < 0);
-assert.equal(endlessDifficultyDelta({
-  baseHealth: 18,
-  lifetime: 10,
-  expectedLifetime: 5,
-  enemyClass: 'normal'
-}), -0.015);
+  enemyClass: 'normal',
+  performanceMultiplier: -0.4
+}), {
+  performanceDelta: 0.1,
+  performanceMultiplier: -0.3,
+  enemyDifficulty: 0.84,
+  difficultyDelta: -0.252
+});
 assert.equal(applyEndlessDifficulty(-0.25, -0.125), -0.37);
-assert.equal(endlessPlayerUnitDeathDifficultyDelta(2), -0.48);
-assert.equal(endlessPlayerUnitDeathDifficultyDelta(3), -0.72);
-assert.equal(endlessPlayerUnitDeathDifficultyDelta(-1), 0);
-assert.equal(applyEndlessDifficulty(2, endlessPlayerUnitDeathDifficultyDelta(3)), 1.28);
+
+{
+  let difficulty = 10;
+  let performanceMultiplier = 2;
+  for (let index = 0; index < 7; index += 1) {
+    const result = resolveEndlessEnemyDefeat({
+      baseHealth: 110,
+      lifetime: 0,
+      expectedLifetime: 10,
+      enemyClass: 'normal',
+      performanceMultiplier
+    });
+    performanceMultiplier = result.performanceMultiplier;
+    difficulty = applyEndlessDifficulty(difficulty, result.difficultyDelta);
+  }
+  assert(difficulty >= 26 && difficulty <= 30, `连续优势后的难度应平滑落在约 30，实际 ${difficulty}`);
+}
+
+{
+  let difficulty = 30;
+  let performanceMultiplier = -1;
+  for (let index = 0; index < 7; index += 1) {
+    const result = resolveEndlessEnemyDefeat({
+      baseHealth: 110,
+      lifetime: 20,
+      expectedLifetime: 10,
+      enemyClass: 'normal',
+      performanceMultiplier
+    });
+    performanceMultiplier = result.performanceMultiplier;
+    difficulty = applyEndlessDifficulty(difficulty, result.difficultyDelta);
+  }
+  assert(difficulty >= 20 && difficulty <= 24, `连续劣势后的难度不应瞬间塌陷，实际 ${difficulty}`);
+}
 
 assert.deepEqual(endlessEnemyStatFactors(0), { health: 1, damage: 1 });
 assert.deepEqual(endlessEnemyStatFactors(-100), { health: 0.1, damage: 0.1 });

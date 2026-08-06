@@ -39,6 +39,17 @@ export class CoopLobbySystem {
     this.hide();
   }
 
+  setController(controller) {
+    if (!controller || this.controller === controller) return;
+    // A completed co-op match disposes its controller so its RoomClient and
+    // Host bridge cannot leak into the next room. The lobby DOM is retained,
+    // therefore it must explicitly point at the fresh controller before the
+    // player creates or joins another room.
+    this.controller = controller;
+    this.notice = '';
+    this.joinRoomId = '';
+  }
+
   show(notice = '') {
     this.controller.prepareReconnectPrompt?.();
     if (notice) this.notice = notice;
@@ -197,7 +208,7 @@ export class CoopLobbySystem {
           <button type="button" class="coop-lobby-back" data-coop-action="back">← 返回</button>
           <div>
             <h1>合作联机</h1>
-            <p>多人 PvE · 共享营地 · 各自牌组/能量/银币 · Host 权威</p>
+            <p>多人 PvE · 共享公平牌组 · 各自能量/银币 · Host 权威</p>
           </div>
         </header>
         ${this.notice ? `<p class="coop-lobby-notice">${escapeHtml(this.notice)}</p>` : ''}
@@ -245,7 +256,9 @@ export class CoopLobbySystem {
                 <span>出战牌组</span>
                 <strong>默认全部已拥有卡牌（${this.getOwnedCardIds?.().length ?? 0} 张）</strong>
               </div>
-              <small>无需配置；每张牌在波次奖励中只能获得一次，发完后提示牌已发光。</small>
+              <small>${isEndlessMode(challengeMode)
+                ? '开局会合并全员牌组，并按无尽规则把所有卡统一为 Lv.1；每位玩家使用同一套结果。'
+                : '开局会合并全员牌组，并把每张牌统一为全员最高等级；每位玩家使用同一套结果。'}</small>
             </header>
           </section>
         ` : `
@@ -278,7 +291,7 @@ export class CoopLobbySystem {
               ? '无尽模式所有玩家卡牌入场统一为 Lv.1；难度从 0 开始并由 Host 按敌人首次受伤后的交战时间调整，任一基地被摧毁都会结算胜利。'
               : `本关基础金币：<strong>${Math.max(0, Number(createLevel?.baseReward) || 0)}</strong>。胜利后会再按难度、用时和个人奖励能力结算。`}</p>
             <button type="button" class="meta-menu-button coop-create-button" data-coop-action="create">创建房间</button>
-            <p class="coop-lobby-hint">关卡、模式与普通难度会在创建时由 Host 锁定；创建后每位玩家各自选择任意数量的出战牌，并至少带 1 张单位卡。</p>
+            <p class="coop-lobby-hint">关卡、模式与普通难度会在创建时由 Host 锁定；开局时会汇总全员已拥有卡牌并生成共享公平牌组。</p>
             <div class="coop-lobby-divider" role="separator"><span>或加入好友房间</span></div>
             <label class="coop-join-field">
               <span>房间号</span>
@@ -328,7 +341,7 @@ export class CoopLobbySystem {
         </header>
         <p class="coop-lobby-hint">${deckValidation.valid
           ? '牌组已满足出战要求。'
-          : escapeHtml(deckValidationMessage(deckValidation))} 双方牌组、能量、银币和奖励相互独立；奖励候选只从各自已确认的出战牌组生成。</p>
+          : escapeHtml(deckValidationMessage(deckValidation))} 开局会合并全员牌组并逐卡取最高等级；能量、银币和奖励选择仍各自独立。</p>
         <div class="meta-card-grid coop-deck-card-grid">
           ${ownedIds.map((id) => {
             const card = this.cardWithLevel?.(id) ?? { id, name: id, kind: 'card', level: 1 };

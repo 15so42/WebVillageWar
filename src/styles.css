@@ -314,6 +314,24 @@ body.is-meta-open .mobile-box-select-hint {
   gap: 0.8px;
 }
 
+.world-player-name {
+  max-width: 96px;
+  color: var(--hp-color);
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1.05;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow:
+    0 1px 0 #15110f,
+    1px 0 0 #15110f,
+    -1px 0 0 #15110f,
+    0 -1px 0 #15110f,
+    0 2px 3px rgba(0, 0, 0, 0.48);
+}
+
 .world-health-bar,
 .world-durability-bar {
   width: var(--status-bar-width);
@@ -2004,6 +2022,9 @@ body.is-run-shop-open .card-pile-dock {
 
 .ability-icon-row {
   min-height: 30px;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
   flex: 1 1 auto;
   display: flex;
   align-items: center;
@@ -2014,9 +2035,17 @@ body.is-run-shop-open .card-pile-dock {
   padding: 2px 3px 5px;
   scroll-snap-type: x proximity;
   scroll-padding-inline: 3px;
-  touch-action: pan-x pan-y;
+  touch-action: none;
   overscroll-behavior-x: contain;
   scrollbar-width: thin;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  pointer-events: auto;
+}
+
+.ability-icon-row.is-scroll-grabbing {
+  cursor: grabbing;
 }
 
 .ability-icon-row[hidden] {
@@ -4705,6 +4734,38 @@ body:not(.is-game-active) .mobile-action-dock {
 .meta-card-action:disabled {
   cursor: not-allowed;
   filter: grayscale(0.45) brightness(0.72);
+}
+
+/* Main-menu forged cards follow the compact battle-hand level treatment:
+   keep the card-kind icon, remove the crest, and reserve only the width needed
+   by the Roman numeral. Desktop cards retain the full crest. */
+@media (max-width: 900px) {
+  body.is-meta-open .meta-forged-hand-card .med-card-meta-row {
+    grid-template-columns: 17px minmax(0, 1fr) max-content !important;
+  }
+
+  body.is-meta-open .meta-forged-hand-card .med-card-meta-row .med-card-level {
+    width: auto !important;
+    min-width: 12px !important;
+    height: 17px !important;
+    padding-inline: 1px !important;
+  }
+
+  body.is-meta-open .meta-forged-hand-card .med-card-level-icon {
+    display: none !important;
+  }
+
+  body.is-meta-open .meta-forged-hand-card .med-card-level-roman {
+    display: block !important;
+    color: #eee7da;
+    font-family: var(--font-title);
+    font-size: 8px;
+    font-weight: 900;
+    line-height: 1;
+    letter-spacing: -0.04em;
+    white-space: nowrap;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.86);
+  }
 }
 
 .strategy-reward-option.meta-card {

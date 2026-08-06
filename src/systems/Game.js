@@ -37,13 +37,15 @@ import {
   cardUseBarMarkup,
   createCardArtMarkup,
   createForgedCardMarkup,
-  fitStrategyRewardCards
+  fitStrategyRewardCards,
+  toRomanNumeral
 } from './CardSystem.js';
 import { CombatSystem } from './CombatSystem.js';
 import { AttackSystem } from './AttackSystem.js';
 import { EffectsSystem } from './EffectsSystem.js';
 import { AltarSystem } from './AltarSystem.js';
 import { EnemyEnchantmentSystem } from './EnemyEnchantmentSystem.js';
+import { eliteOrBossInitialAttackModifiers } from './enemyForceRules.js';
 import { LevelMechanicSystem } from './LevelMechanicSystem.js';
 import { LootDropSystem } from './LootDropSystem.js';
 import { AttributeSet, bindAttributeGetter } from './AttributeSet.js';
@@ -58,24 +60,31 @@ import { PathfindingSystem } from './PathfindingSystem.js';
 import { TargetingSystem } from './TargetingSystem.js';
 import { UnitLogicSystem } from './UnitLogicSystem.js';
 import { UnitRegistry } from './UnitRegistry.js';
-import { shouldRestoreFreeRunShopUi } from './runShopUiState.js';
+import { shouldPauseRunShop, shouldRestoreFreeRunShopUi } from './runShopUiState.js';
 import { isRunShopCategoryAvailable, RUN_SHOP_CATEGORIES } from './runShopCatalog.js';
+import {
+  performSelfDestructAttacks,
+  performSelfDestructExplosion,
+  SELF_DESTRUCT_RADIUS
+} from './selfDestructRules.js';
 import { clamp, distance2D, polarOffset, seededRandom } from '../utils/math.js';
 import { calculateLevelReward } from '../utils/levelRewards.js';
 import { formatSupportAmount, targetCombatRadius } from './combatHelpers.js';
 import {
   applyEndlessDifficulty,
+  applyEndlessPerformanceMultiplier,
   calculateEndlessReward,
-  endlessDifficultyDelta,
   endlessEnchantCount,
   endlessEnchantLevel,
   endlessEnemyClass,
+  endlessDifficultyReferenceHealth,
   endlessEnemyStatFactors,
   endlessExpectedLifetime,
-  endlessPlayerUnitDeathDifficultyDelta,
+  endlessPlayerUnitDeathPerformanceDelta,
   isEndlessMode,
   normalizeChallengeMode,
-  resetEndlessDeckLevels
+  resetEndlessDeckLevels,
+  resolveEndlessEnemyDefeat
 } from './endlessMode.js';
 import {
   consumeBaseHealthLossMilestones,
@@ -128,6 +137,7 @@ const WAVE_DIFFICULTY_STEP_WAVES = 3;
 const WAVE_DIFFICULTY_GROWTH_PER_SELECTED_DIFFICULTY = 0.16;
 const STRATEGY_CHOICE_COUNT = 3;
 const STRATEGY_REWARD_REROLL_BASE_COST = 8;
+const STRATEGY_REWARD_REROLL_COST_INCREMENT = 12;
 const SILVER_GAIN_MULTIPLIER = 0.6;
 const FORCED_CARD_CHOICE_UNTIL_WAVE = 3;
 const OPENING_COMBAT_UNIT_CHOICES = 2;
@@ -263,6 +273,25 @@ const TEMPORARY_MANA_SURGE_CARD = {
   },
   color: '#b68cff'
 };
+const TEMPORARY_RUNE_EXPANSION_CARD = {
+  id: 'temporary-rune-expansion',
+  name: '扩容咒印',
+  kind: 'tactic',
+  label: '拓',
+  artKey: 'abilityEnchantEcho',
+  summary: '特殊临时牌。使一个友方单位的附魔槽上限永久 +1（消耗）。',
+  target: 'friendly-unit',
+  radius: 1.1,
+  cooldown: 0,
+  energyCost: 0,
+  uses: 1,
+  lootOnly: true,
+  effect: {
+    type: 'increase-enchantment-slots',
+    amount: 1
+  },
+  color: '#63e0c4'
+};
 const STRATEGY_REWARD_OPTION_DEFINITIONS = [
   {
     id: 'choose-summon-card',
@@ -347,6 +376,13 @@ const STRATEGY_REWARD_OPTION_DEFINITIONS = [
     title: '获得魔力涌动',
     description: '获得一张特殊临时牌：对目标随机进行 5 次 1 级附魔（消耗）。',
     temporaryCard: TEMPORARY_MANA_SURGE_CARD
+  },
+  {
+    id: 'temporary-rune-expansion-card',
+    action: 'grant-temporary-card',
+    title: '获得扩容咒印',
+    description: '获得一张特殊临时牌：使一个友方单位的附魔槽上限永久 +1（消耗）。',
+    temporaryCard: TEMPORARY_RUNE_EXPANSION_CARD
   }
 ];
 const SUMMON_DEPLOY_RADIUS = 7.5;
@@ -359,8 +395,6 @@ const STRUCTURE_HEALTH_LAG_DELAY = 0.4;
 const STRUCTURE_HEALTH_LAG_RAPID_DELAY = 0.08;
 const STRUCTURE_HEALTH_LAG_RAPID_WINDOW = 0.18;
 const SELF_DESTRUCT_ENCHANTMENT_ID = 'selfDestruct';
-const SELF_DESTRUCT_DAMAGE_PER_LEVEL = 4;
-const SELF_DESTRUCT_RADIUS = 2.65;
 const BASE_RECOVERY_PACT_ABILITY_ID = 'baseRecoveryPact';
 const BASE_RECOVERY_PACT_SOURCE = 'ability:base-recovery-pact';
 const BASE_RECOVERY_PACT_MAX_HEALTH_FACTOR = 0.6;
@@ -836,6 +870,7 @@ export class Game {
       ...(this.levelSession.level.enemyDirector ?? {})
     };
     this.endlessDifficulty = 0;
+    this.endlessPerformanceMultiplier = 1;
     this.waveSchedule = this.isEndlessMode()
       ? (this.networkClientMode ? [] : [createWaveConfig(this.levelSession, 1, this.endlessDifficulty)])
       : createWaveSchedule(this.levelSession);
@@ -873,6 +908,7 @@ export class Game {
     this.runShopPendingOffers = {};
     this.runShopActiveCategory = null;
     this.runShopChoices = [];
+    this.runShopCardScale = 1;
     this.runShopFreeReward = false;
     this.runShopAutoSelectSecondsRemaining = null;
     this.levelTestMode = false;
@@ -1230,6 +1266,13 @@ export class Game {
     if (this.destroyed) return;
     this.destroyed = true;
     this.stop();
+    // A result screen can replace a running match while a touch/drag gesture
+    // is still active. Clear every transient input capture so the next solo
+    // session does not inherit a frozen field or an invisible selection drag.
+    this.cancelCameraDrag();
+    this.cancelSelectionDrag();
+    this.cancelTouchGesture();
+    this.activeTouchPointers.clear();
     this.setMobileBoxSelectMode(false);
     this.eventController.abort();
     this.cardSystem?.destroy?.();
@@ -1238,6 +1281,7 @@ export class Game {
     this.enemyEnchantment?.destroy?.();
     this.areaEffects?.destroy?.();
     this.levelMechanics?.destroy?.();
+    this.unitRegistry?.destroy?.();
     this.attacks?.destroy?.();
     this.combat?.destroy?.();
     this.effects?.destroy?.();
@@ -1262,8 +1306,10 @@ export class Game {
       'is-game-paused',
       'is-strategy-event-open',
       'is-run-shop-open',
-      'is-battle-debug-open'
+      'is-battle-debug-open',
+      'is-mobile-box-select-active'
     );
+    this.canvas.classList.remove('is-camera-dragging');
     if (this.dom.settingsButton) this.dom.settingsButton.hidden = true;
     if (this.runShopUi?.toggle) this.runShopUi.toggle.hidden = true;
     if (this.dom.fpsMeter) this.dom.fpsMeter.hidden = true;
@@ -1274,6 +1320,8 @@ export class Game {
     this.canvas.style.filter = '';
     this.guardVisuals.forEach((visuals) => {
       this.scene.remove(visuals.flag, visuals.rangeRing);
+      disposeObject3D(visuals.flag);
+      disposeObject3D(visuals.rangeRing);
     });
     this.guardVisuals.clear();
     this.worldUi.innerHTML = '';
@@ -1626,14 +1674,27 @@ export class Game {
       this.strategyEvent.autoSelectSecondsRemaining = normalized;
     }
     if (options.render) {
-      if (this.strategyEvent && this.strategyEventUi?.root && !this.strategyEventUi.root.hidden) {
-        this.renderStrategyEvent();
-      } else {
-        this.updateCoopRewardWaitingSummary();
-      }
-      if (this.runShopOpen) this.renderRunShop();
+      this.updateCoopRewardCountdownUi();
     }
     return true;
+  }
+
+  updateCoopRewardCountdownUi() {
+    if (this.strategyEvent && this.strategyEventUi?.root && !this.strategyEventUi.root.hidden) {
+      const summary = appendCoopRewardCountdown(
+        this.strategyEvent.summary ?? '',
+        this.strategyEvent.autoSelectSecondsRemaining ?? this.coopRewardAutoSelectSecondsRemaining,
+        '超时将自动选择一项。'
+      );
+      if (this.strategyEventUi.summary) {
+        this.strategyEventUi.summary.textContent = summary;
+        this.strategyEventUi.summary.hidden = !summary;
+      }
+    }
+    this.updateCoopRewardWaitingSummary();
+    if (this.runShopOpen && this.runShopFreeReward && this.runShopUi?.kicker) {
+      this.runShopUi.kicker.textContent = `Boss 战利 #${this.bossesDefeated} · 免费一次${formatCoopRewardCountdownSuffix(this.runShopAutoSelectSecondsRemaining)}`;
+    }
   }
 
   publishCoopRewardCountdown(force = false) {
@@ -1758,7 +1819,6 @@ export class Game {
     this.coopPlayerSlots().forEach((slot) => {
       let hasEvent = false;
       this.withPlayerContext(slot, () => {
-        this.strategyRewardRerollCount = 0;
         let event = this.createStrategyEvent(type, options);
         if (!event?.choices?.length && type === 'wave-reward') {
           // 发牌池耗尽：仍进入奖励阶段并显示"牌已发光"，等待其他玩家选完
@@ -2224,6 +2284,11 @@ export class Game {
       const shopState = state.runShopState ?? state.runShopUi ?? {};
       const wasFreeReward = this.runShopFreeReward;
       this.runShopFreeReward = Boolean(shopState.freeReward);
+      if (shopState.prices && typeof shopState.prices === 'object') {
+        this.shopPrices = { ...this.shopPrices, ...shopState.prices };
+        const localRun = this.players?.[this.localPlayerSlot];
+        if (localRun) localRun.shopPrices = this.shopPrices;
+      }
       this.runShopActiveCategory = shopState.activeCategory ?? null;
       this.runShopChoices = (shopState.choices ?? []).map((choice) => ({
         ...choice,
@@ -2255,11 +2320,9 @@ export class Game {
       }
     }
     if (receivedRewardCountdown) {
-      if (this.strategyEvent && this.strategyEventUi?.root && !this.strategyEventUi.root.hidden) {
-        this.renderStrategyEvent();
-      }
-      if (this.runShopOpen) this.renderRunShop();
-      this.updateCoopRewardWaitingSummary();
+      // 倒计时每秒变化时只更新文字。重建 choices.innerHTML 会替换正在接收
+      // pointer/click 的按钮节点，导致波次奖励和免费军需铺偶发点击失效。
+      this.updateCoopRewardCountdownUi();
     }
   }
 
@@ -2310,8 +2373,8 @@ export class Game {
         return { ok: false, reason: '牌组中没有可操作的卡牌' };
       }
     }
-    if (category === 'unit' && !this.runShopOwnedCards().some((card) => card.kind === 'summon')) {
-      return { ok: false, reason: '牌组中没有可获取的单位卡' };
+    if (category === 'unit' && !this.waveRewardCardPool().length) {
+      return { ok: false, reason: '剩余波次奖励牌组已用完' };
     }
     if (category === 'energy') {
       const maxEnergy = Number(BALANCE.playerEnergy?.max) || 12;
@@ -2346,12 +2409,40 @@ export class Game {
     ui.overlay.addEventListener('click', (event) => this.onRunShopClick(event), { signal });
     ui.overlay.addEventListener('pointerdown', stopUiPropagation, { signal });
     ui.overlay.addEventListener('contextmenu', stopUiEvent, { signal });
+    ui.cardScaleInput?.addEventListener('input', (event) => {
+      event.stopPropagation();
+      const percent = clamp(Number(event.currentTarget.value) || 100, 55, 100);
+      this.runShopCardScale = percent / 100;
+      this.syncRunShopCardScaleUi(true);
+    }, { signal });
+    ui.cardScaleInput?.addEventListener('pointerdown', stopUiPropagation, { signal });
     ui.toggle?.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
       this.toggleRunShop();
     }, { signal });
     ui.toggle?.addEventListener('pointerdown', stopUiPropagation, { signal });
+  }
+
+  syncRunShopCardScaleUi(visible = false) {
+    const scale = clamp(Number(this.runShopCardScale) || 1, 0.55, 1);
+    const percent = Math.round(scale * 100);
+    if (this.runShopUi.cardScaleControl) this.runShopUi.cardScaleControl.hidden = !visible;
+    if (this.runShopUi.cardScaleInput) this.runShopUi.cardScaleInput.value = String(percent);
+    if (this.runShopUi.cardScaleValue) {
+      this.runShopUi.cardScaleValue.value = `${percent}%`;
+      this.runShopUi.cardScaleValue.textContent = `${percent}%`;
+    }
+    const choiceList = this.runShopUi.choiceList;
+    if (!choiceList) return;
+    choiceList.classList.toggle('is-scalable-card-picker', visible);
+    choiceList.style?.setProperty?.('--run-shop-card-scale', String(scale));
+    choiceList.style?.setProperty?.('--run-shop-card-width', `${184 * scale}px`);
+    choiceList.style?.setProperty?.('--run-shop-card-height', `${290 * scale}px`);
+    choiceList.style?.setProperty?.('--run-shop-mobile-card-width', `${145 * scale}px`);
+    choiceList.style?.setProperty?.('--run-shop-mobile-card-height', `${229 * scale}px`);
+    choiceList.style?.setProperty?.('--run-shop-card-column-gap', `${10 * scale}px`);
+    choiceList.style?.setProperty?.('--run-shop-card-row-gap', `${12 * scale}px`);
   }
 
   toggleRunShop() {
@@ -2417,7 +2508,10 @@ export class Game {
     this.runShopUi.toggle?.classList.add('is-active');
     this.runShopUi.root?.classList.toggle('is-free-reward', this.runShopFreeReward);
     document.body.classList.add('is-run-shop-open');
-    if (this.runShopFreeReward && !this.paused) {
+    if (shouldPauseRunShop({
+      coopEnabled: this.coop?.enabled === true,
+      alreadyPaused: this.paused
+    })) {
       this.runShopCausedPause = true;
       this.paused = true;
       this.cancelCameraDrag();
@@ -2504,14 +2598,31 @@ export class Game {
       this.cardSystem?.setHint?.('银币不足', 'run-shop');
       return false;
     }
-    let choices = categoryMeta?.picker ? null : this.runShopPendingOffers[category];
+    const prepaidRefresh = !isFree && categoryMeta.prepaidChoices === true;
+    let choices = categoryMeta?.picker || prepaidRefresh
+      ? null
+      : this.runShopPendingOffers[category];
     if (!choices?.length) {
       choices = this.createShopChoicesForCategory(category);
       if (!choices.length) return false;
-      if (!categoryMeta?.picker) {
+      if (!categoryMeta?.picker && !prepaidRefresh) {
         choices = choices.slice(0, STRATEGY_CHOICE_COUNT);
         this.runShopPendingOffers[category] = choices;
       }
+    }
+    if (prepaidRefresh) {
+      this.setSilver(this.getSilver() - price);
+      this.shopPrices[category] = price + this.shopPriceIncrement();
+      delete this.runShopPendingOffers[category];
+      choices = choices.slice(0, STRATEGY_CHOICE_COUNT).map((choice) => ({
+        ...choice,
+        prepaid: true,
+        prepaidPrice: price
+      }));
+      this.cardSystem?.setHint?.(
+        `已支付 ${formatSilverAmount(price)} 银币，请三选一；返回或关闭不退款`,
+        'run-shop'
+      );
     }
     this.runShopActiveCategory = category;
     this.runShopChoices = choices;
@@ -2524,8 +2635,11 @@ export class Game {
     const category = this.runShopActiveCategory;
     if (!category || !choice || !isRunShopCategoryAvailable(category)) return false;
     const isFree = this.runShopFreeReward;
-    const price = this.shopPrice(category);
-    if (!isFree && this.getSilver() + 0.001 < price) {
+    const isPrepaid = !isFree && choice.prepaid === true;
+    const price = isPrepaid
+      ? Math.max(0, Number(choice.prepaidPrice) || 0)
+      : this.shopPrice(category);
+    if (!isFree && !isPrepaid && this.getSilver() + 0.001 < price) {
       this.cardSystem?.setHint?.('银币不足', 'run-shop');
       return false;
     }
@@ -2533,17 +2647,19 @@ export class Game {
       this.cardSystem?.setHint?.('购买失败，请重试', 'run-shop');
       return false;
     }
-    if (!isFree) {
+    if (!isFree && !isPrepaid) {
       this.setSilver(this.getSilver() - price);
       if (category !== 'energy') {
         this.shopPrices[category] = price + this.shopPriceIncrement();
         delete this.runShopPendingOffers[category];
       }
-    } else {
+    } else if (isFree) {
       delete this.runShopPendingOffers[category];
     }
     this.cardSystem?.setHint?.(
-      `${choice.title ?? '商品'} 已购入${isFree ? '' : `，-${formatSilverAmount(price)} 银币`}`,
+      `${choice.title ?? '商品'} 已获得${isFree ? '' : isPrepaid
+        ? `（本次刷新已支付 ${formatSilverAmount(price)} 银币）`
+        : `，-${formatSilverAmount(price)} 银币`}`,
       'run-shop'
     );
     this.runShopActiveCategory = null;
@@ -2583,6 +2699,7 @@ export class Game {
 
   renderRunShop() {
     if (!this.isLocalEconomyContext() || !this.runShopOpen || !this.runShopUi?.root) return;
+    const previousRenderedCategory = this.runShopUi.renderedCategory ?? null;
     if (this.runShopUi.silver) {
       this.runShopUi.silver.textContent = formatSilverAmount(this.getSilver());
     }
@@ -2592,6 +2709,9 @@ export class Game {
       const isCatalogPicker = Boolean(categoryMeta?.catalogPicker);
       const useAttributeTrainingStyle = this.runShopActiveCategory === 'attribute';
       const useSpecializationStyle = this.runShopActiveCategory === 'trait';
+      const useTemporaryStyle = this.runShopActiveCategory === 'temporary';
+      const useCompactThreeChoiceLayout = useAttributeTrainingStyle || useSpecializationStyle || useTemporaryStyle;
+      const useScalableCardPicker = ['copy', 'remove', 'upgrade'].includes(this.runShopActiveCategory);
       const useWaveRewardStyle = runShopCategoryUsesWaveRewardCards(this.runShopActiveCategory);
       const useCardPresentation = useAttributeTrainingStyle || useSpecializationStyle || useWaveRewardStyle;
       const useCardFaceGrid = isPicker || isCatalogPicker || useCardPresentation;
@@ -2601,6 +2721,8 @@ export class Game {
       if (this.runShopUi.kicker) {
         this.runShopUi.kicker.textContent = this.runShopFreeReward
           ? `Boss 战利 #${this.bossesDefeated} · 免费一次${formatCoopRewardCountdownSuffix(this.runShopAutoSelectSecondsRemaining)}`
+          : categoryMeta?.prepaidChoices
+            ? '军需铺 · 已付费随机三选一 · 返回不退款'
           : isCatalogPicker
             ? '军需铺 · 已有卡牌 · 选定后立即购买'
             : '军需铺 · 选定后立即购买';
@@ -2613,6 +2735,9 @@ export class Game {
       this.runShopUi.choiceList?.classList.toggle('is-horizontal-row', useHorizontalRow);
       this.runShopUi.choiceList?.classList.toggle('is-training-card-picker', useAttributeTrainingStyle);
       this.runShopUi.choiceList?.classList.toggle('is-specialization-card-picker', useSpecializationStyle);
+      this.runShopUi.choiceList?.classList.toggle('is-temporary-card-picker', useTemporaryStyle);
+      this.runShopUi.choiceList?.classList.toggle('is-compact-three-choice-picker', useCompactThreeChoiceLayout);
+      this.syncRunShopCardScaleUi(useScalableCardPicker);
       if (this.runShopUi.choiceList) {
         this.runShopUi.choiceList.innerHTML = this.runShopChoices
           .map((choice, index) => runShopChoiceMarkup(choice, index, {
@@ -2623,6 +2748,11 @@ export class Game {
           }))
           .join('');
         fitStrategyRewardCards(this.runShopUi.choiceList);
+      }
+      this.runShopUi.renderedCategory = this.runShopActiveCategory;
+      if (previousRenderedCategory !== this.runShopActiveCategory) {
+        this.runShopUi.root.scrollTop = 0;
+        if (this.runShopUi.choiceList) this.runShopUi.choiceList.scrollTop = 0;
       }
       if (this.runShopUi.skip) this.runShopUi.skip.hidden = true;
       return;
@@ -2650,10 +2780,16 @@ export class Game {
       'is-catalog-picker',
       'is-horizontal-row',
       'is-training-card-picker',
-      'is-specialization-card-picker'
+      'is-specialization-card-picker',
+      'is-temporary-card-picker',
+      'is-compact-three-choice-picker',
+      'is-scalable-card-picker'
     );
+    this.syncRunShopCardScaleUi(false);
     if (this.runShopUi.choices) this.runShopUi.choices.hidden = true;
     if (this.runShopUi.choiceList) this.runShopUi.choiceList.innerHTML = '';
+    this.runShopUi.renderedCategory = null;
+    if (previousRenderedCategory !== null) this.runShopUi.root.scrollTop = 0;
   }
 
   onRunShopClick(event) {
@@ -2853,17 +2989,15 @@ export class Game {
       return this.createRunShopOwnedPickerChoices('copy-card', '复制卡牌', '复制一张加入牌组。');
     }
     if (category === 'unit') {
-      // 从已有单位卡中选一张，复制加入抽牌堆；与普通单位卡一样只能召唤一次。
-      return this.runShopOwnedCards()
-        .filter((card) => card.kind === 'summon')
-        .map((card) => ({
-          action: 'add-card',
-          actionLabel: '获得单位',
-          title: card.name,
-          description: card.summary ?? '',
-          card,
-          targetCard: card
-        }));
+      return this.weightedCardChoices({
+        pool: this.waveRewardCardPool(),
+        action: 'add-card',
+        actionLabel: '获得卡牌',
+        wave
+      }).map((choice) => ({
+        ...choice,
+        rewardSource: 'wave-reward-deck'
+      }));
     }
     if (category === 'remove') {
       return this.createRunShopOwnedPickerChoices('remove-card', '移除卡牌', '移出本局全部同名卡牌。');
@@ -2930,6 +3064,7 @@ export class Game {
   }
 
   createStrategyEvent(type, options = {}) {
+    this.resetStrategyRewardRerollForEvent(type);
     if (type === 'opening-unit') {
       const summonPool = this.selectedCardPool({ kind: 'summon' });
       return {
@@ -3139,6 +3274,14 @@ export class Game {
     const index = remaining.indexOf(cardId);
     if (index < 0) return false;
     remaining.splice(index, 1);
+    const cachedUnitOffers = this.runShopPendingOffers?.unit;
+    if (cachedUnitOffers?.some((choice) => (
+      (choice?.card?.id ?? choice?.card?.cardDefinitionId) === cardId
+    ))) {
+      // 免费军需奖励会保留当前三选一。若其他奖励先消耗了其中一张，
+      // 必须废弃整组报价，避免仍选到已经离池的卡牌。
+      delete this.runShopPendingOffers.unit;
+    }
     const slot = this.activeEconomySlot ?? this.localPlayerSlot;
     this.networkBridge?.markPrivateStateDirty?.(slot);
     return true;
@@ -3488,7 +3631,12 @@ export class Game {
   }
 
   runShopOwnedCards() {
-    return this.uniqueRuntimeCards();
+    const seen = new Set();
+    return (this.cardSystem?.runShopCards?.() ?? []).filter((card) => {
+      if (!card?.id || seen.has(card.id)) return false;
+      seen.add(card.id);
+      return true;
+    }).sort((a, b) => cardSortKey(a).localeCompare(cardSortKey(b), 'zh-Hans-CN'));
   }
 
   createRunShopOwnedPickerChoices(action, actionLabel, descriptionSuffix) {
@@ -3589,7 +3737,12 @@ export class Game {
   }
 
   getStrategyRewardRerollCost() {
-    return STRATEGY_REWARD_REROLL_BASE_COST * (2 ** Math.max(0, this.strategyRewardRerollCount ?? 0));
+    return STRATEGY_REWARD_REROLL_BASE_COST
+      + STRATEGY_REWARD_REROLL_COST_INCREMENT * Math.max(0, this.strategyRewardRerollCount ?? 0);
+  }
+
+  resetStrategyRewardRerollForEvent(type) {
+    if (type === 'wave-reward') this.strategyRewardRerollCount = 0;
   }
 
   canSpendCoins(amount) {
@@ -3660,7 +3813,7 @@ export class Game {
       >
         <span class="strategy-event-action-label">重新随机</span>
         <strong>${rerollCost} 金币</strong>
-        <small>已刷新 ${rerollCount} 次，下次费用翻倍</small>
+        <small>已刷新 ${rerollCount} 次，下次费用 +${STRATEGY_REWARD_REROLL_COST_INCREMENT}</small>
       </button>
       <button class="strategy-event-action is-skip" type="button" data-strategy-action="skip">
         <span class="strategy-event-action-label">放弃奖励</span>
@@ -4342,6 +4495,18 @@ export class Game {
     const colorIndex = this.playerColorIndexFor(playerId, explicitIndex);
     unit.playerColorIndex = colorIndex;
     unit.statusElement.dataset.playerColorIndex = String(colorIndex);
+    this.applyUnitPlayerName(unit);
+  }
+
+  applyUnitPlayerName(unit) {
+    const label = unit?.statusElement?.parts?.playerName;
+    if (!label) return;
+    const playerId = unit.controllerPlayerId ?? unit.ownerPlayerId;
+    const playerName = this.coop?.enabled
+      ? resolveUnitPlayerName(this.levelSession, playerId)
+      : '';
+    label.textContent = playerName;
+    label.hidden = playerName.length === 0;
   }
 
   playerColorIndexFor(playerId, explicitIndex = null) {
@@ -4655,37 +4820,32 @@ export class Game {
       unit?.hasEnchantment?.(SELF_DESTRUCT_ENCHANTMENT_ID) !== true ||
       !unit.position
     ) return false;
-    const level = Math.max(1, Math.floor(unit.enchantments?.get(SELF_DESTRUCT_ENCHANTMENT_ID)?.level ?? 1));
-    const damage = level * SELF_DESTRUCT_DAMAGE_PER_LEVEL;
-    const targets = unit.team === TEAMS.PLAYER ? this.enemyUnits : this.friendlyUnits;
-    let hitCount = 0;
-    targets.forEach((target) => {
-      if (!target?.alive || !target.position) return;
-      if (distance2D(unit.position, target.position) > SELF_DESTRUCT_RADIUS) return;
-      const context = {
+    const enchantment = unit.enchantments?.get?.(SELF_DESTRUCT_ENCHANTMENT_ID);
+    const level = Math.max(1, Math.floor(enchantment?.level ?? 1));
+    const attackHitCount = performSelfDestructAttacks(unit, this, (source, target, options) =>
+      this.combat.applyAttack(source, target, options)
+    );
+    const explosionHitCount = performSelfDestructExplosion(
+      unit,
+      this,
+      level,
+      (source, target, damage, options) => this.combat.applyDamage(target, damage, source, 0, {
+        ...options,
         damage,
-        source: unit,
+        source,
         target,
         defenseDamageType: 'physical',
-        damageTypes: new Set(),
-        isAttack: true,
-        isExplosionDamage: true,
-        allowDeadSource: true,
-        damageNumberHeight: target.projectileHitHeight ?? 1.45,
-        damageNumberDuration: 0.66
-      };
-      if (!this.combat.applyDamage(target, damage, unit, 0, context)) return;
-      hitCount += 1;
-      this.buffs?.runBuffEffects?.(unit, 'afterDamage', context);
-    });
-    this.effects.spawnRing(unit.position, '#ff784f', SELF_DESTRUCT_RADIUS, 0.52);
-    this.effects.spawnDeathBurst(unit.position, SELF_DESTRUCT_RADIUS * 0.72);
+        isAttack: false,
+        damageTypes: new Set(['selfDestruct'])
+      })
+    );
+    this.effects.spawnSelfDestructExplosion(unit.position, SELF_DESTRUCT_RADIUS);
     this.effects.spawnHit({
       x: unit.position.x,
       y: (unit.position.y ?? 0) + 0.82,
       z: unit.position.z
     }, '#ff784f');
-    return hitCount > 0;
+    return attackHitCount > 0 || explosionHitCount > 0;
   }
 
   createRebirthSnapshot(unit, level = 1) {
@@ -4797,9 +4957,13 @@ export class Game {
     unit.endlessCombatStartedAt = null;
     unit.endlessFirstAttackerId = null;
     unit.endlessEnemyClass = enemyClass;
-    unit.endlessDifficultyBaseHealth = Math.max(0.01, unit.maxHealth ?? unit.definition?.maxHealth ?? 0);
+    // 难度权重必须使用单位原始生命。若把已经受无尽难度和联机倍率放大的
+    // maxHealth 再用于击杀结算，会形成“难度 -> 血量 -> 单次难度收益”的正反馈，
+    // 导致难度增长和回落都越来越突然。
+    unit.endlessDifficultyBaseHealth = endlessDifficultyReferenceHealth(unit);
     unit.endlessExpectedLifetime = endlessExpectedLifetime({
-      baseHealth: unit.endlessDifficultyBaseHealth,
+      // 击杀快慢仍按实际生命衡量，保证高难度敌人拥有合理的预期交战时间。
+      baseHealth: unit.maxHealth ?? unit.endlessDifficultyBaseHealth,
       enemyClass
     });
   }
@@ -4838,13 +5002,15 @@ export class Game {
       !Number.isFinite(unit.endlessCombatStartedAt)
       || !Number.isFinite(unit.endlessExpectedLifetime)
     ) return;
-    const delta = endlessDifficultyDelta({
+    const result = resolveEndlessEnemyDefeat({
       baseHealth: unit.endlessDifficultyBaseHealth ?? unit.maxHealth ?? unit.definition?.maxHealth,
       lifetime: Math.max(0, this.elapsedTime - unit.endlessCombatStartedAt),
       expectedLifetime: unit.endlessExpectedLifetime,
-      enemyClass: unit.endlessEnemyClass ?? endlessEnemyClass(unit)
+      enemyClass: unit.endlessEnemyClass ?? endlessEnemyClass(unit),
+      performanceMultiplier: this.endlessPerformanceMultiplier
     });
-    this.applyEndlessDifficultyChange(delta);
+    this.endlessPerformanceMultiplier = result.performanceMultiplier;
+    this.applyEndlessDifficultyChange(result.difficultyDelta, { forceHud: true });
   }
 
   updateEndlessDifficultyForPlayerUnitDeath(unit) {
@@ -4853,15 +5019,22 @@ export class Game {
       || unit?.isSilentRemoval
       || unit.underConstruction
     ) return;
-    const cost = playerUnitDeathDifficultyCost(unit);
-    const delta = endlessPlayerUnitDeathDifficultyDelta(cost);
-    if (delta === 0) return;
-    this.applyEndlessDifficultyChange(delta);
+    this.endlessPerformanceMultiplier = applyEndlessPerformanceMultiplier(
+      this.endlessPerformanceMultiplier,
+      endlessPlayerUnitDeathPerformanceDelta()
+    );
+    this.hudUpdateTimer = 0;
+    this.updateHud(0);
   }
 
-  applyEndlessDifficultyChange(delta) {
-    if (!Number.isFinite(Number(delta)) || Number(delta) === 0) return;
-    this.endlessDifficulty = applyEndlessDifficulty(this.endlessDifficulty, delta);
+  applyEndlessDifficultyChange(delta, { forceHud = false } = {}) {
+    const change = Number(delta);
+    if (!Number.isFinite(change)) return;
+    if (change !== 0) {
+      this.endlessDifficulty = applyEndlessDifficulty(this.endlessDifficulty, change);
+    } else if (!forceHud) {
+      return;
+    }
     this.hudUpdateTimer = 0;
     this.updateHud(0);
   }
@@ -5319,6 +5492,7 @@ export class Game {
       unit.attributes.addModifiers([
         { stat: 'maxHealth', type: 'multiply', amount: (eliteScale.eliteHealthMultiply ?? 1.45) * 0.5 },
         { stat: 'maxShield', type: 'multiply', amount: (eliteScale.eliteHealthMultiply ?? 1.45) * 0.5 },
+        ...eliteOrBossInitialAttackModifiers(),
         { stat: 'attackPower', type: 'multiply', amount: eliteScale.eliteDamageMultiply ?? 1.16 }
       ], `force:${waveConfig.id ?? waveConfig.index ?? 0}:elite`);
       unit.health = unit.maxHealth;
@@ -5348,6 +5522,7 @@ export class Game {
           type: 'multiply',
           amount: (bossScale.bossShieldBase ?? 1.95) + bossRank * (bossScale.bossShieldPerRank ?? 0.2)
         },
+        ...eliteOrBossInitialAttackModifiers(),
         {
           stat: 'attackPower',
           type: 'multiply',
@@ -7432,6 +7607,8 @@ export class Game {
       const visuals = this.guardVisuals.get(unit);
       if (visuals) {
         this.scene.remove(visuals.flag, visuals.rangeRing);
+        disposeObject3D(visuals.flag);
+        disposeObject3D(visuals.rangeRing);
         this.guardVisuals.delete(unit);
       }
       return;
@@ -7737,8 +7914,11 @@ export class Game {
       this.dom.silverCount.textContent = formatSilverAmount(this.getSilver());
     }
     if (this.isEndlessMode()) {
-      if (this.dom.battleTimeLabel) this.dom.battleTimeLabel.textContent = '难度值';
-      this.dom.battleTime.textContent = Number(this.endlessDifficulty || 0).toFixed(1);
+      if (this.dom.battleTimeLabel) this.dom.battleTimeLabel.textContent = '难度 / 表现';
+      const performanceMultiplier = Number.isFinite(Number(this.endlessPerformanceMultiplier))
+        ? Number(this.endlessPerformanceMultiplier)
+        : 1;
+      this.dom.battleTime.textContent = `${Number(this.endlessDifficulty || 0).toFixed(1)} ×${performanceMultiplier.toFixed(2)}`;
       this.dom.battleTime.closest('.meter-time')?.classList.remove('is-expired');
     } else {
       if (this.dom.battleTimeLabel) this.dom.battleTimeLabel.textContent = '目标剩余';
@@ -9374,6 +9554,12 @@ function ensureRunShopUi(existing = null) {
     overlay.innerHTML = RUN_SHOP_OVERLAY_INNER_HTML;
     root = overlay.querySelector('#run-shop-panel');
   }
+  if (!root?.querySelector('#run-shop-card-scale-control')) {
+    root?.querySelector('#run-shop-choice-list')?.insertAdjacentHTML(
+      'beforebegin',
+      RUN_SHOP_CARD_SCALE_CONTROL_HTML
+    );
+  }
   return {
     overlay,
     root,
@@ -9384,9 +9570,19 @@ function ensureRunShopUi(existing = null) {
     services: root?.querySelector('#run-shop-services'),
     skip: root?.querySelector('#run-shop-skip'),
     choices: root?.querySelector('#run-shop-choices'),
+    cardScaleControl: root?.querySelector('#run-shop-card-scale-control'),
+    cardScaleInput: root?.querySelector('#run-shop-card-scale'),
+    cardScaleValue: root?.querySelector('#run-shop-card-scale-value'),
     choiceList: root?.querySelector('#run-shop-choice-list')
   };
 }
+
+const RUN_SHOP_CARD_SCALE_CONTROL_HTML = `
+  <label id="run-shop-card-scale-control" class="run-shop-card-scale-control" hidden>
+    <span>卡牌大小 <output id="run-shop-card-scale-value" for="run-shop-card-scale">100%</output></span>
+    <input id="run-shop-card-scale" type="range" min="55" max="100" step="5" value="100" aria-label="卡牌大小" />
+  </label>
+`;
 
 const RUN_SHOP_OVERLAY_INNER_HTML = `
   <section id="run-shop-panel" class="run-shop-panel" aria-label="军需铺" tabindex="-1">
@@ -9402,6 +9598,7 @@ const RUN_SHOP_OVERLAY_INNER_HTML = `
     <button id="run-shop-skip" class="run-shop-skip" type="button" hidden>跳过奖励，继续出征</button>
     <div id="run-shop-choices" class="run-shop-choices" hidden>
       <button id="run-shop-back" class="run-shop-back" type="button">← 返回服务列表</button>
+      ${RUN_SHOP_CARD_SCALE_CONTROL_HTML}
       <div id="run-shop-choice-list" class="run-shop-choice-list"></div>
     </div>
   </section>
@@ -9541,7 +9738,7 @@ function runShopChoiceUsesCardFace(choice) {
 function runShopCardFaceInnerMarkup(card) {
   return `
     <div class="card-cost">${cardEnergyCost(card)}</div>
-    <div class="card-level">Lv.${card.level ?? 1}</div>
+    <div class="card-level">${toRomanNumeral(card.level)}</div>
     ${cardUseBarMarkup(card)}
     <div class="card-face">
       <div class="card-header">
@@ -10297,22 +10494,6 @@ function assignUnitSourceCard(unit, card) {
   if (!unit || !card) return;
   unit.sourceCardId = card.cardDefinitionId ?? card.id ?? unit.sourceCardId ?? null;
   unit.sourceCardEnergyCost = Math.max(0, finiteNumber(cardEnergyCost(card), 0));
-}
-
-function playerUnitDeathDifficultyCost(unit) {
-  const recordedCost = finiteNumber(unit?.sourceCardEnergyCost, null);
-  if (recordedCost !== null) return Math.max(0, recordedCost);
-  const sourceCardId = unit?.sourceCardId;
-  const sourceCard = sourceCardId
-    ? CARD_DEFINITIONS.find((card) => card.id === sourceCardId)
-    : null;
-  if (sourceCard) return Math.max(0, finiteNumber(cardEnergyCost(sourceCard), 0));
-  const fallbackCard = CARD_DEFINITIONS.find((card) => (
-    (card.kind === 'summon' || card.kind === 'building') &&
-    card.unitType === unit?.type
-  ));
-  if (!fallbackCard) return 0;
-  return Math.max(0, finiteNumber(cardEnergyCost(fallbackCard), 0));
 }
 
 function smoothstep01(value, edge0 = 0, edge1 = 1) {
@@ -11279,4 +11460,12 @@ function setupStructureBody(structure, model, { collisionRadius, attackRadius })
   structure.shakeTime = 0;
   structure.shakeDuration = 0;
   structure.shakeStrength = 0;
+}
+
+export function resolveUnitPlayerName(levelSession, playerId) {
+  if (!playerId) return '';
+  const sessionName = levelSession?.players?.[playerId]?.name;
+  const descriptorName = levelSession?.matchRules?.players
+    ?.find((player) => player?.playerId === playerId)?.name;
+  return String(sessionName ?? descriptorName ?? '').trim();
 }

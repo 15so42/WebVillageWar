@@ -51,14 +51,14 @@ export const UNIT_SPECIAL_UPGRADES = {
       id: 'swordsman-sunder',
       kind: 'unit-special',
       name: '破甲斩',
-      summary: '普通攻击使目标短时间护甲 -1。',
+      summary: '普通攻击使目标护甲 -3，持续 3 秒。',
       trait: 'sunderArmor'
     },
     {
       id: 'swordsman-flurry',
       kind: 'unit-special',
       name: '连击',
-      summary: '普通攻击有 22% 概率追加一次 100% 物理伤害。',
+      summary: '普通攻击有 45% 概率追加一次以结算前伤害为基础的 100% 物理伤害。',
       trait: 'flurryStrike'
     }
   ],
@@ -67,14 +67,14 @@ export const UNIT_SPECIAL_UPGRADES = {
       id: 'raider-warcry',
       kind: 'unit-special',
       name: '战吼',
-      summary: '攻击时附近每有一个敌人，伤害 +1，没有上限。',
+      summary: '攻击时 10 范围内每有一个敌人，伤害 +1，没有上限。',
       trait: 'warcryDamage'
     },
     {
       id: 'raider-intimidate',
       kind: 'unit-special',
       name: '破胆',
-      summary: '普通攻击有 30% 概率使目标物理与魔法攻击力 -4。',
+      summary: '普通攻击必定使目标物理与魔法攻击力 -4。',
       trait: 'intimidate'
     }
   ],
@@ -90,7 +90,7 @@ export const UNIT_SPECIAL_UPGRADES = {
       id: 'berserker-cleave',
       kind: 'unit-special',
       name: '旋斩',
-      summary: '普通攻击必定对目标周围敌人造成溅射伤害。',
+      summary: '普通攻击必定对目标周围 4 范围敌人造成以结算前伤害为基础的溅射伤害。',
       trait: 'cleave'
     }
   ],
@@ -99,17 +99,16 @@ export const UNIT_SPECIAL_UPGRADES = {
       id: 'archer-mark',
       kind: 'unit-special',
       name: '标记',
-      summary: '命中后短时间降低目标护甲。',
+      summary: '命中后使目标护甲 -4，持续 3.5 秒。',
       trait: 'markTarget'
     },
     {
       id: 'archer-eagle-eye',
       kind: 'unit-special',
       name: '鹰眼',
-      summary: '射程 +1.2，弹速 +18%。',
+      summary: '射程 +1.8。',
       modifiers: [
-        { stat: 'attackRange', type: 'add', amount: 1.2 },
-        { stat: 'projectileSpeed', type: 'multiply', percent: 0.18 }
+        { stat: 'attackRange', type: 'add', amount: 1.8 }
       ]
     }
   ],
@@ -118,9 +117,9 @@ export const UNIT_SPECIAL_UPGRADES = {
       id: 'spearman-reach',
       kind: 'unit-special',
       name: '长距',
-      summary: '攻击距离 +0.6。',
+      summary: '攻击距离 +1.2。',
       modifiers: [
-        { stat: 'attackRange', type: 'add', amount: 0.6 }
+        { stat: 'attackRange', type: 'add', amount: 1.2 }
       ]
     },
     {
@@ -139,10 +138,10 @@ export const UNIT_SPECIAL_UPGRADES = {
       id: 'tower-shield-bulwark',
       kind: 'unit-special',
       name: '壁垒',
-      summary: '护甲 +2，最大生命 +12%。',
+      summary: '护甲 +4，最大生命 +28%。',
       modifiers: [
-        { stat: 'armor', type: 'add', amount: 2 },
-        { stat: 'maxHealth', type: 'multiply', percent: 0.12 }
+        { stat: 'armor', type: 'add', amount: 4 },
+        { stat: 'maxHealth', type: 'multiply', percent: 0.28 }
       ]
     },
     {
@@ -165,7 +164,7 @@ export const UNIT_SPECIAL_UPGRADES = {
       id: 'crossbowman-heavy-bolt',
       kind: 'unit-special',
       name: '重矢',
-      summary: '普通攻击有 28% 概率提高 50% 伤害和击退。',
+      summary: '普通攻击必定造成 1.5 倍伤害并提高击退。',
       trait: 'heavyBolt'
     }
   ],
@@ -181,7 +180,7 @@ export const UNIT_SPECIAL_UPGRADES = {
       id: 'water-mage-great-orb',
       kind: 'unit-special',
       name: '大水弹',
-      summary: '攻击有 30% 概率召唤 1.7 倍大的水弹，造成更高伤害。',
+      summary: '攻击必定发射 1.7 倍大小与碰撞体积的大水弹，伤害与击退更高。',
       trait: 'greatWaterOrb'
     }
   ],
@@ -190,14 +189,14 @@ export const UNIT_SPECIAL_UPGRADES = {
       id: 'lightning-mage-thunder-cloud',
       kind: 'unit-special',
       name: '雷云',
-      summary: '攻击时在目标区域召唤雷云；雷云持续 10 秒，每 1.25 秒降下落雷，对 2.2 范围造成 70% 魔法攻击的魔法伤害。冷却 15 秒。',
+      summary: '攻击时在目标区域召唤双倍大小雷云；雷云持续 10 秒，每 1.25 秒降下落雷，对 4.4 范围造成 70% 魔法攻击的魔法伤害。冷却 15 秒。',
       trait: 'thunderCloud'
     },
     {
       id: 'lightning-mage-durability-siphon',
       kind: 'unit-special',
       name: '耐久汲取',
-      summary: '自身武器耐久低于 10 时，吸取 4.5 范围内最近敌方单位至多 10 点武器耐久并恢复等量耐久。冷却 3 秒。',
+      summary: '自身武器耐久低于 10 时，吸取 9 范围内最近敌方单位至多 10 点武器耐久并恢复等量耐久。冷却 30 秒。',
       trait: 'lightningSiphon'
     }
   ],
@@ -222,10 +221,10 @@ export const UNIT_SPECIAL_UPGRADES = {
       id: 'engineer-rapid-repair',
       kind: 'unit-special',
       name: '快修',
-      summary: '维修量 +35%，维修间隔缩短。',
+      summary: '维修量翻倍，维修间隔缩短。',
       supportModifiers: {
         repairAura: {
-          amountFactor: 1.35,
+          amountFactor: 2,
           tickIntervalFactor: 0.82
         }
       }
@@ -243,10 +242,10 @@ export const UNIT_SPECIAL_UPGRADES = {
       id: 'physician-strong-heal',
       kind: 'unit-special',
       name: '强效治疗',
-      summary: '治疗量 +45%。',
+      summary: '治疗量 ×1.7。',
       supportModifiers: {
         heal: {
-          amountFactor: 1.45
+          amountFactor: 1.7
         }
       }
     },
@@ -254,7 +253,7 @@ export const UNIT_SPECIAL_UPGRADES = {
       id: 'physician-overheal-shield',
       kind: 'unit-special',
       name: '余辉护盾',
-      summary: '治疗目标时额外提供少量护盾。',
+      summary: '治疗目标时额外提供治疗量 40% 的护盾。',
       trait: 'healShield'
     }
   ],
@@ -279,10 +278,10 @@ export const UNIT_SPECIAL_UPGRADES = {
       id: 'warder-strong-ward',
       kind: 'unit-special',
       name: '强结界',
-      summary: '护盾支援量 +40%。',
+      summary: '护盾支援量 ×1.7。',
       supportModifiers: {
         shield: {
-          amountFactor: 1.4
+          amountFactor: 1.7
         }
       }
     },

@@ -1,6 +1,5 @@
 import {
   CARD_DEFINITIONS,
-  CARD_META,
   LEVEL_DEFINITIONS,
   STARTER_CARD_IDS
 } from '../data/gameData.js';
@@ -11,7 +10,8 @@ import {
   cardThemeColor,
   cardUseBarMarkup,
   createCardArtMarkup,
-  createForgedCardMarkup
+  createForgedCardMarkup,
+  toRomanNumeral
 } from './CardSystem.js';
 import { calculateLevelReward } from '../utils/levelRewards.js';
 import { CHALLENGE_MODE, isEndlessMode, normalizeChallengeMode } from './endlessMode.js';
@@ -22,6 +22,7 @@ const STARTING_COINS = 10000;
 const STARTING_COINS_VERSION = 1;
 const MAX_LEVEL_DIFFICULTY = 10;
 const WAVE_DIFFICULTY_GROWTH_PER_SELECTED_DIFFICULTY = 0.16;
+const CARD_UPGRADE_INITIAL_COST = 100;
 const DEFAULT_PLAYER_NAME = '玩家';
 const MAX_PLAYER_NAME_LENGTH = 16;
 // 保留开发期记录供内部追溯；玩家界面只展示下方整理后的版本纪要。
@@ -849,7 +850,7 @@ const DEVELOPMENT_CHANGELOG_ARCHIVE = [
 const CHANGELOG_ENTRIES = [
   {
     date: '2026-08-05',
-    title: '翡翠沼泽、新卡牌与战斗美术更新',
+    title: '翡翠沼泽、移动端操作与战斗更新',
     items: [
       '新增难度 4 关卡「翡翠沼泽」：采用不对称水域、沉木堤道、低矮垂枝沼泽树与分层雾景，并加入专属精英「瘴沼猎手」和 Boss「腐根巨像」。',
       '新增策略牌「灵感」：获得等同卡牌等级的灵感层数，之后对应数量的非灵感牌会以高 1 级的效果打出。',
@@ -860,7 +861,25 @@ const CHANGELOG_ENTRIES = [
       '波次奖励、军需铺服务与局外升级页面统一采用战斗手牌的锻铁卡面语言；兵种专精和属性集训使用无费用、无类型、无等级角标的专用卡框，奖励卡改为直接点击获得。',
       '全部局外可用卡牌改为默认解锁，旧存档载入时会自动补齐；移除购买卡牌流程，主菜单炼金工坊与战后入口直接进入卡牌升级页面。',
       '战斗场景新增 N 键密码调试面板，可补充测试卡牌、能量与银币并生成敌军；原寻路网格调试入口调整为 Shift+N。',
-      '雪原首关地面材质关闭平滑着色，保留低多边形地形块面；同步完成主界面卡牌尺寸、购买按钮宽度和卡框对齐修正。'
+      '雪原首关地面材质关闭平滑着色，保留低多边形地形块面；同步完成主界面卡牌尺寸、购买按钮宽度和卡框对齐修正。',
+      '第四关 Boss「腐根巨像」改为远程藤蔓施法单位：普攻发射荆棘藤蔓，技能会在目标区域生成持续造成魔法伤害与减速的腐根蔓域；施法动画改为平滑抬手与回正，不再出现挥手回弹。',
+      '能力栏支持鼠标、触屏横向拖动和滚轮浏览；拖动时会关闭能力说明，能力数量较多时也能完整查看。',
+      '修复长时间对局中单位、施工材质、驻守标记等渲染资源未完整释放的问题，降低后期显存累积导致白屏的风险。',
+      '附魔槽已满时，普通拖放和长按连续附魔都会提前提示并停止施放，不再消耗能量；联机拒绝操作后也会立即回传权威手牌与能量状态。',
+      '无尽难度改用实时表现倍率：倍率从 1 开始，每次击杀按实际交战速度在 +0.1 到 -0.05 之间变化，友方单位阵亡使倍率 -0.1；怪物自身难度乘以当前倍率后计入总难度，倍率允许降为负数。',
+      '平滑无尽难度曲线：击杀难度权重改用怪物原始生命，不再重复计入当前难度和联机倍率已经放大的生命，避免难度约 10 时突然跃升到 50 以上，负倍率下的回落也更平稳。',
+      '无尽模式恢复全程波次奖励与 Boss 免费军需铺，不再从第 37 波起跳过成长选择。',
+      '波次奖励重新随机保持初始 8 金币，之后每次固定增加 12 金币，不再按次数翻倍。',
+      '军需铺升级、复制与移除只显示当前抽牌堆、手牌和弃牌堆中实际持有的卡牌，并可用滑条将卡牌整体缩放至 55%，便于浏览大量卡牌。',
+      '「战术调度」调整为每局最多使用 3 次；手机端能力栏会独立捕获横向滑动，不再误带动战场相机。',
+      '修复公网版本未正确连接联机中继的问题，玩家无需在本地手动启动中继服务即可进入多人联机。',
+      '修复联机客户端获得「不朽附魔」「魔力涌动」或「扩容咒印」后缺少目标与效果数据、拖到单位上无法使用的问题。',
+      '联机战斗中，友方单位血条上方会按单位所属玩家 ID 显示对应玩家名称，无需额外同步名称字段。',
+      '修复联机中丢弃地面法术牌时被误判为缺少施法坐标、提示操作未执行的问题；丢弃不再校验施法目标，正常施放规则保持不变。',
+      '手机端军需铺的购买单位、兵种专精、升级、复制与移除卡牌界面统一采用属性集训的卡牌尺寸和单层滚动布局，修复卡牌纵向堆叠与遮挡。',
+      '手机端手牌等级改用罗马数字显示，长名称会自动缩小；同时精简卡牌名称，并扩大附魔卡对单位的触控判定与目标黏附范围，减少拖到单位上却无法附魔的问题。',
+      '自爆附魔调整为：死亡时对半径 6 内每名敌人造成等级 x3 的物理爆炸伤害，并各进行一次标准攻击，完整触发毒、火与爆炸等攻击特效；爆炸波纹会准确显示伤害范围。',
+      '优化审判附魔的落剑演出：加入蓄力法阵、光柱核心、命中冲击波与光片碎裂，不改变其反击伤害和冷却。'
     ]
   },
   {
@@ -2065,7 +2084,7 @@ export class MetaGameSystem {
               stateText: `升级 ${cost}`,
               handStyle: true,
               disabled: this.progress.coins < cost,
-              footer: `<span>当前 Lv.${card.level}</span><span>下级费用 ${cost}</span>`
+              footer: `<span>下级费用 ${cost}</span>`
             });
           }).join('')}
         </section>
@@ -2141,7 +2160,7 @@ export class MetaGameSystem {
     return `
       <article class="meta-card is-kind-${card.kind}${selected}${deckState}" style="--card-color:${cardThemeColor(card)}">
         <div class="meta-card-cost">${cardEnergyCost(card)}</div>
-        <div class="meta-card-level">Lv.${card.level ?? 1}</div>
+        <div class="meta-card-level">${toRomanNumeral(card.level)}</div>
         ${cardUseBarMarkup(card, 'meta-card-use-bar')}
         ${statusMarkup}
         ${deckMarkMarkup}
@@ -2473,9 +2492,9 @@ function normalizeOwnedCards() {
     .map((card) => card.id);
 }
 
-function upgradeCost(id, level) {
-  const base = CARD_META[id]?.upgradeBaseCost ?? 25;
-  return Math.round(base * 2 ** Math.max(0, level - 1));
+export function upgradeCost(id, level) {
+  void id;
+  return CARD_UPGRADE_INITIAL_COST * 2 ** Math.max(0, level - 1);
 }
 
 function clampDifficulty(value) {

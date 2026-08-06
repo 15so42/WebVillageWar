@@ -84,6 +84,10 @@
           <button id="run-shop-skip" class="run-shop-skip" type="button" hidden>跳过奖励，继续出征</button>
           <div id="run-shop-choices" class="run-shop-choices" hidden>
             <button id="run-shop-back" class="run-shop-back" type="button">← 返回服务列表</button>
+            <label id="run-shop-card-scale-control" class="run-shop-card-scale-control" hidden>
+              <span>卡牌大小 <output id="run-shop-card-scale-value" for="run-shop-card-scale">100%</output></span>
+              <input id="run-shop-card-scale" type="range" min="55" max="100" step="5" value="100" aria-label="卡牌大小">
+            </label>
             <div id="run-shop-choice-list" class="run-shop-choice-list"></div>
           </div>
         </section>

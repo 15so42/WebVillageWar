@@ -2,12 +2,15 @@ import * as THREE from 'three';
 import { distance2D } from '../utils/math.js';
 
 const RECOVERY_TICK_SECONDS = 1;
+const PASSIVE_DURABILITY_RECOVERY_INTERVAL_SECONDS = 3;
+const PASSIVE_DURABILITY_RECOVERY_AMOUNT = 1;
 
 export class RecoverySystem {
   constructor(game) {
     this.game = game;
     this.center = new THREE.Vector3();
     this.tickTimer = 0;
+    this.passiveDurabilityTimer = 0;
   }
 
   update(dt) {
@@ -34,6 +37,38 @@ export class RecoverySystem {
     });
 
     this.tickBulwarkRegen();
+
+    this.tickPassiveDurabilityRecovery(RECOVERY_TICK_SECONDS);
+  }
+
+  tickPassiveDurabilityRecovery(dt) {
+    this.passiveDurabilityTimer += Math.max(0, Number(dt) || 0);
+    while (this.passiveDurabilityTimer >= PASSIVE_DURABILITY_RECOVERY_INTERVAL_SECONDS) {
+      this.passiveDurabilityTimer -= PASSIVE_DURABILITY_RECOVERY_INTERVAL_SECONDS;
+      this.restoreAllUnitDurability();
+      this.restoreAllStructureDurability();
+    }
+  }
+
+  restoreAllUnitDurability() {
+    this.restoreUnitDurabilityList(this.game.friendlyUnits);
+    this.restoreUnitDurabilityList(this.game.enemyUnits);
+  }
+
+  restoreUnitDurabilityList(units = []) {
+    units.forEach((unit) => {
+      if (!unit?.alive || unit.underConstruction || !unit.weapon?.maxDurability) return;
+      unit.restoreDurability?.(PASSIVE_DURABILITY_RECOVERY_AMOUNT);
+    });
+  }
+
+  restoreAllStructureDurability() {
+    [this.game.playerBase, this.game.enemyCamp].forEach((structure) => {
+      if (!structure?.alive || structure.kind !== 'structure') return;
+      this.game.repairStructure?.(structure, {
+        durability: PASSIVE_DURABILITY_RECOVERY_AMOUNT
+      });
+    });
   }
 
   tickBulwarkRegen() {

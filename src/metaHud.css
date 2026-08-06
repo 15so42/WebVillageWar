@@ -2935,6 +2935,13 @@
 .meta-forged-card-shell .med-card-meta-row .med-card-level {
   justify-self: end;
   color: #d0d1cb;
+  font-family: var(--font-title);
+  font-size: 8px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  white-space: nowrap;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.86);
 }
 
 .meta-forged-card-shell .med-card-type-icon {
@@ -2979,6 +2986,36 @@
   font-weight: 900;
   line-height: 1;
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.86);
+}
+
+/* 主界面的牌组卡仍使用旧 meta 卡壳。等级不再使用金属徽章，
+   与锻铁卡面一致，只保留一行罗马数字。 */
+body.is-meta-open .meta-root .meta-card > .meta-card-level {
+  min-width: 0 !important;
+  width: auto !important;
+  height: auto !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  clip-path: none !important;
+  color: #e7dfd2 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  font-family: var(--font-title);
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  white-space: nowrap;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.86);
+}
+
+body.is-meta-open .meta-root .med-card-level-icon {
+  display: none !important;
+}
+
+body.is-meta-open .meta-root .med-card-level-roman {
+  display: inline !important;
 }
 
 .meta-forged-card-shell .med-card-meta-row .med-card-name {

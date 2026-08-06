@@ -89,7 +89,7 @@ combatGame.enemyUnits.push(armoredEnemy);
 assert.equal(combatGame.modifiers.getArmor(armoredEnemy), 3);
 assert.equal(combatGame.combat.applyAttack(swordsman, armoredEnemy), true);
 assert.ok(armoredEnemy.buffs.has('armorShredded'));
-assert.equal(combatGame.modifiers.getArmor(armoredEnemy), 2);
+assert.equal(combatGame.modifiers.getArmor(armoredEnemy), 0);
 
 console.log('dual attack tests passed');
 

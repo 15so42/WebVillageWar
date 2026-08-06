@@ -7,11 +7,10 @@ export const RUN_SHOP_CATEGORIES = [
   },
   {
     key: 'unit',
-    title: '购买单位',
-    description: '从已有卡牌中选一张单位卡，复制一张加入抽牌堆；和普通单位卡一样只能使用一次。',
-    icon: '⚔',
-    picker: true,
-    catalogPicker: true
+    title: '随机卡牌',
+    description: '立即付费，从本局剩余波次奖励牌组随机展示三张；返回不退款，再次购买会重新扣费刷新。',
+    icon: '▦',
+    prepaidChoices: true
   },
   {
     key: 'trait',

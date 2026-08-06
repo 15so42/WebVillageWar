@@ -138,6 +138,9 @@ export class ClientMirror {
     if ('ownerPlayerId' in state) unit.ownerPlayerId = state.ownerPlayerId;
     if ('controllerPlayerId' in state) unit.controllerPlayerId = state.controllerPlayerId;
     if ('playerColorIndex' in state) this.game.applyUnitPlayerColor?.(unit, state.playerColorIndex);
+    else if ('ownerPlayerId' in state || 'controllerPlayerId' in state) {
+      this.game.applyUnitPlayerName?.(unit);
+    }
     if ('factionId' in state) unit.factionId = state.factionId;
     if ('visualState' in state) unit.visualState = state.visualState;
     if ('selected' in state || 'selectedByPlayerId' in state) {
@@ -151,6 +154,23 @@ export class ClientMirror {
     if ('isGuarding' in state) {
       unit.controlMode = state.isGuarding ? 'guard' : 'normal';
       this.game.applyUnitGuardVisualState?.(unit, state.isGuarding);
+    }
+    if ('guardPoint' in state) {
+      if (Array.isArray(state.guardPoint) && state.guardPoint.length >= 2) {
+        const [x, yOrZ, z] = state.guardPoint;
+        const pointY = z === undefined ? unit.position.y : yOrZ;
+        const pointZ = z ?? yOrZ;
+        if (unit.guardPoint?.set) {
+          unit.guardPoint.set(x, pointY, pointZ);
+        } else {
+          unit.guardPoint = new THREE.Vector3(x, pointY, pointZ);
+        }
+      } else {
+        unit.guardPoint = null;
+      }
+    }
+    if ('guardRadius' in state) {
+      unit.guardRadius = Number.isFinite(state.guardRadius) ? state.guardRadius : null;
     }
     if (Array.isArray(state.position)) {
       unit.mesh.position.x = state.position[0];
@@ -229,6 +249,10 @@ export class ClientMirror {
     if ('elapsedTime' in changes) this.game.elapsedTime = changes.elapsedTime;
     if ('endlessDifficulty' in changes) {
       this.game.endlessDifficulty = Number(changes.endlessDifficulty) || 0;
+    }
+    if ('endlessPerformanceMultiplier' in changes) {
+      const multiplier = Number(changes.endlessPerformanceMultiplier);
+      this.game.endlessPerformanceMultiplier = Number.isFinite(multiplier) ? multiplier : 1;
     }
     if ('rebirthQueue' in changes) {
       this.game.applyNetworkRebirthQueue?.(changes.rebirthQueue);
@@ -478,6 +502,7 @@ export class ClientMirror {
       card_cooldown: '卡牌仍在冷却',
       insufficient_energy: '能量不足',
       invalid_target_point: '目标位置无效',
+      enchantment_slots_full: '目标的附魔槽已满，未消耗能量',
       card_effect_rejected: '卡牌效果未能生效',
       reward_not_open: '奖励窗口已失效',
       stale_reward: '奖励已刷新，请重新选择',

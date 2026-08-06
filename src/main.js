@@ -258,6 +258,10 @@ try {
           }),
           onBack: () => meta.show('menu')
         });
+      } else {
+        // Keep the existing lobby element/listeners, but never let it retain
+        // the controller that was disposed when the previous match ended.
+        coopLobby.setController(coopController);
       }
       coopController.restoreSession?.();
       coopLobby.show(meta.notice?.text ?? '');

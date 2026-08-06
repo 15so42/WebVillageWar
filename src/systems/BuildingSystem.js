@@ -55,7 +55,6 @@ export class BuildingSystem {
         this.updateBuildingAura(unit, dt);
       }
     });
-    this.buildings.forEach((unit) => this.destroyIfDurabilitySpent(unit));
   }
 
   applyNetworkConstructionState(unit, underConstruction, progress = 0) {
@@ -91,8 +90,8 @@ export class BuildingSystem {
     unit.constructionMeshes = [];
     unit.visualRoot.traverse((node) => {
       if (!node.isMesh || node.userData.constructionMaterialPrepared) return;
-      node.userData.originalMaterial = node.material;
-      node.material = node.material.clone();
+      // UnitEntity 已为每个单位复制材质；施工阶段直接调整该单位自己的材质即可。
+      // 再复制一次会把旧材质留在 userData 中，长局反复建造时形成 GPU 资源泄漏。
       node.material.transparent = true;
       node.material.opacity = 0.18;
       node.userData.constructionMaterialPrepared = true;
@@ -310,18 +309,6 @@ export class BuildingSystem {
       !unit.underConstruction &&
       distance2D(unit.position, building.position) <= radius
     ));
-  }
-
-  destroyIfDurabilitySpent(unit) {
-    if (!unit.isBuilding || !unit.alive || unit.underConstruction) return;
-    if ((unit.weapon?.durability ?? 1) > 0) return;
-    unit.alive = false;
-    this.constructing.delete(unit);
-    this.buildings.delete(unit);
-    this.finishConstructionVisual(unit, { removeOnly: true });
-    this.game.effects.spawnRing(unit.position, '#ff8c66', 1.05, 0.42);
-    this.game.effects.spawnStructureDust(unit.position, Math.max(1, unit.collisionRadius ?? 1), '#d8c8a8');
-    this.game.handleUnitDeath?.(unit, null);
   }
 
   refreshBuildingSet(dt) {

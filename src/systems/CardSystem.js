@@ -3,6 +3,7 @@ import { basicMat, createReticle } from '../art/lowpoly.js';
 import { ACTIVE_DECK_SIZE, BALANCE, CARD_DEFINITIONS, isTerrainCard, TERRAIN_CARD_COOLDOWN_SECONDS } from '../data/gameData.js';
 import { insideBattlefield } from '../utils/math.js';
 import { disposeObject3D } from '../utils/dispose.js';
+import { isEnchantmentCardBlocked } from './enchantmentSlots.js';
 
 const HAND_SIZE = 5;
 // 附魔卡长按连续使用：按住超过 ENCHANT_HOLD_START_MS 进入连续模式，
@@ -16,6 +17,10 @@ const TEMPORARY_CARD_LIMIT = 3;
 const PLAY_DRAG_RATIO = 0.5;
 const DISCARD_DRAG_RATIO = 0.3;
 const PLAY_DRAG_MIN_DISTANCE = 24;
+const FRIENDLY_UNIT_MOUSE_TARGET_RADIUS = 58;
+const FRIENDLY_UNIT_TOUCH_TARGET_RADIUS = 84;
+const FRIENDLY_UNIT_TOUCH_STICKY_RADIUS = 112;
+const FRIENDLY_UNIT_TOUCH_Y_OFFSET = 42;
 const DISCARD_FALL_DELAY_MS = 500;
 const TEMPORARY_CARD_EFFECT_LIMIT = 6;
 const CARD_USAGE_HINT = '拖出卡牌区域使用 / 正下方拖动丢弃';
@@ -62,6 +67,8 @@ export class CardSystem {
     this.enchantHold = null;
     this.enchantHoldInterval = null;
     this.enchantHoldStartAt = null;
+    this.enchantHoldStartTimer = null;
+    this.enchantHoldStartTarget = null;
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
     this.reticle = createReticle();
@@ -88,6 +95,9 @@ export class CardSystem {
     this.abilityIcons = this.energyParts.abilities;
     this.coreIcons = this.energyParts.cores;
     this.abilityTooltip = createAbilityTooltip(this.mountUi);
+    this.releaseAbilityIconScroll = bindHorizontalDragScroll(this.abilityIcons, {
+      onDragStart: () => this.hideAbilityTooltip()
+    });
     this.hintPanel = createGameHintPanel(this.energyPanel, this.mountUi);
     this.hintOwner = null;
     this.activePileViewer = null;
@@ -182,7 +192,6 @@ export class CardSystem {
     element.style.setProperty('--card-color', cardThemeColor(card));
     element.dataset.cost = cardEnergyCost(card);
     element.dataset.kind = card.kind;
-    const cardLevel = card.level ?? 1;
     const useBarMarkup = cardUseBarMarkup(card);
     const cooldownMarkup = cardCooldownOverlayMarkup(this, card);
     element.innerHTML = location === 'hand'
@@ -192,7 +201,7 @@ export class CardSystem {
           <div class="med-card-bg"></div>
           <div class="med-card-cost"><span>${cardEnergyCost(card)}</span></div>
           <div class="med-card-kind">${kindLabel(card.kind)}</div>
-          <div class="med-card-level">Lv.${cardLevel}</div>
+          <div class="med-card-level">${toRomanNumeral(card.level)}</div>
           ${useBarMarkup}
           ${cooldownMarkup}
           <div class="med-card-face">
@@ -343,6 +352,7 @@ export class CardSystem {
       sourceHeight: sourceRect.height,
       sourceLeft: sourceRect.left,
       sourceRight: sourceRect.right,
+      pointerType: event.pointerType || 'mouse',
       sourceElement: event.currentTarget
     };
     this.drag.playThreshold = this.drag.sourceHeight * PLAY_DRAG_RATIO;
@@ -378,9 +388,17 @@ export class CardSystem {
     if (!this.drag) return;
     this.updateDrag(event);
     if (this.enchantHold) {
-      // 附魔长按连续施放：松手 = 使用完成，牌进入弃牌堆（次数耗尽则消耗）
-      this.stopEnchantHold({ commit: true });
-      return;
+      const holdApplied = this.enchantHold.tickCount > 0;
+      const holdsValidTarget = this.drag?.mode === 'play'
+        && this.drag?.valid
+        && this.drag?.targetUnit === this.enchantHold.target;
+      if (holdApplied || holdsValidTarget) {
+        // 已经持续附魔，或仍稳稳落在原目标上：完成本次使用。
+        this.stopEnchantHold({ commit: true });
+        return;
+      }
+      // 尚未触发且手指已经离开目标时不消耗卡牌，继续走普通松手判定。
+      this.stopEnchantHold({ commit: false });
     }
     const drag = this.drag;
     const shouldDiscard = drag.mode === 'discard' && drag.canPayDiscard;
@@ -409,6 +427,7 @@ export class CardSystem {
 
   updateDrag(event) {
     if (!this.drag) return;
+    const previousTargetUnit = this.drag.targetUnit;
     this.updateDraggedCardMotion(event);
     this.drag.screen = {
       x: event.clientX,
@@ -480,7 +499,7 @@ export class CardSystem {
     if (this.drag.card.target === 'friendly-unit') {
       this.moveGhost(event.clientX, event.clientY);
       this.ghost.hidden = false;
-      const target = this.pickFriendlyUnit();
+      const target = this.pickFriendlyUnit(previousTargetUnit);
       this.drag.targetUnit = target;
       this.drag.valid = Boolean(target) && target.canReceiveBuffs !== false && this.drag.canPayPlay;
       this.ghost.classList.toggle('is-valid', this.drag.valid);
@@ -529,32 +548,39 @@ export class CardSystem {
     this.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
   }
 
-  pickFriendlyUnit() {
+  pickFriendlyUnit(previousTarget = null) {
     const ownedUnits = this.game.friendlyUnits.filter((unit) => (
       this.game.unitBelongsToPlayer?.(unit, this.playerSlot) ?? true
     ));
-    const objects = ownedUnits.flatMap((unit) => unit.mesh.children);
-    const hits = this.raycaster.intersectObjects(objects, true);
-    const hit = hits.find((entry) => {
-      const entity = entry.object.userData.entity;
-      return entity?.alive && entity.canReceiveBuffs !== false;
-    });
-    if (hit?.object.userData.entity) {
-      return hit.object.userData.entity;
+    const isTouch = this.drag?.pointerType === 'touch';
+    const probes = [{ x: this.drag.screen.x, y: this.drag.screen.y }];
+    if (isTouch) {
+      // 手指会遮住单位本体；额外探测指尖上方的可见区域。
+      probes.push({
+        x: this.drag.screen.x,
+        y: this.drag.screen.y - FRIENDLY_UNIT_TOUCH_Y_OFFSET
+      });
     }
-
-    let best = null;
-    let bestDistance = 58;
-    ownedUnits.forEach((unit) => {
-      if (!unit.alive || unit.canReceiveBuffs === false) return;
-      const screen = this.game.worldToScreen(unit.position);
-      const distance = Math.hypot(screen.x - this.drag.screen.x, screen.y - this.drag.screen.y);
-      if (distance < bestDistance) {
-        best = unit;
-        bestDistance = distance;
+    const objects = ownedUnits.map((unit) => unit.mesh).filter(Boolean);
+    for (const probe of probes) {
+      this.pointerFromEvent({ clientX: probe.x, clientY: probe.y });
+      this.raycaster.setFromCamera(this.pointer, this.game.camera);
+      const hits = this.raycaster.intersectObjects(objects, true);
+      const hit = hits.find((entry) => {
+        const entity = entry.object.userData.entity;
+        return entity?.alive && entity.canReceiveBuffs !== false;
+      });
+      if (hit?.object.userData.entity) {
+        return hit.object.userData.entity;
       }
+    }
+    return findFriendlyUnitScreenTarget(ownedUnits, probes, (unit) => (
+      this.game.worldToScreen(unit.position)
+    ), {
+      acquireRadius: isTouch ? FRIENDLY_UNIT_TOUCH_TARGET_RADIUS : FRIENDLY_UNIT_MOUSE_TARGET_RADIUS,
+      stickyRadius: isTouch ? FRIENDLY_UNIT_TOUCH_STICKY_RADIUS : FRIENDLY_UNIT_MOUSE_TARGET_RADIUS,
+      previousTarget
     });
-    return best;
   }
 
   pickHandCardTarget(x, y) {
@@ -842,6 +868,9 @@ export class CardSystem {
   }
 
   playDraggedCard(drag, options = {}) {
+    if (this.rejectFullEnchantmentTarget(drag?.card, drag?.targetUnit)) {
+      return false;
+    }
     if (this.game.networkBridge?.shouldRouteLocalCommands?.()) {
       return this.sendPlayCardCommand(drag, options);
     }
@@ -884,31 +913,49 @@ export class CardSystem {
     const drag = this.drag;
     if (!drag || this.enchantHold) return;
     if (drag.mode !== 'play' || !drag.valid || !drag.targetUnit) {
-      this.enchantHoldStartAt = null;
+      this.clearEnchantHoldStartTimer();
       return;
     }
     // 仅限以友方单位为目标的附魔卡。联机 Client 走 hold 命令由 Host 结算，
     // 倒计时/次数/能量在本地判断（展示）。其他 friendly-unit 卡（如符文扩容）
     // 不进入长按模式，避免按住时被误判为连续附魔、松手零施放直接消耗。
     if (!drag.card || drag.card.target !== 'friendly-unit') {
-      this.enchantHoldStartAt = null;
+      this.clearEnchantHoldStartTimer();
       return;
     }
     if (drag.card.kind !== 'enchant') {
-      this.enchantHoldStartAt = null;
+      this.clearEnchantHoldStartTimer();
       return;
     }
-    const now = performance.now();
-    if (!this.enchantHoldStartAt) this.enchantHoldStartAt = now;
-    if (now - this.enchantHoldStartAt >= ENCHANT_HOLD_START_MS) {
-      this.startEnchantHold();
-    }
+    if (this.enchantHoldStartTimer && this.enchantHoldStartTarget === drag.targetUnit) return;
+    this.clearEnchantHoldStartTimer();
+    this.enchantHoldStartAt = performance.now();
+    this.enchantHoldStartTarget = drag.targetUnit;
+    this.enchantHoldStartTimer = setTimeout(() => {
+      this.enchantHoldStartTimer = null;
+      const activeDrag = this.drag;
+      if (
+        activeDrag?.mode === 'play'
+        && activeDrag.valid
+        && activeDrag.card === drag.card
+        && activeDrag.targetUnit === drag.targetUnit
+      ) {
+        this.startEnchantHold();
+      } else {
+        this.clearEnchantHoldStartTimer();
+      }
+    }, ENCHANT_HOLD_START_MS);
   }
 
   startEnchantHold() {
     const drag = this.drag;
     if (!drag?.targetUnit || this.enchantHold) return;
+    this.clearEnchantHoldStartTimer();
     const card = drag.card;
+    if (this.rejectFullEnchantmentTarget(card, drag.targetUnit)) {
+      this.enchantHoldStartAt = null;
+      return;
+    }
     const cost = cardEnergyCost(card);
     const maxUses = cardMaxUses(card);
     const remainingUses = maxUses > 0
@@ -922,7 +969,6 @@ export class CardSystem {
       remainingUses,
       tickCount: 0
     };
-    this.enchantHoldStartAt = null;
     this.enchantHoldInterval = setInterval(() => this.tickEnchantHold(), ENCHANT_HOLD_TICK_MS);
     this.updateEnchantHoldUi();
     this.setHint(
@@ -953,8 +999,19 @@ export class CardSystem {
       this.setHint('附魔次数已用尽，松手完成使用', 'card-drag');
       return;
     }
+    if (this.rejectFullEnchantmentTarget(hold.drag.card, hold.target)) {
+      this.stopEnchantHold({ commit: false });
+      return;
+    }
     if (this.game.networkBridge?.shouldRouteLocalCommands?.()) {
-      // 联机 Client：本地扣能量/次数（展示），发送 hold 命令由 Host 权威施放
+      // 联机 Client：先确认命令已经发出，再本地扣能量/次数用于即时展示。
+      // 槽位已满会在上方提前拒绝，不会再出现 Host 拒绝但本地已经扣能量。
+      const sent = this.sendPlayCardCommand({ ...hold.drag, targetUnit: hold.target }, { hold: true });
+      if (!sent) {
+        this.stopEnchantHold({ commit: false });
+        this.setHint('联机命令发送失败：未消耗能量', 'card-drag');
+        return;
+      }
       this.energy -= hold.cost;
       this.updateEnergyUi(true);
       if (hold.remainingUses != null) {
@@ -965,7 +1022,6 @@ export class CardSystem {
         }
       }
       hold.tickCount += 1;
-      this.sendPlayCardCommand({ ...hold.drag, targetUnit: hold.target }, { hold: true });
       this.updateEnchantHoldUi();
       this.updateCardAffordability();
       if (hold.remainingUses === 0) {
@@ -997,21 +1053,36 @@ export class CardSystem {
     }
   }
 
+  rejectFullEnchantmentTarget(card, targetUnit) {
+    if (!isEnchantmentCardBlocked(card, targetUnit)) return false;
+    this.lastNetworkPlayRejectionReason = 'enchantment_slots_full';
+    this.game.cardEffects?.showEnchantmentSlotFailure?.(targetUnit);
+    this.setHint('附魔槽已满：无法添加新的附魔，未消耗能量', 'card-drag');
+    return true;
+  }
+
   stopEnchantHold({ commit = false } = {}) {
     if (this.enchantHoldInterval) {
       clearInterval(this.enchantHoldInterval);
       this.enchantHoldInterval = null;
     }
-    const wasActive = Boolean(this.enchantHold);
-    const holdTarget = this.enchantHold?.target ?? null;
+    const hold = this.enchantHold;
+    const wasActive = Boolean(hold);
+    const holdTarget = hold?.target ?? null;
+    const holdDrag = this.drag ? { ...this.drag, targetUnit: holdTarget } : hold?.drag;
+    const holdApplied = (hold?.tickCount ?? 0) > 0;
     this.enchantHold = null;
-    this.enchantHoldStartAt = null;
+    this.clearEnchantHoldStartTimer();
     this.hideEnchantHoldUi();
     if (commit && wasActive) {
-      const card = this.drag?.card;
+      const card = holdDrag?.card;
       this.cleanupDrag();
       if (card) {
-        if (this.game.networkBridge?.shouldRouteLocalCommands?.()) {
+        if (!holdApplied) {
+          // 手机拖拽常在长按门槛后、第一次持续触发前松手；此时仍应按一次
+          // 正常附魔结算，不能只把卡送进弃牌堆而没有效果。
+          this.playDraggedCard(holdDrag);
+        } else if (this.game.networkBridge?.shouldRouteLocalCommands?.()) {
           // 联机 Client：通知 Host 消耗卡（进弃牌堆，次数耗尽则按规则消耗）
           this.sendPlayCardCommand({ card, targetUnit: holdTarget }, { consumeHold: true });
         } else {
@@ -1030,8 +1101,17 @@ export class CardSystem {
       this.enchantHoldInterval = null;
     }
     this.enchantHold = null;
-    this.enchantHoldStartAt = null;
+    this.clearEnchantHoldStartTimer();
     this.hideEnchantHoldUi();
+  }
+
+  clearEnchantHoldStartTimer() {
+    if (this.enchantHoldStartTimer) {
+      clearTimeout(this.enchantHoldStartTimer);
+      this.enchantHoldStartTimer = null;
+    }
+    this.enchantHoldStartAt = null;
+    this.enchantHoldStartTarget = null;
   }
 
   updateEnchantHoldUi() {
@@ -1518,6 +1598,10 @@ export class CardSystem {
       seen.add(card.instanceId);
       return true;
     });
+  }
+
+  runShopCards() {
+    return collectRunShopCardInstances(this);
   }
 
   activeRunCards() {
@@ -2184,7 +2268,10 @@ export class CardSystem {
     document.removeEventListener('pointerup', this.onPointerUp);
     document.removeEventListener('pointercancel', this.onPointerCancel);
     document.removeEventListener('keydown', this.onPileViewerKeyDown);
-    this.drag = null;
+    this.releaseAbilityIconScroll?.();
+    this.releaseAbilityIconScroll = null;
+    this.cancelEnchantHold();
+    this.cancelActiveDrag();
     this.reticle?.parent?.remove(this.reticle);
     this.clearDeploymentRangePreview();
     this.deploymentRangeGroup?.parent?.remove(this.deploymentRangeGroup);
@@ -2200,6 +2287,21 @@ export class CardSystem {
     this.pileUi?.root?.remove();
     this.pileUi?.viewer?.remove();
   }
+}
+
+export function collectRunShopCardInstances(cardSystem = {}) {
+  const seen = new Set();
+  return [
+    ...(cardSystem.handCards ?? []),
+    ...(cardSystem.drawPile ?? []),
+    ...(cardSystem.discardPile ?? [])
+  ].filter((card) => {
+    if (!card) return false;
+    const identity = card.instanceId ?? card;
+    if (seen.has(identity)) return false;
+    seen.add(identity);
+    return true;
+  });
 }
 
 export function isCardDiscardDragIntent(drag, event) {
@@ -2270,8 +2372,58 @@ export function cardUseBarMarkup(card, className = 'card-use-bar') {
   return `<div class="${className}" data-remaining="${remaining}" data-max="${max}" aria-label="剩余使用次数 ${remaining}/${max}">${segments.join('')}</div>`;
 }
 
+export function findFriendlyUnitScreenTarget(
+  units,
+  probes,
+  projectUnit,
+  {
+    acquireRadius = FRIENDLY_UNIT_MOUSE_TARGET_RADIUS,
+    stickyRadius = acquireRadius,
+    previousTarget = null
+  } = {}
+) {
+  const validUnits = (Array.isArray(units) ? units : []).filter((unit) => (
+    unit?.alive && unit.canReceiveBuffs !== false
+  ));
+  const validProbes = (Array.isArray(probes) ? probes : []).filter((probe) => (
+    Number.isFinite(probe?.x) && Number.isFinite(probe?.y)
+  ));
+  if (validUnits.length === 0 || validProbes.length === 0 || typeof projectUnit !== 'function') {
+    return null;
+  }
+
+  const distanceFor = (unit) => {
+    const screen = projectUnit(unit);
+    if (!Number.isFinite(screen?.x) || !Number.isFinite(screen?.y)) return Infinity;
+    return validProbes.reduce((best, probe) => Math.min(
+      best,
+      Math.hypot(screen.x - probe.x, screen.y - probe.y)
+    ), Infinity);
+  };
+
+  let best = null;
+  let bestDistance = Math.max(0, Number(acquireRadius) || 0);
+  validUnits.forEach((unit) => {
+    const distance = distanceFor(unit);
+    if (distance <= bestDistance) {
+      best = unit;
+      bestDistance = distance;
+    }
+  });
+  if (best) return best;
+
+  if (validUnits.includes(previousTarget)) {
+    const previousDistance = distanceFor(previousTarget);
+    if (previousDistance <= Math.max(bestDistance, Number(stickyRadius) || 0)) {
+      return previousTarget;
+    }
+  }
+  return null;
+}
+
 export function createForgedCardMarkup(card, options = {}) {
   const cardLevel = card.level ?? 1;
+  const cardLevelRoman = toRomanNumeral(cardLevel);
   const title = options.title ?? card.name ?? '';
   const summary = options.summary ?? card.summary ?? '';
   const cooldownMarkup = options.cooldownMarkup ?? '';
@@ -2296,9 +2448,7 @@ export function createForgedCardMarkup(card, options = {}) {
             ${cardKindIconMarkup(card.kind)}
           </div>`}
           <div class="med-card-name">${escapeHtml(title)}</div>
-          ${titleOnlyMeta ? '' : `<div class="med-card-level" role="img" aria-label="等级 ${cardLevel}" title="等级 ${cardLevel}">
-            ${cardLevelIconMarkup(cardLevel)}
-          </div>`}
+          ${titleOnlyMeta ? '' : `<div class="med-card-level" aria-label="等级 ${cardLevelRoman}" title="等级 ${cardLevelRoman}">${cardLevelRoman}</div>`}
         </div>
         <div class="med-card-bottom">
           <div class="med-card-desc">${escapeHtml(summary)}</div>
@@ -2343,17 +2493,21 @@ function cardKindIconMarkup(kind) {
   return `<svg class="med-card-type-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${path}</svg>`;
 }
 
-function cardLevelIconMarkup(level) {
-  const value = Number.isFinite(Number(level)) ? Math.max(1, Math.floor(Number(level))) : 1;
-  return `
-    <span class="med-card-level-icon" aria-hidden="true">
-      <svg viewBox="0 0 24 24" focusable="false">
-        <path d="m12 2.5 8 6-3 11H7l-3-11 8-6Z"/>
-        <path d="m7 8.5 5 2.5 5-2.5"/>
-      </svg>
-      <span>${value}</span>
-    </span>
-  `;
+export function toRomanNumeral(level) {
+  let value = Number.isFinite(Number(level)) ? Math.max(1, Math.floor(Number(level))) : 1;
+  const tokens = [
+    [1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'],
+    [100, 'C'], [90, 'XC'], [50, 'L'], [40, 'XL'],
+    [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']
+  ];
+  let roman = '';
+  tokens.forEach(([amount, token]) => {
+    while (value >= amount) {
+      roman += token;
+      value -= amount;
+    }
+  });
+  return roman;
 }
 
 function shouldUseCardFaceGhost(card, pointerType) {
@@ -2397,7 +2551,7 @@ const BITMAP_CARD_ART = {
 };
 
 function resolveCardArtAsset(path) {
-  const base = import.meta.env.BASE_URL || '/';
+  const base = import.meta.env?.BASE_URL || '/';
   return `${base}${path}`.replace(/([^:]\/)\/+/g, '$1');
 }
 
@@ -3455,20 +3609,27 @@ function fitCardElementText(element) {
   window.requestAnimationFrame(() => {
     const isCompactShopPicker = element.classList.contains('is-compact-shop-picker');
     const isForgedReward = element.classList.contains('is-forged-reward');
+    const usesForgedMarkup = isForgedReward || Boolean(element.querySelector('.med-card-meta-row'));
+    const isMobileHandCard = element.dataset.cardLocation === 'hand'
+      && window.matchMedia?.('(max-width: 900px)')?.matches;
     const isSpecializationReward = element.classList.contains('is-specialization-reward');
     const isTrainingReward = element.classList.contains('is-training-reward');
     const isSpecialReward = isSpecializationReward || isTrainingReward;
-    const name = element.querySelector(isForgedReward ? '.med-card-name' : '.card-name');
+    const name = element.querySelector(usesForgedMarkup ? '.med-card-name' : '.card-name');
     if (!isCompactShopPicker) {
-      fitTextBlock(
-        name,
-        isForgedReward ? 11 : 15,
-        isSpecialReward ? 8 : (isForgedReward ? 8 : 11)
-      );
+      if (isMobileHandCard) {
+        fitSingleLineText(name, 6);
+      } else {
+        fitTextBlock(
+          name,
+          usesForgedMarkup ? 11 : 15,
+          isSpecialReward ? 8 : (usesForgedMarkup ? 8 : 11)
+        );
+      }
     }
-    const text = element.querySelector(isForgedReward ? '.med-card-desc' : '.card-text');
+    const text = element.querySelector(usesForgedMarkup ? '.med-card-desc' : '.card-text');
     if (!isCompactShopPicker) {
-      fitTextBlock(text, isForgedReward ? 9 : 11, isForgedReward ? 7 : 8);
+      fitTextBlock(text, usesForgedMarkup ? 9 : 11, usesForgedMarkup ? 7 : 8);
     }
     const overflowDistance = text
       ? Math.max(0, Math.ceil(text.scrollHeight - text.clientHeight))
@@ -3494,6 +3655,7 @@ function bindScrollableCardText(element) {
 function bindAbilityIconTooltip(icon, { onShow, onHide } = {}) {
   let pressTimer = null;
   let openedByLongPress = false;
+  let pressOrigin = null;
   const showTooltip = () => {
     icon.classList.add('is-tooltip-open');
     onShow?.();
@@ -3511,6 +3673,7 @@ function bindAbilityIconTooltip(icon, { onShow, onHide } = {}) {
   icon.addEventListener('pointerdown', (event) => {
     if (event.pointerType === 'mouse') return;
     openedByLongPress = false;
+    pressOrigin = { x: event.clientX, y: event.clientY };
     cancelPress();
     pressTimer = window.setTimeout(() => {
       pressTimer = null;
@@ -3518,15 +3681,27 @@ function bindAbilityIconTooltip(icon, { onShow, onHide } = {}) {
       showTooltip();
     }, 500);
   });
+  icon.addEventListener('pointermove', (event) => {
+    if (!pressOrigin) return;
+    if (Math.hypot(event.clientX - pressOrigin.x, event.clientY - pressOrigin.y) > 7) {
+      cancelPress();
+      pressOrigin = null;
+    }
+  });
   icon.addEventListener('pointerenter', (event) => {
     if (event.pointerType !== 'touch') showTooltip();
   });
-  icon.addEventListener('pointerup', cancelPress);
+  icon.addEventListener('pointerup', () => {
+    pressOrigin = null;
+    cancelPress();
+  });
   icon.addEventListener('pointercancel', () => {
+    pressOrigin = null;
     cancelPress();
     if (!openedByLongPress) hideTooltip();
   });
   icon.addEventListener('pointerleave', () => {
+    pressOrigin = null;
     cancelPress();
     if (!openedByLongPress) hideTooltip();
   });
@@ -3551,6 +3726,87 @@ function bindAbilityIconTooltip(icon, { onShow, onHide } = {}) {
   });
 }
 
+export function bindHorizontalDragScroll(element, { onDragStart } = {}) {
+  if (!element?.addEventListener) return () => {};
+  let pointerId = null;
+  let startX = 0;
+  let startScrollLeft = 0;
+  let dragging = false;
+  let suppressClick = false;
+
+  const canScroll = () => element.scrollWidth > element.clientWidth + 1;
+  const onPointerDown = (event) => {
+    if ((event.button ?? 0) !== 0 || !canScroll()) return;
+    event.preventDefault?.();
+    event.stopPropagation?.();
+    pointerId = event.pointerId;
+    startX = event.clientX;
+    startScrollLeft = element.scrollLeft;
+    dragging = false;
+    element.setPointerCapture?.(pointerId);
+  };
+  const onPointerMove = (event) => {
+    if (pointerId == null || event.pointerId !== pointerId) return;
+    event.stopPropagation?.();
+    const deltaX = event.clientX - startX;
+    if (!dragging && Math.abs(deltaX) < 4) return;
+    if (!dragging) {
+      dragging = true;
+      suppressClick = true;
+      element.classList?.add?.('is-scroll-grabbing');
+      onDragStart?.();
+    }
+    event.preventDefault?.();
+    element.scrollLeft = startScrollLeft - deltaX;
+  };
+  const finishPointer = (event) => {
+    if (pointerId == null || (event?.pointerId != null && event.pointerId !== pointerId)) return;
+    event?.stopPropagation?.();
+    const finishedPointerId = pointerId;
+    pointerId = null;
+    if (element.hasPointerCapture?.(finishedPointerId)) {
+      element.releasePointerCapture?.(finishedPointerId);
+    }
+    dragging = false;
+    element.classList?.remove?.('is-scroll-grabbing');
+    setTimeout(() => {
+      suppressClick = false;
+    }, 0);
+  };
+  const onClick = (event) => {
+    if (!suppressClick) return;
+    event.preventDefault?.();
+    event.stopImmediatePropagation?.();
+    suppressClick = false;
+  };
+  const onWheel = (event) => {
+    if (!canScroll()) return;
+    const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+    if (!delta) return;
+    element.scrollLeft += delta;
+    event.preventDefault?.();
+    onDragStart?.();
+  };
+
+  element.addEventListener('pointerdown', onPointerDown);
+  element.addEventListener('pointermove', onPointerMove);
+  element.addEventListener('pointerup', finishPointer);
+  element.addEventListener('pointercancel', finishPointer);
+  element.addEventListener('lostpointercapture', finishPointer);
+  element.addEventListener('click', onClick, true);
+  element.addEventListener('wheel', onWheel, { passive: false });
+
+  return () => {
+    element.removeEventListener('pointerdown', onPointerDown);
+    element.removeEventListener('pointermove', onPointerMove);
+    element.removeEventListener('pointerup', finishPointer);
+    element.removeEventListener('pointercancel', finishPointer);
+    element.removeEventListener('lostpointercapture', finishPointer);
+    element.removeEventListener('click', onClick, true);
+    element.removeEventListener('wheel', onWheel);
+  };
+}
+
 function scheduleDrawnClassCleanup(element) {
   const cleanup = () => element.classList.remove('is-drawn');
   element.addEventListener('animationend', cleanup, { once: true });
@@ -3566,6 +3822,18 @@ function fitTextBlock(node, maxSize, minSize) {
     size -= 0.5;
     node.style.fontSize = `${size}px`;
     node.style.lineHeight = size <= 9 ? '1.14' : '1.2';
+  }
+}
+
+function fitSingleLineText(node, minSize = 6) {
+  if (!node) return;
+  node.style.removeProperty('font-size');
+  node.style.removeProperty('line-height');
+  let size = Number.parseFloat(window.getComputedStyle(node).fontSize) || 8;
+  while (size > minSize && node.scrollWidth > node.clientWidth) {
+    size -= 0.5;
+    node.style.setProperty('font-size', `${size}px`, 'important');
+    node.style.setProperty('line-height', '1', 'important');
   }
 }
 
@@ -3662,7 +3930,7 @@ function createPileCardElement(card, index) {
       <div class="med-card-wrapper">
         <div class="med-card-bg"></div>
         <div class="med-card-cost"><span>${cardEnergyCost(card)}</span></div>
-        <div class="med-card-level" hidden>Lv.${card.level ?? 1}</div>
+        <div class="med-card-level" hidden>${toRomanNumeral(card.level)}</div>
         ${cardUseBarMarkup(card)}
         ${cardCooldownOverlayMarkup(this, card)}
         <div class="med-card-face">

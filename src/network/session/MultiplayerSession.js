@@ -95,6 +95,22 @@ export function buildMatchDeck(entries, cardWithLevel, { matchId, playerId } = {
   });
 }
 
+export function mergeMultiplayerDecksAtHighestLevel(decks = []) {
+  const cardOrder = [];
+  const highestLevelById = new Map();
+  (decks ?? []).forEach((deck) => {
+    (deck ?? []).forEach((entry) => {
+      const id = typeof entry === 'string' ? entry : entry?.id;
+      if (!id) return;
+      if (!highestLevelById.has(id)) cardOrder.push(id);
+      const rawLevel = typeof entry === 'string' ? 1 : entry?.level;
+      const level = Math.max(1, Math.floor(Number(rawLevel) || 1));
+      highestLevelById.set(id, Math.max(highestLevelById.get(id) ?? 1, level));
+    });
+  });
+  return cardOrder.map((id) => ({ id, level: highestLevelById.get(id) ?? 1 }));
+}
+
 function normalizePlayerEntries(players) {
   if (Array.isArray(players)) {
     return players

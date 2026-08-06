@@ -265,6 +265,7 @@ export class EffectsSystem {
     const ability = state.ability ?? {};
     const duration = Math.max(0.1, ability.duration ?? 10);
     const height = Math.max(2.6, ability.height ?? 5.1);
+    const visualScale = Math.max(0.1, Number(ability.visualScale) || 1);
     const group = new THREE.Group();
     const cloudMaterial = mat('#303a58', {
       transparent: true,
@@ -290,8 +291,8 @@ export class EffectsSystem {
         new THREE.DodecahedronGeometry(0.58, 0),
         index % 2 === 0 ? cloudMaterial : cloudLightMaterial
       );
-      lobe.position.set(x, height + y, z);
-      lobe.scale.setScalar(scale);
+      lobe.position.set(x * visualScale, height + y * visualScale, z * visualScale);
+      lobe.scale.setScalar(scale * visualScale);
       lobe.renderOrder = 1870;
       return lobe;
     });
@@ -311,9 +312,12 @@ export class EffectsSystem {
     group.add(glow, ...lobes);
     this.addEffect(group, duration, (_, progress) => {
       group.position.copy(state.position);
-      const pulse = 0.78 + Math.sin((state.age ?? 0) * 5.5) * 0.14;
-      glow.scale.setScalar(pulse);
-      glow.material.opacity = 0.1 + Math.max(0, Math.sin((state.age ?? 0) * 3.7)) * 0.12;
+      // Host 持有的雷云状态会持续更新 age；Client 只收到一次生成事件，
+      // 因此还要用本地特效进度驱动动画，避免联机雷云停在首帧。
+      const visualAge = Math.max(Number(state.age) || 0, progress * duration);
+      const pulse = 0.78 + Math.sin(visualAge * 5.5) * 0.14;
+      glow.scale.setScalar(pulse * visualScale);
+      glow.material.opacity = 0.1 + Math.max(0, Math.sin(visualAge * 3.7)) * 0.12;
       const fade = Math.min(1, (1 - progress) * 2.4);
       cloudMaterial.opacity = 0.9 * fade;
       cloudLightMaterial.opacity = 0.8 * fade;
@@ -718,6 +722,91 @@ export class EffectsSystem {
     }, () => {
       particleMaterial.dispose();
       flashMaterial.dispose();
+    });
+  }
+
+  spawnSelfDestructExplosion(position, radius = 6) {
+    const effectRadius = Math.max(0.5, Number(radius) || 6);
+    const group = new THREE.Group();
+    group.position.set(position.x, (position.y ?? 0) + 0.08, position.z);
+
+    const coreMaterial = basicMat('#ffe0a1', {
+      transparent: true,
+      opacity: 0.54,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    }).clone();
+    const core = new THREE.Mesh(new THREE.CircleGeometry(1, 36), coreMaterial);
+    core.rotation.x = -Math.PI / 2;
+    core.renderOrder = 1510;
+    group.add(core);
+
+    const waveMaterial = basicMat('#ff8b4e', {
+      transparent: true,
+      opacity: 0.84,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    }).clone();
+    const wave = new THREE.Mesh(new THREE.RingGeometry(0.82, 1, 48), waveMaterial);
+    wave.rotation.x = -Math.PI / 2;
+    wave.renderOrder = 1512;
+    group.add(wave);
+
+    const boundaryMaterial = basicMat('#ffd28b', {
+      transparent: true,
+      opacity: 0.74,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      depthTest: false,
+      blending: THREE.AdditiveBlending
+    }).clone();
+    const boundary = new THREE.Mesh(
+      new THREE.RingGeometry(0.965, 1, 48),
+      boundaryMaterial
+    );
+    boundary.rotation.x = -Math.PI / 2;
+    boundary.scale.setScalar(effectRadius);
+    boundary.renderOrder = 1514;
+    group.add(boundary);
+
+    const sparkMaterial = basicMat('#fff1bf', {
+      transparent: true,
+      opacity: 0.92,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    }).clone();
+    const sparks = [];
+    const sparkSize = clamp(0.055 + effectRadius * 0.008, 0.065, 0.12);
+    for (let index = 0; index < 18; index += 1) {
+      const angle = (index / 18) * Math.PI * 2 + (Math.random() - 0.5) * 0.14;
+      const spark = new THREE.Mesh(new THREE.TetrahedronGeometry(sparkSize, 0), sparkMaterial);
+      spark.userData.angle = angle;
+      spark.userData.lift = 0.24 + Math.random() * 0.36;
+      spark.userData.spin = 6 + Math.random() * 8;
+      spark.position.y = 0.13;
+      spark.renderOrder = 1515;
+      sparks.push(spark);
+      group.add(spark);
+    }
+
+    this.addEffect(group, 0.54, (_, t) => {
+      const expansion = 0.08 + Math.min(1, t * 1.4) * 0.92;
+      core.scale.setScalar(effectRadius * expansion);
+      coreMaterial.opacity = (1 - t) * 0.54;
+      wave.scale.setScalar(effectRadius * expansion);
+      waveMaterial.opacity = (1 - t) * 0.84;
+      boundaryMaterial.opacity = (1 - t) * 0.74;
+      sparks.forEach((spark) => {
+        const distance = effectRadius * (0.1 + Math.min(1, t * 1.18) * 0.9);
+        spark.position.x = Math.cos(spark.userData.angle) * distance;
+        spark.position.z = Math.sin(spark.userData.angle) * distance;
+        spark.position.y = 0.13 + Math.sin(t * Math.PI) * effectRadius * spark.userData.lift;
+        spark.rotation.x += spark.userData.spin * 0.016;
+        spark.rotation.y += spark.userData.spin * 0.012;
+      });
+      sparkMaterial.opacity = (1 - t) * 0.92;
     });
   }
 
@@ -1442,6 +1531,18 @@ export class EffectsSystem {
     const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.62, 7.4, 8, 1, true), beamMaterial);
     beam.position.y = 4.1;
     root.add(beam);
+    const beamCoreMaterial = basicMat('#fff5c6', {
+      transparent: true,
+      opacity: 0.58,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    }).clone();
+    const beamCore = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.07, 0.22, 7.7, 6, 1, true),
+      beamCoreMaterial
+    );
+    beamCore.position.y = 4.1;
+    root.add(beamCore);
 
     const markerMaterial = basicMat('#d6aa4a', {
       transparent: true,
@@ -1454,6 +1555,56 @@ export class EffectsSystem {
     marker.position.y = 0.025;
     root.add(marker);
 
+    const sigil = new THREE.Group();
+    const sigilDiscMaterial = basicMat('#f0c85e', {
+      transparent: true,
+      opacity: 0.2,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    }).clone();
+    const sigilDisc = new THREE.Mesh(new THREE.CircleGeometry(radius * 0.78, 32), sigilDiscMaterial);
+    sigilDisc.rotation.x = -Math.PI / 2;
+    sigilDisc.position.y = 0.012;
+    sigil.add(sigilDisc);
+
+    const innerMarkerMaterial = basicMat('#ffe58a', {
+      transparent: true,
+      opacity: 0.52,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    }).clone();
+    const innerMarker = new THREE.Mesh(
+      new THREE.RingGeometry(radius * 0.22, radius * 0.3, 24),
+      innerMarkerMaterial
+    );
+    innerMarker.rotation.x = -Math.PI / 2;
+    innerMarker.position.y = 0.032;
+    sigil.add(innerMarker);
+
+    const runeMaterial = basicMat('#ffe9a6', {
+      transparent: true,
+      opacity: 0.68,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    }).clone();
+    for (let index = 0; index < 8; index += 1) {
+      const angle = (index / 8) * Math.PI * 2;
+      const rune = new THREE.Mesh(
+        new THREE.BoxGeometry(radius * 0.07, 0.026, radius * 0.24),
+        runeMaterial
+      );
+      rune.position.set(
+        Math.cos(angle) * radius * 0.53,
+        0.038,
+        Math.sin(angle) * radius * 0.53
+      );
+      rune.rotation.y = Math.PI / 2 - angle;
+      sigil.add(rune);
+    }
+    root.add(sigil);
+
     sword.position.y = 8.8;
     let impacted = false;
     this.addEffect(root, 0.86, (_, t) => {
@@ -1463,13 +1614,31 @@ export class EffectsSystem {
       sword.rotation.y = 0.34 + t * 0.72;
       beam.scale.set(1 + (1 - t) * 0.5, 1, 1 + (1 - t) * 0.5);
       beamMaterial.opacity = 0.18 + (1 - fallProgress) * 0.28;
+      beamCore.scale.set(0.82 + (1 - fallProgress) * 0.42, 1, 0.82 + (1 - fallProgress) * 0.42);
+      beamCoreMaterial.opacity = 0.24 + (1 - fallProgress) * 0.52;
       marker.scale.setScalar(0.84 + fallProgress * 0.16);
       markerMaterial.opacity = 0.16 + fallProgress * 0.36;
+      const sigilCharge = clamp(t / 0.42, 0, 1);
+      sigil.rotation.y = -t * 2.8;
+      sigil.scale.setScalar(0.68 + sigilCharge * 0.32);
+      sigilDiscMaterial.opacity = 0.06 + sigilCharge * 0.18;
+      innerMarkerMaterial.opacity = 0.18 + sigilCharge * 0.44;
+      runeMaterial.opacity = 0.18 + sigilCharge * 0.5;
       if (!impacted && t >= 0.82) {
         impacted = true;
         this.spawnJudgmentImpact(position, radius);
         onImpact?.();
       }
+    }, () => {
+      bladeMaterial.dispose();
+      goldMaterial.dispose();
+      gripMaterial.dispose();
+      beamMaterial.dispose();
+      beamCoreMaterial.dispose();
+      markerMaterial.dispose();
+      sigilDiscMaterial.dispose();
+      innerMarkerMaterial.dispose();
+      runeMaterial.dispose();
     });
   }
 
@@ -1495,11 +1664,57 @@ export class EffectsSystem {
     const ring = new THREE.Mesh(new THREE.RingGeometry(radius * 0.56, radius * 0.72, 30), ringMaterial);
     ring.rotation.x = -Math.PI / 2;
     group.add(ring);
+    const shockwaveMaterial = basicMat('#fff0ad', {
+      transparent: true,
+      opacity: 0.74,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    }).clone();
+    const shockwave = new THREE.Mesh(
+      new THREE.RingGeometry(radius * 0.16, radius * 0.24, 36),
+      shockwaveMaterial
+    );
+    shockwave.rotation.x = -Math.PI / 2;
+    shockwave.position.y = 0.024;
+    group.add(shockwave);
+    const shardMaterial = basicMat('#fff3bc', {
+      transparent: true,
+      opacity: 0.86,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    }).clone();
+    const shards = [];
+    for (let index = 0; index < 8; index += 1) {
+      const angle = (index / 8) * Math.PI * 2 + Math.PI / 8;
+      const shard = new THREE.Mesh(new THREE.TetrahedronGeometry(radius * 0.1, 0), shardMaterial);
+      shard.userData.angle = angle;
+      shard.userData.spin = 5 + index * 0.9;
+      shard.position.y = 0.12;
+      shards.push(shard);
+      group.add(shard);
+    }
     this.addEffect(group, 0.42, (_, t) => {
       flash.scale.setScalar(1 + t * 2.4);
       flashMaterial.opacity = (1 - t) * 0.78;
       ring.scale.setScalar(1 + t * 1.6);
       ringMaterial.opacity = (1 - t) * 0.68;
+      shockwave.scale.setScalar(1 + t * 5.1);
+      shockwaveMaterial.opacity = (1 - t) * 0.74;
+      shards.forEach((shard) => {
+        const distance = radius * (0.14 + t * 0.92);
+        shard.position.x = Math.cos(shard.userData.angle) * distance;
+        shard.position.z = Math.sin(shard.userData.angle) * distance;
+        shard.position.y = 0.12 + Math.sin(t * Math.PI) * radius * 0.5;
+        shard.rotation.x += shard.userData.spin * 0.018;
+        shard.rotation.z += shard.userData.spin * 0.013;
+      });
+      shardMaterial.opacity = (1 - t) * 0.86;
+    }, () => {
+      flashMaterial.dispose();
+      ringMaterial.dispose();
+      shockwaveMaterial.dispose();
+      shardMaterial.dispose();
     });
   }
 

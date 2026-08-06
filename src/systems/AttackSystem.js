@@ -100,6 +100,9 @@ export class AttackSystem {
       ability.type === 'glacialSlam' ||
       ability.type === 'rootQuake';
     const eventName = isImpactAbility ? 'impact' : 'release';
+    const abilityPoint = ability.type === 'vineField'
+      ? getTargetPosition(target)?.clone?.()
+      : null;
     const duration = getAnimationDuration(unit, 'attack');
     unit.abilityCooldowns.set(key, Math.max(0.1, ability.cooldown ?? 8));
     unit.attackTimer = Math.max(
@@ -117,6 +120,13 @@ export class AttackSystem {
         Math.max(0.2, getAnimationEventTime(unit, 'attack', 'impact'))
       );
     }
+    if (ability.type === 'vineField' && abilityPoint) {
+      this.game.effects.spawnRootWarning(
+        abilityPoint,
+        Math.max(1, ability.radius ?? 3.2),
+        Math.max(0.2, getAnimationEventTime(unit, 'attack', 'release'))
+      );
+    }
     this.queuePendingAttack({
       source: unit,
       target,
@@ -126,6 +136,7 @@ export class AttackSystem {
       fired: false,
       fireAt: getAnimationEventTime(unit, 'attack', eventName),
       duration,
+      abilityPoint,
       monsterAbility: ability
     });
     unit.spendDurability(ability.durabilityCost ?? this.game.modifiers.getDurabilityCost(unit));
@@ -402,7 +413,7 @@ export class AttackSystem {
   }
 
   resolveMonsterAbility(attack) {
-    const { source, target, monsterAbility: ability } = attack;
+    const { source, target, abilityPoint, monsterAbility: ability } = attack;
     if (!ability || !target) return;
     if (ability.type === 'scatterShot') {
       this.fireScatterShot(source, target, ability);
@@ -434,6 +445,10 @@ export class AttackSystem {
     }
     if (ability.type === 'glacialSlam') {
       this.castGlacialSlam(source, ability);
+      return;
+    }
+    if (ability.type === 'vineField') {
+      this.castVineField(source, abilityPoint ?? target, ability);
       return;
     }
     if (ability.type === 'rootQuake') {
@@ -641,6 +656,39 @@ export class AttackSystem {
     this.spawnMonsterAbilityText(source, '腐根震裂', '#b8cf72');
   }
 
+  castVineField(source, targetOrPoint, ability) {
+    const targetPoint = targetOrPoint?.position ?? targetOrPoint;
+    if (!targetPoint) return false;
+    const point = targetPoint.clone?.() ?? new THREE.Vector3(
+      targetPoint.x ?? 0,
+      targetPoint.y ?? 0,
+      targetPoint.z ?? 0
+    );
+    const color = ability.color ?? '#526b3f';
+    const accent = ability.accent ?? '#b8cf72';
+    const zone = this.game.areaEffects?.create?.({
+      kind: 'rootVines',
+      target: 'opponent',
+      radius: Math.max(1, ability.radius ?? 3.2),
+      duration: Math.max(0.5, ability.duration ?? 5.4),
+      applyInterval: Math.max(0.2, ability.tickInterval ?? 0.75),
+      buffId: ability.statusBuffId ?? 'mireSnared',
+      buffDuration: Math.max(0.4, ability.slowDuration ?? 1.1),
+      directDamagePerSecondBase: Math.max(0, ability.damagePerSecond ?? 5.6),
+      defenseDamageType: 'magic',
+      color,
+      accent
+    }, point, {
+      id: ability.key ?? 'rotroot-vine-field',
+      level: 1,
+      color
+    }, { source });
+    if (!zone) return false;
+    zone.applyTimer = zone.applyInterval;
+    this.spawnMonsterAbilityText(source, '腐根蔓域', accent);
+    return true;
+  }
+
   damageTargetsInRadius(source, center, radius, damage, options = {}) {
     const targetTeam = source.team === TEAMS.PLAYER ? TEAMS.ENEMY : TEAMS.PLAYER;
     const targets = this.unitsNear(targetTeam, center, radius);
@@ -720,8 +768,7 @@ export class AttackSystem {
     const projectileObject = this.acquireProjectileObject(projectileType, projectileColor);
     const isGreatWaterOrb =
       projectileType === 'waterOrb' &&
-      hasRuntimeTrait(source, 'greatWaterOrb') &&
-      Math.random() < 0.3;
+      hasRuntimeTrait(source, 'greatWaterOrb');
     projectileObject.scale.setScalar(isGreatWaterOrb ? 1.7 : 1);
     const launchPosition = this.getProjectileLaunchPosition(source);
     projectileObject.position.copy(launchPosition);
@@ -751,6 +798,7 @@ export class AttackSystem {
       knockback: (override.knockback ?? this.game.modifiers.getKnockback(source)) * (isGreatWaterOrb ? 1.25 : 1),
       damageTypes: override.damageTypes,
       onHit: override.onHit,
+      hitRadius: 0.34 * (isGreatWaterOrb ? 1.7 : 1),
       age: 0
     };
 
@@ -815,7 +863,8 @@ export class AttackSystem {
       const distanceSq = dx * dx + dy * dy + dz * dz;
       recordProjectileProfile(profile, 'projectileFlightMs', flightStartedAt);
 
-      if (distanceSq < 0.1156) {
+      const hitRadius = Math.max(0.01, projectile.hitRadius ?? 0.34);
+      if (distanceSq < hitRadius * hitRadius) {
         const hitStartedAt = profile ? performance.now() : 0;
         this.applyProjectileHit(projectile, projectile.target);
         recordProjectileProfile(profile, 'projectileHitMs', hitStartedAt);

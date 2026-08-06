@@ -231,6 +231,7 @@ export class SnapshotBuilder {
       // second even while the battlefield was otherwise idle.
       elapsedTime: Math.floor(this.game.elapsedTime ?? 0),
       endlessDifficulty: Number(this.game.endlessDifficulty ?? 0),
+      endlessPerformanceMultiplier: Number(this.game.endlessPerformanceMultiplier ?? 1),
       rebirthQueue: this.game.serializeRebirthQueue?.() ?? [],
       currentWave: this.game.currentWave ? {
         index: this.game.currentWave.index ?? this.game.wave ?? 0,
@@ -317,6 +318,7 @@ export class SnapshotBuilder {
           waveLabel: this.game.currentWave?.label ?? '',
           elapsedTime: Math.floor(this.game.elapsedTime ?? 0),
           endlessDifficulty: Number(this.game.endlessDifficulty ?? 0),
+          endlessPerformanceMultiplier: Number(this.game.endlessPerformanceMultiplier ?? 1),
           rebirthQueue: this.game.serializeRebirthQueue?.() ?? [],
           currentWave: this.game.currentWave ? {
             index: this.game.currentWave.index ?? this.game.wave ?? 0,
@@ -369,6 +371,15 @@ export class SnapshotBuilder {
       selected: Boolean(unit.selected),
       selectedByPlayerId: unit.selected ? (unit.selectedByPlayerId ?? null) : null,
       isGuarding: unit.controlMode === 'guard',
+      // Guard movement is Host-authoritative. A client only mirrors the unit
+      // transform, so it also needs the fixed guard point for the range ring
+      // instead of falling back to the moving unit position.
+      guardPoint: unit.guardPoint ? [
+        quantizePosition(unit.guardPoint.x),
+        quantizePosition(unit.guardPoint.y),
+        quantizePosition(unit.guardPoint.z)
+      ] : null,
+      guardRadius: Number.isFinite(unit.guardRadius) ? round(unit.guardRadius, 2) : null,
       effects: serializeEffects(unit),
       enchantments: [...(unit.enchantments?.entries?.() ?? [])]
         .filter(([, enchantment]) => !enchantment?.hidden)
@@ -442,7 +453,6 @@ export class SnapshotBuilder {
       this.game.runShopNetworkRevision = shopIdentity?.revision ?? null;
     }
     const rewardSeconds = this.game.coopRewardSecondsRemaining?.() ?? null;
-    const rewardKind = this.game.coopRewardWaitSlots?.size ? this.game.coopRewardKind : null;
     return {
       playerId,
       energy: round(cards.energy),
@@ -459,7 +469,6 @@ export class SnapshotBuilder {
       silver: round(isLocal ? this.game.getSilver(playerId) : run.silver),
       coopRewardAutoSelectSecondsRemaining: rewardSeconds,
       strategyUi: serializeStrategyUi(strategyEvent, {
-        autoSelectSecondsRemaining: rewardKind === 'strategy' ? rewardSeconds : null,
         rerollCount: Math.max(0, run?.strategyRewardRerollCount ?? 0)
       }),
       strategySelectionRequired: Boolean(strategyEvent),
@@ -468,9 +477,7 @@ export class SnapshotBuilder {
         && this.game.coopRewardWaitSlots?.size
         && !strategyEvent
       ),
-      runShopState: serializeRunShopState(shopRun, {
-        autoSelectSecondsRemaining: rewardKind === 'run-shop' ? rewardSeconds : null
-      }),
+      runShopState: serializeRunShopState(shopRun),
       runShopWaiting: Boolean(
         this.game.coopRewardKind === 'run-shop'
         && this.game.coopRewardWaitSlots?.size
@@ -539,6 +546,15 @@ function serializeCard(card) {
     summary: card.summary,
     color: card.color,
     artKey: card.artKey,
+    target: card.target,
+    radius: card.radius,
+    enchantmentId: card.enchantmentId,
+    effect: card.effect ?? null,
+    uses: card.uses,
+    exhaust: card.exhaust,
+    lootOnly: card.lootOnly,
+    terrainCard: card.terrainCard,
+    discardEnergyCost: card.discardEnergyCost,
     ...(Number.isFinite(card.maxUses) ? { maxUses: card.maxUses } : {}),
     ...(Number.isFinite(card.remainingUses) ? { remainingUses: card.remainingUses } : {}),
     ...(Number.isFinite(card.cooldown) ? { cooldown: card.cooldown } : {}),
@@ -576,7 +592,6 @@ function serializeStrategyUi(event, options = {}) {
     kicker: event.kicker,
     title: event.title,
     summary: event.summary,
-    autoSelectSecondsRemaining: options.autoSelectSecondsRemaining ?? null,
     rerollCount: Math.max(0, Number(options.rerollCount) || 0),
     exhausted: Boolean(event.exhausted),
     wave: event.wave ? { index: event.wave.index, kind: event.wave.kind } : null,
@@ -591,13 +606,13 @@ function serializeStrategyUi(event, options = {}) {
   };
 }
 
-function serializeRunShopState(run, options = {}) {
+function serializeRunShopState(run) {
   return {
     offerId: run.networkInteractionId,
     revision: run.networkRevision,
     freeReward: Boolean(run.runShopFreeReward),
+    prices: { ...(run.shopPrices ?? {}) },
     activeCategory: run.runShopActiveCategory,
-    autoSelectSecondsRemaining: options.autoSelectSecondsRemaining ?? null,
     choices: (run.runShopChoices ?? []).map((choice) => ({
       choiceId: choice.choiceId,
       action: choice.action,
@@ -605,6 +620,8 @@ function serializeRunShopState(run, options = {}) {
       title: choice.title,
       description: choice.description,
       disabled: Boolean(choice.disabled),
+      prepaid: Boolean(choice.prepaid),
+      prepaidPrice: choice.prepaid ? round(choice.prepaidPrice) : null,
       card: serializeCard(choice.card ?? choice.targetCard ?? choice.temporaryCard)
     }))
   };

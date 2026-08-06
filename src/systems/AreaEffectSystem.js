@@ -10,16 +10,19 @@ export class AreaEffectSystem {
     this.zones = [];
   }
 
-  create(effect, point, card, { playerId = null } = {}) {
+  create(effect, point, card, { playerId = null, source = null } = {}) {
     if (!point) return null;
     const level = Math.max(1, Math.floor(card?.level ?? 1));
     const bonusLevel = Math.max(0, level - 1);
-    const radius = this.game.scaleSpellAreaRadius(resolveAreaDimension(
+    const baseRadius = resolveAreaDimension(
       effect.radius ?? card?.radius ?? 3,
       effect.radiusPerLevel,
       level,
       0.06 * bonusLevel
-    ), playerId);
+    );
+    const radius = source
+      ? baseRadius
+      : this.game.scaleSpellAreaRadius(baseRadius, playerId);
     const duration = resolveAreaDimension(
       effect.duration ?? card?.duration ?? 10,
       effect.durationPerLevel,
@@ -41,9 +44,9 @@ export class AreaEffectSystem {
       id: `${card.id}:${this.game.elapsedTime.toFixed(2)}:${this.zones.length}`,
       cardId: card.id,
       ownerPlayerId: playerId,
-      source: playerId
+      source: source ?? (playerId
         ? { team: 'player', ownerPlayerId: playerId, controllerPlayerId: playerId }
-        : null,
+        : null),
       level,
       kind: effect.kind ?? 'fog',
       color: effect.color ?? card.color ?? '#ffffff',
@@ -162,7 +165,8 @@ export class AreaEffectSystem {
     if (!Number.isFinite(damagePerSecond) || damagePerSecond <= 0) return;
     const interval = Math.max(0.01, zone.applyInterval);
     const damage = damagePerSecond * interval;
-    this.game.combat.applyDamage(unit, damage, null, 0, {
+    const combatSource = zone.source?.position ? zone.source : null;
+    this.game.combat.applyDamage(unit, damage, combatSource, 0, {
       damage,
       source: zone.source,
       target: unit,
@@ -176,6 +180,12 @@ export class AreaEffectSystem {
 
   getTargets(zone) {
     const pools = [];
+    if (zone.target === 'opponent') {
+      pools.push(zone.source?.team === 'player' ? this.game.enemyUnits : this.game.friendlyUnits);
+    }
+    if (zone.target === 'ally') {
+      pools.push(zone.source?.team === 'player' ? this.game.friendlyUnits : this.game.enemyUnits);
+    }
     if (zone.target === 'enemy' || zone.target === 'all') pools.push(this.game.enemyUnits);
     if (zone.target === 'friendly' || zone.target === 'all') {
       pools.push(this.game.friendlyUnits);

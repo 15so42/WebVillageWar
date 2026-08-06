@@ -1,5 +1,6 @@
 import { BUFF_DEFINITIONS, TEAMS } from '../data/gameData.js';
 import { distance2D } from '../utils/math.js';
+import { isEnchantmentSlotFull } from './enchantmentSlots.js';
 import { shouldConsumeWaveRewardCard } from './waveRewardPool.js';
 
 export class CardEffectSystem {
@@ -109,11 +110,7 @@ export class CardEffectSystem {
     const cardLevel = Math.max(1, Math.floor(card.level ?? 1));
     const definition = BUFF_DEFINITIONS[buffId];
     const isEnchantment = definition?.category === 'enchantment';
-    if (
-      isEnchantment &&
-      !targetUnit.enchantments?.has?.(buffId) &&
-      targetUnit.enchantments?.size >= Math.max(0, Math.floor(targetUnit.maxEnchantmentSlots ?? 5))
-    ) {
+    if (isEnchantment && isEnchantmentSlotFull(targetUnit, buffId)) {
       this.showEnchantmentSlotFailure(targetUnit);
       return false;
     }

@@ -4052,6 +4052,13 @@ body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row 
 body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row .med-card-level {
   justify-self: end;
   color: #d0d1cb;
+  font-family: var(--font-title);
+  font-size: 8px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  white-space: nowrap;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.86);
 }
 
 body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-type-icon {
@@ -4096,6 +4103,47 @@ body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-level-ico
   font-weight: 900;
   line-height: 1;
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.86);
+}
+
+body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-level-roman {
+  display: none;
+}
+
+/* 军需铺的旧卡壳与锻铁卡壳都只显示裸罗马数字，不能再出现
+   等级盾徽或胶囊底板。 */
+body.is-game-active .run-shop-panel .run-shop-choice-card > .card-level {
+  min-width: 0 !important;
+  width: auto !important;
+  height: auto !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  clip-path: none !important;
+  color: #e7dfd2 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  font-family: var(--font-title);
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  white-space: nowrap;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.86);
+}
+
+body.is-game-active .run-shop-panel .med-card-level {
+  border: 0 !important;
+  clip-path: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+body.is-game-active .run-shop-panel .med-card-level-icon {
+  display: none !important;
+}
+
+body.is-game-active .run-shop-panel .med-card-level-roman {
+  display: inline !important;
 }
 
 body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row .med-card-name {
@@ -4248,6 +4296,39 @@ body.is-game-active .card-hand .card.is-hand-card-target .med-card-bg {
     bottom: 3px !important;
     left: 4px !important;
     height: 8px !important;
+  }
+}
+
+/* On compact forged cards, the level crest spends too much of the title row.
+   Keep the card-kind symbol and replace only the level crest with readable
+   Roman numerals. This covers the live hand, wave rewards and every forged
+   supply-shop card because they share the wave-reward card frame. */
+@media (max-width: 900px) {
+  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row {
+    grid-template-columns: 17px minmax(0, 1fr) max-content !important;
+  }
+
+  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row .med-card-level {
+    width: auto !important;
+    min-width: 12px !important;
+    height: 17px !important;
+    padding-inline: 1px !important;
+  }
+
+  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-level-icon {
+    display: none !important;
+  }
+
+  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-level-roman {
+    display: block;
+    color: #eee7da;
+    font-family: var(--font-title);
+    font-size: 8px;
+    font-weight: 900;
+    line-height: 1;
+    letter-spacing: -0.04em;
+    white-space: nowrap;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.86);
   }
 }
 
@@ -4882,5 +4963,158 @@ body.is-game-active .unit-specialization-portrait .card-art-svg {
     width: 100%;
     height: 100%;
     transform: none;
+  }
+}
+
+/* Mobile supply-shop detail pages use the attribute-training card as their
+   size contract.  Catalog pickers previously kept the desktop 184px cards
+   inside their own vertical scroller while the shop panel also scrolled;
+   that nested layout clipped card bottoms and made later rows appear stacked.
+   Keep one scroll owner (the panel), and keep every three-choice service in
+   the same fixed row and 145x229 footprint as attribute training. */
+@media (max-width: 900px) {
+  body.is-game-active .run-shop-choice-list.is-catalog-picker {
+    grid-template-columns: repeat(auto-fill, 145px) !important;
+    justify-content: center;
+    align-items: start;
+    gap: 12px 10px !important;
+    max-height: none !important;
+    overflow: visible !important;
+    padding: 4px 2px 12px !important;
+    touch-action: pan-y;
+  }
+
+  body.is-game-active .run-shop-choice-list.is-catalog-picker .run-shop-reward-option.is-forged-reward,
+  body.is-game-active .run-shop-choice-list.is-compact-three-choice-picker .run-shop-reward-option.is-forged-reward {
+    width: 145px !important;
+    min-width: 145px !important;
+    max-width: 145px !important;
+    height: 229px !important;
+    min-height: 229px !important;
+    aspect-ratio: auto !important;
+  }
+
+  body.is-game-active .run-shop-choice-list.is-compact-three-choice-picker {
+    display: grid !important;
+    grid-template-columns: repeat(3, 145px) !important;
+    justify-content: center;
+    align-items: start;
+    gap: 10px !important;
+    max-height: none !important;
+    overflow: visible !important;
+    padding: 4px 2px 12px !important;
+    touch-action: pan-y;
+  }
+
+  body.is-game-active .run-shop-choice-list.is-compact-three-choice-picker .run-shop-reward-option.is-forged-reward {
+    flex: 0 0 145px !important;
+  }
+
+  /* The generic hand-card name owns its own underline. Special reward cards
+     need one shared divider at the bottom of the title band instead. */
+  body.is-game-active .run-shop-choice-list:is(.is-training-card-picker, .is-specialization-card-picker) .attribute-training-title-row {
+    padding-bottom: 7px;
+    border-bottom: 0;
+  }
+
+  body.is-game-active .run-shop-choice-list:is(.is-training-card-picker, .is-specialization-card-picker) .attribute-training-title-row::after {
+    content: "";
+    position: absolute;
+    left: 7px;
+    right: 7px;
+    bottom: 2px;
+    height: 1px;
+    background: color-mix(in srgb, var(--training-accent) 28%, #555a53);
+    pointer-events: none;
+  }
+
+  body.is-game-active .run-shop-choice-list:is(.is-training-card-picker, .is-specialization-card-picker) .attribute-training-title-row .med-card-name {
+    width: 100%;
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom: 0 !important;
+  }
+}
+
+/* Upgrade/copy/remove can contain a large owned deck. The slider changes both
+   the grid tracks and the rendered forged frame, so shrinking cards creates
+   genuinely denser rows instead of leaving invisible full-size hit boxes. */
+body.is-game-active .run-shop-card-scale-control {
+  display: grid;
+  grid-template-columns: max-content minmax(150px, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 7px 10px;
+  border: 1px solid #4f4e49;
+  background: linear-gradient(180deg, #292c2a, #1d201e);
+  color: #d8cdb9;
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+body.is-game-active .run-shop-card-scale-control[hidden] {
+  display: none !important;
+}
+
+body.is-game-active .run-shop-card-scale-control span {
+  white-space: nowrap;
+}
+
+body.is-game-active .run-shop-card-scale-control output {
+  display: inline-block;
+  min-width: 34px;
+  color: #f0d78f;
+  text-align: right;
+}
+
+body.is-game-active .run-shop-card-scale-control input {
+  width: 100%;
+  accent-color: #8fa6a1;
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+body.is-game-active .run-shop-choice-list.is-scalable-card-picker {
+  grid-template-columns: repeat(auto-fill, var(--run-shop-card-width, 184px)) !important;
+  justify-content: center;
+  align-items: start;
+  column-gap: var(--run-shop-card-column-gap, 10px) !important;
+  row-gap: var(--run-shop-card-row-gap, 12px) !important;
+}
+
+body.is-game-active .run-shop-choice-list.is-scalable-card-picker .run-shop-reward-option.is-forged-reward {
+  width: var(--run-shop-card-width, 184px) !important;
+  min-width: var(--run-shop-card-width, 184px) !important;
+  max-width: var(--run-shop-card-width, 184px) !important;
+  height: var(--run-shop-card-height, 290px) !important;
+  min-height: var(--run-shop-card-height, 290px) !important;
+}
+
+body.is-game-active .run-shop-choice-list.is-scalable-card-picker .wave-reward-card-frame {
+  transform: scale(1.39394) scale(var(--run-shop-card-scale, 1));
+}
+
+@media (max-width: 900px) {
+  body.is-game-active .run-shop-card-scale-control {
+    grid-template-columns: max-content minmax(110px, 1fr);
+    gap: 8px;
+    padding: 6px 8px;
+  }
+
+  body.is-game-active .run-shop-choice-list.is-scalable-card-picker {
+    grid-template-columns: repeat(auto-fill, var(--run-shop-mobile-card-width, 145px)) !important;
+  }
+
+  body.is-game-active .run-shop-choice-list.is-scalable-card-picker .run-shop-reward-option.is-forged-reward {
+    width: var(--run-shop-mobile-card-width, 145px) !important;
+    min-width: var(--run-shop-mobile-card-width, 145px) !important;
+    max-width: var(--run-shop-mobile-card-width, 145px) !important;
+    height: var(--run-shop-mobile-card-height, 229px) !important;
+    min-height: var(--run-shop-mobile-card-height, 229px) !important;
+  }
+
+  body.is-game-active .run-shop-choice-list.is-scalable-card-picker .wave-reward-card-frame {
+    transform: scale(1.45) scale(var(--run-shop-card-scale, 1));
   }
 }

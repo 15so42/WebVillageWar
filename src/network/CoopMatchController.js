@@ -1,7 +1,11 @@
 import { LEVEL_DEFINITIONS } from '../data/gameData.js';
 import { GAME_VERSION } from '../version.js';
 import { RoomClient } from './session/RoomClient.js';
-import { buildMatchDeck, normalizeMultiplayerSession } from './session/MultiplayerSession.js';
+import {
+  buildMatchDeck,
+  mergeMultiplayerDecksAtHighestLevel,
+  normalizeMultiplayerSession
+} from './session/MultiplayerSession.js';
 import { GameNetworkBridge } from './bridge/GameNetworkBridge.js';
 import { normalizeChallengeMode } from '../systems/endlessMode.js';
 import { deckValidationMessage, validateDeckSelection } from '../systems/deckRules.js';
@@ -172,7 +176,7 @@ export class CoopMatchController {
       this.onLobbyVisible?.(this.viewState({ event: MSG.ERROR }));
       return false;
     }
-    const alreadyConnected = this.roomClient.transport.connected
+    const alreadyConnected = this.roomClient.isRoomBound
       && this.roomClient.playerId === saved.playerId
       && String(this.roomClient.room?.id ?? '').trim().toUpperCase() === String(saved.roomId ?? '').trim().toUpperCase();
     if (alreadyConnected) {
@@ -879,6 +883,7 @@ export class CoopMatchController {
     const challengeMode = lobbyConfig.challengeMode;
     const matchId = createStableId('match');
     const matchSeed = randomSeed();
+    const sharedDeck = mergeMultiplayerDecksAtHighestLevel(players.map((player) => player.deck));
     this.phase = MATCH_PHASE.MATCH_LOADING;
     this.phaseRevision += 1;
     const descriptors = players.map((player) => ({
@@ -897,7 +902,12 @@ export class CoopMatchController {
       difficulty,
       challengeMode,
       players: descriptors,
-      decks: Object.fromEntries(players.map((player) => [player.playerId, player.deck])),
+      // 联机战役在 Host 开局时合并所有人的牌组，并逐卡取全员最高等级。
+      // 每位玩家拿到独立数组副本，运行时升级仍只影响自己的当局牌组。
+      decks: Object.fromEntries(players.map((player) => [
+        player.playerId,
+        sharedDeck.map((card) => ({ ...card }))
+      ])),
       matchRules: {
         mode: 'pve',
         maxPlayers: players.length,

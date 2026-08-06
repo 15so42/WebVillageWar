@@ -6749,7 +6749,8 @@ export function createRotrootColossusModel() {
     weaponSwingPivot,
     offhandPivot,
     coreStone,
-    rightFist
+    rightFist,
+    projectileSocket: rightFist
   };
   centerModelFootprint(group);
   return enableShadows(wrapPersistentModelScale(group, 1.2));
@@ -7172,6 +7173,53 @@ export function createMireJavelinModel(color = '#8abf68') {
   finRight.rotation.y = -0.28;
   finRight.rotation.z = -0.4;
   group.add(shaft, head, binding, finLeft, finRight);
+  return enableShadows(group);
+}
+
+export function createThornVineModel(color = '#9fbd64') {
+  const group = new THREE.Group();
+  const vineMaterial = mat('#405035', { roughness: 0.94 });
+  const vineLightMaterial = mat(color, {
+    emissive: '#557f35',
+    emissiveIntensity: 0.24,
+    roughness: 0.88
+  });
+  const thornMaterial = mat('#d5e5a0', {
+    emissive: '#718b3c',
+    emissiveIntensity: 0.18,
+    roughness: 0.8
+  });
+  const segmentGeometry = new THREE.CylinderGeometry(0.052, 0.075, 0.48, 5);
+  const segmentOffsets = [
+    { x: -0.08, y: -0.03, z: -0.38, rx: 1.46, rz: -0.18 },
+    { x: 0.04, y: 0.035, z: 0.01, rx: 1.7, rz: 0.22 },
+    { x: -0.025, y: -0.015, z: 0.4, rx: 1.49, rz: -0.12 }
+  ];
+  segmentOffsets.forEach((offset, index) => {
+    const segment = new THREE.Mesh(
+      segmentGeometry,
+      index === 1 ? vineLightMaterial : vineMaterial
+    );
+    segment.position.set(offset.x, offset.y, offset.z);
+    segment.rotation.set(offset.rx, 0, offset.rz);
+    group.add(segment);
+  });
+  const tip = new THREE.Mesh(
+    new THREE.ConeGeometry(0.16, 0.42, 5),
+    vineLightMaterial
+  );
+  tip.position.set(-0.04, 0.01, 0.82);
+  tip.rotation.x = Math.PI / 2;
+  group.add(tip);
+  [-0.42, -0.08, 0.27, 0.55].forEach((z, index) => {
+    const thorn = new THREE.Mesh(
+      new THREE.ConeGeometry(0.055, 0.2 + (index % 2) * 0.04, 4),
+      thornMaterial
+    );
+    thorn.position.set(index % 2 === 0 ? 0.1 : -0.11, 0.035, z);
+    thorn.rotation.set(index % 2 === 0 ? -0.22 : 0.22, 0, index % 2 === 0 ? -0.88 : 0.88);
+    group.add(thorn);
+  });
   return enableShadows(group);
 }
 
@@ -8910,7 +8958,7 @@ export function createSelectionRing(color = '#62d56f') {
       side: THREE.DoubleSide,
       depthWrite: false,
       depthTest: false
-    })
+    }).clone()
   );
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(0.66, 0.78, 48),
@@ -8920,7 +8968,7 @@ export function createSelectionRing(color = '#62d56f') {
       side: THREE.DoubleSide,
       depthWrite: false,
       depthTest: false
-    })
+    }).clone()
   );
   glow.rotation.x = -Math.PI / 2;
   ring.rotation.x = -Math.PI / 2;

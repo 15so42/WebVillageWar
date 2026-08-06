@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   isRunShopUiVisible,
+  shouldPauseRunShop,
   shouldRestoreFreeRunShopUi
 } from '../src/systems/runShopUiState.js';
 
@@ -26,5 +27,8 @@ assert.equal(shouldRestoreFreeRunShopUi({
   }
 }), true);
 assert.equal(shouldRestoreFreeRunShopUi({ freeReward: false, runShopOpen: true, ui: null }), false);
+assert.equal(shouldPauseRunShop({ coopEnabled: false, alreadyPaused: false }), true);
+assert.equal(shouldPauseRunShop({ coopEnabled: false, alreadyPaused: true }), false);
+assert.equal(shouldPauseRunShop({ coopEnabled: true, alreadyPaused: false }), false);
 
 console.log('Run-shop reward recovery checks passed.');

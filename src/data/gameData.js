@@ -432,16 +432,17 @@ export const UNIT_DEFINITIONS = {
         cooldown: 15,
         duration: 10,
         strikeInterval: 1.25,
-        strikeRadius: 2.2,
+        strikeRadius: 4.4,
         damageMultiplier: 0.7,
         driftRadius: 0.85,
-        height: 5.1
+        height: 5.1,
+        visualScale: 2
       },
       lightningSiphon: {
-        cooldown: 3,
+        cooldown: 30,
         triggerDurability: 10,
         amount: 10,
-        range: 4.5
+        range: 9
       }
     },
     weapon: {
@@ -550,7 +551,8 @@ export const UNIT_DEFINITIONS = {
         tickInterval: 7,
         initialCooldown: 7,
         range: 5.4,
-        amount: 5,
+        amount: 10,
+        spellPowerFactor: 0.5,
         maxTargets: 1,
         includeBase: true,
         baseRange: 8.5,
@@ -2239,22 +2241,22 @@ export const UNIT_DEFINITIONS = {
   },
   rotrootColossus: {
     name: '腐根巨像',
-    role: 'melee',
+    role: 'ranged',
     art: {
       modelKey: 'unit.rotrootColossus',
       rig: 'humanoid',
       clips: {
         idle: 'Idle',
         walk: 'Heavy_Walk',
-        attack: 'Root_Slam',
+        attack: 'Vine_Cast',
         hit: 'Hit',
         death: 'Death'
       },
       timelines: {
         attack: {
-          duration: 1.08,
+          duration: 1.12,
           events: {
-            impact: 0.68
+            release: 0.56
           }
         },
         hit: {
@@ -2268,29 +2270,36 @@ export const UNIT_DEFINITIONS = {
     statusHeight: 3.18,
     projectileHitHeight: 2.62,
     speed: 1.42,
-    attackRange: 2.05,
-    attackRate: 0.38,
-    damage: 14.5,
+    attackRange: 8.6,
+    attackRate: 0.5,
+    damage: 12.5,
+    attackDamageType: 'magic',
     armor: 9,
     magicResistance: 10,
     dodgeChance: 0,
-    knockback: 7.5,
+    knockback: 2.2,
     knockbackResistance: 0.86,
-    aggroRange: 14.8,
+    aggroRange: 16.2,
+    projectileSpeed: 9.4,
+    projectileType: 'thornVine',
+    projectileColor: '#9fbd64',
     monsterAbility: {
-      type: 'rootQuake',
-      key: 'rotroot-quake',
-      cooldown: 11.5,
-      initialCooldown: 4.8,
-      range: 5.2,
-      radius: 4.8,
-      damage: 17,
-      slowDuration: 2.8,
+      type: 'vineField',
+      key: 'rotroot-vine-field',
+      cooldown: 10.5,
+      initialCooldown: 3.8,
+      range: 10.5,
+      radius: 3.2,
+      duration: 5.4,
+      tickInterval: 0.75,
+      damagePerSecond: 5.6,
+      slowDuration: 1.1,
       statusBuffId: 'mireSnared',
-      attackLockSeconds: 0.92
+      attackLockSeconds: 0.96,
+      animationVariant: 'monsterAbility'
     },
     weapon: {
-      name: '腐根重臂',
+      name: '棘藤之心',
       maxDurability: 96,
       durabilityCost: 0
     }
@@ -3032,12 +3041,6 @@ export const BUFF_DEFINITIONS = {
         amountPerLevel: 0.18
       },
       {
-        stat: 'projectileSpeed',
-        type: 'multiply',
-        factor: 1.06,
-        factorPerLevel: 0.03
-      },
-      {
         stat: 'attackPower',
         type: 'multiply',
         factor: 1.03,
@@ -3344,7 +3347,7 @@ export const BUFF_DEFINITIONS = {
       {
         stat: 'armor',
         type: 'add',
-        amount: -1
+        amount: -3
       }
     ]
   },
@@ -3359,7 +3362,7 @@ export const BUFF_DEFINITIONS = {
       {
         stat: 'armor',
         type: 'add',
-        amount: -1.5
+        amount: -4
       }
     ]
   },
@@ -3746,7 +3749,7 @@ export const WAVE_BOSS_TYPES = [
 export const CARD_DEFINITIONS = [
   {
     id: 'barbarians',
-    name: '派遣蛮兵',
+    name: '蛮兵',
     kind: 'summon',
     label: '蛮',
     artKey: 'raider',
@@ -3766,7 +3769,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'swordsmen',
-    name: '派遣剑士',
+    name: '剑士',
     kind: 'summon',
     label: '剑',
     artKey: 'swordsman',
@@ -3786,7 +3789,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'knights',
-    name: '派遣骑士',
+    name: '骑士',
     kind: 'summon',
     label: '骑',
     artKey: 'knight',
@@ -3806,7 +3809,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'berserkers',
-    name: '派遣狂战士',
+    name: '狂战士',
     kind: 'summon',
     label: '狂',
     artKey: 'berserker',
@@ -3826,7 +3829,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'archers',
-    name: '派遣弓兵',
+    name: '弓兵',
     kind: 'summon',
     label: '弓',
     artKey: 'archer',
@@ -3846,7 +3849,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'spearmen',
-    name: '派遣长矛兵',
+    name: '长矛兵',
     kind: 'summon',
     label: '矛',
     artKey: 'spearman',
@@ -3866,7 +3869,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'tower-shields',
-    name: '派遣塔盾兵',
+    name: '塔盾兵',
     kind: 'summon',
     label: '盾',
     artKey: 'towerShield',
@@ -3886,7 +3889,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'crossbowmen',
-    name: '派遣弩手',
+    name: '弩手',
     kind: 'summon',
     label: '弩',
     artKey: 'crossbowman',
@@ -3906,7 +3909,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'water-mages',
-    name: '派遣水法师',
+    name: '水法师',
     kind: 'summon',
     label: '水',
     artKey: 'waterMage',
@@ -3926,7 +3929,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'lightning-mages',
-    name: '派遣雷法师',
+    name: '雷法师',
     kind: 'summon',
     label: '电',
     artKey: 'lightningMage',
@@ -3934,7 +3937,7 @@ export const CARD_DEFINITIONS = [
     target: 'ground',
     radius: 1.15,
     cooldown: 9,
-    energyCost: 5,
+    energyCost: 4,
     unitType: 'lightningMage',
     count: 1,
     effect: {
@@ -3946,7 +3949,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'rogues',
-    name: '派遣盗贼',
+    name: '盗贼',
     kind: 'summon',
     label: '盗',
     artKey: 'rogue',
@@ -3966,11 +3969,11 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'engineers',
-    name: '派遣矮人工匠',
+    name: '矮人工匠',
     kind: 'summon',
     label: '工',
     artKey: 'engineer',
-    summary: '每 7 秒为周围 1 个单位恢复 5 武器耐久；靠近基地时可修缮基地（+5% 血量与结构耐久）',
+    summary: '每 7 秒为周围 1 个单位恢复 10 + 50% 魔攻武器耐久；靠近基地时可修缮基地（+5% 血量与结构耐久）',
     target: 'ground',
     radius: 1.15,
     cooldown: 7,
@@ -3986,7 +3989,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'physicians',
-    name: '派遣牧师',
+    name: '牧师',
     kind: 'summon',
     label: '医',
     artKey: 'physician',
@@ -4006,7 +4009,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'arrow-tower',
-    name: '建造箭塔',
+    name: '箭塔',
     kind: 'building',
     label: '塔',
     artKey: 'arrowTower',
@@ -4026,7 +4029,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'repair-station',
-    name: '建造维修站',
+    name: '维修站',
     kind: 'building',
     label: '修',
     artKey: 'repairStation',
@@ -4046,7 +4049,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'canteen',
-    name: '建造食堂',
+    name: '食堂',
     kind: 'building',
     label: '食',
     artKey: 'canteen',
@@ -4066,7 +4069,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'beacon',
-    name: '建造信标',
+    name: '信标',
     kind: 'building',
     label: '标',
     artKey: 'beacon',
@@ -4086,7 +4089,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'purifiers',
-    name: '派遣净咒师',
+    name: '净咒师',
     kind: 'summon',
     label: '咒',
     artKey: 'purifier',
@@ -4106,7 +4109,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'warders',
-    name: '派遣结界师',
+    name: '结界师',
     kind: 'summon',
     label: '界',
     artKey: 'warder',
@@ -4126,7 +4129,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'meteor',
-    name: '召唤陨石',
+    name: '陨石',
     kind: 'spell',
     label: '陨',
     artKey: 'meteor',
@@ -4147,7 +4150,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'poison-fog',
-    name: '释放毒雾',
+    name: '毒雾',
     kind: 'spell',
     label: '毒',
     artKey: 'poisonFog',
@@ -4177,7 +4180,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'white-smoke',
-    name: '释放白色烟雾',
+    name: '白烟',
     kind: 'spell',
     label: '烟',
     artKey: 'whiteSmoke',
@@ -4205,7 +4208,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'plague-field',
-    name: '释放瘟疫',
+    name: '瘟疫',
     kind: 'spell',
     label: '疫',
     artKey: 'plagueFog',
@@ -4339,11 +4342,12 @@ export const CARD_DEFINITIONS = [
     kind: 'tactic',
     label: '调',
     artKey: 'tacticUpgrade',
-    summary: '从抽牌堆顶调度 2 张牌，优先填入手牌空位；牌堆不足时从波次奖励池补足，手牌与临时位满时排到抽牌堆顶',
+    summary: '限用 3 次。从抽牌堆顶调度 2 张牌，优先填入手牌空位；牌堆不足时从波次奖励池补足，手牌与临时位满时排到抽牌堆顶',
     target: 'none',
     radius: 1,
     cooldown: 0,
     energyCost: 3,
+    uses: 3,
     effect: {
       type: 'draw-temporary-cards',
       amountBase: 2,
@@ -4810,7 +4814,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'fire-enchant',
-    name: '火焰附加',
+    name: '火焰',
     kind: 'enchant',
     label: '火',
     artKey: 'fire',
@@ -4828,7 +4832,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'thorns-enchant',
-    name: '荆棘附加',
+    name: '荆棘',
     kind: 'enchant',
     label: '荆',
     artKey: 'thorns',
@@ -4846,7 +4850,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'judgment-enchant',
-    name: '审判附魔',
+    name: '审判',
     kind: 'enchant',
     label: '审',
     artKey: 'judgment',
@@ -4864,7 +4868,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'body-forging-enchant',
-    name: '锻体附魔',
+    name: '锻体',
     kind: 'enchant',
     label: '锻',
     artKey: 'bodyForging',
@@ -4882,7 +4886,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'toughness-enchant',
-    name: '坚韧附加',
+    name: '坚韧',
     kind: 'enchant',
     label: '韧',
     artKey: 'toughness',
@@ -4900,7 +4904,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'protection-enchant',
-    name: '保护附加',
+    name: '保护',
     kind: 'enchant',
     label: '护',
     artKey: 'protection',
@@ -4918,7 +4922,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'block-enchant',
-    name: '格挡附加',
+    name: '格挡',
     kind: 'enchant',
     label: '挡',
     artKey: 'block',
@@ -4936,7 +4940,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'power-enchant',
-    name: '力量附加',
+    name: '力量',
     kind: 'enchant',
     label: '力',
     artKey: 'power',
@@ -4954,7 +4958,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'explosion-enchant',
-    name: '爆炸附加',
+    name: '爆炸',
     kind: 'enchant',
     label: '爆',
     artKey: 'explosion',
@@ -4972,7 +4976,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'critical-enchant',
-    name: '暴击附加',
+    name: '暴击',
     kind: 'enchant',
     label: '暴',
     artKey: 'critical',
@@ -4990,7 +4994,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'focus-enchant',
-    name: '凝神附加',
+    name: '凝神',
     kind: 'enchant',
     label: '凝',
     artKey: 'focus',
@@ -5008,7 +5012,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'phoenix-enchant',
-    name: '不死鸟附加',
+    name: '不死鸟',
     kind: 'enchant',
     label: '凰',
     artKey: 'phoenix',
@@ -5045,11 +5049,11 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'self-destruct-enchant',
-    name: '自爆附加',
+    name: '自爆',
     kind: 'enchant',
     label: '爆',
     artKey: 'explosion',
-    summary: '死亡时爆炸：对周围单位造成等级 ×4 范围伤害，视作普通攻击并触发自身毒、火、爆炸等攻击特效；每级复活时间 -5%，最多 -90%',
+    summary: '死亡时爆炸：对 6 范围内敌人造成等级 ×3 的物理伤害，并各进行一次普通攻击及其攻击特效；每级复活时间 -5%，最多 -90%',
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,
@@ -5063,7 +5067,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'spirit-weapon-enchant',
-    name: '灵武附加',
+    name: '灵武',
     kind: 'enchant',
     label: '灵',
     artKey: 'spiritWeapon',
@@ -5081,7 +5085,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'sword-saint-enchant',
-    name: '剑圣附魔',
+    name: '剑圣',
     kind: 'enchant',
     label: '剑',
     artKey: 'critical',
@@ -5099,7 +5103,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'soul-eater-enchant',
-    name: '噬魂附加',
+    name: '噬魂',
     kind: 'enchant',
     label: '魂',
     artKey: 'soulEater',
@@ -5117,7 +5121,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'lifesteal-enchant',
-    name: '吸血附加',
+    name: '吸血',
     kind: 'enchant',
     label: '吸',
     artKey: 'lifesteal',
@@ -5135,7 +5139,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'drain-enchant',
-    name: '汲取附加',
+    name: '汲取',
     kind: 'enchant',
     label: '汲',
     artKey: 'drain',
@@ -5153,7 +5157,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'poison-enchant',
-    name: '毒附加',
+    name: '毒',
     kind: 'enchant',
     label: '毒',
     artKey: 'poison',
@@ -5171,7 +5175,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'bleed-enchant',
-    name: '流血附加',
+    name: '流血',
     kind: 'enchant',
     label: '血',
     artKey: 'bleed',
@@ -5189,7 +5193,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'recovery-enchant',
-    name: '恢复附加',
+    name: '恢复',
     kind: 'enchant',
     label: '愈',
     artKey: 'recovery',
@@ -5207,7 +5211,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'spirit-shield-enchant',
-    name: '灵盾附加',
+    name: '灵盾',
     kind: 'enchant',
     label: '盾',
     artKey: 'spiritShield',
@@ -5261,7 +5265,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'swarm-enchant',
-    name: '集群附魔',
+    name: '集群',
     kind: 'enchant',
     label: '群',
     artKey: 'waveSwarm',
@@ -5279,7 +5283,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'armored-enchant',
-    name: '重甲附魔',
+    name: '重甲',
     kind: 'enchant',
     label: '甲',
     artKey: 'waveArmored',
@@ -5297,7 +5301,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'rush-enchant',
-    name: '冲锋附魔',
+    name: '冲锋',
     kind: 'enchant',
     label: '冲',
     artKey: 'waveRush',
@@ -5315,7 +5319,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'ranged-enchant',
-    name: '远射附魔',
+    name: '远射',
     kind: 'enchant',
     label: '远',
     artKey: 'waveRanged',
@@ -5333,7 +5337,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'siege-enchant',
-    name: '攻城附魔',
+    name: '攻城',
     kind: 'enchant',
     label: '城',
     artKey: 'waveSiege',
@@ -5351,7 +5355,7 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'heavy-strike-enchant',
-    name: '重击附加',
+    name: '重击',
     kind: 'enchant',
     label: '击',
     artKey: 'heavyStrike',
@@ -6093,9 +6097,9 @@ export const BALANCE = {
 };
 
 export const PVE_ENEMY_SCALING_BY_PLAYER_COUNT = {
-  2: { healthMult: 2.5, damageMult: 1.3 },
-  3: { healthMult: 3.4, damageMult: 1.5 },
-  4: { healthMult: 4.2, damageMult: 1.7 }
+  2: { healthMult: 2, damageMult: 1.1 },
+  3: { healthMult: 3, damageMult: 1.2 },
+  4: { healthMult: 4, damageMult: 1.3 }
 };
 
 // Compatibility export for the current two-player product preset.

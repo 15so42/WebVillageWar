@@ -9,6 +9,7 @@ export class RoomClient {
     this.playerId = null;
     this.connectionId = null;
     this.reconnectToken = null;
+    this.roomBindingActive = false;
     this.handlers = new Set();
     this.heartbeatTimer = null;
     this.messageBound = false;
@@ -42,6 +43,7 @@ export class RoomClient {
       this.transport.onMessage((message) => this.handleServerMessage(message));
       this.transport.onClose((manual) => {
         this.stopHeartbeat();
+        this.roomBindingActive = false;
         if (!manual) {
           const saved = this.transport.loadSession();
           if (saved?.playerId && saved.playerId !== saved.hostPlayerId) {
@@ -84,6 +86,7 @@ export class RoomClient {
     this.playerId = null;
     this.connectionId = null;
     this.reconnectToken = null;
+    this.roomBindingActive = false;
     this.transport.clearSession();
     this.stopHeartbeat();
   }
@@ -120,7 +123,7 @@ export class RoomClient {
   }
 
   forward(payload, to = 'broadcast') {
-    if (!this.room?.id) return false;
+    if (!this.isRoomBound) return false;
     return this.transport.send(relayEnvelope(this.room.id, to, payload));
   }
 
@@ -167,6 +170,7 @@ export class RoomClient {
           expiresAt: message.expiresAt
         };
         this.transport.saveSession(record);
+        this.roomBindingActive = true;
         this.emit({
           event: message.type,
           room: message.room,
@@ -231,5 +235,14 @@ export class RoomClient {
 
   get hostPlayerId() {
     return this.room?.hostPlayerId ?? null;
+  }
+
+  get isRoomBound() {
+    return Boolean(
+      this.roomBindingActive
+      && this.transport.connected
+      && this.room?.id
+      && this.playerId
+    );
   }
 }

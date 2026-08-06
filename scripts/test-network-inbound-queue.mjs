@@ -2,6 +2,21 @@ import assert from 'node:assert/strict';
 import { CoopMatchController } from '../src/network/CoopMatchController.js';
 import { GameNetworkBridge } from '../src/network/bridge/GameNetworkBridge.js';
 import { MSG } from '../src/network/protocol/messages.js';
+import { mergeMultiplayerDecksAtHighestLevel } from '../src/network/session/MultiplayerSession.js';
+
+assert.deepEqual(
+  mergeMultiplayerDecksAtHighestLevel([
+    [{ id: 'swordsman', level: 2 }, { id: 'archer', level: 7 }],
+    [{ id: 'swordsman', level: 5 }, { id: 'fireball', level: 3 }],
+    [{ id: 'archer', level: 4 }, { id: 'fireball', level: 6 }]
+  ]),
+  [
+    { id: 'swordsman', level: 5 },
+    { id: 'archer', level: 7 },
+    { id: 'fireball', level: 6 }
+  ],
+  'the shared co-op deck must use the highest level of each card in stable order'
+);
 
 const bridge = new GameNetworkBridge({
   role: 'client',
@@ -124,6 +139,7 @@ assert.equal(lobbyRenders, 0, 'in-match packets must not rebuild the hidden co-o
     roomClient: {
       room: { id: 'ABC123' },
       playerId: 'client-old',
+      isRoomBound: true,
       transport: {
         connected: true,
         clearSession: () => {}
@@ -153,6 +169,51 @@ assert.equal(lobbyRenders, 0, 'in-match packets must not rebuild the hidden co-o
   assert.equal(watchCalls, 1, 'active matches should keep waiting for Host resume');
   assert.equal(lobbyRendersAfterConfirm, 1);
   assert.equal(liveController.pendingReconnectSession, null);
+}
+
+{
+  const saved = {
+    roomId: 'ABC123',
+    playerId: 'client-old',
+    hostPlayerId: 'host',
+    reconnectToken: 'token-old',
+    matchActive: true,
+    expiresAt: Date.now() + 60_000
+  };
+  let reconnectCalls = 0;
+  let versionHelloCalls = 0;
+  const probedController = Object.create(CoopMatchController.prototype);
+  Object.assign(probedController, {
+    pendingReconnectSession: saved,
+    reconnectRequestSession: null,
+    roomClient: {
+      room: { id: 'ABC123' },
+      playerId: 'client-old',
+      // RECONNECT_PROBE opens a WebSocket but does not bind it to the room.
+      // Stale local room/player fields must never make that socket look resumed.
+      isRoomBound: false,
+      transport: {
+        connected: true,
+        clearSession: () => {}
+      },
+      reconnect: () => {
+        reconnectCalls += 1;
+        return Promise.resolve(true);
+      }
+    },
+    sendVersionHello: () => {
+      versionHelloCalls += 1;
+      return true;
+    },
+    onNotice: () => {},
+    onLobbyVisible: () => {},
+    viewState: (state) => state
+  });
+
+  assert.equal(probedController.confirmReconnect(), true);
+  assert.equal(reconnectCalls, 1, 'a probe-only socket must still send the real reconnect request');
+  assert.equal(versionHelloCalls, 0, 'version hello must wait until RECONNECT_OK binds the socket');
+  assert.equal(probedController.reconnectRequestSession, saved);
 }
 
 console.log('network inbound queue regression passed');

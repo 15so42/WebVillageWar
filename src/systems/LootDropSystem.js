@@ -1,7 +1,13 @@
 import * as THREE from 'three';
 import { basicMat, mat } from '../art/lowpoly.js';
 import { CARD_DEFINITIONS } from '../data/gameData.js';
-import { cardEnergyCost, cardMaxUses, cardUseBarMarkup, createCardArtMarkup } from './CardSystem.js';
+import {
+  cardEnergyCost,
+  cardMaxUses,
+  cardUseBarMarkup,
+  createCardArtMarkup,
+  toRomanNumeral
+} from './CardSystem.js';
 
 const CARD_BY_ID = new Map(CARD_DEFINITIONS.map((card) => [card.id, card]));
 const DEFAULT_LOOT_LIFETIME_SECONDS = 45;
@@ -101,7 +107,7 @@ export class LootDropSystem {
     this.ui.card.style.setProperty('--card-color', drop.card.color);
     this.ui.card.innerHTML = `
       <div class="loot-card-cost">${cardEnergyCost(drop.card)}</div>
-      <div class="loot-card-level">Lv.${drop.card.level ?? 1}</div>
+      <div class="loot-card-level">${toRomanNumeral(drop.card.level)}</div>
       ${cardUseBarMarkup(drop.card, 'loot-card-use-bar')}
       <div class="loot-card-header">
         <span class="loot-card-rune">${drop.card.label}</span>

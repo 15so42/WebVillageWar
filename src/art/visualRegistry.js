@@ -54,6 +54,7 @@ import {
   createSnowDuskShamanModel,
   createElfSniperModel,
   createTombLanternCrossbowmanModel,
+  createThornVineModel,
   createVenomArcherModel,
   createVenomArrowModel,
   createWarderModel,
@@ -138,6 +139,7 @@ const PROJECTILE_FACTORIES = {
   boneChantOrb: ({ color }) => createBoneChantOrbModel(color),
   venomArrow: ({ color }) => createVenomArrowModel(color),
   mireJavelin: ({ color }) => createMireJavelinModel(color),
+  thornVine: ({ color }) => createThornVineModel(color),
   bomb: () => createBombProjectileModel(),
   iceShard: ({ color }) => createIceShardModel(color),
   bolt: ({ color }) => createBoltModel(color),
@@ -382,7 +384,7 @@ function applyAttackPose(unit, root, t, pulse, variant = null) {
     return;
   }
   if (unit.type === 'rotrootColossus') {
-    applyRotrootSlam(root, t, pulse, variant);
+    applyRotrootVineCast(root, t, pulse, variant);
     return;
   }
   if (unit.type === 'frostTrollBoss') {
@@ -887,34 +889,35 @@ function applyMireHunterThrow(root, t, pulse) {
   }
 }
 
-function applyRotrootSlam(root, t, pulse, variant = null) {
+function applyRotrootVineCast(root, t, pulse, variant = null) {
   const { upperBodyPivot, weaponPivot, weaponSwingPivot, offhandPivot, coreStone, rightFist } = root.userData.parts ?? {};
-  const boost = variant === 'monsterAbility' ? 1.18 : 1;
-  const windup = smoothstep(0, 0.5, t) * (1 - smoothstep(0.6, 0.73, t));
-  const strike = smoothstep(0.56, 0.69, t) * (1 - smoothstep(0.8, 0.94, t));
-  const recover = smoothstep(0.82, 1, t);
-  root.position.y += windup * 0.055 - strike * 0.08 * boost;
+  const abilityCast = variant === 'monsterAbility';
+  const boost = abilityCast ? 1.18 : 1;
+  const lift = smoothstep(0, 0.42, t) * (1 - smoothstep(0.68, 1, t));
+  const focus = smoothstep(0.18, 0.52, t) * (1 - smoothstep(0.62, 1, t));
+  root.position.y += lift * 0.045;
   root.rotation.z = -0.012 * pulse;
   if (upperBodyPivot) {
-    upperBodyPivot.rotation.x += -0.09 * windup + 0.16 * strike * boost;
-    upperBodyPivot.rotation.z += 0.035 * windup - 0.045 * strike;
+    upperBodyPivot.rotation.x += -0.08 * lift * boost;
+    upperBodyPivot.rotation.z += (abilityCast ? 0 : -0.035) * focus;
   }
   if (weaponPivot) {
-    weaponPivot.rotation.x += -1.42 * windup + 1.82 * strike * boost - 0.2 * recover;
-    weaponPivot.rotation.z += 0.18 * windup - 0.16 * strike;
+    weaponPivot.rotation.x += -0.92 * lift * boost;
+    weaponPivot.rotation.z += (abilityCast ? -0.34 : -0.18) * focus;
   }
   if (weaponSwingPivot) {
-    weaponSwingPivot.rotation.x += -0.36 * windup + 0.54 * strike * boost;
+    weaponSwingPivot.rotation.x += -0.28 * focus;
+    weaponSwingPivot.position.z += 0.14 * focus;
   }
   if (offhandPivot) {
-    offhandPivot.rotation.x += -0.42 * windup + 0.54 * strike;
-    offhandPivot.rotation.z += -0.12 * windup + 0.09 * strike;
+    offhandPivot.rotation.x += (abilityCast ? -0.84 : -0.46) * lift;
+    offhandPivot.rotation.z += (abilityCast ? 0.36 : 0.16) * focus;
   }
   if (coreStone) {
-    coreStone.scale.setScalar(1 + windup * 0.14 + strike * 0.24 * boost);
+    coreStone.scale.setScalar(1 + focus * 0.28 * boost);
   }
   if (rightFist) {
-    rightFist.scale.setScalar(1 + strike * 0.12 * boost);
+    rightFist.scale.setScalar(1 + focus * 0.1 * boost);
   }
 }
 

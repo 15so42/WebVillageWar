@@ -90,6 +90,9 @@ export class CombatSystem {
     }
 
     this.applyAbilityOffense(damageContext);
+    if (damageContext.isAttack && !Number.isFinite(damageContext.preDefenseDamage)) {
+      damageContext.preDefenseDamage = Math.max(0, damageContext.damage);
+    }
     this.applyDefenseReduction(damageContext);
     this.game.buffs.beforeDamage(damageContext);
     this.applyDefenderRuntimeTraits(damageContext);
@@ -241,7 +244,7 @@ export class CombatSystem {
     if (hasRuntimeTrait(source, 'armorPierce')) {
       context.defensePierce = Math.max(context.defensePierce ?? 0, 0.35);
     }
-    if (hasRuntimeTrait(source, 'heavyBolt') && Math.random() < 0.28) {
+    if (hasRuntimeTrait(source, 'heavyBolt')) {
       context.damage *= 1.5;
       context.knockback *= 1.35;
       this.spawnTraitText(source, '重矢', '#dff8ff');
@@ -252,7 +255,7 @@ export class CombatSystem {
     if (hasRuntimeTrait(source, 'warcryDamage')) {
       const enemies = source.team === 'player' ? this.game.enemyUnits : this.game.friendlyUnits;
       const count = enemies.filter((unit) => (
-        unit.alive && unit.position && distance2D(unit.position, source.position) <= 3.2
+        unit.alive && unit.position && distance2D(unit.position, source.position) <= 10
       )).length;
       context.damage += count;
     }
@@ -322,7 +325,7 @@ export class CombatSystem {
       context.damage *= 1 + highExplosiveStacks * 0.5;
     }
 
-    if (!source.alive) return;
+    if (!source.alive && !context.allowDeadSourceEffects) return;
 
     const volleyStacks = this.game.getAbilityStacks?.('rangedVolley', source)
       ?? this.game.abilities?.getStacks?.('rangedVolley')
@@ -403,7 +406,8 @@ export class CombatSystem {
     const source = context.source;
     const target = context.target;
     const dealt = context.damageDealt ?? 0;
-    if (!context.isAttack || dealt <= 0 || !source?.alive || !target?.position) return;
+    const preDefenseDamage = Math.max(0, context.preDefenseDamage ?? context.damage ?? 0);
+    if (!context.isAttack || dealt <= 0 || (!source?.alive && !context.allowDeadSourceEffects) || !target?.position) return;
     if (hasRuntimeTrait(source, 'shieldBash') && target.alive && Math.random() < 0.3) {
       this.game.buffs.applyBuff(target, 'stunned', source, { duration: 0.7 });
       this.spawnTraitText(target, '眩晕', '#ffd166');
@@ -412,9 +416,9 @@ export class CombatSystem {
       const applied = this.game.buffs.applyBuff(target, 'armorShredded', source, { duration: 3 });
       if (applied) this.spawnTraitText(target, '破甲', '#d8c58d');
     }
-    if (hasRuntimeTrait(source, 'flurryStrike') && target.alive && Math.random() < 0.22) {
-      this.game.combat.applyDamage(target, dealt, source, 0, {
-        damage: dealt,
+    if (hasRuntimeTrait(source, 'flurryStrike') && target.alive && Math.random() < 0.45) {
+      this.game.combat.applyDamage(target, preDefenseDamage, source, 0, {
+        damage: preDefenseDamage,
         source,
         target,
         defenseDamageType: context.attackDamageType ?? 'physical',
@@ -425,7 +429,7 @@ export class CombatSystem {
       });
       this.spawnTraitText(source, '连击', '#ffd166');
     }
-    if (hasRuntimeTrait(source, 'intimidate') && target.alive && Math.random() < 0.3) {
+    if (hasRuntimeTrait(source, 'intimidate') && target.alive) {
       this.game.buffs.applyBuff(target, 'weakenedAttack', source, { duration: 3.5 });
     }
     if (hasRuntimeTrait(source, 'bloodthirst')) {
@@ -441,7 +445,7 @@ export class CombatSystem {
       }
     }
     if (hasRuntimeTrait(source, 'cleave')) {
-      this.applyCleaveDamage(source, target, dealt * 0.35);
+      this.applyCleaveDamage(source, target, preDefenseDamage * 0.35, 4);
     }
     if (hasRuntimeTrait(source, 'markTarget') && target.alive) {
       this.game.buffs.applyBuff(target, 'marked', source, { duration: 3.5 });
@@ -454,11 +458,11 @@ export class CombatSystem {
     }
   }
 
-  applyCleaveDamage(source, centerTarget, damage) {
+  applyCleaveDamage(source, centerTarget, damage, radius = 2.1) {
     const enemies = source.team === 'player' ? this.game.enemyUnits : this.game.friendlyUnits;
     let hit = 0;
     enemies.forEach((unit) => {
-      if (!unit.alive || unit === centerTarget || distance2D(unit.position, centerTarget.position) > 2.1) return;
+      if (!unit.alive || unit === centerTarget || distance2D(unit.position, centerTarget.position) > radius) return;
       hit += 1;
       this.game.combat.applyDamage(unit, damage, source, 0.35, {
         damage,
@@ -472,7 +476,7 @@ export class CombatSystem {
       });
     });
     if (hit > 0) {
-      this.game.effects.spawnRing(centerTarget.position, '#ffb45c', 2.1, 0.36);
+      this.game.effects.spawnRing(centerTarget.position, '#ffb45c', radius, 0.36);
     }
   }
 

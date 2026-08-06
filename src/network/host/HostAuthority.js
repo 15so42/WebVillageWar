@@ -162,6 +162,10 @@ export class HostAuthority {
       if (sourcePlayerId === this.localPlayerId) {
         this.game.cardSystem?.setHint?.(`操作未执行：${validation.reasonCode}`, 'network-command');
       }
+      if (PRIVATE_STATE_COMMANDS.has(command?.name)) {
+        this.markPrivateStateDirty(sourcePlayerId);
+        this.flushDirtyPrivateStates();
+      }
       return;
     }
     const normalized = { ...command, payload: validation.payload };
@@ -181,6 +185,12 @@ export class HostAuthority {
       };
       this.commandResults.set(cacheKey, rejection);
       this.send(sourcePlayerId, rejection);
+      if (PRIVATE_STATE_COMMANDS.has(command.name)) {
+        // 客户端会对部分卡牌操作做即时显示；即使 Host 拒绝，也必须回发
+        // 权威私有状态，避免本地能量或卡牌次数停留在预扣后的错误值。
+        this.markPrivateStateDirty(sourcePlayerId);
+        this.flushDirtyPrivateStates();
+      }
       return;
     }
     const transaction = {

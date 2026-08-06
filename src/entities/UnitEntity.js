@@ -505,11 +505,11 @@ function createEnchantHalo() {
   const group = new THREE.Group();
   const fire = new THREE.Mesh(
     new THREE.TorusGeometry(0.55, 0.025, 5, 24),
-    mat('#ff823d', { emissive: '#ff4a1a', emissiveIntensity: 0.7 })
+    mat('#ff823d', { emissive: '#ff4a1a', emissiveIntensity: 0.7 }).clone()
   );
   const thorns = new THREE.Mesh(
     new THREE.TorusGeometry(0.72, 0.026, 5, 24),
-    mat('#79d27a', { emissive: '#275f2c', emissiveIntensity: 0.45 })
+    mat('#79d27a', { emissive: '#275f2c', emissiveIntensity: 0.45 }).clone()
   );
   fire.rotation.x = Math.PI / 2;
   thorns.rotation.x = Math.PI / 2;
@@ -572,6 +572,7 @@ function createUnitStatusElement(team) {
   const element = document.createElement('div');
   element.className = `world-status unit-status ${team === TEAMS.PLAYER ? 'is-friendly' : 'is-enemy'}`;
   element.innerHTML = `
+    <div class="world-player-name" hidden></div>
     <div class="world-health-bar">
       <span class="world-health-loss-fill"></span>
       <span class="world-health-fill"></span>
@@ -585,6 +586,7 @@ function createUnitStatusElement(team) {
   `;
   element.hidden = true;
   element.parts = {
+    playerName: element.querySelector('.world-player-name'),
     hp: element.querySelector('.world-health-fill'),
     healthLoss: element.querySelector('.world-health-loss-fill'),
     ticks: element.querySelector('.world-health-ticks'),

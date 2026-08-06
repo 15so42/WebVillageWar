@@ -1,4 +1,5 @@
 import { clearUnitHitFlash } from '../art/visualRegistry.js';
+import { disposeObject3D } from '../utils/dispose.js';
 
 export class UnitRegistry {
   constructor(game) {
@@ -36,10 +37,23 @@ export class UnitRegistry {
       this.game.attacks?.cancelPendingAttacksFor?.([unit]);
     }
     if (!options.keepSceneObject) {
+      if (unit.constructionScaffold) {
+        this.game.buildings?.finishConstructionVisual?.(unit, { removeOnly: true });
+      }
       this.game.scene.remove(unit.mesh);
       unit.statusElement?.remove();
+      disposeObject3D(unit.mesh, { materials: true });
+      unit.renderResourcesDisposed = true;
     }
     unit.registry = null;
+  }
+
+  destroy() {
+    [...this.allUnits].forEach((unit) => this.unregister(unit));
+    this.byId.clear();
+    this.allUnits.length = 0;
+    this.friendlyUnits.length = 0;
+    this.enemyUnits.length = 0;
   }
 
   activeUnits() {

@@ -9,8 +9,11 @@ assert.equal(mage.attackBehavior?.type, 'chainLightning');
 assert.equal(mage.attackBehavior?.jumpRange, 4.4);
 assert.equal(mage.specialAbilities?.thunderCloud?.duration, 10);
 assert.equal(mage.specialAbilities?.thunderCloud?.cooldown, 15);
-assert.equal(mage.specialAbilities?.lightningSiphon?.cooldown, 3);
+assert.equal(mage.specialAbilities?.thunderCloud?.strikeRadius, 4.4);
+assert.equal(mage.specialAbilities?.thunderCloud?.visualScale, 2);
+assert.equal(mage.specialAbilities?.lightningSiphon?.cooldown, 30);
 assert.equal(mage.specialAbilities?.lightningSiphon?.triggerDurability, 10);
+assert.equal(mage.specialAbilities?.lightningSiphon?.range, 9);
 assert.equal(mage.weapon.maxDurability, 18);
 assert.equal(CARD_DEFINITIONS.find((card) => card.id === 'lightning-mages')?.unitType, 'lightningMage');
 assert.deepEqual(

@@ -388,7 +388,7 @@ export class UnitLogicSystem {
         duration: 0.72
       });
       if (hasRuntimeTrait(unit, 'healShield')) {
-        const shield = target.restoreShield?.(Math.max(1, amount * 0.35)) ?? 0;
+        const shield = target.restoreShield?.(Math.max(1, amount * 0.4)) ?? 0;
         if (shield > 0.01) {
           this.game.effects.spawnDamageNumber(target.position, 1, {
             text: `护盾+${formatSupportAmount(shield)}`,
@@ -524,7 +524,7 @@ export class UnitLogicSystem {
         });
         return;
       }
-      const amount = Math.max(0, ability.amount ?? 0);
+      const amount = resolveSupportAmount(this.game, unit, ability);
       let releasedTotal = 0;
       pick.targets.forEach((target) => {
         if (!target.alive || target.underConstruction) return;
@@ -826,7 +826,7 @@ export class UnitLogicSystem {
   }
 }
 
-function resolveSupportAmount(game, unit, ability) {
+export function resolveSupportAmount(game, unit, ability) {
   const baseAmount = Math.max(0, Number(ability?.amount) || 0);
   const spellPowerFactor = Math.max(0, Number(ability?.spellPowerFactor) || 0);
   const spellPower = spellPowerFactor > 0

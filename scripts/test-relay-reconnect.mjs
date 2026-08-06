@@ -15,6 +15,7 @@ try {
   await waitForRelay(relay);
   const host = await connect(port);
   const client = await connect(port);
+  let recoveredClient = null;
   try {
     host.send({ type: MSG.ROOM_CREATE, relayVersion: RELAY_VERSION, name: 'host' });
     const created = await waitFor(host.messages, (message) => message.type === MSG.ROOM_CREATE);
@@ -55,9 +56,42 @@ try {
       && message.payload?.name === COMMAND.READY_SET
     ));
     assert.equal(forwarded.to, created.playerId);
+
+    const clientClosed = new Promise((resolve) => client.socket.once('close', resolve));
+    client.socket.close();
+    await clientClosed;
+    await waitFor(host.messages, (message) => (
+      message.type === MSG.ROOM_STATE
+      && message.room?.players?.[joined.playerId]?.connected === false
+    ));
+
+    recoveredClient = await connect(port);
+    recoveredClient.send({
+      type: MSG.RECONNECT,
+      relayVersion: RELAY_VERSION,
+      roomId: created.roomId,
+      reconnectToken: joined.reconnectToken
+    });
+    const recovered = await waitFor(
+      recoveredClient.messages,
+      (message) => message.type === MSG.RECONNECT_OK
+    );
+    assert.equal(recovered.playerId, joined.playerId, 'a new socket must recover the original player identity');
+
+    recoveredClient.send(forward(created.roomId, created.playerId, {
+      type: MSG.COMMAND,
+      commandId: `${joined.playerId}:after-real-reconnect`,
+      name: COMMAND.READY_SET
+    }));
+    const recoveredForward = await waitFor(host.messages, (message) => (
+      message.type === MSG.NET_FORWARD
+      && message.payload?.commandId === `${joined.playerId}:after-real-reconnect`
+    ));
+    assert.equal(recoveredForward.fromPlayerId, joined.playerId);
   } finally {
     host.socket.close();
     client.socket.close();
+    recoveredClient?.socket.close();
   }
 } finally {
   relay.kill();

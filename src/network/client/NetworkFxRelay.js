@@ -56,6 +56,9 @@ export function applyNetworkFx(game, event) {
     case 'fx_death':
       effects.spawnDeathBurst(vecFrom(event), event.radius ?? 0.8);
       break;
+    case 'fx_self_destruct_explosion':
+      effects.spawnSelfDestructExplosion(vecFrom(event), event.radius ?? 6);
+      break;
     case 'fx_projectile':
       effects.spawnProjectileTrail(
         vecFrom(event.start),
@@ -96,6 +99,27 @@ export function applyNetworkFx(game, event) {
       break;
     case 'fx_crater':
       effects.spawnCrater(vecFrom(event), event.radius ?? 2.4);
+      break;
+    case 'fx_root_warning':
+      effects.spawnRootWarning(
+        vecFrom(event),
+        event.radius ?? 3.2,
+        event.duration ?? 0.62
+      );
+      break;
+    case 'fx_lightning_chain':
+      effects.spawnLightningChain(
+        vecFrom(event.start),
+        vecFrom(event.end),
+        event.options ?? {}
+      );
+      break;
+    case 'fx_thunder_cloud':
+      effects.spawnThunderCloud({
+        position: vecFrom(event),
+        age: event.age ?? 0,
+        ability: event.ability ?? {}
+      });
       break;
     case 'fx_area_effect':
       effects.spawnNetworkAreaEffect(event);
@@ -174,6 +198,34 @@ const EFFECT_RELAY_SPECS = [
     })
   },
   {
+    method: 'spawnLightningChain',
+    name: 'fx_lightning_chain',
+    serialize: ([start, end, options = {}]) => ({
+      name: 'fx_lightning_chain',
+      start: vec3(start),
+      end: vec3(end),
+      options: {
+        color: options.color,
+        duration: options.duration,
+        impactRadius: options.impactRadius
+      }
+    })
+  },
+  {
+    method: 'spawnThunderCloud',
+    name: 'fx_thunder_cloud',
+    serialize: ([state = {}]) => ({
+      name: 'fx_thunder_cloud',
+      ...vec3(state.position),
+      age: state.age,
+      ability: {
+        duration: state.ability?.duration,
+        height: state.ability?.height,
+        visualScale: state.ability?.visualScale
+      }
+    })
+  },
+  {
     method: 'spawnStructureDust',
     name: 'fx_structure_dust',
     serialize: ([position, radius, color]) => ({
@@ -221,6 +273,15 @@ const EFFECT_RELAY_SPECS = [
     })
   },
   {
+    method: 'spawnSelfDestructExplosion',
+    name: 'fx_self_destruct_explosion',
+    serialize: ([position, radius]) => ({
+      name: 'fx_self_destruct_explosion',
+      ...vec3(position),
+      radius
+    })
+  },
+  {
     method: 'spawnJudgmentSword',
     name: 'fx_judgment_sword',
     serialize: ([position, radius]) => ({
@@ -263,6 +324,16 @@ const EFFECT_RELAY_SPECS = [
       name: 'fx_crater',
       ...vec3(position),
       radius
+    })
+  },
+  {
+    method: 'spawnRootWarning',
+    name: 'fx_root_warning',
+    serialize: ([position, radius, duration]) => ({
+      name: 'fx_root_warning',
+      ...vec3(position),
+      radius,
+      duration
     })
   }
 ];

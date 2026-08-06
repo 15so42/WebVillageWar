@@ -9,24 +9,21 @@ const LIFETIME_PROFILES = Object.freeze({
     referenceHealth: 18,
     minSeconds: 2.5,
     maxSeconds: 10,
-    maxGain: 2,
-    maxLoss: 0.15
+    maxGain: 2
   },
   elite: {
     targetSeconds: 8.75,
     referenceHealth: 64,
     minSeconds: 6.25,
     maxSeconds: 15,
-    maxGain: 4.5,
-    maxLoss: 0.35
+    maxGain: 4.5
   },
   boss: {
     targetSeconds: 17.5,
     referenceHealth: 150,
     minSeconds: 12.5,
     maxSeconds: 27.5,
-    maxGain: 10,
-    maxLoss: 0.8
+    maxGain: 10
   }
 });
 
@@ -35,10 +32,12 @@ const ENDLESS_REWARD_PER_DIFFICULTY = 6;
 const ENDLESS_REWARD_TIME_STEP_SECONDS = 600;
 const ENDLESS_REWARD_TIME_STEP_BONUS = 0.05;
 const ENDLESS_REWARD_MAX_TIME_MULTIPLIER = 1.3;
-const PLAYER_UNIT_DEATH_DIFFICULTY_LOSS_PER_COST = 0.24;
 const DIFFICULTY_DELTA_REFERENCE_HEALTH = 90;
 const MIN_DIFFICULTY_HEALTH_WEIGHT = 0.05;
 const MAX_DIFFICULTY_HEALTH_WEIGHT = 4;
+const FAST_KILL_PERFORMANCE_GAIN = 0.1;
+const SLOW_KILL_PERFORMANCE_LOSS = 0.05;
+const PLAYER_UNIT_DEATH_PERFORMANCE_LOSS = 0.1;
 
 export function normalizeChallengeMode(value) {
   return value === CHALLENGE_MODE.ENDLESS
@@ -78,10 +77,28 @@ export function endlessExpectedLifetime({
   );
 }
 
+export function endlessDifficultyReferenceHealth(unit = {}) {
+  const definitionHealth = Number(unit?.definition?.maxHealth);
+  const actualHealth = Number(unit?.maxHealth);
+  if (Number.isFinite(definitionHealth) && definitionHealth > 0) return definitionHealth;
+  if (Number.isFinite(actualHealth) && actualHealth > 0) return actualHealth;
+  return 0.01;
+}
+
 export function endlessDifficultyDelta({
   baseHealth,
-  lifetime,
-  expectedLifetime,
+  enemyClass = 'normal',
+  performanceMultiplier = 1
+} = {}) {
+  const enemyDifficulty = endlessEnemyDifficultyValue({ baseHealth, enemyClass });
+  const multiplier = Number.isFinite(Number(performanceMultiplier))
+    ? Number(performanceMultiplier)
+    : 1;
+  return roundTo(enemyDifficulty * multiplier, 4);
+}
+
+export function endlessEnemyDifficultyValue({
+  baseHealth,
   enemyClass = 'normal'
 } = {}) {
   const profile = LIFETIME_PROFILES[enemyClass] ?? LIFETIME_PROFILES.normal;
@@ -91,13 +108,53 @@ export function endlessDifficultyDelta({
     MIN_DIFFICULTY_HEALTH_WEIGHT,
     MAX_DIFFICULTY_HEALTH_WEIGHT
   );
-  const safeLifetime = Math.max(0.25, Number(lifetime) || 0.25);
+  return roundTo(profile.maxGain * DIFFICULTY_GAIN_MULTIPLIER * healthWeight, 4);
+}
+
+export function endlessKillPerformanceDelta({
+  lifetime,
+  expectedLifetime,
+  enemyClass = 'normal'
+} = {}) {
+  const profile = LIFETIME_PROFILES[enemyClass] ?? LIFETIME_PROFILES.normal;
   const safeExpected = Math.max(0.25, Number(expectedLifetime) || profile.targetSeconds);
-  const timeScore = clamp((safeExpected / safeLifetime) - 1, -1, 16);
-  const delta = timeScore >= 0
-    ? (timeScore / 16) * profile.maxGain * DIFFICULTY_GAIN_MULTIPLIER
-    : timeScore * profile.maxLoss;
-  return roundTo(delta * healthWeight, 4);
+  const rawLifetime = Number(lifetime);
+  const safeLifetime = Number.isFinite(rawLifetime) ? Math.max(0, rawLifetime) : safeExpected;
+  const lifetimeRatio = safeLifetime / safeExpected;
+  if (lifetimeRatio <= 1) {
+    return roundTo((1 - lifetimeRatio) * FAST_KILL_PERFORMANCE_GAIN, 4);
+  }
+  return roundTo(-Math.min(
+    SLOW_KILL_PERFORMANCE_LOSS,
+    (lifetimeRatio - 1) * SLOW_KILL_PERFORMANCE_LOSS
+  ), 4);
+}
+
+export function applyEndlessPerformanceMultiplier(currentMultiplier, delta) {
+  const current = Number.isFinite(Number(currentMultiplier)) ? Number(currentMultiplier) : 1;
+  const change = Number.isFinite(Number(delta)) ? Number(delta) : 0;
+  return roundTo(current + change, 2);
+}
+
+export function resolveEndlessEnemyDefeat({
+  baseHealth,
+  lifetime,
+  expectedLifetime,
+  enemyClass = 'normal',
+  performanceMultiplier = 1
+} = {}) {
+  const performanceDelta = endlessKillPerformanceDelta({ lifetime, expectedLifetime, enemyClass });
+  const nextPerformanceMultiplier = applyEndlessPerformanceMultiplier(
+    performanceMultiplier,
+    performanceDelta
+  );
+  const enemyDifficulty = endlessEnemyDifficultyValue({ baseHealth, enemyClass });
+  return {
+    performanceDelta,
+    performanceMultiplier: nextPerformanceMultiplier,
+    enemyDifficulty,
+    difficultyDelta: roundTo(enemyDifficulty * nextPerformanceMultiplier, 4)
+  };
 }
 
 export function applyEndlessDifficulty(currentDifficulty, delta) {
@@ -106,9 +163,8 @@ export function applyEndlessDifficulty(currentDifficulty, delta) {
   return roundTo(current + change, 2);
 }
 
-export function endlessPlayerUnitDeathDifficultyDelta(unitCost) {
-  const cost = Math.max(0, Number(unitCost) || 0);
-  return roundTo(-cost * PLAYER_UNIT_DEATH_DIFFICULTY_LOSS_PER_COST, 4);
+export function endlessPlayerUnitDeathPerformanceDelta() {
+  return -PLAYER_UNIT_DEATH_PERFORMANCE_LOSS;
 }
 
 export function endlessEnemyStatFactors(difficulty) {

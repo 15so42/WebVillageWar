@@ -43,7 +43,8 @@ export class BuffSystem {
   afterDamage(context) {
     const dealt = context.damageDealt ?? context.damage ?? 0;
     const attackConnected = context.isAttack === true && context.target?.alive !== false;
-    if (context.source?.alive !== false && (dealt > 0 || attackConnected)) {
+    const sourceCanTriggerEffects = context.source?.alive !== false || context.allowDeadSourceEffects === true;
+    if (sourceCanTriggerEffects && (dealt > 0 || attackConnected)) {
       this.runBuffEffects(context.source, 'afterDamage', context);
     }
     if (context.target?.alive !== false) {
@@ -52,7 +53,7 @@ export class BuffSystem {
   }
 
   afterAttack(context) {
-    if (!context?.isAttack || context.source?.alive === false) return;
+    if (!context?.isAttack || (context.source?.alive === false && context.allowDeadSourceEffects !== true)) return;
     this.runBuffEffects(context.source, 'afterAttack', context);
   }
 

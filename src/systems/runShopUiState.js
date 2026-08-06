@@ -20,3 +20,11 @@ export function shouldRestoreFreeRunShopUi({
 } = {}) {
   return Boolean(freeReward) && (!runShopOpen || !isRunShopUiVisible(ui));
 }
+
+// A solo shop is a local decision screen, so it stops the battle regardless
+// of whether it was opened manually or awarded for free. Co-op keeps normal
+// shopping local; only the shared Host reward flow is allowed to pause both
+// players.
+export function shouldPauseRunShop({ coopEnabled = false, alreadyPaused = false } = {}) {
+  return !coopEnabled && !alreadyPaused;
+}

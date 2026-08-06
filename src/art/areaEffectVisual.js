@@ -3,8 +3,13 @@ import { basicMat, mat } from './lowpoly.js';
 
 const SMOKE_PARTICLE_COUNT = 22;
 const WILDFIRE_FLAME_COUNT = 34;
+const ROOT_VINE_COUNT = 15;
+const UP_AXIS = new THREE.Vector3(0, 1, 0);
 
 export function createAreaEffectVisual({ radius, color, accent, kind }) {
+  if (kind === 'rootVines') {
+    return createRootVinesVisual(radius, color, accent);
+  }
   const group = new THREE.Group();
   group.userData.baseRadius = radius;
   group.userData.kind = kind;
@@ -104,6 +109,10 @@ export function createAreaEffectVisual({ radius, color, accent, kind }) {
 }
 
 export function updateAreaEffectVisual(group, { age, duration, radius, kind }, dt) {
+  if (kind === 'rootVines') {
+    updateRootVinesVisual(group, age, duration, radius, dt);
+    return;
+  }
   const t = Math.min(1, age / Math.max(0.01, duration));
   const fadeIn = Math.min(1, age / 0.45);
   const fadeOut = Math.min(1, (duration - age) / 0.9);
@@ -143,5 +152,129 @@ export function updateAreaEffectVisual(group, { age, duration, radius, kind }, d
     child.rotation.y += dt * (0.35 + index * 0.01);
     const scale = 0.72 + Math.sin(phase) * 0.16 + Math.sin(t * Math.PI) * 0.18;
     child.scale.setScalar(scale);
+  });
+}
+
+function createRootVinesVisual(radius, color, accent) {
+  const group = new THREE.Group();
+  group.userData.baseRadius = radius;
+  group.userData.kind = 'rootVines';
+  group.userData.preserveRenderLayers = true;
+
+  const discMaterial = basicMat('#263a25', {
+    transparent: true,
+    opacity: 0.24,
+    side: THREE.DoubleSide,
+    depthWrite: false
+  }).clone();
+  const ringMaterial = basicMat(accent, {
+    transparent: true,
+    opacity: 0.62,
+    side: THREE.DoubleSide,
+    depthWrite: false
+  }).clone();
+  const vineMaterial = mat(color, {
+    transparent: true,
+    opacity: 0.94,
+    roughness: 0.96
+  }).clone();
+  const thornMaterial = mat('#cadb8d', {
+    transparent: true,
+    opacity: 0.9,
+    emissive: '#6e873c',
+    emissiveIntensity: 0.16,
+    roughness: 0.86
+  }).clone();
+
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(1, 48), discMaterial);
+  disc.rotation.x = -Math.PI / 2;
+  disc.scale.setScalar(radius);
+  disc.renderOrder = 1320;
+  disc.layers.set(1);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.9, 1, 64), ringMaterial);
+  ring.rotation.x = -Math.PI / 2;
+  ring.scale.setScalar(radius);
+  ring.position.y = 0.016;
+  ring.renderOrder = 1321;
+  ring.layers.set(1);
+  group.add(disc, ring);
+
+  const roots = [];
+  const rootSegmentGeometry = new THREE.CylinderGeometry(0.045, 0.11, 1, 5);
+  const rootTipGeometry = new THREE.ConeGeometry(0.085, 1, 5);
+  const thornGeometry = new THREE.ConeGeometry(0.042, 1, 4);
+  for (let index = 0; index < ROOT_VINE_COUNT; index += 1) {
+    const angle = (index / ROOT_VINE_COUNT) * Math.PI * 2 + (index % 3) * 0.17;
+    const distance = radius * (0.2 + ((index * 7) % 11) / 19);
+    const length = radius * (0.22 + ((index * 5) % 7) / 24);
+    const direction = new THREE.Vector3(Math.cos(angle), 0.05, Math.sin(angle)).normalize();
+    const root = new THREE.Group();
+    root.position.set(Math.cos(angle) * distance, 0.07, Math.sin(angle) * distance);
+    root.userData.phase = index * 0.73;
+    root.userData.baseScale = 0.82 + (index % 4) * 0.055;
+
+    const segment = new THREE.Mesh(
+      rootSegmentGeometry,
+      vineMaterial
+    );
+    segment.position.copy(direction).multiplyScalar(length * 0.36);
+    segment.scale.y = length;
+    segment.quaternion.setFromUnitVectors(UP_AXIS, direction);
+    const tip = new THREE.Mesh(
+      rootTipGeometry,
+      vineMaterial
+    );
+    tip.position.copy(direction).multiplyScalar(length * 0.83);
+    tip.scale.y = length * 0.42;
+    tip.quaternion.setFromUnitVectors(UP_AXIS, direction);
+    root.add(segment, tip);
+
+    for (let thornIndex = 0; thornIndex < 2; thornIndex += 1) {
+      const thorn = new THREE.Mesh(
+        thornGeometry,
+        thornMaterial
+      );
+      const thornDistance = length * (0.36 + thornIndex * 0.3);
+      thorn.position.copy(direction).multiplyScalar(thornDistance);
+      thorn.position.y += 0.08;
+      thorn.scale.y = 0.2 + (index % 3) * 0.025;
+      thorn.rotation.z = (thornIndex === 0 ? -1 : 1) * (0.24 + (index % 2) * 0.1);
+      root.add(thorn);
+    }
+    root.scale.setScalar(0.02);
+    roots.push(root);
+    group.add(root);
+  }
+
+  group.userData.disc = disc;
+  group.userData.ring = ring;
+  group.userData.roots = roots;
+  group.userData.vineMaterial = vineMaterial;
+  group.userData.thornMaterial = thornMaterial;
+  return group;
+}
+
+function updateRootVinesVisual(group, age, duration, radius, dt) {
+  const fadeIn = Math.min(1, age / 0.36);
+  const fadeOut = Math.min(1, (duration - age) / 0.72);
+  const alpha = Math.max(0, Math.min(fadeIn, fadeOut));
+  const pulse = Math.sin(age * 2.25) * 0.025;
+  group.userData.disc.scale.setScalar(radius * (1 + pulse));
+  group.userData.ring.scale.setScalar(radius * (1 + pulse * 1.5));
+  group.userData.disc.material.opacity = 0.24 * alpha;
+  group.userData.ring.material.opacity = 0.62 * alpha;
+  group.userData.vineMaterial.opacity = 0.94 * alpha;
+  group.userData.thornMaterial.opacity = 0.9 * alpha;
+  group.userData.roots.forEach((root, index) => {
+    const growth = Math.min(1, age / (0.28 + index * 0.018));
+    const breathe = 1 + Math.sin(age * 2.8 + root.userData.phase) * 0.045;
+    const scale = root.userData.baseScale * growth * breathe;
+    root.scale.setScalar(Math.max(0.02, scale));
+    root.rotation.y = Math.sin(age * 1.35 + root.userData.phase) * 0.035;
+    root.position.y = 0.07 + Math.sin(age * 2.1 + root.userData.phase) * 0.018;
+    root.children.forEach((child, childIndex) => {
+      if (childIndex < 2) return;
+      child.rotation.y += dt * (0.18 + index * 0.004);
+    });
   });
 }

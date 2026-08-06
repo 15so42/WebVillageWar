@@ -52,8 +52,10 @@ export class CommandValidator {
         result = this.validateSelection(sourcePlayerId, payload);
         break;
       case COMMAND.PLAY_CARD:
-      case COMMAND.DISCARD_CARD:
         result = this.validateCard(sourcePlayerId, payload);
+        break;
+      case COMMAND.DISCARD_CARD:
+        result = this.validateCard(sourcePlayerId, payload, { discardOnly: true });
         break;
       case COMMAND.REWARD_CHOOSE:
         result = this.validateReward(sourcePlayerId, payload);
@@ -130,13 +132,22 @@ export class CommandValidator {
     };
   }
 
-  validateCard(playerId, payload) {
+  validateCard(playerId, payload, { discardOnly = false } = {}) {
     const cards = this.game.cardSystems?.[playerId]
       ?? (playerId === this.localPlayerId() ? this.game.cardSystem : null);
     const instanceId = payload.cardInstanceId;
     if (!cards || typeof instanceId !== 'string') return reject('invalid_card_instance');
     const card = cards.findCardByInstanceId?.(instanceId);
     if (!card) return reject('card_not_owned_or_not_available');
+    if (discardOnly) {
+      return {
+        ok: true,
+        payload: {
+          cardInstanceId: instanceId,
+          sourceLocation: cards.temporaryCards?.includes(card) ? 'temporary' : 'hand'
+        }
+      };
+    }
     let normalizedPayload = payload;
     if (card.target === 'ground') {
       const point = payload.point;

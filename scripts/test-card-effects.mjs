@@ -12,12 +12,18 @@ import {
 import { UnitEntity } from '../src/entities/UnitEntity.js';
 
 assert(CARD_DEFINITIONS.filter((card) => card.kind === 'summon').every((card) => cardMaxUses(card) === 1));
-assert.equal(CARD_DEFINITIONS.find((card) => card.id === 'field-upgrade')?.energyCost, 3);
+const tacticalDispatchCard = CARD_DEFINITIONS.find((card) => card.id === 'field-upgrade');
+assert.equal(tacticalDispatchCard?.energyCost, 3);
+assert.equal(cardMaxUses(tacticalDispatchCard), 3);
+assert.match(tacticalDispatchCard?.summary ?? '', /限用 3 次/);
 assert.equal(cardMaxUses({ kind: 'summon', uses: 9 }), 1);
 assert.equal(CARD_DEFINITIONS.find((card) => card.id === 'rebirth-totem-enchant')?.retired, true);
 assert.equal(CARD_DEFINITIONS.find((card) => card.id === 'self-destruct-enchant')?.enchantmentId, 'selfDestruct');
 assert.equal(BUFF_DEFINITIONS.rebirthTotem.retired, true);
-assert.match(CARD_DEFINITIONS.find((card) => card.id === 'self-destruct-enchant')?.summary ?? '', /等级 ×4/);
+assert.match(
+  CARD_DEFINITIONS.find((card) => card.id === 'self-destruct-enchant')?.summary ?? '',
+  /等级 ×3 的物理伤害，并各进行一次普通攻击及其攻击特效/
+);
 assert.equal(CARD_DEFINITIONS.find((card) => card.id === 'high-explosive-ability')?.effect?.abilityId, 'highExplosive');
 const silverGambleCard = CARD_DEFINITIONS.find((card) => card.id === 'silver-gamble');
 assert.equal(silverGambleCard?.energyCost, 0);
