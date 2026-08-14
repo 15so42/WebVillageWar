@@ -856,6 +856,17 @@ const DEVELOPMENT_CHANGELOG_ARCHIVE = [
 const CHANGELOG_ENTRIES = [
   {
     date: '2026-08-14',
+    title: '单英雄流派构筑改造',
+    items: [
+      '开局改为从所有战斗单位中随机三选一，选中的单位作为整局唯一英雄直接登场；出战牌组与波次奖励均不再包含单位卡。',
+      '所选英雄的兵种专精（2 个专属 + 4 个通用）做成能力卡，并入波次奖励三选一。',
+      'Boss 奖励从免费军需铺改为升级 / 复制 / 移除一张卡牌三选一。',
+      '军需铺入口暂时隐藏；单英雄下附魔自然锁定唯一单位。',
+      '联机下每位玩家各自选择一个英雄，专精、波次奖励与 Boss 奖励按玩家独立生成与同步。'
+    ]
+  },
+  {
+    date: '2026-08-14',
     title: '关卡数据修复与雪谷路旁小景',
     items: [
       '修复关卡定义重复的 name/subtitle 键；「松林通道」「霜脊前线」的关卡 id 统一为与场景一致的「幽暗地牢」「赤岩沙漠」，旧存档的关卡难度与选中进度会自动迁移到新 id。',
@@ -2347,7 +2358,10 @@ export class MetaGameSystem {
 
   startLevel() {
     // 出战牌组默认使用全部已拥有卡牌，不再需要手动配置。
-    const deckIds = this.progress.ownedCards.slice();
+    // 单位卡不再进牌组：英雄由开局三选一直接召唤，整局唯一。
+    const deckIds = this.progress.ownedCards.filter((id) => (
+      CARD_DEFINITIONS.find((card) => card.id === id)?.kind !== 'summon'
+    ));
     const deck = deckIds.map((id, index) => {
       const card = this.cardWithLevel(id);
       return {
@@ -2356,7 +2370,7 @@ export class MetaGameSystem {
       };
     });
     if (!validateDeckSelection(deckIds).valid) {
-      this.setNotice('当前没有可出战的单位卡，请检查卡牌数据');
+      this.setNotice('当前没有可出战的卡牌，请检查卡牌数据');
       return;
     }
     const difficulty = Math.min(

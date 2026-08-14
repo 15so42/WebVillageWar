@@ -1,4 +1,4 @@
-import { COOP_ENEMY_SCALING, PVE_ENEMY_SCALING_BY_PLAYER_COUNT } from '../../data/gameData.js';
+import { CARD_DEFINITIONS, COOP_ENEMY_SCALING, PVE_ENEMY_SCALING_BY_PLAYER_COUNT } from '../../data/gameData.js';
 import { GAME_PROTOCOL_VERSION } from '../protocol/messages.js';
 import { createPlayerRunState } from '../../coop/PlayerRunState.js';
 
@@ -29,7 +29,10 @@ export function normalizeMultiplayerSession(session) {
     order: player.order ?? order,
     factionId: player.factionId ?? `faction:${playerId}`,
     teamId: player.teamId ?? 'players',
-    deck: Array.isArray(player.deck) ? player.deck : []
+    deck: (Array.isArray(player.deck) ? player.deck : []).filter((entry) => {
+      const id = typeof entry === 'string' ? entry : entry?.id;
+      return CARD_DEFINITIONS.find((card) => card.id === id)?.kind !== 'summon';
+    })
   }]));
   const matchRules = {
     mode: session.matchRules?.mode ?? 'pve',

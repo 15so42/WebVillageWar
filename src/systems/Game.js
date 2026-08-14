@@ -907,6 +907,7 @@ export class Game {
     this.rebirthQueue = [];
     this.nextRebirthQueueId = 1;
     this.awaitingOpeningReward = false;
+    this.heroUnitType = null;
     this.runShopOpen = false;
     this.runShopCausedPause = false;
     this.runShopUiBoundOverlay = null;
@@ -1208,7 +1209,7 @@ export class Game {
     this.resize();
     document.body.classList.add('is-game-active');
     if (this.dom.settingsButton) this.dom.settingsButton.hidden = false;
-    if (this.runShopUi?.toggle) this.runShopUi.toggle.hidden = false;
+    if (this.runShopUi?.toggle) this.runShopUi.toggle.hidden = true;
     this.armReturnNavigationTrap();
     prewarmUnitModelTemplates(unitModelPrewarmEntries());
 
@@ -1523,9 +1524,9 @@ export class Game {
       }
       this.pendingWaveAdvance = true;
       if (this.coop?.enabled) {
-        this.openCoopRunShopForAll({ freeReward: true });
+        this.openCoopStrategyEventForAll('boss-reward');
       } else {
-        this.openRunShop({ freeReward: true });
+        this.openStrategyEvent('boss-reward');
       }
       return;
     }
@@ -3071,16 +3072,16 @@ export class Game {
   createStrategyEvent(type, options = {}) {
     this.resetStrategyRewardRerollForEvent(type);
     if (type === 'opening-unit') {
-      const summonPool = this.selectedCardPool({ kind: 'summon' });
+      const summonPool = CARD_DEFINITIONS.filter((card) => isOpeningCombatSummon(card));
       return {
         type,
         kicker: '开局准备',
-        title: '选择初始单位',
-        summary: '从出战单位牌中三选一，加入抽牌堆后开始第一波。',
+        title: '选择你的英雄',
+        summary: '从所有单位中三选一，作为本局唯一英雄登场。',
         choices: this.openingUnitChoices({
           pool: summonPool,
-          action: 'add-card',
-          actionLabel: '获得单位'
+          action: 'summon-hero',
+          actionLabel: '选择英雄'
         })
       };
     }
@@ -3096,6 +3097,15 @@ export class Game {
         title: '选择精英奖励',
         summary: '精英被击败后获得一次局内强化，三选一可直接获得新卡、复制、专精或临时牌。',
         choices: this.createWaveRewardOptionChoices(force)
+      };
+    }
+    if (type === 'boss-reward') {
+      return {
+        type,
+        kicker: `Boss 战利 #${this.bossesDefeated}`,
+        title: '选择 Boss 奖励',
+        summary: '三选一：升级、复制或移除一张已有卡牌。',
+        choices: this.createBossRewardChoices()
       };
     }
     if (type === 'altar-reward') {
@@ -3269,7 +3279,7 @@ export class Game {
     return this.selectedCardPool({
       ...options,
       allowAllFallback: false
-    }).filter((card) => remainingIds.has(card.id));
+    }).filter((card) => remainingIds.has(card.id) && card.kind !== 'summon');
   }
 
   consumeWaveRewardCard(card) {
@@ -3326,8 +3336,21 @@ export class Game {
     }));
   }
 
+  heroSpecializationChoices() {
+    const unitType = this.heroUnitType;
+    if (!unitType) return [];
+    const choices = [];
+    UNIT_GENERIC_UPGRADES.forEach((upgrade) => {
+      choices.push(this.createTeamGenericUpgradeChoice(upgrade));
+    });
+    (UNIT_SPECIAL_UPGRADES[unitType] ?? []).forEach((upgrade) => {
+      choices.push(this.createTeamSpecialUpgradeChoice(unitType, upgrade));
+    });
+    return choices;
+  }
+
   createCardWaveRewardChoices(wave = null) {
-    return this.weightedCardChoices({
+    const cardChoices = this.weightedCardChoices({
       pool: this.waveRewardCardPool(),
       action: 'add-card',
       actionLabel: '获得卡牌',
@@ -3336,10 +3359,34 @@ export class Game {
       ...choice,
       rewardSource: 'wave-reward-deck'
     }));
+    const specializationChoices = this.heroSpecializationChoices();
+    if (!specializationChoices.length) return cardChoices;
+    return pickRandomItems([...cardChoices, ...specializationChoices], STRATEGY_CHOICE_COUNT);
   }
 
   createWaveRewardOptionChoices(wave = null) {
     return this.createCardWaveRewardChoices(wave);
+  }
+
+  createBossRewardChoices() {
+    const cards = pickRandomItems(this.uniqueRuntimeCards(), STRATEGY_CHOICE_COUNT);
+    if (!cards.length) return [];
+    const actions = [
+      { action: 'upgrade-card', actionLabel: '升级', verb: '升级', description: '该牌及同名牌等级 +1。' },
+      { action: 'copy-card', actionLabel: '复制', verb: '复制', description: '加入一张同等级复制牌。' },
+      { action: 'remove-card', actionLabel: '移除', verb: '移除', description: '移出本局全部同名卡牌。' }
+    ];
+    return cards.slice(0, actions.length).map((card, index) => {
+      const meta = actions[index];
+      return {
+        action: meta.action,
+        actionLabel: meta.actionLabel,
+        title: `${meta.verb} ${card.name}`,
+        description: meta.description,
+        card,
+        targetCard: card
+      };
+    });
   }
 
   createAltarSpecializationRewardChoices() {
@@ -3885,7 +3932,15 @@ export class Game {
 
   applyStrategyChoice(choice) {
     let applied = false;
-    if (choice.action === 'add-card') {
+    if (choice.action === 'summon-hero') {
+      const unitType = choice.card?.unitType;
+      if (!unitType) return false;
+      this.heroUnitType = unitType;
+      this.summonUnits(unitType, 1, this.playerBase.position.clone().add(new THREE.Vector3(0, 0, -2.2)), 0.7, {
+        select: true
+      });
+      applied = true;
+    } else if (choice.action === 'add-card') {
       const result = this.cardSystem.addCardToDrawPile(choice.card, {
         prefix: `event-${choice.card.id}-${Date.now()}`
       });
@@ -4630,7 +4685,8 @@ export class Game {
       acquiredUnitCardTypes: this.acquiredUnitCardTypes,
       teamGenericUpgradeCounts: this.teamGenericUpgradeCounts,
       teamSpecialUpgrades: this.teamSpecialUpgrades,
-      teamSupportModifiersApplied: this.teamSupportModifiersApplied
+      teamSupportModifiersApplied: this.teamSupportModifiersApplied,
+      heroUnitType: this.heroUnitType
     };
     this.activeEconomySlot = slot;
     if (this.cardSystems?.[slot]) this.cardSystem = this.cardSystems[slot];
@@ -4649,6 +4705,7 @@ export class Game {
     this.teamGenericUpgradeCounts = run.teamGenericUpgradeCounts;
     this.teamSpecialUpgrades = run.teamSpecialUpgrades;
     this.teamSupportModifiersApplied = run.teamSupportModifiersApplied;
+    this.heroUnitType = run.heroUnitType ?? null;
     try {
       return action();
     } finally {
@@ -4666,6 +4723,7 @@ export class Game {
       run.teamGenericUpgradeCounts = this.teamGenericUpgradeCounts;
       run.teamSpecialUpgrades = this.teamSpecialUpgrades;
       run.teamSupportModifiersApplied = this.teamSupportModifiersApplied;
+      run.heroUnitType = this.heroUnitType;
       this.activeEconomySlot = previous.activeEconomySlot;
       this.cardSystem = previous.cardSystem;
       this.abilities = previous.abilities;
@@ -4683,6 +4741,7 @@ export class Game {
       this.teamGenericUpgradeCounts = previous.teamGenericUpgradeCounts;
       this.teamSpecialUpgrades = previous.teamSpecialUpgrades;
       this.teamSupportModifiersApplied = previous.teamSupportModifiersApplied;
+      this.heroUnitType = previous.heroUnitType;
       if (slot === this.localPlayerSlot) {
         this.strategyEvent = run.strategyEvent;
         this.strategyRewardRerollCount = run.strategyRewardRerollCount;

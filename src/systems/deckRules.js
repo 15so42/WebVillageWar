@@ -12,9 +12,6 @@ export function validateDeckSelection(deck) {
   if (ids.some((id) => !id || !CARD_BY_ID.has(id)) || new Set(ids).size !== ids.length) {
     return { valid: false, reason: 'invalid_card_definition' };
   }
-  if (!ids.some((id) => CARD_BY_ID.get(id)?.kind === 'summon')) {
-    return { valid: false, reason: 'deck_requires_unit_card' };
-  }
   return { valid: true, reason: null };
 }
 
