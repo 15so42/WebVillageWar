@@ -5789,11 +5789,9 @@ export const LEVEL_DEFINITIONS = [
   {
     id: 'snow-valley',
     name: '雪谷营地',
-    subtitle: '怪物营地正在雪谷集结',
+    subtitle: '教学关：在雪谷中熟悉出兵、附魔和基地推进',
     baseReward: 45,
     targetTime: 1080,
-    name: '雪原营地',
-    subtitle: '教学关：在雪原中熟悉出兵、附魔和基地推进',
     baseDifficulty: 1,
     waveDifficultyGrowth: 1,
     enemyPool: [
@@ -5820,13 +5818,11 @@ export const LEVEL_DEFINITIONS = [
     }
   },
   {
-    id: 'pine-pass',
-    name: '松林通道',
-    subtitle: '林带更密，敌方射手开始增多',
-    baseReward: 60,
-    targetTime: 1260,
+    id: 'dungeon-halls',
     name: '幽暗地牢',
     subtitle: '地牢关：多个石台由狭窄通路连接，争夺平台之间的推进路线',
+    baseReward: 60,
+    targetTime: 1260,
     baseDifficulty: 2,
     waveDifficultyGrowth: 1.08,
     enemyPool: [
@@ -5854,13 +5850,11 @@ export const LEVEL_DEFINITIONS = [
     }
   },
   {
-    id: 'frozen-ridge',
-    name: '霜脊前线',
-    subtitle: '高难度怪物会获得更高成长',
-    baseReward: 80,
-    targetTime: 1440,
+    id: 'red-desert',
     name: '赤岩沙漠',
     subtitle: '沙漠关：阳光会灼烧友军，利用巨岩阴影推进',
+    baseReward: 80,
+    targetTime: 1440,
     baseDifficulty: 3,
     waveDifficultyGrowth: 1.16,
     enemyPool: [

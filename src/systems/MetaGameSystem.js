@@ -25,6 +25,12 @@ const WAVE_DIFFICULTY_GROWTH_PER_SELECTED_DIFFICULTY = 0.16;
 const CARD_UPGRADE_INITIAL_COST = 100;
 const DEFAULT_PLAYER_NAME = '玩家';
 const MAX_PLAYER_NAME_LENGTH = 16;
+// 关卡 id 历史迁移：早期 pine-pass / frozen-ridge 已重做为地牢 / 沙漠场景，
+// 旧存档若仍以旧 id 记录难度与选中关卡，读取时映射到新 id，避免玩家进度回退。
+const LEGACY_LEVEL_ID_MIGRATIONS = {
+  'pine-pass': 'dungeon-halls',
+  'frozen-ridge': 'red-desert'
+};
 // 保留开发期记录供内部追溯；玩家界面只展示下方整理后的版本纪要。
 const DEVELOPMENT_CHANGELOG_ARCHIVE = [
   {
@@ -848,6 +854,14 @@ const DEVELOPMENT_CHANGELOG_ARCHIVE = [
 ];
 
 const CHANGELOG_ENTRIES = [
+  {
+    date: '2026-08-14',
+    title: '关卡数据修复与雪谷路旁小景',
+    items: [
+      '修复关卡定义重复的 name/subtitle 键；「松林通道」「霜脊前线」的关卡 id 统一为与场景一致的「幽暗地牢」「赤岩沙漠」，旧存档的关卡难度与选中进度会自动迁移到新 id。',
+      '雪谷主路沿路新增雪路石块与路旁石组小景，岛崖调整为更自然的阶梯台地，强化道路引导与开阔谷地的层次。'
+    ]
+  },
   {
     date: '2026-08-07',
     title: '雪原第一关重做为开阔雪谷',
@@ -2425,7 +2439,10 @@ function loadProgress() {
   });
   const levelDifficulties = {};
   LEVEL_DEFINITIONS.forEach((level) => {
-    levelDifficulties[level.id] = clampDifficulty(raw?.levelDifficulties?.[level.id] ?? 1);
+    const legacyId = legacyLevelIdFor(level.id);
+    const stored = raw?.levelDifficulties?.[level.id]
+      ?? (legacyId ? raw?.levelDifficulties?.[legacyId] : undefined);
+    levelDifficulties[level.id] = clampDifficulty(stored ?? 1);
   });
   const preferences = normalizePreferences(raw?.preferences, ownedCards, levelDifficulties);
   const hasStartingCoinsGrant = raw?.startingCoinsVersion === STARTING_COINS_VERSION;
@@ -2462,8 +2479,11 @@ function normalizePreferences(rawPreferences, ownedCards, levelDifficulties) {
   const selectedLevelId = normalizeLevelId(rawPreferences?.selectedLevelId);
   const selectedDifficulties = {};
   LEVEL_DEFINITIONS.forEach((level) => {
+    const legacyId = legacyLevelIdFor(level.id);
+    const stored = rawPreferences?.selectedDifficulties?.[level.id]
+      ?? (legacyId ? rawPreferences?.selectedDifficulties?.[legacyId] : undefined);
     selectedDifficulties[level.id] = Math.min(
-      clampDifficulty(rawPreferences?.selectedDifficulties?.[level.id] ?? 1),
+      clampDifficulty(stored ?? 1),
       clampDifficulty(levelDifficulties[level.id] ?? 1)
     );
   });
@@ -2502,9 +2522,21 @@ function escapeHtml(value) {
     .replace(/'/g, '&#039;');
 }
 
+function migrateLegacyLevelId(levelId) {
+  return LEGACY_LEVEL_ID_MIGRATIONS[levelId] ?? levelId;
+}
+
+function legacyLevelIdFor(currentId) {
+  for (const [legacy, current] of Object.entries(LEGACY_LEVEL_ID_MIGRATIONS)) {
+    if (current === currentId) return legacy;
+  }
+  return null;
+}
+
 function normalizeLevelId(levelId) {
-  return LEVEL_DEFINITIONS.some((level) => level.id === levelId)
-    ? levelId
+  const migrated = migrateLegacyLevelId(levelId);
+  return LEVEL_DEFINITIONS.some((level) => level.id === migrated)
+    ? migrated
     : LEVEL_DEFINITIONS[0]?.id ?? 'snow-valley';
 }
 
