@@ -61,10 +61,10 @@ config.altars.forEach((altar) => {
 const backdropLayers = scene.children.filter((child) => child.isMesh && child.renderOrder === -2);
 assert.ok(backdropLayers.length >= 1, '应生成雪山远景环层');
 
-// 5. 渲染预设：暮色冰河暖光冷影雾效参数
-assert.ok(scene.fog && scene.fog.near === 48 && scene.fog.far === 215, '雾效参数应为暮色预设');
+// 5. 渲染预设：Toon 暖橙暮色光照与雾效参数
+assert.ok(scene.fog && scene.fog.near === 48 && scene.fog.far === 215, '雾效参数应为 Toon 暖橙暮色预设');
 const sun = world.lights.sun;
-assert.equal(`#${sun.color.getHexString()}`, '#ffcf9e', '主光应为暮色暖金色');
+assert.equal(`#${sun.color.getHexString()}`, '#ffaa66', '主光应为 Toon 暖橙色');
 
 // 6. update 循环不抛错（降雪粒子与装饰驱动）
 world.update(0.016, new THREE.Vector3(0, 0, 0), new THREE.Camera(), {});

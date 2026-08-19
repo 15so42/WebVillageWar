@@ -825,7 +825,8 @@ export class Game {
     this.composer.addPass(this.bloomPass);
 
     this.outlinePass = new ShaderPass(OutlineShader);
-    this.outlinePass.enabled = useFullPostProcessing;
+    // Disable outline pass for snow-valley toon style (rim light handles edge definition)
+    this.outlinePass.enabled = useFullPostProcessing && this.worldConfig.sceneKey !== 'snow-valley';
     this.composer.addPass(this.outlinePass);
 
     this.vignettePass = new ShaderPass(StorybookVignetteShader);

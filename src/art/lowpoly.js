@@ -7961,6 +7961,8 @@ function applyTreeShader(material, options = {}) {
   material.onBeforeCompile = (shader) => {
     shader.vertexShader = `
       varying float vGradientT;
+      varying vec3 vToonViewDir;
+      varying vec3 vToonWorldNormal;
       ${shader.vertexShader}
     `.replace(
       '#include <worldpos_vertex>',
@@ -7969,11 +7971,16 @@ function applyTreeShader(material, options = {}) {
       // Vertical height gradient of the vertex relative to the tree's base world height
       float relativeHeight = (modelMatrix * vec4(transformed, 1.0)).y - modelMatrix[3].y;
       vGradientT = clamp((relativeHeight - 0.4) / 1.8, 0.0, 1.0);
+      // For rim lighting
+      vToonViewDir = normalize(cameraPosition - (modelMatrix * vec4(transformed, 1.0)).xyz);
+      vToonWorldNormal = normalize((modelMatrix * vec4(objectNormal, 0.0)).xyz);
       `
     );
 
     shader.fragmentShader = `
       varying float vGradientT;
+      varying vec3 vToonViewDir;
+      varying vec3 vToonWorldNormal;
       ${shader.fragmentShader}
     `.replace(
       '#include <color_fragment>',
@@ -7993,6 +8000,13 @@ function applyTreeShader(material, options = {}) {
       float isSnow = smoothstep(0.8, 0.92, luma) * (1.0 - smoothstep(0.0, 0.15, chroma));
       
       diffuseColor.rgb = mix(grayerColor * brightness, diffuseColor.rgb, isSnow);
+
+      // Warm rim light: adds a sunset-colored edge glow on silhouettes
+      float rimFactor = 1.0 - max(dot(vToonViewDir, vToonWorldNormal), 0.0);
+      rimFactor = pow(rimFactor, 2.8);
+      vec3 rimColor = vec3(1.0, 0.72, 0.52);
+      float rimStrength = 0.18;
+      diffuseColor.rgb = mix(diffuseColor.rgb, rimColor, rimFactor * rimStrength * (1.0 - isSnow));
       `
     );
   };
@@ -8023,43 +8037,111 @@ export function createTree(height = 1, options = {}) {
 
 export function createSnowPine(height = 1, options = {}) {
   const group = new THREE.Group();
-  const leafMaterialOptions = options.treeShader
-    ? { roughness: options.leafRoughness ?? 0.92, metalness: 0 }
-    : {};
+  // 树冠用普通 PBR 材质，光照交给场景光源（暖太阳 + 冷半球光）自动计算，
+  // 不再烘焙顶点色
+  const trunkColor = options.trunkColor ?? '#5c3a2c';
+  const leafColor = options.leafColor ?? '#c05535';
+  const snowColor = options.snowColor ?? '#f4ece4';
+  // snowCap=false 时树尖不覆白雪，与树冠同色（参考图为纯红橙锥形树）
+  const hasSnowCap = options.snowCap !== false;
+
   const trunk = mesh(
     new THREE.CylinderGeometry(0.14, 0.21, 1.05 * height, 5),
-    mat('#7a5a44'),
+    mat(trunkColor),
     new THREE.Vector3(0, 0.52 * height, 0),
     new THREE.Vector3(1, 1, 1)
   );
-  const lowerMat = mat(options.leafColor ?? '#5f7672', leafMaterialOptions);
-  lowerMat.userData.worldMaterialKind = 'tree';
-  applyTreeShader(lowerMat, options.treeShader);
+
+  // 三层树冠各用同色相微差材质：下层暗、上层亮，
+  // 保住松树的层叠轮廓，不会糊成一根光滑圆锥
+  const leafColorObj = new THREE.Color(leafColor);
+  const makeLeafMat = (lightShift) => {
+    const leafMat = mat(leafColorObj.clone().offsetHSL(0, 0, lightShift), {
+      roughness: options.leafRoughness ?? 0.85
+    });
+    if (options.treeShader) applyTreeShader(leafMat, options.treeShader);
+    leafMat.userData.worldMaterialKind = 'tree';
+    return leafMat;
+  };
+  const lowerMat = makeLeafMat(-0.05);
+  const upperMat = makeLeafMat(0.0);
+  const tipMat = makeLeafMat(0.04);
+
   const lower = mesh(
     new THREE.ConeGeometry(0.88 * height, 1.22 * height, 7),
     lowerMat,
     new THREE.Vector3(0, 1.22 * height, 0),
     new THREE.Vector3(1, 1, 1)
   );
-  const upperMat = mat(options.leafColor ?? '#66807b', leafMaterialOptions);
-  upperMat.userData.worldMaterialKind = 'tree';
-  applyTreeShader(upperMat, options.treeShader);
+
   const upper = mesh(
     new THREE.ConeGeometry(0.58 * height, 1.05 * height, 7),
     upperMat,
     new THREE.Vector3(0, 1.9 * height, 0),
     new THREE.Vector3(1, 1, 1)
   );
-  const snowMat = mat(options.snowColor ?? '#c2d9e8', { roughness: options.snowRoughness ?? 0.9, metalness: 0 });
-  snowMat.userData.worldMaterialKind = 'snow';
-  const snowCap = mesh(
-    new THREE.ConeGeometry(0.5 * height, 0.28 * height, 7),
-    snowMat,
-    new THREE.Vector3(0, 2.34 * height, 0),
-    new THREE.Vector3(1, 1, 1)
-  );
-  group.add(trunk, lower, upper, snowCap);
+
+  let tip;
+  if (hasSnowCap) {
+    tip = mesh(
+      new THREE.ConeGeometry(0.5 * height, 0.28 * height, 7),
+      mat(snowColor, { roughness: options.snowRoughness ?? 0.9 }),
+      new THREE.Vector3(0, 2.34 * height, 0),
+      new THREE.Vector3(1, 1, 1)
+    );
+  } else {
+    tip = mesh(
+      new THREE.ConeGeometry(0.5 * height, 0.42 * height, 7),
+      tipMat,
+      new THREE.Vector3(0, 2.38 * height, 0),
+      new THREE.Vector3(1, 1, 1)
+    );
+  }
+
+  group.add(trunk, lower, upper, tip);
   return enableShadows(group);
+}
+
+// Bake warm directional lighting into vertex colors.
+// sunDirection 可选，默认西南低阳 (-0.6, 0.4, 0.5)
+export function bakeWarmLighting(geometry, sunlitColor, midColor, shadowColor, sunDirection = null) {
+  const pos = geometry.attributes.position;
+  const count = pos.count;
+  const colors = new Float32Array(count * 3);
+
+  const sunDir = sunDirection
+    ? new THREE.Vector3(sunDirection.x, sunDirection.y, sunDirection.z).normalize()
+    : new THREE.Vector3(-0.6, 0.4, 0.5).normalize();
+  const cSunlit = new THREE.Color(sunlitColor);
+  const cMid = new THREE.Color(midColor);
+  const cShadow = new THREE.Color(shadowColor);
+
+  // Compute normals for accurate lighting
+  geometry.computeVertexNormals();
+  const normal = geometry.attributes.normal;
+
+  for (let i = 0; i < count; i++) {
+    const nx = normal.getX(i);
+    const ny = normal.getY(i);
+    const nz = normal.getZ(i);
+
+    const ndl = nx * sunDir.x + ny * sunDir.y + nz * sunDir.z;
+
+    let color;
+    if (ndl > 0.15) {
+      color = cSunlit;
+    } else if (ndl > -0.15) {
+      color = cMid;
+    } else {
+      color = cShadow;
+    }
+
+    colors[i * 3] = color.r;
+    colors[i * 3 + 1] = color.g;
+    colors[i * 3 + 2] = color.b;
+  }
+
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
 }
 
 export function createMountainPeak(width = 1, height = 1, color = '#8c9ca2') {
