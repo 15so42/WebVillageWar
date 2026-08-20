@@ -460,11 +460,12 @@ const WORLD_PRESETS = {
   'snow-valley': {
     sceneKey: 'snow-valley',
     seed: 42,
+    // 开局相机：用户给定 (0.847,37.396,73.57)，白天雪谷同样适用
     camera: {
-      target: { x: 0, y: 4, z: 0 },
-      initialPosition: { x: 0, y: 86, z: 78 },
-      minDistance: 48,
-      maxDistance: 132
+      target: { x: 0, y: 4, z: 18 },
+      initialPosition: { x: 0.847, y: 37.396, z: 73.57 },
+      minDistance: 12,
+      maxDistance: 78
     },
     sky: {
       toneMapping: 'aces',
@@ -715,8 +716,43 @@ const WORLD_PRESETS = {
         { x: 0, z: 42, rx: 42, rz: 7, height: 2.7 }
       ]
     },
-    mountainRidge: [],
-    snowPeaks: [],
+    mountainRidge: [
+      { x: -20.8, z: 30.5, width: 5.2, height: 5.2, rot: 0.05, color: '#8a786e' },
+      { x: -23.2, z: 16.5, width: 4.8, height: 7.8, rot: -0.12, color: '#948076' },
+      { x: -21.5, z: 8.3, width: 5.7, height: 6.3, rot: 0.08, color: '#8f7a6f' },
+      { x: -22.7, z: -16.2, width: 4.6, height: 8.1, rot: -0.06, color: '#8a786e' },
+      { x: -20.6, z: -31.7, width: 5.5, height: 4.9, rot: 0.10, color: '#948076' },
+      { x: -38.7, z: 36.8, width: 7.5, height: 13.5, rot: 0, color: '#8b8391' },
+      { x: -41.2, z: 25.5, width: 8.0, height: 10.2, rot: 0.1, color: '#948b98' },
+      { x: -39.5, z: 13.2, width: 7.5, height: 16.8, rot: -0.1, color: '#776d84' },
+      { x: -40.3, z: -2.1, width: 8.0, height: 18.5, rot: 0, color: '#8b8391' },
+      { x: -41.5, z: -10.3, width: 7.5, height: 12.1, rot: 0.1, color: '#948b98' },
+      { x: -38.9, z: -26.4, width: 8.0, height: 14.7, rot: -0.1, color: '#776d84' },
+      { x: -40.1, z: -34.7, width: 7.5, height: 11.3, rot: 0, color: '#8b8391' },
+      { x: 20.7, z: 29.3, width: 5.8, height: 6.1, rot: -0.05, color: '#948076' },
+      { x: 22.4, z: 13.7, width: 4.7, height: 4.9, rot: 0.12, color: '#8a786e' },
+      { x: 23.1, z: -7.4, width: 5.3, height: 7.7, rot: -0.08, color: '#8f7a6f' },
+      { x: 21.3, z: -23.5, width: 5.1, height: 5.4, rot: 0.06, color: '#948076' },
+      { x: 22.8, z: -34.2, width: 4.9, height: 8.2, rot: -0.10, color: '#8a786e' },
+      { x: 41.3, z: 34.4, width: 7.5, height: 15.2, rot: 0, color: '#776d84' },
+      { x: 39.7, z: 20.7, width: 8.0, height: 11.8, rot: -0.1, color: '#8b8391' },
+      { x: 40.8, z: 11.5, width: 7.5, height: 17.3, rot: 0.1, color: '#948b98' },
+      { x: 38.9, z: -4.2, width: 8.0, height: 10.5, rot: 0, color: '#776d84' },
+      { x: 41.5, z: -12.5, width: 7.5, height: 13.9, rot: -0.1, color: '#8b8391' },
+      { x: 39.6, z: -27.8, width: 8.0, height: 16.2, rot: 0.1, color: '#948b98' },
+      { x: 40.4, z: -37.2, width: 7.5, height: 12.7, rot: 0, color: '#776d84' }
+    ],
+    snowPeaks: [
+      { x: -25, z: -45, width: 7.0, height: 12.0, color: '#eef2f6' },
+      { x: -12, z: -47, width: 8.0, height: 14.0, color: '#dbe4ec' },
+      { x: 2, z: -46, width: 9.0, height: 16.0, color: '#eef2f6' },
+      { x: 18, z: -44, width: 7.0, height: 13.0, color: '#dbe4ec' },
+      { x: 30, z: -42, width: 6.0, height: 11.0, color: '#eef2f6' },
+      { x: -56, z: 10, width: 6.5, height: 9.0, color: '#eef2f6' },
+      { x: -59, z: -8, width: 6.0, height: 8.5, color: '#dbe4ec' },
+      { x: 57, z: 12, width: 6.8, height: 9.5, color: '#eef2f6' },
+      { x: 61, z: -5, width: 6.2, height: 8.0, color: '#dbe4ec' }
+    ],
     backdropRocks: [
       { x: -35.15, z: -39.43, size: 4.1, sx: 1.45, sy: 0.7, sz: 0.92, rot: -0.32, color: '#74848a' },
       { x: -27.55, z: -41.04, size: 5.8, sx: 1.28, sy: 0.95, sz: 1.08, rot: 0.14, color: '#6d7d84' },
@@ -3717,6 +3753,7 @@ function createMountainRidge(scene) {
     placeOnTerrain(peak, item.x, item.z, -0.2);
     peak.rotation.y = item.rot;
     scene.add(peak);
+    registerWorldNavigationBlocker(item.x, item.z, item.width * 0.5, 'mountain');
   });
 }
 
@@ -3726,9 +3763,10 @@ function createSnowMountain(scene) {
     { x: 16, z: -40, width: 6.4, height: 12 },
     { x: 4, z: -42, width: 7.4, height: 14 }
   ]).forEach((peakData) => {
-    const peak = createMountainPeak(peakData.width, peakData.height);
+    const peak = createMountainPeak(peakData.width, peakData.height, peakData.color);
     placeOnTerrain(peak, peakData.x, peakData.z, -0.1);
     scene.add(peak);
+    registerWorldNavigationBlocker(peakData.x, peakData.z, peakData.width * 0.5, 'snow-peak');
   });
 }
 
@@ -4048,6 +4086,8 @@ function decorate(scene, pathPoints) {
   if (worldConfig().sceneKey === 'snow-valley') {
     placePathTotems(scene);
     createSnowValleyBackdrop(scene, seededRandom((worldConfig().seed ?? 42) + 977));
+    createMountainRidge(scene);
+    createSnowMountain(scene);
     placeSnowValleyRoadsideClusters(scene, pathPoints);
   } else {
     placeLegacyPathDecor(scene);
@@ -8070,6 +8110,28 @@ function createDistantSnowMountains(scene) {
 
     const peak = new THREE.Mesh(geo, peakMat);
     peak.position.set(x, height * 0.5 - 7 - random() * 3, z);
+    peak.rotation.y = random() * Math.PI * 2;
+    scene.add(peak);
+  }
+
+  // 中景山脚环：远山内圈再立一层较低山脊，远/中/近三层纵深
+  const midCount = 18;
+  for (let i = 0; i < midCount; i += 1) {
+    const angle = (i / midCount) * Math.PI * 2 + (random() - 0.5) * 0.2;
+    const ringRX = 64 + random() * 14;
+    const ringRZ = 56 + random() * 12;
+    const x = Math.cos(angle) * ringRX;
+    const z = Math.sin(angle) * ringRZ;
+    const height = 9 + random() * 9;
+    const radius = height * (0.6 + random() * 0.28);
+    const geo = new THREE.ConeGeometry(radius, height, 5 + Math.floor(random() * 2));
+    const haze = 0.26 + random() * 0.16;
+    const sunlit = new THREE.Color(cliffArt.snow ?? '#eeeaea').lerp(fogColor, haze * 0.7);
+    const mid = new THREE.Color(cliffArt.mid ?? '#766264').lerp(fogColor, haze);
+    const shadow = new THREE.Color(cliffArt.shadow ?? '#403a4e').lerp(fogColor, haze);
+    bakeWarmLighting(geo, sunlit, mid, shadow, sunDir);
+    const peak = new THREE.Mesh(geo, peakMat);
+    peak.position.set(x, height * 0.5 - 6 - random() * 2, z);
     peak.rotation.y = random() * Math.PI * 2;
     scene.add(peak);
   }

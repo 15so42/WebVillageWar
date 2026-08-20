@@ -5920,7 +5920,7 @@ export const LEVEL_DEFINITIONS = [
 export const ALTAR_DEFINITIONS = {
   energy: {
     name: '能量祭坛',
-    color: '#69d9ff',
+    color: '#35c7ff',
     captureSeconds: 6,
     captureRadius: 4.4,
     effectRadius: 0,
@@ -5934,7 +5934,7 @@ export const ALTAR_DEFINITIONS = {
   },
   shield: {
     name: '护盾祭坛',
-    color: '#e7f6ff',
+    color: '#ffc75e',
     captureSeconds: 6,
     captureRadius: 4.4,
     effectRadius: 6.6,
@@ -5947,7 +5947,7 @@ export const ALTAR_DEFINITIONS = {
   },
   respite: {
     name: '修养祭坛',
-    color: '#8fe6a8',
+    color: '#b78cff',
     captureSeconds: 6,
     captureRadius: 4.4,
     effectRadius: 6.6,
