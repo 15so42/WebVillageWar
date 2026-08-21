@@ -1,8 +1,26 @@
 // 雪谷场景独立预览页：只创建世界（地形/山体/布景/基地/敌营），
 // 不跑战斗逻辑与 HUD，供截图与像素采样分析场景构图使用。
 // 入口：world-preview.html（Vite 多页面：/world-preview.html）
+// 本页完全复刻游戏内 L1（snow-valley）的 SNOW_VALLEY_HEAD_RENDER_TUNING：
+// 色调映射/曝光、CSS 滤镜、bloom、暗角、太阳/半球/环境光、背景/雾、材质前景色（树=绿）。
 import * as THREE from 'three';
 import { createWorld } from './world/createWorld.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+
+// 与 Game.js SNOW_VALLEY_HEAD_RENDER_TUNING 保持一致（白天暖阳）
+const L1_TUNING = {
+  toneMapping: 'aces', exposure: 1.04,
+  brightness: 1.05, contrast: 1.18, saturation: 1.02, hue: 0, warmth: 0,
+  sunColor: '#ffcf9e', sunIntensity: 3.45, sunX: -104, sunY: 52, sunZ: 88, shadowIntensity: 1,
+  hemiSky: '#b7c9e8', hemiGround: '#3b4a68', hemiIntensity: 0.78,
+  ambientColor: '#a9b2c6', ambientIntensity: 0.6,
+  background: '#c8cddc', fogColor: '#c8cddc', fogNear: 48, fogFar: 215,
+  bloomStrength: 0.12, vignetteStrength: 0.06,
+  snowColor: '#e9eef6', rockColor: '#7c7f85', treeColor: '#46685a'
+};
 
 const canvas = document.getElementById('preview-canvas');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
@@ -10,20 +28,77 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-// 与游戏内 SNOW_VALLEY_HEAD_RENDER_TUNING 的色调映射/曝光保持一致
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.04;
+renderer.toneMappingExposure = L1_TUNING.exposure;
+canvas.style.filter = [
+  `brightness(${L1_TUNING.brightness})`,
+  `contrast(${L1_TUNING.contrast})`,
+  `saturate(${L1_TUNING.saturation})`,
+  `hue-rotate(${L1_TUNING.hue}deg)`,
+  `sepia(${L1_TUNING.warmth})`
+].join(' ');
+// 暗角近似（vignetteStrength 0.06）
+const previewVignette = document.createElement('div');
+previewVignette.style.cssText = [
+  'position:fixed', 'inset:0', 'pointer-events:none',
+  `background:radial-gradient(ellipse at center, transparent 58%, rgba(10,16,26,${L1_TUNING.vignetteStrength}) 100%)`,
+  'z-index:5'
+].join(';');
+document.body.appendChild(previewVignette);
 
 const scene = new THREE.Scene();
-const world = createWorld(scene, { sceneKey: 'snow-valley', sky: { bakedShadows: false } });
+// 与正式游戏一致：启用静态烘焙地面阴影
+const world = createWorld(scene, { sceneKey: 'snow-valley', sky: { bakedShadows: true } });
+
 const sun = world.lights.sun;
 sun.shadow.camera.left = -100;
 sun.shadow.camera.right = 100;
 sun.shadow.camera.top = 100;
 sun.shadow.camera.bottom = -100;
 
-// 始终锁定 16:9 视口：窗口非 16:9 时用 CSS 把 canvas 居中成 16:9 信箱，
-// 渲染分辨率跟随 canvas 实际尺寸，截图看到的就是真实 16:9 画面
+// 复刻 applyRenderTuning：光照/背景/雾/材质前景色
+sun.color.set(L1_TUNING.sunColor);
+sun.intensity = L1_TUNING.sunIntensity;
+sun.position.set(L1_TUNING.sunX, L1_TUNING.sunY, L1_TUNING.sunZ);
+sun.target?.updateMatrixWorld?.();
+if (sun.shadow) sun.shadow.intensity = L1_TUNING.shadowIntensity;
+const hemisphere = world.lights.hemisphere;
+if (hemisphere) {
+  hemisphere.color.set(L1_TUNING.hemiSky);
+  hemisphere.groundColor.set(L1_TUNING.hemiGround);
+  hemisphere.intensity = L1_TUNING.hemiIntensity;
+}
+const ambient = world.lights.ambient;
+if (ambient) {
+  ambient.color.set(L1_TUNING.ambientColor);
+  ambient.intensity = L1_TUNING.ambientIntensity;
+}
+scene.background = new THREE.Color(L1_TUNING.background);
+if (scene.fog) {
+  scene.fog.color.set(L1_TUNING.fogColor);
+  scene.fog.near = L1_TUNING.fogNear;
+  scene.fog.far = L1_TUNING.fogFar;
+}
+world.setMaterialColors?.({
+  snow: L1_TUNING.snowColor,
+  rock: L1_TUNING.rockColor,
+  tree: L1_TUNING.treeColor
+});
+
+// 始终锁定 16:9 视口（fov 35 与游戏一致）
+const camera = new THREE.PerspectiveCamera(35, 16 / 9, 0.5, 600);
+
+// 后处理：真实 bloom（白天低强度）+ OutputPass，与游戏内对齐
+const composer = new EffectComposer(renderer);
+composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+composer.addPass(new RenderPass(scene, camera));
+const previewBloom = new UnrealBloomPass(
+  new THREE.Vector2(window.innerWidth, window.innerHeight),
+  L1_TUNING.bloomStrength, 0.4, 0.85
+);
+composer.addPass(previewBloom);
+composer.addPass(new OutputPass());
+
 function applyViewport() {
   const winW = window.innerWidth;
   const winH = window.innerHeight;
@@ -35,11 +110,10 @@ function applyViewport() {
   canvas.style.left = `${(winW - targetW) / 2}px`;
   canvas.style.top = `${(winH - targetH) / 2}px`;
   renderer.setSize(targetW, targetH, false);
+  composer.setSize(targetW, targetH);
   camera.aspect = 16 / 9;
   camera.updateProjectionMatrix();
 }
-
-const camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.5, 600);
 applyViewport();
 window.addEventListener('resize', applyViewport);
 
@@ -79,11 +153,8 @@ function setView(name) {
 }
 
 const initialView = new URLSearchParams(location.search).get('view');
-if (initialView && VIEWS[initialView]) {
-  setView(initialView);
-} else {
-  setView('overview');
-}
+if (initialView && VIEWS[initialView]) setView(initialView);
+else setView('overview');
 
 // ---------- 交互 ----------
 let dragging = 0; // 1 左键旋转 2 右键平移
@@ -134,14 +205,14 @@ function frame(now) {
   if (orbit.autoRotate && !dragging) orbit.yaw += dt * 0.06;
   applyOrbit();
   world.update(dt, orbit.target, camera, {});
-  renderer.render(scene, camera);
+  composer.render();
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 
 // ---------- 自动化接口（供 browser-use 截图/采样） ----------
 function samplePixels(points) {
-  renderer.render(scene, camera);
+  composer.render();
   const gl = renderer.getContext();
   const width = gl.drawingBufferWidth;
   const height = gl.drawingBufferHeight;
@@ -167,6 +238,7 @@ window.worldPreview = {
     if (typeof yaw === 'number') orbit.yaw = yaw;
     if (typeof pitch === 'number') orbit.pitch = pitch;
     if (typeof distance === 'number') orbit.distance = distance;
+    applyOrbit(); // 立即应用，headless 下 rAF 可能被节流
   },
   samplePixels
 };

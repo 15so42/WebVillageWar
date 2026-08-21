@@ -405,30 +405,22 @@ const DEFAULT_TERRAIN_PROFILE = {
   ]
 };
 
-// 雪谷山组：地形山脚隆起、森林山脚逻辑、近崖检测与山峰生成共用同一份数据，
-// 保证地形、植被与山体的位置始终一致。
-// 布局：山体环形环抱谷地，但整组山必须完整站在陆块稳定区（landmask ≥ 0.7）内，
-// 山脚与海岸之间留出缓冲雪坡，不允许山体骑在岛屿边缘或半截沉进海里
-const SNOW_VALLEY_HILL_ZONES = [
-  // 非对称有机布局：四角高崖锚定天际线，两翼山体大小错落、
-  // 贴 S 形主路弯道外侧形成峡谷收口，中央始终留出开阔战线。
-  // 左翼
-  { x: -35, z: 31, radius: 13, width: 22, depth: 17, rot: 0.35, coreHeight: 12.5, terraces: 3 },
-  { x: -26, z: 15, radius: 10, width: 16, depth: 13, rot: -0.3, coreHeight: 8.5, terraces: 2 },
-  { x: -34, z: -2, radius: 13, width: 21, depth: 17, rot: 0.52, coreHeight: 11.0, terraces: 3, watchtower: true },
-  { x: -24, z: -20, radius: 9, width: 15, depth: 12, rot: -0.42, coreHeight: 7.5, terraces: 2 },
-  { x: -33, z: -36, radius: 12, width: 21, depth: 17, rot: 0.28, coreHeight: 11.0, terraces: 3 },
-  // 右翼（位置/尺寸与左翼错开，不做镜像）
-  { x: 29, z: 27, radius: 10, width: 17, depth: 13, rot: -0.5, coreHeight: 8.0, terraces: 2 },
-  { x: 37, z: 11, radius: 14, width: 24, depth: 19, rot: 0.4, coreHeight: 12.5, terraces: 3, watchtower: true },
-  { x: 26, z: -6, radius: 9, width: 15, depth: 13, rot: -0.24, coreHeight: 8.5, terraces: 2 },
-  { x: 35, z: -22, radius: 12, width: 20, depth: 16, rot: 0.46, coreHeight: 10.5, terraces: 3 },
-  { x: 25, z: -36, radius: 11, width: 19, depth: 15, rot: -0.34, coreHeight: 9.5, terraces: 2 },
-  // 内侧矮岩嘴：打破两翼直线边界，压出战斗口袋；大小/间距不均，避免等距串珠感
-  { x: -17, z: 23, radius: 6, width: 11, depth: 9, rot: 0.48, coreHeight: 5.2, terraces: 1 },
-  { x: 19, z: 17, radius: 5.5, width: 10, depth: 8, rot: -0.44, coreHeight: 4.6, terraces: 1 },
-  { x: -15, z: -10, radius: 6, width: 11, depth: 9, rot: -0.52, coreHeight: 5.6, terraces: 1 },
-  { x: 17, z: -26, radius: 5.5, width: 10, depth: 8, rot: 0.44, coreHeight: 4.8, terraces: 1 }
+// 雪谷台地组：每座岩台都是独立的地形节点，不连接成峡谷直壁。
+// 左侧厚重且偏高，右侧则低、疏、向谷内伸出；中景中央始终保留可读的战斗雪地。
+const SNOW_VALLEY_TERRACE_ZONES = [
+  // 左：两座显眼高台与一段退后的山脊，形成高台→缓坡→低地的第一层节奏。
+  { x: -33, z: 20, radius: 12, width: 22, depth: 18, rot: 0.38, coreHeight: 11.8, terraces: 3 },
+  { x: -29, z: 1, radius: 10, width: 17, depth: 14, rot: -0.32, coreHeight: 8.2, terraces: 2 },
+  { x: -35, z: -20, radius: 12, width: 21, depth: 17, rot: 0.24, coreHeight: 10.4, terraces: 3 },
+  { x: -18, z: -12, radius: 5.5, width: 10, depth: 8, rot: -0.48, coreHeight: 4.4, terraces: 1 },
+  // 右：更低、更短的台地彼此错开，故意留出营地和可见雪原。
+  { x: 27, z: 25, radius: 8, width: 14, depth: 11, rot: -0.46, coreHeight: 6.0, terraces: 2 },
+  { x: 31, z: 7, radius: 9, width: 16, depth: 13, rot: 0.28, coreHeight: 7.1, terraces: 2 },
+  { x: 21, z: -9, radius: 7, width: 12, depth: 10, rot: -0.20, coreHeight: 5.2, terraces: 1 },
+  { x: 30, z: -25, radius: 9, width: 16, depth: 12, rot: 0.42, coreHeight: 6.8, terraces: 2 },
+  // 两个向谷内伸出的低岩嘴只负责切出战斗口袋，不封闭道路。
+  { x: -17, z: 12, radius: 5, width: 9, depth: 7, rot: 0.42, coreHeight: 3.8, terraces: 1 },
+  { x: 16, z: -20, radius: 4.8, width: 8, depth: 7, rot: -0.36, coreHeight: 3.5, terraces: 1 }
 ];
 
 // 雪谷重设计：战场内不再有山体台地，只留低矮雪覆岩堆作掩体与视线锚点；
@@ -453,7 +445,7 @@ const SNOW_VALLEY_ROCK_CLUSTERS = [
 
 // 雪主题三张地图共用山地区数据：雪谷走低岩堆方案，其余地图保留原山体台地
 function snowHillZones(sceneKey = worldConfig().sceneKey) {
-  return sceneKey === 'snow-valley' ? SNOW_VALLEY_ROCK_CLUSTERS : SNOW_VALLEY_HILL_ZONES;
+  return sceneKey === 'snow-valley' ? SNOW_VALLEY_TERRACE_ZONES : SNOW_VALLEY_HILL_ZONES;
 }
 
 const WORLD_PRESETS = {
@@ -463,7 +455,7 @@ const WORLD_PRESETS = {
     // 开局相机：用户给定 (0.847,37.396,73.57)，白天雪谷同样适用
     camera: {
       target: { x: 0, y: 4, z: 18 },
-      initialPosition: { x: 0.847, y: 37.396, z: 73.57 },
+      initialPosition: { x: -0.313, y: 37.396, z: 83.759 },
       minDistance: 12,
       maxDistance: 78
     },
@@ -508,7 +500,7 @@ const WORLD_PRESETS = {
       forest: '#d6d2d6',
       high: '#f0eef0',
       snow: '#e8e6e8',
-      path: '#c2a888',
+      path: '#b3ab9e',
       puddle: '#c4d0de'
     },
     materials: {
@@ -531,8 +523,8 @@ const WORLD_PRESETS = {
       },
       rock: {
         sunlit: '#b09488',
-        mid: '#7c6a6e',
-        shadow: '#484054',
+        mid: '#7f7f83',
+        shadow: '#5b6371',
         snowCap: '#eeeaea'
       },
       cliff: {
@@ -554,26 +546,27 @@ const WORLD_PRESETS = {
       minZ: -42,
       maxZ: 42
     },
-    // 战场开阔化：地图边缘一圈雪山轮廓作远景背景
-    distantMountains: true,
+    // 远景只在敌营方向收束成山口；不再用一圈连续山环把谷地围成槽。
+    distantMountains: false,
     pathWidth: 7.2,
     pathOrganic: {
-      widthJitter: 0.22,
-      edgeJitter: 0.28
+      widthJitter: 0.25,
+      edgeJitter: 0.42
     },
-    // 开阔雪谷路线：出基地沿西翼下行 → 中段横穿开阔谷地 → 沿东翼直取敌营
+    // 明显 S 形主路：两次横向推进后再回到敌营前庭，低机位仍能读出推进方向。
+    // 起止点保持不变，12 个锚点继续作为现有寻路与关卡逻辑的同一条主轴。
     pathPoints: [
       { x: 0, z: 30 },
-      { x: -6, z: 25 },
-      { x: -11, z: 19 },
-      { x: -9, z: 13 },
-      { x: -3, z: 8 },
-      { x: 5, z: 3 },
-      { x: 9, z: -3 },
-      { x: 7, z: -10 },
-      { x: 1, z: -16 },
-      { x: -4, z: -22 },
-      { x: 0, z: -29 },
+      { x: -1, z: 26 },
+      { x: -2, z: 21 },
+      { x: -1, z: 16 },
+      { x: 1, z: 11 },
+      { x: 2, z: 6 },
+      { x: 3, z: 1 },
+      { x: 3, z: -5 },
+      { x: 2, z: -11 },
+      { x: 1, z: -17 },
+      { x: 1, z: -25 },
       { x: 5, z: -35 }
     ],
     // 纯雪原地貌：不设冰河/冰潭，谷地保持连续开阔的雪面
@@ -601,23 +594,16 @@ const WORLD_PRESETS = {
       { x: 3, z: -31, r: 9.4 }
     ],
     forestZones: [
-      // 入口：基地两翼松林，框住出发广场
-      { x: -19, z: 31, rx: 8, rz: 5, count: 42, tone: 'cool', rot: -0.18, raggedness: 0.18, edgeDrop: 0.34 },
-      { x: 18, z: 28, rx: 9, rz: 6, count: 44, tone: 'warm', rot: 0.24, raggedness: 0.18, edgeDrop: 0.34 },
-      // 西翼背后深林与东翼林带，两翼围合谷地
-      { x: -31, z: 12, rx: 8, rz: 13, count: 54, tone: 'deep', rot: 0.08, raggedness: 0.22, edgeDrop: 0.4 },
-      { x: 30, z: 7, rx: 8, rz: 13, count: 54, tone: 'cool', rot: -0.16, raggedness: 0.2, edgeDrop: 0.38 },
-      // 隘口两侧收束林，压缩渡口视线
-      { x: -28, z: -17, rx: 8, rz: 11, count: 48, tone: 'warm', rot: -0.3, raggedness: 0.18, edgeDrop: 0.36 },
-      { x: 27, z: -22, rx: 8, rz: 10, count: 48, tone: 'deep', rot: 0.2, raggedness: 0.18, edgeDrop: 0.36 },
-      // 北段：村落上方与台地东侧，过渡到敌营前庭
-      { x: -9, z: -34, rx: 10, rz: 5, count: 34, tone: 'cool', rot: 0.05, raggedness: 0.16, edgeDrop: 0.34 },
-      { x: 14, z: -34, rx: 10, rz: 5, count: 34, tone: 'warm', rot: -0.1, raggedness: 0.16, edgeDrop: 0.34 },
-      // Inner foothill groves divide the valley into staggered combat pockets.
-      { x: -22, z: 19, rx: 6, rz: 6, count: 22, tone: 'deep', rot: 0.28, raggedness: 0.28, edgeDrop: 0.42 },
-      { x: 22, z: 11, rx: 6, rz: 6, count: 20, tone: 'cool', rot: -0.3, raggedness: 0.26, edgeDrop: 0.4 },
-      { x: -24, z: -9, rx: 6, rz: 6, count: 20, tone: 'warm', rot: -0.32, raggedness: 0.26, edgeDrop: 0.4 },
-      { x: 23, z: -23, rx: 6, rz: 6, count: 20, tone: 'deep', rot: 0.3, raggedness: 0.28, edgeDrop: 0.42 }
+      // 树只依附台地和坡脚成簇，入口与战斗中心留下大片雪地。
+      { x: -28, z: 24, rx: 8, rz: 6, count: 30, tone: 'deep', rot: 0.24, raggedness: 0.30, edgeDrop: 0.42 },
+      { x: -33, z: 2, rx: 7, rz: 11, count: 42, tone: 'cool', rot: -0.14, raggedness: 0.28, edgeDrop: 0.42 },
+      { x: -30, z: -22, rx: 9, rz: 8, count: 34, tone: 'warm', rot: -0.24, raggedness: 0.30, edgeDrop: 0.44 },
+      { x: 27, z: 25, rx: 7, rz: 6, count: 23, tone: 'warm', rot: 0.22, raggedness: 0.32, edgeDrop: 0.46 },
+      { x: 33, z: 7, rx: 7, rz: 9, count: 29, tone: 'cool', rot: -0.18, raggedness: 0.30, edgeDrop: 0.44 },
+      { x: 29, z: -24, rx: 8, rz: 7, count: 26, tone: 'deep', rot: 0.18, raggedness: 0.32, edgeDrop: 0.46 },
+      // 远端只用两小簇引向营地，不把视线终点堵死。
+      { x: -13, z: -31, rx: 6, rz: 4, count: 16, tone: 'cool', rot: 0.08, raggedness: 0.26, edgeDrop: 0.48 },
+      { x: 17, z: -31, rx: 6, rz: 4, count: 15, tone: 'warm', rot: -0.12, raggedness: 0.26, edgeDrop: 0.48 }
     ],
     deadGrassScale: 2.62,
     // 枯草甸：散布在各段开阔地边缘，避免压上主路
@@ -641,17 +627,31 @@ const WORLD_PRESETS = {
       [new THREE.Vector3(-44, 0, -14), new THREE.Vector3(-30, 0, -20), new THREE.Vector3(-18, 0, -25), new THREE.Vector3(-6, 0, -27)],
       [new THREE.Vector3(44, 0, -26), new THREE.Vector3(30, 0, -24), new THREE.Vector3(18, 0, -20), new THREE.Vector3(10, 0, -13)]
     ],
-    boulderClusters: [
-      { x: -44, z: 8, rx: 4.6, rz: 17, count: 13, sizeMin: 1.55, sizeMax: 3.2 },
-      { x: 42, z: 22, rx: 6, rz: 13, count: 15, sizeMin: 1.7, sizeMax: 3.7 },
-      { x: 45, z: -14, rx: 4.5, rz: 15, count: 12, sizeMin: 1.55, sizeMax: 3.05 },
+boulderClusters: [
+      { x: -48, z: -44, rx: 8.0, rz: 16, count: 7, sizeMin: 5.0, sizeMax: 9.0 },
+      { x: -48, z: -27, rx: 8.0, rz: 20, count: 7, sizeMin: 5.0, sizeMax: 9.0 },
+      { x: -48, z: -9, rx: 8.0, rz: 20, count: 7, sizeMin: 5.0, sizeMax: 9.0 },
+      { x: -48, z: 9, rx: 8.0, rz: 20, count: 7, sizeMin: 5.0, sizeMax: 9.0 },
+      { x: -48, z: 27, rx: 8.0, rz: 20, count: 7, sizeMin: 5.0, sizeMax: 9.0 },
+      { x: -48, z: 42, rx: 8.0, rz: 16, count: 7, sizeMin: 5.0, sizeMax: 9.0 },
+      { x: 48, z: -44, rx: 8.0, rz: 16, count: 7, sizeMin: 5.0, sizeMax: 9.0 },
+      { x: 48, z: -27, rx: 8.0, rz: 20, count: 7, sizeMin: 5.0, sizeMax: 9.0 },
+      { x: 48, z: -9, rx: 8.0, rz: 20, count: 7, sizeMin: 5.0, sizeMax: 9.0 },
+      { x: 48, z: 9, rx: 8.0, rz: 20, count: 7, sizeMin: 5.0, sizeMax: 9.0 },
+      { x: 48, z: 27, rx: 8.0, rz: 20, count: 7, sizeMin: 5.0, sizeMax: 9.0 },
+      { x: 48, z: 42, rx: 8.0, rz: 16, count: 7, sizeMin: 5.0, sizeMax: 9.0 },
+      { x: -30, z: 18, rx: 7, rz: 7, count: 10, sizeMin: 1.45, sizeMax: 2.5 },
       { x: -24, z: -41, rx: 14, rz: 3.6, count: 10, sizeMin: 1.45, sizeMax: 2.8 },
       { x: 18, z: -42, rx: 17, rz: 3.4, count: 9, sizeMin: 1.45, sizeMax: 2.85 },
-      { x: 6, z: 40, rx: 22, rz: 3.6, count: 13, sizeMin: 1.35, sizeMax: 3.15 },
+      { x: 6, z: 40, rx: 22, rz: 3.6, count: 13, sizeMin: 1.35, sizeMax: 2.5 },
       { x: -19, z: 18, rx: 5, rz: 6, count: 6, sizeMin: 0.75, sizeMax: 1.55 },
       { x: 20, z: 9, rx: 5, rz: 6, count: 6, sizeMin: 0.7, sizeMax: 1.5 },
       { x: -21, z: -7, rx: 5, rz: 6, count: 6, sizeMin: 0.8, sizeMax: 1.6 },
-      { x: 20, z: -21, rx: 5, rz: 6, count: 6, sizeMin: 0.75, sizeMax: 1.55 }
+      { x: 20, z: -21, rx: 5, rz: 6, count: 6, sizeMin: 0.75, sizeMax: 1.55 },
+      { x: -24, z: -48, rx: 15, rz: 9, count: 10, sizeMin: 5.0, sizeMax: 8.0 },
+      { x: 24, z: -48, rx: 15, rz: 9, count: 10, sizeMin: 5.0, sizeMax: 8.0 },
+      { x: -24, z: 48, rx: 15, rz: 9, count: 10, sizeMin: 5.0, sizeMax: 8.0 },
+      { x: 24, z: 48, rx: 15, rz: 9, count: 10, sizeMin: 5.0, sizeMax: 8.0 }
     ],
     // 地标巨石：谷地渡口两岸各立一根独石，其余锚点点缀开阔地两端
     landmarkBoulders: [
@@ -663,14 +663,25 @@ const WORLD_PRESETS = {
     ],
     // 主路边缘的成组小景：压住空雪面，同时给单位机动留出完整道路宽度。
     roadsideClusters: [
-      { x: -14, z: 25, radius: 2.5, trees: 4, rocks: 3 },
-      { x: 11, z: 20, radius: 2.3, trees: 4, rocks: 2 },
-      { x: -16, z: 8, radius: 2.4, trees: 3, rocks: 3 },
-      { x: 14, z: 3, radius: 2.2, trees: 3, rocks: 2 },
-      { x: -12, z: -9, radius: 2.5, trees: 4, rocks: 3 },
-      { x: 14, z: -18, radius: 2.4, trees: 4, rocks: 2 },
-      { x: -10, z: -26, radius: 2.2, trees: 3, rocks: 3 }
+      // 非镜像的路肩小景：每组一块中石、矮松与雪堆，始终留在主路外侧。
+      { x: -7.8, z: 24, radius: 2.35, trees: 3, mounds: 2, rockSize: 1.35 },
+      { x: 6.4, z: 17, radius: 2.1, trees: 2, mounds: 3, rockSize: 1.18 },
+      { x: -3.2, z: 4, radius: 2.55, trees: 4, mounds: 2, rockSize: 1.42 },
+      { x: 10.1, z: -15, radius: 2.2, trees: 2, mounds: 3, rockSize: 1.22 },
+      { x: -5.0, z: -20, radius: 2.45, trees: 3, mounds: 2, rockSize: 1.30 },
+      { x: 8.7, z: -27, radius: 2.05, trees: 2, mounds: 2, rockSize: 1.15 }
     ],
+    snowValleyScenery: {
+      // 低对比大色块用于分出雪的压实、背风堆积与冷灰雪壳，而非继续撒碎石。
+      groundPatches: [
+        { x: -9.2, z: 20.4, rx: 6.8, rz: 3.1, rot: -0.28, color: '#cbd3d7', opacity: 0.18 },
+        { x: 9.5, z: 12.2, rx: 7.5, rz: 3.6, rot: 0.34, color: '#e3e9e8', opacity: 0.20 },
+        { x: -8.8, z: -3.5, rx: 8.0, rz: 3.4, rot: 0.12, color: '#c9d2d5', opacity: 0.16 },
+        { x: 10.4, z: -10.8, rx: 7.1, rz: 3.2, rot: -0.38, color: '#e5eaeb', opacity: 0.19 },
+        { x: -7.0, z: -23.5, rx: 7.7, rz: 3.5, rot: 0.18, color: '#cbd4d8', opacity: 0.17 }
+      ],
+      centerAnchor: { x: 10.8, z: 2.5, rot: -0.72, length: 3.9 }
+    },
     cottages: [],
     landmass: {
       waterHeight: -1.28,
@@ -701,19 +712,26 @@ const WORLD_PRESETS = {
       coastBlendStart: 0.38,
       coastBlendEnd: 0.54,
       snowCenter: { x: 8, z: -32 },
+      // 主路纵向剖面：起点台地缓降至浅盆地，敌营前再轻轻回升；只影响地形高度层。
+      routeProgression: {
+        sourceShelf: 0.72,
+        basinCenter: { x: 4, z: -5 },
+        basinRadius: 13,
+        basinDepth: 0.46,
+        endpointRise: 0.76
+      },
       hills: [
-        { x: -27, z: 20, rx: 18, rz: 16, height: 3.5 },
-        { x: 26, z: 18, rx: 18, rz: 17, height: 3.2 },
-        { x: -30, z: -3, rx: 19, rz: 22, height: 4.8 },
-        { x: 29, z: -8, rx: 19, rz: 23, height: 5.0 },
-        { x: -24, z: -27, rx: 18, rz: 15, height: 3.8 },
-        { x: 23, z: -29, rx: 19, rz: 14, height: 3.9 }
+      { x: -34, z: 20, rx: 18, rz: 15, height: 4.1 },
+      { x: -32, z: -8, rx: 18, rz: 22, height: 4.8 },
+      { x: -27, z: -28, rx: 15, rz: 12, height: 3.4 },
+      { x: 29, z: 23, rx: 14, rz: 12, height: 2.6 },
+      { x: 33, z: 4, rx: 15, rz: 18, height: 3.2 },
+      { x: 27, z: -25, rx: 14, rz: 12, height: 2.8 }
       ],
       ridges: [
-        { x: -44, z: 0, rx: 8, rz: 46, height: 3.4 },
-        { x: 44, z: 0, rx: 8, rz: 46, height: 3.6 },
-        { x: 0, z: -42, rx: 42, rz: 8, height: 4.6 },
-        { x: 0, z: 42, rx: 42, rz: 7, height: 2.7 }
+        { x: -45, z: 6, rx: 7, rz: 32, height: 2.7 },
+        { x: 45, z: -12, rx: 7, rz: 27, height: 2.3 },
+        { x: 5, z: -43, rx: 34, rz: 7, height: 3.2 }
       ]
     },
     mountainRidge: [
@@ -1986,6 +2004,23 @@ export function terrainHeightAt(x, z) {
       swellKeep *= smoothstep(0.72, 1.3, puddleDistance);
     });
     height += swell * swellKeep;
+    // 中央浅谷：谷底略低、两侧山脚略高、温柔起伏；
+    // 主路/基地/敌营/祭坛与战斗平台附近淡出，保持平坦可走（量级小，不成碗、不成坡）
+    const valleyFeet = smoothstep(14, 30, Math.abs(x)) * 0.7;
+    const valleyLow = (1 - smoothstep(0, 14, Math.abs(x))) * -0.35;
+    const valleyWave =
+      Math.sin(x * 0.05 + z * 0.042) * 0.22 +
+      Math.cos(x * 0.068 - z * 0.03) * 0.17 +
+      Math.sin((x - z) * 0.037) * 0.14;
+    let reliefKeep =
+      (1 - smoothstep(5, 11, pathDistance)) +
+      (1 - smoothstep(9, 17, Math.hypot(x - (config.playerBasePosition?.x ?? 0), z - (config.playerBasePosition?.z ?? 0)))) +
+      (1 - smoothstep(9, 17, Math.hypot(x - (config.enemyCampPosition?.x ?? 0), z - (config.enemyCampPosition?.z ?? 0))));
+    (config.clearings ?? []).forEach((c) => {
+      reliefKeep = Math.max(reliefKeep, (1 - smoothstep(2.5, 9, Math.hypot(x - c.x, z - c.z))) * 0.9);
+    });
+    reliefKeep = 1 - Math.min(1, reliefKeep);
+    height += (valleyFeet + valleyLow + valleyWave) * Math.max(0.08, reliefKeep);
     // 路径边缘雪檐：主路两侧堆积蓬松积雪，形成自然的雪堤过渡
     const pathEdgeSnow = smoothstep(2.2, 5.5, pathDistance) * (1 - smoothstep(5.5, 11, pathDistance));
     const pathSnowDrift = smoothstep(0.4, 0.85, driftNoise) * 0.35 + 0.15;
@@ -1997,6 +2032,18 @@ export function terrainHeightAt(x, z) {
       const foothill = 1 - smoothstep(zone.radius * 0.4, zone.radius * 1.55, zoneDistance);
       height += zone.coreHeight * 0.16 * foothill * swellKeep;
     });
+
+    // 只在主路及其交战面上塑形，形成台地→缓坡→浅盆地→目标前坡的推进读法，
+    // 且始终保持为可跨越的缓高差，而不是挖出会切断寻路的壕沟。
+    const route = terrain.routeProgression;
+    if (route) {
+      const routeMask = 1 - smoothstep(5.5, 11, pathDistance);
+      const sourceShelf = smoothstep(17, 29, z) * route.sourceShelf;
+      const basinDistance = Math.hypot(x - route.basinCenter.x, (z - route.basinCenter.z) * 0.82);
+      const basin = (1 - smoothstep(route.basinRadius * 0.38, route.basinRadius, basinDistance)) * route.basinDepth;
+      const endpointRise = (1 - smoothstep(17, 31, Math.hypot(x - 2.5, z + 31))) * route.endpointRise;
+      height += (sourceShelf - basin + endpointRise) * routeMask;
+    }
   }
 
   const valleyFloor = terrain.valleyFloorBase +
@@ -3119,6 +3166,7 @@ function createSnowPathStones(scene, curve, random) {
   const pathWidth = worldConfig().pathWidth ?? 6;
   const batches = [[], [], []];
   const stoneCount = 36;
+  const palette = ['#9a9188', '#a89d92', '#8f867e'];
 
   for (let index = 0; index < stoneCount; index += 1) {
     const t = (index + 0.45 + (random() - 0.5) * 0.28) / stoneCount;
@@ -3129,26 +3177,50 @@ function createSnowPathStones(scene, curve, random) {
     const lateral = (random() - 0.5) * pathWidth * 0.58;
     const x = point.x + normalX * lateral;
     const z = point.z + normalZ * lateral;
-    const width = pathWidth * (0.26 + random() * 0.2);
-    const length = 0.82 + random() * 1.12;
-    const sides = 5 + Math.floor(random() * 3);
-    const geometry = new THREE.CircleGeometry(1, sides);
-    geometry.rotateX(-Math.PI / 2);
+
+    const size = 0.32 + random() * 0.26;
+    const height = 0.20 + random() * 0.18;
+    const radialSegments = 5 + Math.floor(random() * 2);
+    const geometry = new THREE.CylinderGeometry(size * 0.72, size, height, radialSegments, 1, false);
+    geometry.translate(0, height * 0.5, 0);
+
+    const baseColor = new THREE.Color(palette[index % palette.length]);
+    const positions = geometry.attributes.position.array;
+    const colors = new Float32Array(positions.length);
+    const topThreshold = height * 0.96;
+    for (let v = 0; v < positions.length / 3; v += 1) {
+      const y = positions[v * 3 + 1];
+      if (y >= topThreshold) {
+        colors[v * 3] = 0.95;
+        colors[v * 3 + 1] = 0.93;
+        colors[v * 3 + 2] = 0.90;
+      } else {
+        colors[v * 3] = baseColor.r;
+        colors[v * 3 + 1] = baseColor.g;
+        colors[v * 3 + 2] = baseColor.b;
+      }
+    }
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
     geometry.rotateY(Math.atan2(tangent.x, tangent.z) + (random() - 0.5) * 0.28);
-    geometry.scale(width, 1, length);
-    geometry.translate(x, terrainHeightAt(x, z) + 0.045, z);
+    geometry.rotateX((random() - 0.5) * 0.25);
+    geometry.rotateZ((random() - 0.5) * 0.20);
+    geometry.translate(x, terrainHeightAt(x, z) + 0.02, z);
+
     batches[index % batches.length].push(geometry);
   }
 
-  const colors = ['#b2a89c', '#c2b8aa', '#a59d93'];
-  batches.forEach((geometries, index) => {
+  const stoneMaterial = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 0.9,
+    flatShading: true
+  });
+
+  batches.forEach((geometries) => {
     const merged = mergeGeometries(geometries);
     geometries.forEach((geometry) => geometry.dispose());
     if (!merged) return;
-    const stones = new THREE.Mesh(
-      merged,
-      overlayMat(colors[index], { roughness: 0.98 })
-    );
+    const stones = new THREE.Mesh(merged, stoneMaterial);
     stones.name = 'SnowValleyPathStones';
     stones.renderOrder = 2;
     addStaticCulledObject(scene, stones);
@@ -3783,7 +3855,8 @@ function createSnowBackdropRocks(scene) {
     });
     rock.scale.set(item.sx ?? 1, item.sy ?? 1, item.sz ?? 1);
     rock.rotation.y = item.rot ?? 0;
-    placeOnTerrain(rock, item.x, item.z, (item.offset ?? -0.12) - 0.06 * size);
+    const brPos = { x: item.x, z: item.z };
+    placeOnTerrainOrWall(rock, brPos, (item.offset ?? -0.12) - 0.06 * size, size * 0.5);
     enableDecorationShadows(rock);
     bakeObjectGroundShadow(rock);
     scene.add(rock);
@@ -3796,7 +3869,7 @@ function createSnowBackdropRocks(scene) {
 const SNOW_MOUNTAIN_TINTS = {
   // 受光岩面：低饱和暖灰，与岛内山岭的岩面色族拉近，呼应暮色金光但不发黄棕
   rockLit: '#948c7e',
-  rockShade: '#4d5a76', // 背阴岩面：青紫冷影，与地面 shade 色同族
+  rockShade: '#5b6773', // 背阴岩面：冷蓝灰，去紫并略提亮
   snowLit: '#ffdfb0',   // 受光雪面：与地面 lit 色一致
   snowShade: '#8fa2cf'  // 背阴雪面：与地面 shade 色一致
 };
@@ -3860,6 +3933,22 @@ function paintSnowMountainFaces(geometry, random, options = {}) {
   }
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   return geometry;
+}
+
+// 对已有逐面着色的山体几何做整体色调晕染，用于区分峡谷近层（暖）与远层（冷）。
+function tintGeometryColors(geometry, tintHex, strength = 0.35) {
+  if (!geometry.attributes.color) return;
+  const tint = new THREE.Color(tintHex);
+  const colors = geometry.attributes.color.array;
+  const c = new THREE.Color();
+  for (let i = 0; i < colors.length; i += 3) {
+    c.setRGB(colors[i], colors[i + 1], colors[i + 2]);
+    c.lerp(tint, strength);
+    colors[i] = c.r;
+    colors[i + 1] = c.g;
+    colors[i + 2] = c.b;
+  }
+  geometry.attributes.color.needsUpdate = true;
 }
 
 // 低模雪峰几何：不规则脊线 + 山尖偏置 + 逐面着色（向阳暖岩/背阴冷岩/雪线积雪）。
@@ -4016,49 +4105,55 @@ function createSnowRidgeGeometry(random, options = {}) {
   return flat;
 }
 
-// 雪山远景环：与岛内雪岭共用同一套山脊几何（createSnowRidgeGeometry），
-// 把原先的孤立尖锥换成连续起伏的雪岭带，三层大气透视纵深——
-// 近层逐面着色保留岩雪层次、中层提亮简化、远层融入天空冷蓝，
-// 远山与岛内山脉读作同一条山脉的延伸，围合整个谷地
+// 雪谷远景：沿敌营方向布置错落的三层脊线，而非四周连续围墙。
+// 近层只在两翼露角，中层让道路消失在山口，最远层压低并融入雾色。
 function createSnowValleyBackdrop(scene, random) {
   const waterY = worldConfig().terrain?.waterHeight ?? -1.28;
-  // 三层环带：近层低矮留细节，远层最高最连绵形成天际线剪影
   const bands = [
-    { inner: 60, outer: 78, count: 10, heightMin: 12, heightMax: 19, layer: 'near' },
-    { inner: 78, outer: 92, count: 9, heightMin: 16, heightMax: 26, layer: 'mid' },
-    { inner: 92, outer: 112, count: 10, heightMin: 22, heightMax: 34, layer: 'far' }
+    {
+      layer: 'near',
+      ridges: [
+        { x: -58, z: -4, length: 26, height: 13, depth: 10, rot: 0.22 },
+        { x: 55, z: -22, length: 23, height: 11, depth: 9, rot: -0.18 }
+      ]
+    },
+    {
+      layer: 'mid',
+      ridges: [
+        { x: -34, z: -58, length: 30, height: 18, depth: 12, rot: -0.10 },
+        { x: 12, z: -61, length: 34, height: 16, depth: 11, rot: 0.08 },
+        { x: 47, z: -55, length: 22, height: 14, depth: 10, rot: 0.28 }
+      ]
+    },
+    {
+      layer: 'far',
+      ridges: [
+        { x: -43, z: -84, length: 38, height: 22, depth: 14, rot: -0.06 },
+        { x: 1, z: -88, length: 42, height: 19, depth: 13, rot: 0.04 },
+        { x: 42, z: -82, length: 33, height: 21, depth: 14, rot: 0.14 }
+      ]
+    }
   ];
   const nearGeometries = [];
   const midGeometries = [];
   const farGeometries = [];
   bands.forEach((band) => {
-    for (let index = 0; index < band.count; index += 1) {
-      // 角度在环带均分基础上拖动，避免等距排列的栅栏感
-      const angle = (index / band.count) * Math.PI * 2 +
-        (random() - 0.5) * (Math.PI * 2 / band.count) * 0.55;
-      const radius = band.inner + random() * (band.outer - band.inner);
-      const height = band.heightMin + random() * (band.heightMax - band.heightMin);
-      const length = 17 + random() * 15 + height * 0.32;
+    band.ridges.forEach((ridge) => {
       const geometry = createSnowRidgeGeometry(random, {
-        length,
-        height,
-        depth: 8.5 + random() * 3.5,
-        stations: clamp(Math.round(length / 4), 6, 10),
-        // 越远越圆润：远山读作柔和天际线剪影，近层保留低模棱线
+        length: ridge.length,
+        height: ridge.height,
+        depth: ridge.depth,
+        stations: clamp(Math.round(ridge.length / 4), 6, 10),
         crestSharp: band.layer === 'near' ? 0.5 : (band.layer === 'mid' ? 0.3 : 0.12)
       });
-      // 中远层用单色材质，删掉逐面颜色属性保证合并时属性一致
       if (band.layer !== 'near') geometry.deleteAttribute('color');
-      const x = Math.cos(angle) * radius;
-      const z = Math.sin(angle) * radius;
-      // 山脊沿环带切向摆放：rotation.y = -(angle + π/2) 使局部 X 轴切向
       geometry.applyMatrix4(new THREE.Matrix4().compose(
-        new THREE.Vector3(x, waterY - 3.4, z),
-        new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -(angle + Math.PI / 2), 0)),
+        new THREE.Vector3(ridge.x, waterY - 3.4, ridge.z),
+        new THREE.Quaternion().setFromEuler(new THREE.Euler(0, ridge.rot, 0)),
         new THREE.Vector3(1, 1, 1)
       ));
       (band.layer === 'near' ? nearGeometries : (band.layer === 'mid' ? midGeometries : farGeometries)).push(geometry);
-    }
+    });
   });
   const addLayer = (geometries, material) => {
     if (geometries.length === 0) return;
@@ -4072,7 +4167,8 @@ function createSnowValleyBackdrop(scene, random) {
   addLayer(nearGeometries, new THREE.MeshStandardMaterial({
     vertexColors: true,
     roughness: 1,
-    flatShading: true
+    flatShading: true,
+    side: THREE.DoubleSide
   }));
   // 中层：提亮简化，开始融入大气
   addLayer(midGeometries, mat('#c4d0e2', { roughness: 1, flatShading: true }));
@@ -4080,15 +4176,218 @@ function createSnowValleyBackdrop(scene, random) {
   addLayer(farGeometries, mat('#d4dce8', { roughness: 1, flatShading: true }));
 }
 
+// 低模切面峡谷岩台：由三圈收进、后退的斜面和斜切顶面组成。
+// 这是贴地的宽矮 berm，不是垂直 Box；每圈共用轮廓点，所以边角连续无裂缝。
+// 把几何体内指向的三角面翻正：法线统一朝体心外侧（否则俯视下背面被剔除/发黑）。
+function fixOutwardNormals(geometry, approxHeight) {
+  const pos = geometry.attributes.position;
+  const index = geometry.index;
+  if (!index) return;
+  const cx = 0;
+  const cy = approxHeight * 0.5;
+  const cz = 0;
+  const countT = index.count;
+  const p = (i) => [pos.getX(i), pos.getY(i), pos.getZ(i)];
+  for (let t = 0; t < countT; t += 3) {
+    const ia = index.getX(t);
+    const ib = index.getX(t + 1);
+    const ic = index.getX(t + 2);
+    const [ax, ay, az] = p(ia);
+    const [bx, by, bz] = p(ib);
+    const [dx, dy, dz] = p(ic);
+    const ux = bx - ax, uy = by - ay, uz = bz - az;
+    const vx = dx - ax, vy = dy - ay, vz = dz - az;
+    let nx = uy * vz - uz * vy;
+    let ny = uz * vx - ux * vz;
+    let nz = ux * vy - uy * vx;
+    const fx = (ax + bx + dx) / 3 - cx;
+    const fy = (ay + by + dy) / 3 - cy;
+    const fz = (az + bz + dz) / 3 - cz;
+    if (nx * fx + ny * fy + nz * fz < 0) {
+      index.setX(t, ib);
+      index.setX(t + 1, ia);
+    }
+  }
+  geometry.computeVertexNormals();
+}
+
+// 梯田山体干净配色：平顶（法线朝上）覆雪，陡壁露岩三类，无斑点噪声。
+function paintCleanTerraceFaces(geometry, height) {
+  const pos = geometry.attributes.position;
+  const count = pos.count;
+  let color = geometry.attributes.color;
+  if (!color) {
+    color = new THREE.BufferAttribute(new Float32Array(count * 3), 3);
+    geometry.setAttribute('color', color);
+  }
+  const sunDir = worldConfig().art?.sunDirection ?? { x: -0.6, y: 0.4, z: 0.5 };
+  const sd = new THREE.Vector3(sunDir.x, sunDir.y, sunDir.z).normalize();
+  const snowLit = new THREE.Color('#f2f6fb');
+  const snowDark = new THREE.Color('#c2cfdf');
+  const rockLit = new THREE.Color('#b7b5af');
+  const rockMid = new THREE.Color('#959891');
+  const rockDark = new THREE.Color('#5b6774');
+  const c = new THREE.Color();
+  for (let f = 0; f < count; f += 3) {
+    const ax = pos.getX(f), ay = pos.getY(f), az = pos.getZ(f);
+    const bx = pos.getX(f + 1), by = pos.getY(f + 1), bz = pos.getZ(f + 1);
+    const dx = pos.getX(f + 2), dy = pos.getY(f + 2), dz = pos.getZ(f + 2);
+    const ux = bx - ax, uy = by - ay, uz = bz - az;
+    const vx = dx - ax, vy = dy - ay, vz = dz - az;
+    let nx = uy * vz - uz * vy;
+    let ny = uz * vx - ux * vz;
+    let nz = ux * vy - uy * vx;
+    const nl = Math.hypot(nx, ny, nz) || 1;
+    nx /= nl; ny /= nl; nz /= nl;
+    const cy = (ay + by + dy) / 3;
+    const faceYUp = Math.abs(ny);
+    const ndl = nx * sd.x + ny * sd.y + nz * sd.z;
+    if (faceYUp > 0.6 || cy > height * 0.72) {
+      const t = 0.5 + 0.5 * Math.max(-0.4, Math.min(0.6, ndl));
+      c.copy(snowDark).lerp(snowLit, t);
+    } else if (ndl > 0.12) {
+      c.copy(rockLit);
+    } else if (ndl > -0.12) {
+      c.copy(rockMid);
+    } else {
+      c.copy(rockDark);
+    }
+    for (let k = 0; k < 3; k += 1) color.setXYZ(f + k, c.r, c.g, c.b);
+  }
+  color.needsUpdate = true;
+}
+
+const CANYON_WALL_SEGMENTS = [];
+
+
+
+
+
+function getWallLiftAt(x, z, radius = 0) {
+  for (const segment of CANYON_WALL_SEGMENTS) {
+    const { band, height, depth, groundY, seg } = segment;
+    const isX = band.axis === 'x';
+    const halfDepth = depth * 0.5;
+    const halfLen = seg.length * 0.5;
+    const pad = radius + 0.3;
+
+    let surfaceX = x;
+    let surfaceZ = z;
+    let inside = false;
+
+    if (isX) {
+      const xMin = seg.center - halfLen - radius;
+      const xMax = seg.center + halfLen + radius;
+      const zMin = band.z - halfDepth - radius;
+      const zMax = band.z + halfDepth + radius;
+      if (x >= xMin && x <= xMax && z >= zMin && z <= zMax) {
+        const valleySide = (z - band.z) * band.side > 0;
+        if (valleySide) {
+          surfaceZ = band.z + band.side * (halfDepth + pad);
+          inside = true;
+        }
+      }
+    } else {
+      const xMin = band.x - halfDepth - radius;
+      const xMax = band.x + halfDepth + radius;
+      const zMin = seg.center - halfLen - radius;
+      const zMax = seg.center + halfLen + radius;
+      if (x >= xMin && x <= xMax && z >= zMin && z <= zMax) {
+        const valleySide = (x - band.x) * band.side < 0;
+        if (valleySide) {
+          surfaceX = band.x - band.side * (halfDepth + pad);
+          inside = true;
+        }
+      }
+    }
+
+    if (inside) {
+      return { x: surfaceX, z: surfaceZ, y: groundY + height * 0.5 };
+    }
+  }
+  return null;
+}
+
+function placeOnTerrainOrWall(object, pos, offset = 0, radius = 0) {
+  const lift = getWallLiftAt(pos.x, pos.z, radius);
+  if (lift) {
+    object.position.set(lift.x, lift.y + offset, lift.z);
+    pos.x = lift.x;
+    pos.z = lift.z;
+    return;
+  }
+  placeOnTerrain(object, pos.x, pos.z, offset);
+}
+
+// 收集峡谷岩壁需要避让的玩法关键物件（基地、敌营、祭坛、清场区、怪物营地等）。
+// 装饰物（岩堆、路边簇、地标石、远景石、散树）不再作为避让对象：岩壁保持完整连续，
+// 穿插的装饰物会在放置时被抬升到岩壁表面之上。
+
+
+// 判断一段峡谷岩壁（沿 Z 轴或 X 轴的长条）是否会与场景物件或主路冲突。
+
+
+
+
+// 雪谷分层岩台：所有山体留在战场外缘，以低矮、宽深的近/中/远三层围出谷地。
+// 连续段仍保留端部重叠、明确谷口与四角咬合，并自动避让主路/祭坛/基地/敌营。
+
+
+
+
+
+
+
+
 function decorate(scene, pathPoints) {
   const random = seededRandom(worldConfig().seed ?? 42);
   placeCottages(scene);
   if (worldConfig().sceneKey === 'snow-valley') {
     placePathTotems(scene);
+// 路缘积雪：沿主路两侧边缘撒低矮雪堆，模拟长期踩踏形成的雪地道路、边缘被雪侵。
+function placeSnowRoadOverlap(scene, pathPoints) {
+  const config = worldConfig();
+  const random = seededRandom((config.seed ?? 42) + 432);
+  const width = config.pathWidth ?? 5.8;
+  const pts = (pathPoints && pathPoints.length ? pathPoints : rawPathPoints());
+  const n = pts.length;
+  if (n < 3) return;
+  const count = 20;
+  for (let i = 0; i < count; i += 1) {
+    const idx = 1 + Math.floor(random() * (n - 2));
+    const a = pts[idx - 1];
+    const b = pts[idx];
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    const len = Math.hypot(dx, dz) || 1;
+    const nx = -dz / len;
+    const nz = dx / len;
+    const side = random() < 0.5 ? 1 : -1;
+    const lateral = (width * 0.5) * (0.55 + random() * 0.5);
+    const tx = a.x + dx * random() - nx * side * lateral + (random() - 0.5) * 0.8;
+    const tz = a.z + dz * random() - nz * side * lateral + (random() - 0.5) * 0.8;
+    const size = 0.5 + random() * 0.7;
+    const mound = createLowpolySnowRock(size, random, {
+      color: worldMaterialColor('snow', '#dce3ec'),
+      snowCap: true,
+      snowColor: worldMaterialColor('snow', '#eef2f6')
+    });
+    const gy = terrainHeightAt(tx, tz);
+    mound.position.set(tx, gy - 0.15 * size, tz);
+    mound.rotation.y = random() * Math.PI * 2;
+    mound.scale.set(1, 0.55, 1); // 压扁，更像雪堆
+    enableDecorationShadows(mound);
+    bakeObjectGroundShadow(mound);
+    addStaticCulledObject(scene, mound);
+  }
+}
+
     createSnowValleyBackdrop(scene, seededRandom((worldConfig().seed ?? 42) + 977));
-    createMountainRidge(scene);
-    createSnowMountain(scene);
+    placeSnowValleyGroundPatches(scene);
+    placeSnowValleyRoadEdges(scene, pathPoints);
     placeSnowValleyRoadsideClusters(scene, pathPoints);
+    placeSnowValleyAltarLandings(scene);
+    placeSnowValleyCenterAnchor(scene);
   } else {
     placeLegacyPathDecor(scene);
   }
@@ -4114,22 +4413,31 @@ function placeSnowValleyRoadsideClusters(scene, pathPoints) {
     if (Math.hypot(cluster.x - config.enemyCampPosition.x, cluster.z - config.enemyCampPosition.z) < 8) return;
 
     const radius = cluster.radius ?? 2.2;
-    for (let index = 0; index < (cluster.rocks ?? 2); index += 1) {
+    const rockSize = cluster.rockSize ?? 1.25;
+    const rock = createLowpolySnowRock(rockSize, random, {
+      color: worldMaterialColor('rock', '#687378'),
+      snowCap: true
+    });
+    rock.scale.set(1.18, 0.78, 0.92);
+    rock.rotation.y = random() * Math.PI * 2;
+    placeOnTerrainOrWall(rock, { x: cluster.x, z: cluster.z }, -0.1, rockSize * 0.5);
+    addStaticCulledObject(scene, rock);
+
+    for (let index = 0; index < (cluster.mounds ?? 2); index += 1) {
       const angle = random() * Math.PI * 2;
-      const distance = radius * (index === 0 ? 0.18 : 0.35 + random() * 0.55);
+      const distance = radius * (0.42 + random() * 0.5);
       const x = cluster.x + Math.cos(angle) * distance;
       const z = cluster.z + Math.sin(angle) * distance;
-      if (distanceToPath(x, z, pathPoints) < 5.4 || isAltarClearing(x, z)) continue;
-      const size = index === 0 ? 0.9 + random() * 0.35 : 0.42 + random() * 0.5;
-      const rock = createLowpolySnowRock(size, random, {
-        color: worldMaterialColor('rock', index % 2 ? '#748083' : '#687378'),
-        snowCap: true
+      if (distanceToPath(x, z, pathPoints) < 5.1 || isAltarClearing(x, z)) continue;
+      const mound = createLowpolySnowRock(0.65 + random() * 0.24, random, {
+        color: worldMaterialColor('snow', '#e6e6dc'),
+        snowCap: true,
+        snowColor: worldMaterialColor('snow', '#eff2ef')
       });
-      rock.scale.set(0.9 + random() * 0.45, 0.72 + random() * 0.26, 0.82 + random() * 0.42);
-      rock.rotation.y = random() * Math.PI * 2;
-      placeOnTerrain(rock, x, z, -0.05 * size);
-      registerRockNavigationBlocker(x, z, size, rock.scale);
-      addStaticCulledObject(scene, rock);
+      mound.scale.set(1.25 + random() * 0.35, 0.38, 0.9 + random() * 0.24);
+      mound.rotation.y = random() * Math.PI * 2;
+      mound.position.set(x, terrainHeightAt(x, z) - 0.08, z);
+      addStaticCulledObject(scene, mound, 0.55);
     }
 
     for (let index = 0; index < (cluster.trees ?? 3); index += 1) {
@@ -4141,11 +4449,178 @@ function placeSnowValleyRoadsideClusters(scene, pathPoints) {
       const height = index === 0 ? 1.65 + random() * 0.55 : 0.78 + random() * 0.78;
       const tree = createWorldSnowPine(height);
       tree.rotation.y = random() * Math.PI * 2;
-      placeOnTerrain(tree, x, z);
-      registerWorldNavigationBlocker(x, z, 0.42 + height * 0.24, 'snow-tree');
+      const treePos = { x, z };
+      placeOnTerrainOrWall(tree, treePos, 0, 0.42 + height * 0.24);
       addStaticCulledObject(scene, tree);
     }
   });
+}
+
+function placeSnowValleyGroundPatches(scene) {
+  const patches = worldConfig().snowValleyScenery?.groundPatches ?? [];
+  patches.forEach((patch) => {
+    const geometry = new THREE.CircleGeometry(1, 10);
+    geometry.rotateX(-Math.PI / 2);
+    const material = overlayMat(patch.color ?? worldMaterialColor('snow', '#e6e6dc'), {
+      transparent: true,
+      opacity: patch.opacity ?? 0.18,
+      depthWrite: false,
+      roughness: 1
+    });
+    const snowPatch = new THREE.Mesh(geometry, material);
+    snowPatch.position.set(patch.x, terrainHeightAt(patch.x, patch.z) + 0.018, patch.z);
+    snowPatch.rotation.y = patch.rot ?? 0;
+    snowPatch.scale.set(patch.rx, 1, patch.rz);
+    snowPatch.receiveShadow = true;
+    addStaticCulledObject(scene, snowPatch, 1.2);
+  });
+}
+
+// Broken low road shoulders have volume, but deliberately never connect into a guardrail.
+function placeSnowValleyRoadEdges(scene, pathPoints) {
+  const config = worldConfig();
+  const random = seededRandom((config.seed ?? 42) + 432);
+  const points = pathPoints?.length ? pathPoints : rawPathPoints();
+  const edgeProfiles = [
+    { segment: 1, t: 0.36, side: -1, length: 1.9, width: 0.82, snow: true },
+    { segment: 2, t: 0.71, side: 1, length: 2.5, width: 0.9, snow: true },
+    { segment: 3, t: 0.34, side: -1, length: 1.45, width: 0.7, soil: true },
+    { segment: 4, t: 0.72, side: 1, length: 2.25, width: 0.86, snow: true },
+    { segment: 5, t: 0.26, side: -1, length: 1.7, width: 0.78, snow: true },
+    { segment: 6, t: 0.74, side: 1, length: 2.1, width: 0.82, soil: true },
+    { segment: 7, t: 0.38, side: 1, length: 1.5, width: 0.7, snow: true },
+    { segment: 8, t: 0.68, side: -1, length: 2.35, width: 0.9, snow: true },
+    { segment: 9, t: 0.33, side: 1, length: 1.8, width: 0.76, snow: true },
+    { segment: 10, t: 0.62, side: -1, length: 2.05, width: 0.84, soil: true }
+  ];
+
+  edgeProfiles.forEach((profile) => {
+    const a = points[profile.segment];
+    const b = points[profile.segment + 1];
+    if (!a || !b) return;
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    const length = Math.hypot(dx, dz) || 1;
+    const nx = -dz / length;
+    const nz = dx / length;
+    const edgeOffset = (config.pathWidth ?? 7.2) * 0.5 + 0.78 + random() * 0.42;
+    const x = a.x + dx * profile.t + nx * profile.side * edgeOffset;
+    const z = a.z + dz * profile.t + nz * profile.side * edgeOffset;
+    if (isAltarClearing(x, z)) return;
+
+    const berm = createLowpolySnowRock(1.05 + random() * 0.2, random, {
+      color: profile.soil ? '#8d9695' : worldMaterialColor('snow', '#e6e6dc'),
+      snowCap: profile.snow,
+      snowColor: worldMaterialColor('snow', '#eff2ef')
+    });
+    berm.position.set(x, terrainHeightAt(x, z) - 0.18, z);
+    berm.rotation.set((random() - 0.5) * 0.08, Math.atan2(dx, dz), (random() - 0.5) * 0.08);
+    berm.scale.set(profile.width, 0.34 + random() * 0.12, profile.length);
+    enableDecorationShadows(berm);
+    addStaticCulledObject(scene, berm, 0.7);
+  });
+}
+
+function placeSnowValleyAltarLandings(scene) {
+  const random = seededRandom((worldConfig().seed ?? 42) + 684);
+  (worldConfig().altars ?? []).forEach((altar, altarIndex) => {
+    const position = altar.position ?? altar;
+    const radius = (altar.clearingRadius ?? 5.4) + 0.65;
+    const ringCount = 7 + (altarIndex % 2);
+    for (let index = 0; index < ringCount; index += 1) {
+      const angle = (index / ringCount) * Math.PI * 2 + altar.rotation * 0.34 + (random() - 0.5) * 0.26;
+      const distance = radius + (random() - 0.5) * 0.45;
+      const x = position.x + Math.cos(angle) * distance;
+      const z = position.z + Math.sin(angle) * distance;
+      const stone = createLowpolySnowRock(0.32 + random() * 0.2, random, {
+        color: worldMaterialColor('rock', '#687378'),
+        snowCap: true
+      });
+      stone.scale.set(1.15 + random() * 0.35, 0.32 + random() * 0.12, 0.72 + random() * 0.25);
+      stone.rotation.y = angle + Math.PI * 0.5 + (random() - 0.5) * 0.45;
+      stone.position.set(x, terrainHeightAt(x, z) - 0.12, z);
+      addStaticCulledObject(scene, stone, 0.42);
+    }
+
+    for (let index = 0; index < 2 + (altarIndex % 2); index += 1) {
+      const angle = altar.rotation + Math.PI * (0.55 + index * 0.48) + (random() - 0.5) * 0.22;
+      const distance = radius + 0.65 + random() * 0.7;
+      const stake = createSnowValleyOldStake(0.62 + random() * 0.38, random);
+      const x = position.x + Math.cos(angle) * distance;
+      const z = position.z + Math.sin(angle) * distance;
+      stake.rotation.y = angle + (random() - 0.5) * 0.7;
+      placeOnTerrain(stake, x, z, -0.02);
+      addStaticCulledObject(scene, stake, 0.6);
+    }
+
+    const trackAngle = altar.rotation + (altarIndex % 2 ? -0.65 : 0.7);
+    const trackX = position.x + Math.cos(trackAngle) * (radius + 0.15);
+    const trackZ = position.z + Math.sin(trackAngle) * (radius + 0.15);
+    placeSnowValleyTrackPatch(scene, trackX, trackZ, trackAngle, 1.8, 0.48);
+  });
+}
+
+function placeSnowValleyCenterAnchor(scene) {
+  const anchor = worldConfig().snowValleyScenery?.centerAnchor;
+  if (!anchor) return;
+  const log = createSnowValleyFallenTree(anchor.length ?? 3.8);
+  log.rotation.y = anchor.rot ?? 0;
+  placeOnTerrain(log, anchor.x, anchor.z, -0.04);
+  addStaticCulledObject(scene, log, 1.25);
+  placeSnowValleyTrackPatch(scene, anchor.x - 0.72, anchor.z + 0.85, (anchor.rot ?? 0) + 0.36, 2.15, 0.42);
+}
+
+function placeSnowValleyTrackPatch(scene, x, z, rotation, length, width) {
+  const geometry = new THREE.CircleGeometry(1, 8);
+  geometry.rotateX(-Math.PI / 2);
+  const track = new THREE.Mesh(geometry, overlayMat('#b8c3c5', {
+    transparent: true,
+    opacity: 0.24,
+    depthWrite: false,
+    roughness: 1
+  }));
+  track.position.set(x, terrainHeightAt(x, z) + 0.025, z);
+  track.rotation.y = rotation;
+  track.scale.set(width, 1, length);
+  addStaticCulledObject(scene, track, 0.45);
+}
+
+function createSnowValleyOldStake(height, random) {
+  const group = new THREE.Group();
+  const wood = mat('#5a4837', { roughness: 1, flatShading: true });
+  const cap = mat(worldMaterialColor('snow', '#e6e6dc'), { roughness: 0.96, flatShading: true });
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.12, height, 5), wood);
+  post.position.y = height * 0.5;
+  post.rotation.z = (random() - 0.5) * 0.22;
+  const snowCap = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.12, 5), cap);
+  snowCap.position.set(0, height + 0.025, 0);
+  snowCap.rotation.z = post.rotation.z;
+  group.add(post, snowCap);
+  enableDecorationShadows(group);
+  return group;
+}
+
+function createSnowValleyFallenTree(length) {
+  const group = new THREE.Group();
+  const wood = mat('#554232', { roughness: 1, flatShading: true });
+  const darkWood = mat('#403128', { roughness: 1, flatShading: true });
+  const snow = mat(worldMaterialColor('snow', '#e6e6dc'), { roughness: 0.96, flatShading: true });
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.27, length, 6), wood);
+  trunk.rotation.z = Math.PI * 0.5;
+  trunk.position.set(0, 0.27, 0);
+  const snappedEnd = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.18, 0.18, 6), darkWood);
+  snappedEnd.rotation.z = Math.PI * 0.5;
+  snappedEnd.position.set(-length * 0.5 - 0.03, 0.27, 0);
+  const branch = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.12, length * 0.46, 5), wood);
+  branch.rotation.set(0.52, 0.14, -0.72);
+  branch.position.set(length * 0.04, 0.52, 0.26);
+  const snowCap = new THREE.Mesh(new THREE.CapsuleGeometry(0.12, length * 0.46, 4, 6), snow);
+  snowCap.rotation.z = Math.PI * 0.5;
+  snowCap.position.set(0.12, 0.48, 0);
+  snowCap.scale.set(1, 0.32, 1);
+  group.add(trunk, snappedEnd, branch, snowCap);
+  enableDecorationShadows(group);
+  return group;
 }
 
 function createDungeonDecor(scene, pathPoints) {
@@ -5785,10 +6260,11 @@ function placeForests(scene, pathPoints, random) {
           ? 2.0 + random() * 0.7
           : 0.72 + random() * 1.15;
       const tree = createWorldSnowPine(height);
-      placeOnTerrain(tree, x, z);
+      const pos = { x, z };
+      placeOnTerrainOrWall(tree, pos, 0, 0.42 + height * 0.24);
       tree.rotation.y = random() * Math.PI * 2;
       addStaticCulledObject(scene, tree);
-      registerWorldNavigationBlocker(x, z, 0.42 + height * 0.24, 'snow-tree');
+      registerWorldNavigationBlocker(pos.x, pos.z, 0.42 + height * 0.24, 'snow-tree');
       successfullyPlaced += 1;
     }
   });
@@ -6004,10 +6480,11 @@ function placeSnowValleyWaypointRocks(scene, pathPoints, random) {
       color: worldMaterialColor('rock', random() > 0.45 ? '#687378' : '#748083'),
       snowCap: true
     });
-    placeOnTerrain(main, anchor.x, anchor.z, -0.06 * anchor.size);
+    const anchorPos = { x: anchor.x, z: anchor.z };
+    placeOnTerrainOrWall(main, anchorPos, -0.06 * anchor.size, anchor.size * 0.5);
     main.rotation.y = random() * Math.PI * 2;
     main.scale.y *= 0.82 + random() * 0.3;
-    registerRockNavigationBlocker(anchor.x, anchor.z, anchor.size, main.scale);
+    registerRockNavigationBlocker(anchorPos.x, anchorPos.z, anchor.size, main.scale);
     addStaticCulledObject(scene, main);
     // 1~2 块伴石呼应主石，读作一组而非孤石
     const companions = 1 + Math.floor(random() * 2);
@@ -6022,7 +6499,8 @@ function placeSnowValleyWaypointRocks(scene, pathPoints, random) {
         color: worldMaterialColor('rock', '#687378'),
         snowCap: random() > 0.3
       });
-      placeOnTerrain(rock, x, z, -0.05 * size);
+      const cPos = { x, z };
+      placeOnTerrainOrWall(rock, cPos, -0.05 * size, size * 0.5);
       rock.rotation.y = random() * Math.PI * 2;
       addStaticCulledObject(scene, rock);
     }
@@ -6046,7 +6524,8 @@ function placeSnowValleyWaypointRocks(scene, pathPoints, random) {
         color: worldMaterialColor('rock', random() > 0.5 ? '#687378' : '#748083'),
         snowCap: random() > 0.45
       });
-      placeOnTerrain(rock, x, z, -0.1 * size);
+      const pPos = { x, z };
+      placeOnTerrainOrWall(rock, pPos, -0.1 * size, size * 0.5);
       rock.rotation.y = random() * Math.PI * 2;
       rock.scale.y *= 0.5 + random() * 0.22; // 压扁：岸石感
       addStaticCulledObject(scene, rock);
@@ -6087,12 +6566,13 @@ function placeRocks(scene, pathPoints, random) {
           snowCap: random() > 0.35
         });
         
-    placeOnTerrain(rock, x, z, (theme === 'snow' ? -0.06 * size : 0));
+    const rPos = { x, z };
+    placeOnTerrainOrWall(rock, rPos, (theme === 'snow' ? -0.06 * size : 0), size * 0.5);
     rock.rotation.y = random() * Math.PI * 2;
     if (z < -24) {
       rock.scale.y *= 1.2;
     }
-    registerRockNavigationBlocker(x, z, size, rock.scale);
+    registerRockNavigationBlocker(rPos.x, rPos.z, size, rock.scale);
     addStaticCulledObject(scene, rock);
   }
 }
@@ -6122,13 +6602,14 @@ function placeBoulderClusters(scene, pathPoints, random) {
       rock.scale.x *= 0.9 + random() * 0.48;
       rock.scale.y *= 0.82 + random() * 0.42;
       rock.scale.z *= 0.78 + random() * 0.58;
-      placeOnTerrain(rock, x, z, (theme === 'snow' ? -0.06 * size : 0.02));
+      const pos = { x, z };
+      placeOnTerrainOrWall(rock, pos, (theme === 'snow' ? -0.06 * size : 0.02), size * 0.5);
       rock.rotation.set(
         (theme === 'snow' ? rock.rotation.x : random() * 0.08),
         random() * Math.PI * 2,
         (theme === 'snow' ? rock.rotation.z : (random() - 0.5) * 0.1)
       );
-      registerRockNavigationBlocker(x, z, size, rock.scale);
+      registerRockNavigationBlocker(pos.x, pos.z, size, rock.scale);
       addStaticCulledObject(scene, rock);
     }
   });
@@ -6155,9 +6636,10 @@ function placeLandmarkBoulders(scene, pathPoints) {
         });
         
     rock.scale.set(item.sx, item.sy, item.sz);
-    placeOnTerrain(rock, item.x, item.z, (theme === 'snow' ? -0.06 * item.size : 0.02));
+    const lPos = { x: item.x, z: item.z };
+    placeOnTerrainOrWall(rock, lPos, (theme === 'snow' ? -0.06 * item.size : 0.02), item.size * 0.5);
     rock.rotation.y = item.rot;
-    registerRockNavigationBlocker(item.x, item.z, item.size, rock.scale);
+    registerRockNavigationBlocker(lPos.x, lPos.z, item.size, rock.scale);
     addStaticCulledObject(scene, rock);
   });
 }
@@ -6190,7 +6672,8 @@ function placeBushes(scene, pathPoints, random) {
         snowCap: true
       });
       bush.scale.y *= 0.72;
-      placeOnTerrain(bush, x, z);
+      const bPos = { x, z };
+      placeOnTerrainOrWall(bush, bPos, 0, 0.42);
       bush.rotation.y = random() * Math.PI * 2;
       addStaticCulledObject(scene, bush);
     }
@@ -8269,43 +8752,165 @@ function createSnowTent() {
   return group;
 }
 
-// 雪谷地标布景：山体内坡瞭望塔 + 谷地开阔处帐篷火堆小营地，对齐开阔雪谷的世界叙事
+function createSnowValleySignalFlag(color = '#b34a3c', height = 3.6) {
+  const group = new THREE.Group();
+  const pole = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.035, 0.055, height, 5),
+    mat('#45372b', { roughness: 1 })
+  );
+  pole.position.y = height * 0.5;
+  const pennant = new THREE.Mesh(
+    new THREE.ConeGeometry(0.48, 1.18, 3),
+    mat(color, { roughness: 1, flatShading: true })
+  );
+  pennant.position.set(0.34, height - 0.46, 0);
+  pennant.rotation.set(0, 0, -Math.PI * 0.5);
+  group.add(pole, pennant);
+  enableDecorationShadows(group);
+  return group;
+}
+
+function createSnowValleyCommandLodge() {
+  const group = new THREE.Group();
+  const wood = mat('#6f5137', { roughness: 1 });
+  const darkWood = mat('#45352a', { roughness: 1 });
+  const canvas = mat('#9b805f', { roughness: 1 });
+  const snow = mat('#eef2f8', { roughness: 0.9 });
+  const foundation = new THREE.Mesh(new THREE.BoxGeometry(5.5, 0.28, 3.8), darkWood);
+  foundation.position.y = 0.14;
+  const hall = new THREE.Mesh(new THREE.BoxGeometry(4.9, 2.25, 3.18), wood);
+  hall.position.y = 1.27;
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(3.45, 1.48, 4), canvas);
+  roof.position.y = 3.12;
+  roof.rotation.y = Math.PI * 0.25;
+  roof.scale.z = 0.76;
+  const roofSnow = new THREE.Mesh(new THREE.ConeGeometry(2.72, 0.42, 4), snow);
+  roofSnow.position.y = 3.64;
+  roofSnow.rotation.y = Math.PI * 0.25;
+  roofSnow.scale.z = 0.78;
+  const door = new THREE.Mesh(new THREE.BoxGeometry(0.88, 1.32, 0.08), darkWood);
+  door.position.set(0.78, 0.8, 1.64);
+  const awning = new THREE.Mesh(new THREE.BoxGeometry(1.45, 0.16, 0.72), darkWood);
+  awning.position.set(0.78, 1.62, 1.88);
+  const flag = createSnowValleySignalFlag('#c94d3d', 5.1);
+  flag.position.set(2.45, 0, 0.84);
+  const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.58, 0.1, 5, 8), darkWood);
+  wheel.position.set(-2.82, 0.64, 1.18);
+  wheel.rotation.y = Math.PI * 0.5;
+  const fire = createCampfireModel(1.1);
+  fire.position.set(-2.35, 0, -1.1);
+  [-2.65, 2.65].forEach((x) => {
+    const fencePost = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.14, 1.15, 5), darkWood);
+    fencePost.position.set(x, 0.58, -1.78);
+    const fenceRail = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.12, 0.12), darkWood);
+    fenceRail.position.set(x * 0.55, 0.72, -1.78);
+    group.add(fencePost, fenceRail);
+  });
+  group.add(foundation, hall, roof, roofSnow, door, awning, flag, wheel, fire);
+  enableDecorationShadows(group);
+  return group;
+}
+
+function createSnowValleyEndpointOutpost() {
+  const group = new THREE.Group();
+  const wood = mat('#684a31', { roughness: 1 });
+  const darkWood = mat('#403128', { roughness: 1 });
+  const canvas = mat('#a88d68', { roughness: 1 });
+  const snow = mat('#eef2f8', { roughness: 0.92 });
+  const fireMat = basicMat('#ff9b45', { transparent: true, opacity: 0.9, depthWrite: false });
+  const addPalisade = (x, z, width, height, rotation = 0) => {
+    const wall = new THREE.Group();
+    const count = Math.max(3, Math.ceil(width / 0.55));
+    for (let index = 0; index < count; index += 1) {
+      const log = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.19, height, 5), index % 3 === 0 ? darkWood : wood);
+      log.position.set(-width * 0.5 + (index / (count - 1)) * width, height * 0.5, 0);
+      log.rotation.z = (index % 2 ? -1 : 1) * 0.025;
+      wall.add(log);
+    }
+    const snowLine = new THREE.Mesh(new THREE.BoxGeometry(width + 0.18, 0.11, 0.26), snow);
+    snowLine.position.y = height + 0.02;
+    wall.add(snowLine);
+    wall.position.set(x, 0, z);
+    wall.rotation.y = rotation;
+    group.add(wall);
+  };
+  const addBrazier = (x, z) => {
+    const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.3, 0.34, 6), darkWood);
+    bowl.position.set(x, 1.0, z);
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 0.78, 5), wood);
+    stem.position.set(x, 0.4, z);
+    const flame = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.7, 5), fireMat);
+    flame.position.set(x, 1.42, z);
+    group.add(bowl, stem, flame);
+  };
+
+  // 两段前栅留出正门，左右翼与后墙把帐篷收成一个完整木寨剪影。
+  addPalisade(-4.25, 1.15, 3.4, 3.25);
+  addPalisade(4.25, 1.15, 3.4, 3.25);
+  addPalisade(-6.0, -1.25, 4.8, 3.05, Math.PI * 0.5);
+  addPalisade(6.0, -1.25, 4.8, 3.05, Math.PI * 0.5);
+  addPalisade(0, -3.55, 11.4, 3.35);
+  [-2.25, 2.25].forEach((x) => {
+    const gatePost = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.28, 4.5, 6), darkWood);
+    gatePost.position.set(x, 2.25, 1.15);
+    group.add(gatePost);
+  });
+  const gateBeam = new THREE.Mesh(new THREE.BoxGeometry(5.25, 0.32, 0.38), darkWood);
+  gateBeam.position.set(0, 4.05, 1.15);
+  const gateSnow = new THREE.Mesh(new THREE.BoxGeometry(4.5, 0.1, 0.44), snow);
+  gateSnow.position.set(0, 4.25, 1.15);
+  group.add(gateBeam, gateSnow);
+  const mainPole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.11, 7.5, 6), darkWood);
+  mainPole.position.set(0, 3.75, -2.4);
+  const mainFlag = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.02, 0.09), mat('#b94437', { roughness: 1 }));
+  mainFlag.position.set(0.9, 6.58, -2.4);
+  addBrazier(-3.15, 0.18);
+  addBrazier(3.15, 0.18);
+  const rearTent = new THREE.Mesh(new THREE.ConeGeometry(2.4, 2.75, 4), canvas);
+  rearTent.position.set(0, 1.38, -1.95);
+  rearTent.rotation.y = Math.PI * 0.25;
+  const rearSnow = new THREE.Mesh(new THREE.ConeGeometry(1.76, 0.38, 4), snow);
+  rearSnow.position.set(0, 2.68, -1.95);
+  rearSnow.rotation.y = Math.PI * 0.25;
+  group.add(mainPole, mainFlag, rearTent, rearSnow);
+  enableDecorationShadows(group);
+  return group;
+}
+
+function placeSnowValleyLandmark(scene, object, spot, radius, kind) {
+  object.rotation.y = spot.rot ?? 0;
+  if (spot.scale) object.scale.setScalar(spot.scale);
+  placeOnTerrain(object, spot.x, spot.z, spot.offset ?? 0);
+  addStaticCulledObject(scene, object);
+  registerWorldNavigationBlocker(spot.x, spot.z, radius * (spot.scale ?? 1), kind);
+}
+
+// 雪谷地标：左高台瞭望塔、右中景指挥营、推进节点与敌营远端木寨。
 function placeSnowValleyLandmarks(scene) {
   const points = rawPathPoints();
-  const watchtowers = [
-    { x: -17, z: -15, rot: 0.6, scale: 1.15 },
-    { x: 22, z: -16, rot: -0.8, scale: 1.1 },
-    { x: -20, z: 16, rot: 1.2, scale: 1.2 },
-    { x: 23, z: 16, rot: -2.2, scale: 1.05 }
-  ];
-  watchtowers.forEach((spot) => {
-    if (distanceToPath(spot.x, spot.z, points) < 5) return;
-    const tower = createSnowWatchtower();
-    tower.scale.setScalar(spot.scale);
-    tower.rotation.y = spot.rot;
-    placeOnTerrain(tower, spot.x, spot.z);
-    bakeObjectGroundShadow(tower);
-    addStaticCulledObject(scene, tower);
-    registerWorldNavigationBlocker(spot.x, spot.z, 1.15 * spot.scale, 'watchtower');
-  });
-  const camps = [
-    { x: -19, z: 14, rot: 0.4 },
-    { x: 12, z: 8, rot: -0.7 },
-    { x: 14, z: -12, rot: 0.9 }
-  ];
-  camps.forEach((spot) => {
-    if (distanceToPath(spot.x, spot.z, points) < 4.6) return;
-    const tent = createSnowTent();
-    tent.rotation.y = spot.rot;
-    placeOnTerrain(tent, spot.x, spot.z);
-    bakeObjectGroundShadow(tent);
-    addStaticCulledObject(scene, tent);
-    registerWorldNavigationBlocker(spot.x, spot.z, 0.9, 'tent');
-    const fire = createCampfireModel(0.8);
-    placeOnTerrain(fire, spot.x + 1.7, spot.z + 1.1, 0.05);
-    bakeObjectGroundShadow(fire);
-    addStaticCulledObject(scene, fire);
-  });
+  // 固定在左断崖台地的内缘顶面：完整塔身、屋顶与旗帜都压过远山天际线。
+  const towerSpot = { x: -25.6, z: 19.4, rot: 1.1, scale: 1.48, offset: 10.15 };
+  if (distanceToPath(towerSpot.x, towerSpot.z, points) >= 6.8) {
+    placeSnowValleyLandmark(scene, createSnowWatchtower(), towerSpot, 1.35, 'snow-watchtower');
+  }
+
+  const commandCampSpot = { x: 26, z: 8, rot: -0.42, scale: 1.04 };
+  if (distanceToPath(commandCampSpot.x, commandCampSpot.z, points) >= 8) {
+    placeSnowValleyLandmark(scene, createSnowValleyCommandLodge(), commandCampSpot, 2.5, 'snow-command-lodge');
+  }
+
+  // The endpoint stays beyond the existing enemy camp / monster-camp logic:
+  // its two side palisades are blockers, while the road-facing gate remains open.
+  const endpointSpot = { x: 0, z: -40.1, rot: 0.04 };
+  const endpoint = createSnowValleyEndpointOutpost();
+  endpoint.rotation.y = endpointSpot.rot;
+  placeOnTerrain(endpoint, endpointSpot.x, endpointSpot.z);
+  addStaticCulledObject(scene, endpoint);
+  registerWorldNavigationBlocker(-5.8, -40.1, 1.3, 'snow-endpoint-palisade-west');
+  registerWorldNavigationBlocker(5.8, -40.1, 1.3, 'snow-endpoint-palisade-east');
+  registerWorldNavigationBlocker(-4.25, -38.95, 1.45, 'snow-endpoint-palisade-front-west');
+  registerWorldNavigationBlocker(4.25, -38.95, 1.45, 'snow-endpoint-palisade-front-east');
+  registerWorldNavigationBlocker(0, -43.65, 4.9, 'snow-endpoint-palisade-rear');
 }
 
 // 开阔地边缘点缀：每个开阔地（广场/隘口/前庭）边缘立一块漂石、伴一株孤松，

@@ -1,0 +1,11 @@
+import { readFileSync } from 'node:fs';
+const t = readFileSync('src/world/createWorld.js', 'utf8');
+const k = t.indexOf('SNOW_MOUNTAIN_TINTS');
+console.log('--- SNOW_MOUNTAIN_TINTS ---');
+console.log(t.slice(k, k + 460));
+const a = t.indexOf('art: {');
+console.log('--- art preset ---');
+console.log(t.slice(a, a + 460));
+const b = t.indexOf('boulderClusters: [');
+console.log('--- boulderClusters head ---');
+console.log(t.slice(b, b + 720));
