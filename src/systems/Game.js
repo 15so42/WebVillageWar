@@ -4172,7 +4172,7 @@ export class Game {
   }
 
   async copyRenderTuningParameters() {
-    const text = renderTuningExportText(this.renderTuning, this.worldConfig, this.camera);
+    const text = renderTuningExportText(this.renderTuning, this.worldConfig, this.camera, this.cameraTarget);
     try {
       if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
       await navigator.clipboard.writeText(text);
@@ -4311,7 +4311,7 @@ export class Game {
       value.textContent = formatRenderTuningValue(key, settings[key]);
     });
     if (ui.exportText) {
-      ui.exportText.textContent = renderTuningExportText(settings, this.worldConfig, this.camera);
+      ui.exportText.textContent = renderTuningExportText(settings, this.worldConfig, this.camera, this.cameraTarget);
     }
   }
 
@@ -10482,7 +10482,7 @@ function normalizeRenderTuning(settings = {}, worldConfig = BALANCE.world) {
   };
 }
 
-function renderTuningExportText(settings, worldConfig = BALANCE.world, camera = null) {
+function renderTuningExportText(settings, worldConfig = BALANCE.world, camera = null, cameraTarget = null) {
   const normalized = normalizeRenderTuning(settings, worldConfig);
   const cameraPosition = camera?.position;
   return JSON.stringify({
@@ -10537,6 +10537,11 @@ function renderTuningExportText(settings, worldConfig = BALANCE.world, camera = 
         x: Number((cameraPosition?.x ?? 0).toFixed(3)),
         y: Number((cameraPosition?.y ?? 0).toFixed(3)),
         z: Number((cameraPosition?.z ?? 0).toFixed(3))
+      },
+      target: {
+        x: Number((cameraTarget?.x ?? 0).toFixed(3)),
+        y: Number((cameraTarget?.y ?? 4).toFixed(3)),
+        z: Number((cameraTarget?.z ?? 0).toFixed(3))
       }
     }
   }, null, 2);
