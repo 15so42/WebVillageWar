@@ -14,6 +14,8 @@ export class CardEffectSystem {
       'cast-meteor-barrage': (context) => this.castMeteorBarrage(context),
       'apply-buff': (context) => this.applyBuff(context),
       'apply-random-enchantments': (context) => this.applyRandomEnchantments(context),
+      'apply-team-generic-upgrade': (context) => this.applyTeamGenericUpgrade(context),
+      'apply-team-special-upgrade': (context) => this.applyTeamSpecialUpgrade(context),
       'increase-enchantment-slots': (context) => this.increaseEnchantmentSlots(context),
       'acquire-ability': (context) => this.acquireAbility(context),
       'gain-energy': (context) => this.gainEnergy(context),
@@ -64,6 +66,14 @@ export class CardEffectSystem {
       { sourceCard: card }
     );
     return true;
+  }
+
+  applyTeamGenericUpgrade({ effect }) {
+    return Boolean(this.game.applyTeamGenericUpgrade?.(effect?.upgrade));
+  }
+
+  applyTeamSpecialUpgrade({ effect }) {
+    return Boolean(this.game.applyTeamSpecialUpgrade?.(effect?.unitType, effect?.upgrade));
   }
 
   buildStructure({ card, effect, point }) {

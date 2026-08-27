@@ -47,10 +47,9 @@ const ENCHANTMENT_SECTIONS = [
     ]
   },
   {
-    title: '战术词缀',
-    description: '原为敌军波次词缀，也可通过附魔牌施加给友军。',
+    title: '战术附魔',
+    description: '提供明确战斗属性的战术附魔，可通过附魔牌施加给友军。',
     ids: [
-      'waveSwarm',
       'waveArmored',
       'waveRush',
       'waveRanged',

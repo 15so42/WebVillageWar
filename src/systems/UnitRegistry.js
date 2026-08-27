@@ -71,9 +71,13 @@ export class UnitRegistry {
       this.game.score += 1;
     }
     this.game.buffs?.unitDeath(unit);
+    const deathRadius = deathBurstRadius(
+      unit,
+      this.game.movement?.crowdRadius?.(unit) ?? 0
+    );
     this.game.effects?.spawnDeathBurst(
       unit.position.clone(),
-      Math.max(0.68, this.game.movement?.crowdRadius?.(unit) ?? 0.7)
+      deathRadius
     );
     clearUnitHitFlash(unit);
     this.unregister(unit);
@@ -81,6 +85,37 @@ export class UnitRegistry {
     this.game.onUnitDied?.(unit, source);
     return true;
   }
+}
+
+export function deathBurstRadius(unit, crowdRadius = 0) {
+  const collisionRadius = Number(
+    unit?.collisionRadius
+    ?? unit?.definition?.collisionRadius
+    ?? unit?.attributes?.get?.('collisionRadius')
+    ?? 0
+  ) || 0;
+  const visualHeight = Math.max(0, Number(unit?.projectileHitHeight) || 0);
+  const visualScale = Math.max(
+    0.7,
+    Number(unit?.visualRoot?.scale?.x) || 1,
+    Number(unit?.visualRoot?.scale?.y) || 1,
+    Number(unit?.visualRoot?.scale?.z) || 1
+  );
+  const classFloor = unit?.isBoss
+    ? 1.55
+    : unit?.isElite
+      ? 0.86
+      : unit?.isBuilding
+        ? 1.15
+        : 0;
+  const bodyRadius = Math.max(
+    0.48,
+    Number(crowdRadius) || 0,
+    collisionRadius,
+    visualHeight * 0.38,
+    classFloor
+  );
+  return Math.min(3.6, bodyRadius * Math.sqrt(visualScale));
 }
 
 function removeItem(items, item) {

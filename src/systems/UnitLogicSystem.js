@@ -6,6 +6,10 @@ import {
 import { TEAMS } from '../data/gameData.js';
 import { distance2D } from '../utils/math.js';
 import {
+  FREE_ENCHANTMENT_HINT_INTERVAL_SECONDS,
+  normalizeFreeEnchantmentCharges
+} from './freeEnchantmentCharges.js';
+import {
   countNegativeBuffs,
   formatSupportAmount,
   getTargetPosition,
@@ -28,6 +32,7 @@ export class UnitLogicSystem {
     this.lastProfile = null;
     this.frameProfile = null;
     this.pendingSupportEffects = [];
+    this.freeEnchantmentAffordabilityDirty = false;
   }
 
   update(dt) {
@@ -41,8 +46,13 @@ export class UnitLogicSystem {
     mark = recordStep(profile, 'collectMs', mark);
     this.game.attacks.rebuildActiveAttackIndex();
     mark = recordStep(profile, 'attackIndexMs', mark);
+    this.freeEnchantmentAffordabilityDirty = false;
     for (let i = 0; i < units.length; i += 1) {
       this.updateUnit(units[i], dt);
+    }
+    if (this.freeEnchantmentAffordabilityDirty) {
+      const cardSystems = Object.values(this.game.cardSystems ?? { local: this.game.cardSystem });
+      new Set(cardSystems).forEach((cardSystem) => cardSystem?.updateCardAffordability?.());
     }
     mark = recordStep(profile, 'unitsMs', mark);
     this.game.movement.updateSeparation(units, dt);
@@ -65,6 +75,10 @@ export class UnitLogicSystem {
 
   updateUnit(unit, dt) {
     if (!unit.alive) return;
+    if ((unit.updateFreeEnchantmentCharges?.(dt) ?? 0) > 0) {
+      this.freeEnchantmentAffordabilityDirty = true;
+    }
+    this.updateFreeEnchantmentHint(unit, dt);
     const profile = this.frameProfile;
     let mark = profile ? performance.now() : 0;
     unit.visualState = 'idle';
@@ -561,6 +575,31 @@ export class UnitLogicSystem {
     if (remaining > 0) return;
     const turret = this.game.spawnUpgradeTurret(unit, ability);
     unit.supportCooldowns.set(key, turret ? ability.cooldown : 2.5);
+  }
+
+  updateFreeEnchantmentHint(unit, dt) {
+    if (unit.team !== TEAMS.PLAYER || normalizeFreeEnchantmentCharges(unit.freeEnchantmentCharges) <= 0) {
+      unit.freeEnchantmentHintTimer = FREE_ENCHANTMENT_HINT_INTERVAL_SECONDS;
+      return false;
+    }
+
+    const currentTimer = Number.isFinite(unit.freeEnchantmentHintTimer)
+      ? unit.freeEnchantmentHintTimer
+      : FREE_ENCHANTMENT_HINT_INTERVAL_SECONDS;
+    unit.freeEnchantmentHintTimer = currentTimer - Math.max(0, Number(dt) || 0);
+    if (unit.freeEnchantmentHintTimer > 0) return false;
+
+    unit.freeEnchantmentHintTimer = FREE_ENCHANTMENT_HINT_INTERVAL_SECONDS;
+    this.game.effects?.spawnDamageNumber?.(unit.position, 1, {
+      text: '有免费附魔次数',
+      color: this.game.playerVisualColor?.(unit) ?? '#62d56f',
+      height: (unit.projectileHitHeight ?? 1.55) + 0.45,
+      duration: 1.15,
+      fontSize: 88,
+      baseHeight: 0.52,
+      fadeStart: 0.66
+    });
+    return true;
   }
 
   updateOwnerRecall(unit, dt) {

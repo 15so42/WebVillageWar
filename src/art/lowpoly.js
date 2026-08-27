@@ -3088,6 +3088,8 @@ export function createPriestModel(team, options = {}) {
     : null;
   const isPlayerCombatOutfit = geometryTeam === 'player'
     && (options.bodyStyle === 'battleCoat' || options.bodyStyle === 'shortTunic');
+  const shoulderOffset = options.shoulderOffset ?? 0.32;
+  const mantleWidthScale = options.mantleWidthScale ?? 1;
 
   const robe = options.bodyStyle === 'tunic'
     ? mesh(
@@ -3115,7 +3117,7 @@ export function createPriestModel(team, options = {}) {
       new THREE.CylinderGeometry(0.46, 0.34, 0.18, 5),
       hoodMaterial,
       new THREE.Vector3(0, 1.18, 0),
-      new THREE.Vector3(1, 0.88, 0.9)
+      new THREE.Vector3(mantleWidthScale, 0.88, 0.9)
     )
     : null;
   const head = mesh(
@@ -3158,14 +3160,14 @@ export function createPriestModel(team, options = {}) {
   eyeRight.position.x = 0.075;
   styleHumanoidEyes(team, eyeLeft, eyeRight);
   const rightArm = limb(
-    new THREE.Vector3(-0.32, 1.14, 0.05),
+    new THREE.Vector3(-shoulderOffset, 1.14, 0.05),
     new THREE.Vector3(-0.36, 0.78, 0.36),
     humanoidArmRadius(0.055, geometryTeam),
     skinMat
   );
   const rightSleeve = createPlayerSleeve(
     geometryTeam,
-    new THREE.Vector3(-0.32, 1.14, 0.05),
+    new THREE.Vector3(-shoulderOffset, 1.14, 0.05),
     new THREE.Vector3(-0.36, 0.78, 0.36),
     0.066,
     robeMaterial,
@@ -3201,14 +3203,14 @@ export function createPriestModel(team, options = {}) {
     [staff, projectileSocket]
   );
   const leftArm = limb(
-    new THREE.Vector3(0.32, 1.13, 0.05),
+    new THREE.Vector3(shoulderOffset, 1.13, 0.05),
     new THREE.Vector3(0.28, 0.94, 0.42),
     humanoidArmRadius(0.052, geometryTeam),
     skinMat
   );
   const leftSleeve = createPlayerSleeve(
     geometryTeam,
-    new THREE.Vector3(0.32, 1.13, 0.05),
+    new THREE.Vector3(shoulderOffset, 1.13, 0.05),
     new THREE.Vector3(0.28, 0.94, 0.42),
     0.064,
     robeMaterial,
@@ -3244,12 +3246,12 @@ export function createPriestModel(team, options = {}) {
   if (rightBoot) rightBoot.position.x = 0.12;
   const weaponPivot = createPivot(
     'supportWeaponPivot',
-    new THREE.Vector3(-0.32, 1.14, 0.05),
+    new THREE.Vector3(-shoulderOffset, 1.14, 0.05),
     [rightArm, ...(rightSleeve ? [rightSleeve] : []), rightHand, weaponSwingPivot]
   );
   const offhandPivot = createPivot(
     'supportOffhandPivot',
-    new THREE.Vector3(0.32, 1.13, 0.05),
+    new THREE.Vector3(shoulderOffset, 1.13, 0.05),
     [leftArm, ...(leftSleeve ? [leftSleeve] : []), leftHand]
   );
 
@@ -3783,6 +3785,8 @@ export function createWarderModel(team) {
 export function createWaterMageModel(team) {
   const group = createPriestModel(team, {
     bodyStyle: 'shortTunic',
+    shoulderOffset: 0.285,
+    mantleWidthScale: 0.82,
     robeColor: team === 'player' ? '#3e8fb3' : '#476575',
     hoodColor: team === 'player' ? '#235f83' : '#344a59',
     trimColor: '#dff8ff',
@@ -7604,36 +7608,361 @@ export function createWaterOrbModel(color = '#65d8ff') {
   return enableShadows(group);
 }
 
-export function createBaseModel() {
+export function createBaseModel({ theme = 'snow' } = {}) {
+  const palette = baseThemePalette(theme);
+  if (theme === 'snow') return createFriendlyCampBaseModel(palette, theme);
   const group = new THREE.Group();
-  const stone = mat('#eef3f5');
-  const wood = mat('#7d736a');
-  const roof = mat('#857c8c');
+  group.userData.baseTheme = theme;
+
+  const foundationMaterial = mat(palette.foundation, { roughness: 0.92 });
+  const stoneMaterial = mat(palette.stone, { roughness: 0.84 });
+  const stoneShadeMaterial = mat(palette.stoneShade, { roughness: 0.9 });
+  const roofMaterial = mat(palette.roof, { roughness: 0.76, metalness: 0.06 });
+  const woodMaterial = mat(palette.wood, { roughness: 0.9 });
+  const metalMaterial = mat(palette.metal, { roughness: 0.48, metalness: 0.42 });
+  const bannerMaterial = mat(palette.banner, { roughness: 0.86 });
+  const energyMaterial = mat(palette.energy, {
+    emissive: palette.emissive,
+    emissiveIntensity: 1.65,
+    roughness: 0.24,
+    metalness: 0.08
+  });
+  const energyGlowMaterial = basicMat(palette.energyGlow, {
+    transparent: true,
+    opacity: 0.46,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending
+  });
+
+  const lowerPlinth = mesh(
+    new THREE.CylinderGeometry(2.18, 2.35, 0.34, 8),
+    foundationMaterial,
+    new THREE.Vector3(0, 0.17, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const upperPlinth = mesh(
+    new THREE.CylinderGeometry(1.96, 2.12, 0.28, 8),
+    stoneShadeMaterial,
+    new THREE.Vector3(0, 0.46, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  upperPlinth.rotation.y = Math.PI / 8;
 
   const keep = mesh(
-    new THREE.CylinderGeometry(1.55, 1.8, 2.45, 6),
-    stone,
-    new THREE.Vector3(0, 1.22, 0),
+    new THREE.CylinderGeometry(1.22, 1.48, 2.08, 8),
+    stoneMaterial,
+    new THREE.Vector3(0, 1.48, 0),
     new THREE.Vector3(1, 1, 1)
   );
-  const keepRoof = mesh(
-    new THREE.ConeGeometry(1.86, 1.15, 6),
-    roof,
-    new THREE.Vector3(0, 3.02, 0),
+  keep.rotation.y = Math.PI / 8;
+  const keepBand = mesh(
+    new THREE.CylinderGeometry(1.29, 1.33, 0.22, 8),
+    stoneShadeMaterial,
+    new THREE.Vector3(0, 2.18, 0),
     new THREE.Vector3(1, 1, 1)
   );
+  keepBand.rotation.y = Math.PI / 8;
+
   const gate = mesh(
-    new THREE.BoxGeometry(1.1, 1.3, 0.18),
-    wood,
-    new THREE.Vector3(0, 0.68, -1.58),
+    new THREE.BoxGeometry(0.92, 1.12, 0.2),
+    woodMaterial,
+    new THREE.Vector3(0, 0.94, -1.48),
     new THREE.Vector3(1, 1, 1)
   );
-  group.add(keep, keepRoof, gate);
+  const gateArch = mesh(
+    new THREE.BoxGeometry(1.24, 0.24, 0.3),
+    stoneShadeMaterial,
+    new THREE.Vector3(0, 1.54, -1.5),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const gateBoss = mesh(
+    new THREE.OctahedronGeometry(0.15, 0),
+    metalMaterial,
+    new THREE.Vector3(0, 1.02, -1.61),
+    new THREE.Vector3(0.8, 1.15, 0.55)
+  );
+
+  group.add(lowerPlinth, upperPlinth, keep, keepBand, gate, gateArch, gateBoss);
+
+  const towerBodyGeometry = new THREE.CylinderGeometry(0.42, 0.58, 1.52, 6);
+  const towerRoofGeometry = new THREE.ConeGeometry(0.57, 0.72, 6);
+  const buttressGeometry = new THREE.BoxGeometry(0.42, 1.08, 0.62);
+  for (let index = 0; index < 4; index += 1) {
+    const angle = Math.PI * 0.25 + index * Math.PI * 0.5;
+    const x = Math.cos(angle) * 1.48;
+    const z = Math.sin(angle) * 1.48;
+    const tower = new THREE.Mesh(towerBodyGeometry, index % 2 ? stoneMaterial : stoneShadeMaterial);
+    tower.position.set(x, 1.12, z);
+    tower.rotation.y = -angle + Math.PI / 6;
+    const towerRoof = new THREE.Mesh(towerRoofGeometry, roofMaterial);
+    towerRoof.position.set(x, 2.2, z);
+    towerRoof.rotation.y = tower.rotation.y;
+    const buttress = new THREE.Mesh(buttressGeometry, foundationMaterial);
+    buttress.position.set(Math.cos(angle) * 1.86, 0.82, Math.sin(angle) * 1.86);
+    buttress.rotation.y = -angle;
+    buttress.rotation.z = Math.sin(angle) * 0.08;
+    group.add(tower, towerRoof, buttress);
+  }
+
+  const merlonGeometry = new THREE.BoxGeometry(0.28, 0.34, 0.34);
+  for (let index = 0; index < 8; index += 1) {
+    const angle = index / 8 * Math.PI * 2 + Math.PI / 8;
+    const merlon = new THREE.Mesh(merlonGeometry, stoneShadeMaterial);
+    merlon.position.set(Math.cos(angle) * 1.12, 2.7, Math.sin(angle) * 1.12);
+    merlon.rotation.y = -angle;
+    group.add(merlon);
+  }
+
+  const focusPedestal = mesh(
+    new THREE.CylinderGeometry(0.38, 0.58, 0.48, 6),
+    metalMaterial,
+    new THREE.Vector3(0, 2.82, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const focusCrystal = mesh(
+    new THREE.OctahedronGeometry(0.42, 0),
+    energyMaterial,
+    new THREE.Vector3(0, 3.38, 0),
+    new THREE.Vector3(0.78, 1.45, 0.78)
+  );
+  focusCrystal.rotation.y = Math.PI / 4;
+  const focusGlow = mesh(
+    new THREE.SphereGeometry(0.52, 12, 8),
+    energyGlowMaterial,
+    new THREE.Vector3(0, 3.38, 0),
+    new THREE.Vector3(1, 1.18, 1)
+  );
+  focusGlow.renderOrder = 1280;
+  const focusRingA = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.035, 6, 24), energyMaterial);
+  focusRingA.position.y = 3.35;
+  focusRingA.rotation.x = Math.PI / 2;
+  const focusRingB = focusRingA.clone();
+  focusRingB.rotation.set(Math.PI / 2, Math.PI / 3, Math.PI / 2);
+  group.add(focusPedestal, focusGlow, focusCrystal, focusRingA, focusRingB);
+
+  const bannerPoleGeometry = new THREE.CylinderGeometry(0.035, 0.05, 1.35, 5);
+  const bannerGeometry = new THREE.BoxGeometry(0.54, 0.58, 0.045);
+  [-1, 1].forEach((side) => {
+    const pole = new THREE.Mesh(bannerPoleGeometry, woodMaterial);
+    pole.position.set(side * 1.4, 1.82, -1.08);
+    const banner = new THREE.Mesh(bannerGeometry, bannerMaterial);
+    banner.position.set(side * 1.14, 2.08, -1.1);
+    banner.rotation.z = side * 0.08;
+    group.add(pole, banner);
+  });
+
+  const attackEmitter = new THREE.Object3D();
+  attackEmitter.position.set(0, 3.55, 0);
+  attackEmitter.name = 'PlayerBaseAttackEmitter';
+  group.add(attackEmitter);
 
   const aura = new THREE.Group();
   aura.userData.isAura = true;
   group.add(aura);
   group.userData.aura = aura;
+  group.userData.attackEmitter = attackEmitter;
+  group.userData.energyMeshes = [focusCrystal, focusGlow, focusRingA, focusRingB];
+  return enableShadows(group);
+}
+
+function baseThemePalette(theme) {
+  const palettes = {
+    dungeon: {
+      foundation: '#343841', stone: '#707784', stoneShade: '#4c5260', roof: '#252936',
+      wood: '#4b3b38', metal: '#272c34', banner: '#6d4259', energy: '#b99cff',
+      emissive: '#7254d6', energyGlow: '#9b78ff'
+    },
+    'red-desert': {
+      foundation: '#725044', stone: '#c98c68', stoneShade: '#945d4b', roof: '#563c3b',
+      wood: '#5a382b', metal: '#5c4537', banner: '#246f73', energy: '#8ff0df',
+      emissive: '#2bb9aa', energyGlow: '#5be2cf'
+    },
+    'emerald-marsh': {
+      foundation: '#33483f', stone: '#788878', stoneShade: '#506558', roof: '#263e39',
+      wood: '#4a3b2f', metal: '#394a43', banner: '#a27b3d', energy: '#a9f29b',
+      emissive: '#55b96a', energyGlow: '#7eea8e'
+    },
+    snow: {
+      foundation: '#87939c', stone: '#d8e1e6', stoneShade: '#9aa9b5', roof: '#46546c',
+      wood: '#5c4a43', metal: '#4c5866', banner: '#386a9c', energy: '#baf4ff',
+      emissive: '#4fcbe9', energyGlow: '#80e5ff'
+    }
+  };
+  return palettes[theme] ?? palettes.snow;
+}
+
+function createFriendlyCampBaseModel(palette, theme) {
+  const group = new THREE.Group();
+  group.userData.baseTheme = theme;
+  group.userData.baseStyle = 'friendly-command-camp';
+
+  const groundMaterial = mat('#aab7bf', { roughness: 0.98 });
+  const clothMaterial = mat('#58708a', { roughness: 0.92 });
+  const clothShadeMaterial = mat('#394c62', { roughness: 0.95 });
+  const trimMaterial = mat('#c4d2d9', { roughness: 0.82 });
+  const woodMaterial = mat(palette.wood, { roughness: 0.93 });
+  const ropeMaterial = mat('#897667', { roughness: 1 });
+  const metalMaterial = mat(palette.metal, { roughness: 0.52, metalness: 0.36 });
+  const bannerMaterial = mat(palette.banner, { roughness: 0.88 });
+  const energyMaterial = mat(palette.energy, {
+    emissive: palette.emissive,
+    emissiveIntensity: 1.8,
+    roughness: 0.2
+  });
+  const glowMaterial = basicMat(palette.energyGlow, {
+    transparent: true,
+    opacity: 0.48,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending
+  });
+
+  const packedGround = mesh(
+    new THREE.CylinderGeometry(2.28, 2.38, 0.2, 12),
+    groundMaterial,
+    new THREE.Vector3(0, 0.1, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const tent = mesh(
+    new THREE.ConeGeometry(1.72, 1.82, 4),
+    clothMaterial,
+    new THREE.Vector3(-0.18, 1.08, 0.08),
+    new THREE.Vector3(1, 1, 1)
+  );
+  tent.rotation.y = Math.PI / 4;
+  const tentCap = mesh(
+    new THREE.ConeGeometry(1.42, 1.48, 4),
+    clothShadeMaterial,
+    new THREE.Vector3(-0.18, 1.22, 0.08),
+    new THREE.Vector3(1, 1, 1)
+  );
+  tentCap.rotation.y = Math.PI / 4;
+  const entrance = mesh(
+    new THREE.BoxGeometry(0.76, 0.94, 0.08),
+    mat('#202935', { roughness: 1 }),
+    new THREE.Vector3(-0.18, 0.67, -1.3),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const flapGeometry = new THREE.BoxGeometry(0.42, 1.04, 0.055);
+  const flapLeft = new THREE.Mesh(flapGeometry, clothMaterial);
+  flapLeft.position.set(-0.59, 0.72, -1.34);
+  flapLeft.rotation.z = -0.18;
+  const flapRight = new THREE.Mesh(flapGeometry, clothMaterial);
+  flapRight.position.set(0.23, 0.72, -1.34);
+  flapRight.rotation.z = 0.18;
+  const entranceTrim = mesh(
+    new THREE.BoxGeometry(1.16, 0.12, 0.11),
+    trimMaterial,
+    new THREE.Vector3(-0.18, 1.25, -1.36),
+    new THREE.Vector3(1, 1, 1)
+  );
+  group.add(packedGround, tent, tentCap, entrance, flapLeft, flapRight, entranceTrim);
+
+  const poleGeometry = new THREE.CylinderGeometry(0.045, 0.065, 1.72, 6);
+  const polePositions = [
+    new THREE.Vector3(-1.28, 0.92, -1.14),
+    new THREE.Vector3(0.92, 0.92, -1.14),
+    new THREE.Vector3(-1.28, 0.92, 1.22),
+    new THREE.Vector3(0.92, 0.92, 1.22)
+  ];
+  polePositions.forEach((position, index) => {
+    const pole = new THREE.Mesh(poleGeometry, woodMaterial);
+    pole.position.copy(position);
+    const anchor = position.clone().setY(0.08).multiplyScalar(1.34);
+    anchor.y = 0.08;
+    const rope = limb(
+      position.clone().add(new THREE.Vector3(0, 0.7, 0)),
+      anchor,
+      0.018,
+      ropeMaterial
+    );
+    rope.userData.isTentRope = true;
+    group.add(pole, rope);
+    if (index < 2) {
+      const lantern = new THREE.Mesh(new THREE.OctahedronGeometry(0.1, 0), energyMaterial);
+      lantern.position.copy(position).add(new THREE.Vector3(0, 0.42, -0.04));
+      group.add(lantern);
+    }
+  });
+
+  const stakeGeometry = new THREE.ConeGeometry(0.09, 0.82, 5);
+  for (let index = 0; index < 8; index += 1) {
+    const x = -1.8 + index * 0.51;
+    const stake = new THREE.Mesh(stakeGeometry, woodMaterial);
+    stake.position.set(x, 0.48 + (index % 2) * 0.05, 1.68 + Math.sin(index * 1.7) * 0.12);
+    stake.rotation.z = (index - 3.5) * 0.025;
+    group.add(stake);
+  }
+
+  const crateGeometry = new THREE.BoxGeometry(0.48, 0.4, 0.5);
+  for (let index = 0; index < 3; index += 1) {
+    const crate = new THREE.Mesh(crateGeometry, index === 2 ? trimMaterial : woodMaterial);
+    crate.position.set(-1.62 + (index % 2) * 0.5, 0.31 + Math.floor(index / 2) * 0.34, -0.52 + (index % 2) * 0.18);
+    crate.rotation.y = (index - 1) * 0.14;
+    group.add(crate);
+  }
+  const barrelGeometry = new THREE.CylinderGeometry(0.24, 0.27, 0.48, 8);
+  for (let index = 0; index < 2; index += 1) {
+    const barrel = new THREE.Mesh(barrelGeometry, woodMaterial);
+    barrel.position.set(1.48 + index * 0.38, 0.33, -0.48 + index * 0.18);
+    barrel.rotation.z = index ? 0.08 : -0.05;
+    group.add(barrel);
+  }
+
+  const focusBase = mesh(
+    new THREE.CylinderGeometry(0.38, 0.54, 0.26, 6),
+    metalMaterial,
+    new THREE.Vector3(1.18, 0.22, 0.82),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const focusMast = mesh(
+    new THREE.CylinderGeometry(0.07, 0.12, 1.78, 6),
+    woodMaterial,
+    new THREE.Vector3(1.18, 1.18, 0.82),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const focusCrystal = mesh(
+    new THREE.OctahedronGeometry(0.32, 0),
+    energyMaterial,
+    new THREE.Vector3(1.18, 2.24, 0.82),
+    new THREE.Vector3(0.8, 1.38, 0.8)
+  );
+  const focusGlow = mesh(
+    new THREE.SphereGeometry(0.4, 10, 7),
+    glowMaterial,
+    new THREE.Vector3(1.18, 2.24, 0.82),
+    new THREE.Vector3(1, 1.18, 1)
+  );
+  focusGlow.renderOrder = 1280;
+  const focusRing = new THREE.Mesh(new THREE.TorusGeometry(0.46, 0.03, 6, 22), energyMaterial);
+  focusRing.position.set(1.18, 2.2, 0.82);
+  focusRing.rotation.x = Math.PI / 2;
+  group.add(focusBase, focusMast, focusGlow, focusCrystal, focusRing);
+
+  const bannerPole = mesh(
+    new THREE.CylinderGeometry(0.04, 0.06, 1.68, 5),
+    woodMaterial,
+    new THREE.Vector3(-1.48, 1.04, 0.72),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const banner = mesh(
+    new THREE.BoxGeometry(0.62, 0.5, 0.045),
+    bannerMaterial,
+    new THREE.Vector3(-1.17, 1.52, 0.72),
+    new THREE.Vector3(1, 1, 1)
+  );
+  banner.rotation.z = -0.08;
+  group.add(bannerPole, banner);
+
+  const attackEmitter = new THREE.Object3D();
+  attackEmitter.position.set(1.18, 2.48, 0.82);
+  attackEmitter.name = 'PlayerBaseAttackEmitter';
+  group.add(attackEmitter);
+  const aura = new THREE.Group();
+  aura.userData.isAura = true;
+  group.add(aura);
+  group.userData.aura = aura;
+  group.userData.attackEmitter = attackEmitter;
+  group.userData.energyMeshes = [focusCrystal, focusGlow, focusRing];
   return enableShadows(group);
 }
 
@@ -8983,10 +9312,13 @@ export function createAltarModel(definition = {}) {
     new THREE.RingGeometry(0.98, 1, 64),
     basicMat(color, {
       transparent: true,
-      opacity: 0.22,
+      opacity: 0.3,
       side: THREE.DoubleSide,
       depthWrite: false,
-      depthTest: false
+      depthTest: true,
+      polygonOffset: true,
+      polygonOffsetFactor: -4,
+      polygonOffsetUnits: -4
     }).clone()
   );
   const progressRing = new THREE.Mesh(
@@ -9112,7 +9444,7 @@ export function createAttackRangeRing(color = '#62d56f') {
       transparent: true,
       opacity: 0.2,
       side: THREE.DoubleSide,
-      depthTest: false,
+      depthTest: true,
       depthWrite: false
     }).clone()
   );
@@ -9122,14 +9454,12 @@ export function createAttackRangeRing(color = '#62d56f') {
       transparent: true,
       opacity: 0.74,
       side: THREE.DoubleSide,
-      depthTest: false,
+      depthTest: true,
       depthWrite: false
     }).clone()
   );
   glow.rotation.x = -Math.PI / 2;
   ring.rotation.x = -Math.PI / 2;
-  glow.renderOrder = 1500;
-  ring.renderOrder = 1501;
   group.add(glow, ring);
   group.visible = false;
   group.userData.glow = glow;
@@ -9142,15 +9472,21 @@ export function createMeteorModel() {
   const group = new THREE.Group();
   const core = new THREE.Mesh(
     new THREE.DodecahedronGeometry(0.72, 0),
-    basicMat('#3a2620')
+    mat('#30201d', {
+      emissive: '#7b2617',
+      emissiveIntensity: 0.42,
+      roughness: 0.88,
+      metalness: 0.04
+    })
   );
   const hotCore = new THREE.Mesh(
     new THREE.DodecahedronGeometry(0.46, 0),
-    basicMat('#ffd27a', {
+    mat('#ffd27a', {
+      emissive: '#ff6a22',
+      emissiveIntensity: 2.3,
       transparent: true,
-      opacity: 0.88,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending
+      opacity: 0.9,
+      depthWrite: false
     })
   );
   const glow = new THREE.Mesh(

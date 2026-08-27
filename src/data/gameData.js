@@ -2939,40 +2939,6 @@ export const BUFF_DEFINITIONS = {
       }
     ]
   },
-  waveSwarm: {
-    name: '集群',
-    category: 'enchantment',
-    color: '#93c86f',
-    duration: 999,
-    level: 1,
-    modifiers: [
-      {
-        stat: 'maxHealth',
-        type: 'multiply',
-        factor: 0.92,
-        factorPerLevel: -0.02
-      },
-      {
-        stat: 'attackPower',
-        type: 'multiply',
-        factor: 0.97,
-        factorPerLevel: -0.015
-      },
-      {
-        stat: 'attackRate',
-        type: 'multiply',
-        factor: 1.06,
-        factorPerLevel: 0.03
-      },
-      {
-        stat: 'moveSpeed',
-        type: 'multiply',
-        factor: 1.02,
-        factorPerLevel: 0.02,
-        levelCurve: 'sqrt'
-      }
-    ]
-  },
   waveArmored: {
     name: '重甲',
     category: 'enchantment',
@@ -2987,22 +2953,10 @@ export const BUFF_DEFINITIONS = {
         factorPerLevel: 0.025
       },
       {
-        stat: 'maxShield',
-        type: 'multiply',
-        factor: 1.35,
-        factorPerLevel: 0.08
-      },
-      {
         stat: 'armor',
         type: 'add',
         amount: 1.6,
         amountPerLevel: 0.45
-      },
-      {
-        stat: 'knockbackResistance',
-        type: 'add',
-        amount: 0.16,
-        amountPerLevel: 0.035
       }
     ]
   },
@@ -3056,12 +3010,6 @@ export const BUFF_DEFINITIONS = {
     level: 1,
     modifiers: [
       {
-        stat: 'maxHealth',
-        type: 'multiply',
-        factor: 1.08,
-        factorPerLevel: 0.025
-      },
-      {
         stat: 'attackPower',
         type: 'multiply',
         factor: 1.14,
@@ -3072,12 +3020,6 @@ export const BUFF_DEFINITIONS = {
         type: 'multiply',
         factor: 1.06,
         factorPerLevel: 0.03
-      },
-      {
-        stat: 'knockbackResistance',
-        type: 'add',
-        amount: 0.08,
-        amountPerLevel: 0.02
       }
     ]
   },
@@ -3547,7 +3489,6 @@ export const ENCHANTMENTS = {
   wolfInstinct: BUFF_DEFINITIONS.wolfInstinct,
   ursineSpirit: BUFF_DEFINITIONS.ursineSpirit,
   heavyStrike: BUFF_DEFINITIONS.heavyStrike,
-  waveSwarm: BUFF_DEFINITIONS.waveSwarm,
   waveArmored: BUFF_DEFINITIONS.waveArmored,
   waveRush: BUFF_DEFINITIONS.waveRush,
   waveRanged: BUFF_DEFINITIONS.waveRanged,
@@ -5264,30 +5205,12 @@ export const CARD_DEFINITIONS = [
     color: '#a8d8ff'
   },
   {
-    id: 'swarm-enchant',
-    name: '集群',
-    kind: 'enchant',
-    label: '群',
-    artKey: 'waveSwarm',
-    summary: '1级：生命 -10%、攻击 -4.5%、攻速 +9%、移速 +4%；移速累计加成为 2% + 2% ×√等级，无上限但每级收益递减；每级额外生命 -2%、攻击 -1.5%、攻速 +3%',
-    target: 'friendly-unit',
-    radius: 1.1,
-    cooldown: 0,
-    energyCost: 2,
-    enchantmentId: 'waveSwarm',
-    effect: {
-      type: 'apply-buff',
-      buffId: 'waveSwarm'
-    },
-    color: '#93c86f'
-  },
-  {
     id: 'armored-enchant',
     name: '重甲',
     kind: 'enchant',
     label: '甲',
     artKey: 'waveArmored',
-    summary: '1级：生命 +12.5%、护盾 +43%、护甲 +2.05、抗击退 +19.5%；每级额外生命 +2.5%、护盾 +8%、护甲 +0.45、抗击退 +3.5%',
+    summary: '1级：生命 +12.5%、护甲 +2.05；每级额外生命 +2.5%、护甲 +0.45',
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,
@@ -5323,7 +5246,7 @@ export const CARD_DEFINITIONS = [
     kind: 'enchant',
     label: '远',
     artKey: 'waveRanged',
-    summary: '1级：射程 +0.73、弹速 +9%、攻击 +5%；每级额外射程 +0.18、弹速 +3%、攻击 +2%',
+    summary: '1级：射程 +0.73、攻击 +5%；每级额外射程 +0.18、攻击 +2%',
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,
@@ -5341,7 +5264,7 @@ export const CARD_DEFINITIONS = [
     kind: 'enchant',
     label: '城',
     artKey: 'waveSiege',
-    summary: '1级：生命 +10.5%、攻击 +18%、击退 +9%、抗击退 +10%；每级额外生命 +2.5%、攻击 +4%、击退 +3%、抗击退 +2%',
+    summary: '1级：攻击 +18%、击退 +9%；每级额外攻击 +4%、击退 +3%',
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,
@@ -5510,10 +5433,6 @@ export const CARD_META = {
   'shield-ward-enchant': {
     buyCost: 145,
     upgradeBaseCost: 40
-  },
-  'swarm-enchant': {
-    buyCost: 105,
-    upgradeBaseCost: 30
   },
   'armored-enchant': {
     buyCost: 135,
@@ -5795,24 +5714,18 @@ export const LEVEL_DEFINITIONS = [
     baseDifficulty: 1,
     waveDifficultyGrowth: 1,
     enemyPool: [
-      { type: 'goblinSoldier', weight: 5, minThreat: 1, minDifficulty: 1 },
-      { type: 'spider', weight: 1, minThreat: 2, minDifficulty: 1 },
-      { type: 'goblinArcher', weight: 2, minThreat: 3, minDifficulty: 1 },
-      { type: 'goblinHunter', weight: 1, minThreat: 5, minDifficulty: 2 }
+      { type: 'goblinSoldier', weight: 5, minWave: 1, minDifficulty: 1 },
+      { type: 'spider', weight: 1, minWave: 2, minDifficulty: 1 },
+      { type: 'goblinArcher', weight: 2, minWave: 3, minDifficulty: 1 },
+      { type: 'goblinHunter', weight: 1, minWave: 5, minDifficulty: 2 }
     ],
     elitePool: [
-      { type: 'frostScout', weight: 1, minThreat: 3, minDifficulty: 1 },
-      { type: 'snowDuskShaman', weight: 1, minThreat: 4, minDifficulty: 1 }
+      { type: 'frostScout', weight: 1, minWave: 3, minDifficulty: 1 },
+      { type: 'snowDuskShaman', weight: 1, minWave: 4, minDifficulty: 1 }
     ],
     bossPool: [
-      { type: 'frostTrollBoss', weight: 1, minThreat: 4.8, minDifficulty: 1 }
+      { type: 'frostTrollBoss', weight: 1, minWave: 4.8, minDifficulty: 1 }
     ],
-    enemyDirector: {
-      baseEnergyPerSecond: 0.56,
-      threatPerSecond: 0.018,
-      eliteMinThreat: 3,
-      bossMinThreat: 4.8
-    },
     world: {
       sceneKey: 'snow-valley'
     }
@@ -5826,25 +5739,19 @@ export const LEVEL_DEFINITIONS = [
     baseDifficulty: 2,
     waveDifficultyGrowth: 1.08,
     enemyPool: [
-      { type: 'goblinSoldier', weight: 5, minThreat: 1, minDifficulty: 1 },
-      { type: 'goblinArcher', weight: 3, minThreat: 2, minDifficulty: 1 },
-      { type: 'spider', weight: 1, minThreat: 2, minDifficulty: 1 },
-      { type: 'goblinHunter', weight: 2, minThreat: 4, minDifficulty: 1 },
-      { type: 'goblinShaman', weight: 1, minThreat: 5, minDifficulty: 2 },
-      { type: 'skeletonSoldier', weight: 2, minThreat: 3, minDifficulty: 2 }
+      { type: 'goblinSoldier', weight: 5, minWave: 1, minDifficulty: 1 },
+      { type: 'goblinArcher', weight: 3, minWave: 2, minDifficulty: 1 },
+      { type: 'spider', weight: 1, minWave: 2, minDifficulty: 1 },
+      { type: 'goblinHunter', weight: 2, minWave: 4, minDifficulty: 1 },
+      { type: 'goblinShaman', weight: 1, minWave: 5, minDifficulty: 2 },
+      { type: 'skeletonSoldier', weight: 2, minWave: 3, minDifficulty: 2 }
     ],
     elitePool: [
-      { type: 'tombLanternCrossbowman', weight: 1, minThreat: 3.5, minDifficulty: 2 }
+      { type: 'tombLanternCrossbowman', weight: 1, minWave: 3.5, minDifficulty: 2 }
     ],
     bossPool: [
-      { type: 'boneVoicePriest', weight: 1, minThreat: 5.6, minDifficulty: 2 }
+      { type: 'boneVoicePriest', weight: 1, minWave: 5.6, minDifficulty: 2 }
     ],
-    enemyDirector: {
-      baseEnergyPerSecond: 0.62,
-      threatPerSecond: 0.02,
-      eliteMinThreat: 3.5,
-      bossMinThreat: 5.6
-    },
     world: {
       sceneKey: 'dungeon-halls'
     }
@@ -5858,27 +5765,21 @@ export const LEVEL_DEFINITIONS = [
     baseDifficulty: 3,
     waveDifficultyGrowth: 1.16,
     enemyPool: [
-      { type: 'goblinSoldier', weight: 4, minThreat: 1, minDifficulty: 1 },
-      { type: 'goblinArcher', weight: 3, minThreat: 2, minDifficulty: 1 },
-      { type: 'skeletonSoldier', weight: 3, minThreat: 2, minDifficulty: 1 },
-      { type: 'spider', weight: 1, minThreat: 2, minDifficulty: 1 },
-      { type: 'goblinHunter', weight: 2, minThreat: 3, minDifficulty: 1 },
-      { type: 'goblinShaman', weight: 2, minThreat: 4, minDifficulty: 1 },
-      { type: 'skeletonArcher', weight: 2, minThreat: 4, minDifficulty: 2 },
-      { type: 'elfSniper', weight: 1, minThreat: 7, minDifficulty: 3 }
+      { type: 'goblinSoldier', weight: 4, minWave: 1, minDifficulty: 1 },
+      { type: 'goblinArcher', weight: 3, minWave: 2, minDifficulty: 1 },
+      { type: 'skeletonSoldier', weight: 3, minWave: 2, minDifficulty: 1 },
+      { type: 'spider', weight: 1, minWave: 2, minDifficulty: 1 },
+      { type: 'goblinHunter', weight: 2, minWave: 3, minDifficulty: 1 },
+      { type: 'goblinShaman', weight: 2, minWave: 4, minDifficulty: 1 },
+      { type: 'skeletonArcher', weight: 2, minWave: 4, minDifficulty: 2 },
+      { type: 'elfSniper', weight: 1, minWave: 7, minDifficulty: 3 }
     ],
     elitePool: [
-      { type: 'sandScorpionGuard', weight: 1, minThreat: 3.8, minDifficulty: 3 }
+      { type: 'sandScorpionGuard', weight: 1, minWave: 3.8, minDifficulty: 3 }
     ],
     bossPool: [
-      { type: 'yellowSandOgre', weight: 1, minThreat: 6.2, minDifficulty: 3 }
+      { type: 'yellowSandOgre', weight: 1, minWave: 6.2, minDifficulty: 3 }
     ],
-    enemyDirector: {
-      baseEnergyPerSecond: 0.68,
-      threatPerSecond: 0.022,
-      eliteMinThreat: 3.8,
-      bossMinThreat: 6.2
-    },
     world: {
       sceneKey: 'red-desert'
     }
@@ -5892,25 +5793,19 @@ export const LEVEL_DEFINITIONS = [
     baseDifficulty: 4,
     waveDifficultyGrowth: 1.24,
     enemyPool: [
-      { type: 'goblinSoldier', weight: 3, minThreat: 1, minDifficulty: 1 },
-      { type: 'spider', weight: 3, minThreat: 2, minDifficulty: 1 },
-      { type: 'goblinHunter', weight: 2, minThreat: 3, minDifficulty: 2 },
-      { type: 'goblinShaman', weight: 2, minThreat: 4, minDifficulty: 2 },
-      { type: 'venomArcher', weight: 2, minThreat: 5, minDifficulty: 3 },
-      { type: 'ogre', weight: 1, minThreat: 6, minDifficulty: 3 }
+      { type: 'goblinSoldier', weight: 3, minWave: 1, minDifficulty: 1 },
+      { type: 'spider', weight: 3, minWave: 2, minDifficulty: 1 },
+      { type: 'goblinHunter', weight: 2, minWave: 3, minDifficulty: 2 },
+      { type: 'goblinShaman', weight: 2, minWave: 4, minDifficulty: 2 },
+      { type: 'venomArcher', weight: 2, minWave: 5, minDifficulty: 3 },
+      { type: 'ogre', weight: 1, minWave: 6, minDifficulty: 3 }
     ],
     elitePool: [
-      { type: 'mireHunter', weight: 1, minThreat: 4.2, minDifficulty: 4 }
+      { type: 'mireHunter', weight: 1, minWave: 4.2, minDifficulty: 4 }
     ],
     bossPool: [
-      { type: 'rotrootColossus', weight: 1, minThreat: 6.8, minDifficulty: 4 }
+      { type: 'rotrootColossus', weight: 1, minWave: 6.8, minDifficulty: 4 }
     ],
-    enemyDirector: {
-      baseEnergyPerSecond: 0.74,
-      threatPerSecond: 0.024,
-      eliteMinThreat: 4.2,
-      bossMinThreat: 6.8
-    },
     world: {
       sceneKey: 'emerald-marsh'
     }
@@ -5972,6 +5867,11 @@ export const BALANCE = {
     minZ: -40,
     maxZ: 40
   },
+  playerEnergy: {
+    initial: 4,
+    max: 12,
+    regenerationPerSecond: 0.2
+  },
   playerBase: {
     position: { x: 0, y: 0, z: 30 },
     maxHealth: 50,
@@ -5996,34 +5896,6 @@ export const BALANCE = {
     attackDamage: 7,
     attackInterval: 1,
     attackDurabilityCost: 1
-  },
-  enemyDirector: {
-    initialDelaySeconds: 7,
-    startingEnergy: 0,
-    maxEnergy: 30,
-    baseEnergyPerSecond: 0.58,
-    energyPerThreat: 0.11,
-    decisionIntervalSeconds: 0.35,
-    activeEnemyLimit: 12,
-    baseThreat: 1,
-    threatPerSecond: 0.02,
-    threatPerFriendlyUnit: 0.12,
-    threatPerPlayerAltar: 0.35,
-    threatPerEnemyCampDamageRatio: 1.4,
-    maxThreat: 10,
-    normalCost: 4.2,
-    normalSquadCost: 7.5,
-    normalSquadThreat: 2,
-    eliteCost: 11.5,
-    eliteMinThreat: 2.8,
-    eliteCooldownSeconds: 20,
-    bossCost: 25,
-    bossMinThreat: 4.8,
-    bossCooldownSeconds: 60,
-    reserveFraction: 0.72,
-    openingThreatEnd: 2.4,
-    openingHealthMultiplier: 0.62,
-    openingDamageMultiplier: 0.56
   },
   runCurrency: {
     shop: {

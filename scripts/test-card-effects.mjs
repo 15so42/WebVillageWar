@@ -128,6 +128,45 @@ try {
   Math.random = previousRandom;
 }
 
+const playedTraining = [];
+const trainingEffects = new CardEffectSystem({
+  applyTeamGenericUpgrade(upgrade) {
+    playedTraining.push({ kind: 'generic', upgrade });
+    return true;
+  },
+  applyTeamSpecialUpgrade(unitType, upgrade) {
+    playedTraining.push({ kind: 'special', unitType, upgrade });
+    return true;
+  }
+});
+assert.equal(trainingEffects.resolve({
+  card: {
+    id: 'team-upgrade-unit-armor',
+    effect: {
+      type: 'apply-team-generic-upgrade',
+      upgrade: { id: 'unit-armor', kind: 'unit-generic' }
+    }
+  }
+}), true);
+assert.equal(trainingEffects.resolve({
+  card: {
+    id: 'team-special-knight-holy-shield',
+    effect: {
+      type: 'apply-team-special-upgrade',
+      unitType: 'knight',
+      upgrade: { id: 'knight-holy-shield', kind: 'unit-special' }
+    }
+  }
+}), true);
+assert.deepEqual(playedTraining, [
+  { kind: 'generic', upgrade: { id: 'unit-armor', kind: 'unit-generic' } },
+  {
+    kind: 'special',
+    unitType: 'knight',
+    upgrade: { id: 'knight-holy-shield', kind: 'unit-special' }
+  }
+]);
+
 const tacticalRewardPool = [
   { id: 'once-only-ability', kind: 'ability' },
   { id: 'once-only-summon', kind: 'summon' }

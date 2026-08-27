@@ -39,6 +39,28 @@ assert.equal(
   false,
   '怪物远射词缀不应提高投射物速度'
 );
+assert.equal(BUFF_DEFINITIONS.waveSwarm, undefined, '集群附魔定义应移除');
+assert.equal(CARD_DEFINITIONS.some((card) => card.id === 'swarm-enchant'), false, '集群附魔牌应移除');
+assert.deepEqual(
+  BUFF_DEFINITIONS.waveArmored.modifiers.map((modifier) => modifier.stat),
+  ['maxHealth', 'armor'],
+  '重甲附魔只增加生命和护甲'
+);
+assert.deepEqual(
+  BUFF_DEFINITIONS.waveRush.modifiers.map((modifier) => modifier.stat),
+  ['moveSpeed', 'attackRate'],
+  '冲锋附魔只增加移速和攻速'
+);
+assert.deepEqual(
+  BUFF_DEFINITIONS.waveRanged.modifiers.map((modifier) => modifier.stat),
+  ['attackRange', 'attackPower'],
+  '远射附魔只增加射程和攻击'
+);
+assert.deepEqual(
+  BUFF_DEFINITIONS.waveSiege.modifiers.map((modifier) => modifier.stat),
+  ['attackPower', 'knockback'],
+  '攻城附魔只增加攻击和击退'
+);
 assert.equal(UNIT_DEFINITIONS.engineer.support.repairAura.amount, 10);
 assert.equal(UNIT_DEFINITIONS.engineer.support.repairAura.spellPowerFactor, 0.5);
 assert.equal(resolveSupportAmount({

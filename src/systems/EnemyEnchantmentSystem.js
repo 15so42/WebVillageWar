@@ -1,211 +1,31 @@
 import { TEAMS } from '../data/gameData.js';
 import { endlessEnchantCount, endlessEnchantLevel, endlessEnemyClass } from './endlessMode.js';
 
-const AFFIX_PRIMARY_BUFF = {
-  swarm: 'waveSwarm',
-  armored: 'waveArmored',
-  rush: 'waveRush',
-  ranged: 'waveRanged',
-  siege: 'waveSiege'
-};
-
-const AFFIX_ENCHANT_WEIGHTS = {
-  swarm: [
-    { id: 'waveSwarm', weight: 8 },
-    { id: 'power', weight: 1 },
-    { id: 'poison', weight: 1 }
-  ],
-  armored: [
-    { id: 'waveArmored', weight: 8 },
-    { id: 'protection', weight: 2 },
-    { id: 'block', weight: 2 }
-  ],
-  rush: [
-    { id: 'waveRush', weight: 8 },
-    { id: 'power', weight: 2 },
-    { id: 'critical', weight: 1 }
-  ],
-  ranged: [
-    { id: 'waveRanged', weight: 8 },
-    { id: 'focus', weight: 2 },
-    { id: 'fire', weight: 1 }
-  ],
-  siege: [
-    { id: 'waveSiege', weight: 8 },
-    { id: 'power', weight: 2 },
-    { id: 'explosion', weight: 2 }
-  ]
-};
-
-const ROLE_ENCHANT_FALLBACK = {
-  melee: [
-    { id: 'power', weight: 3 },
-    { id: 'toughness', weight: 2 },
-    { id: 'block', weight: 2 }
-  ],
-  ranged: [
-    { id: 'focus', weight: 3 },
-    { id: 'fire', weight: 2 },
-    { id: 'critical', weight: 2 }
-  ],
-  support: [
-    { id: 'protection', weight: 2 },
-    { id: 'recovery', weight: 3 },
-    { id: 'spiritShield', weight: 3 }
-  ]
-};
-
-const UNIT_ENCHANT_PROFILES = {
-  goblinSoldier: [
-    { id: 'power', weight: 3 },
-    { id: 'toughness', weight: 2 },
-    { id: 'block', weight: 2 }
-  ],
-  enemyRaider: [
-    { id: 'power', weight: 3 },
-    { id: 'critical', weight: 3 },
-    { id: 'lifesteal', weight: 2 }
-  ],
-  skeletonSoldier: [
-    { id: 'thorns', weight: 3 },
-    { id: 'toughness', weight: 3 },
-    { id: 'block', weight: 2 }
-  ],
-  goblinTroll: [
-    { id: 'toughness', weight: 3 },
-    { id: 'protection', weight: 3 },
-    { id: 'power', weight: 2 }
-  ],
-  ogre: [
-    { id: 'power', weight: 3 },
-    { id: 'toughness', weight: 3 },
-    { id: 'explosion', weight: 2 }
-  ],
-  yellowSandOgre: [
-    { id: 'power', weight: 3 },
-    { id: 'toughness', weight: 3 },
-    { id: 'explosion', weight: 2 }
-  ],
-  frostTrollBoss: [
-    { id: 'frost', weight: 4 },
-    { id: 'toughness', weight: 3 },
-    { id: 'power', weight: 2 }
-  ],
-  shieldBearer: [
-    { id: 'block', weight: 4 },
-    { id: 'protection', weight: 3 },
-    { id: 'thorns', weight: 2 }
-  ],
-  sandScorpionGuard: [
-    { id: 'thorns', weight: 3 },
-    { id: 'poison', weight: 3 },
-    { id: 'protection', weight: 2 }
-  ],
-  scorpion: [
-    { id: 'poison', weight: 4 },
-    { id: 'thorns', weight: 2 },
-    { id: 'bleed', weight: 2 }
-  ],
-  goblinArcher: [
-    { id: 'focus', weight: 3 },
-    { id: 'fire', weight: 2 },
-    { id: 'critical', weight: 2 }
-  ],
-  skeletonArcher: [
-    { id: 'focus', weight: 3 },
-    { id: 'critical', weight: 3 },
-    { id: 'spiritWeapon', weight: 2 }
-  ],
-  goblinHunter: [
-    { id: 'focus', weight: 3 },
-    { id: 'critical', weight: 3 },
-    { id: 'bleed', weight: 2 }
-  ],
-  venomArcher: [
-    { id: 'poison', weight: 4 },
-    { id: 'focus', weight: 2 },
-    { id: 'bleed', weight: 2 }
-  ],
-  elfSniper: [
-    { id: 'focus', weight: 4 },
-    { id: 'critical', weight: 3 },
-    { id: 'power', weight: 1 }
-  ],
-  tombLanternCrossbowman: [
-    { id: 'focus', weight: 3 },
-    { id: 'critical', weight: 3 },
-    { id: 'soulEater', weight: 2 }
-  ],
-  frostAcolyte: [
-    { id: 'frost', weight: 4 },
-    { id: 'focus', weight: 2 },
-    { id: 'drain', weight: 2 }
-  ],
-  frostScout: [
-    { id: 'frost', weight: 3 },
-    { id: 'critical', weight: 3 },
-    { id: 'focus', weight: 2 }
-  ],
-  goblinShaman: [
-    { id: 'spiritShield', weight: 3 },
-    { id: 'recovery', weight: 3 },
-    { id: 'drain', weight: 2 }
-  ],
-  boneVoicePriest: [
-    { id: 'curse', weight: 3 },
-    { id: 'drain', weight: 3 },
-    { id: 'spiritShield', weight: 2 }
-  ],
-  snowDuskShaman: [
-    { id: 'frost', weight: 3 },
-    { id: 'spiritShield', weight: 3 },
-    { id: 'recovery', weight: 2 }
-  ],
-  wizard: [
-    { id: 'fire', weight: 3 },
-    { id: 'spiritWeapon', weight: 3 },
-    { id: 'drain', weight: 2 }
-  ],
-  goblinBomber: [
-    { id: 'explosion', weight: 4 },
-    { id: 'fire', weight: 3 },
-    { id: 'power', weight: 1 }
-  ],
-  spider: [
-    { id: 'poison', weight: 4 },
-    { id: 'bleed', weight: 3 },
-    { id: 'power', weight: 1 }
-  ]
-};
-
-const PLAYER_COUNTER_ENCHANTS = {
-  buildings: [
-    { id: 'power', weight: 2 },
-    { id: 'explosion', weight: 3 },
-    { id: 'soulEater', weight: 2 }
-  ],
-  ranged: [
-    { id: 'thorns', weight: 3 },
-    { id: 'protection', weight: 2 },
-    { id: 'block', weight: 2 }
-  ],
-  melee: [
-    { id: 'fire', weight: 2 },
-    { id: 'poison', weight: 2 },
-    { id: 'focus', weight: 2 }
-  ],
-  support: [
-    { id: 'power', weight: 2 },
-    { id: 'critical', weight: 2 },
-    { id: 'lifesteal', weight: 2 }
-  ]
-};
-
-const MAX_FIELD_ENCHANTS = {
-  normal: 3,
-  elite: 3,
-  boss: 4
-};
+export const ENEMY_RANDOM_ENCHANT_IDS = Object.freeze([
+  'waveArmored',
+  'waveRush',
+  'waveRanged',
+  'waveSiege',
+  'power',
+  'poison',
+  'protection',
+  'block',
+  'critical',
+  'focus',
+  'fire',
+  'explosion',
+  'toughness',
+  'lifesteal',
+  'thorns',
+  'frost',
+  'spiritShield',
+  'bleed',
+  'spiritWeapon',
+  'soulEater',
+  'drain',
+  'recovery',
+  'curse'
+]);
 
 export function waveEnchantCountForIndex(waveIndex) {
   const index = Math.max(1, Math.floor(Number(waveIndex) || 1));
@@ -213,13 +33,6 @@ export function waveEnchantCountForIndex(waveIndex) {
   if (index >= 7) return 2;
   return 1;
 }
-
-const SOURCE_WEIGHT = {
-  unit: 4,
-  affix: 2,
-  counter: 1,
-  role: 1
-};
 
 export class EnemyEnchantmentSystem {
   constructor(game) {
@@ -283,7 +96,7 @@ export class EnemyEnchantmentSystem {
         )
       );
     }
-    const waveIndex = waveConfig?.index ?? waveConfig?.threatTier ?? 1;
+    const waveIndex = waveConfig?.index ?? 1;
     return waveEnchantCountForIndex(waveIndex);
   }
 
@@ -308,8 +121,8 @@ export class EnemyEnchantmentSystem {
       const cost = this.enchantCostForUnit(unit, level);
       if (this.game.enemyEnergyAvailableForEnchant(unit) < cost) continue;
       const buffId = this.pickEnchantForUnit(unit, {
-        affixId: unit.enemyForce?.affixId ?? null,
-        threatTier: this.game.enemyDirector?.threatTier ?? 1,
+        id: unit.enemyForce?.id ?? null,
+        index: unit.enemyForce?.index ?? this.game.currentWave?.index ?? 1,
         effectiveDifficulty: unit.enemyForce?.effectiveDifficulty ?? 1
       }, unit.enchantments.size);
       if (!buffId) continue;
@@ -355,7 +168,6 @@ export class EnemyEnchantmentSystem {
       );
     }
     const waveIndex = unit.enemyForce?.index
-      ?? unit.enemyForce?.threatTier
       ?? this.game.currentWave?.index
       ?? 1;
     return Math.min(unitLimit, waveEnchantCountForIndex(waveIndex));
@@ -373,58 +185,18 @@ export class EnemyEnchantmentSystem {
       );
     }
     return enemyEnchantLevel(
-      waveConfig?.threatTier ?? this.game.enemyDirector?.threatTier ?? 1,
       waveConfig?.effectiveDifficulty ?? this.game.effectiveDifficulty?.() ?? 1
     );
   }
 
   pickEnchantForUnit(unit, waveConfig, slotIndex = 0) {
     const used = new Set(unit.enchantments.keys());
-    const affixIds = [
-      waveConfig?.affixId,
-      ...(Array.isArray(waveConfig?.affixIds) ? waveConfig.affixIds : [])
-    ].filter(Boolean);
-    const affixForSlot = affixIds[slotIndex] ?? affixIds[0];
-    const primaryBuff = AFFIX_PRIMARY_BUFF[affixForSlot];
-    if (primaryBuff && !used.has(primaryBuff) && !unitResistsEnchant(unit, primaryBuff)) {
-      return primaryBuff;
-    }
-
-    const weighted = new Map();
-    const addEntries = (entries, multiplier) => {
-      entries.forEach((entry) => {
-        if (!entry?.id || used.has(entry.id) || unitResistsEnchant(unit, entry.id)) return;
-        weighted.set(entry.id, (weighted.get(entry.id) ?? 0) + Math.max(1, entry.weight) * multiplier);
-      });
-    };
-
-    const unitProfile = UNIT_ENCHANT_PROFILES[unit.type];
-    if (unitProfile) addEntries(unitProfile, SOURCE_WEIGHT.unit);
-    const affixId = affixForSlot ?? waveConfig?.affixId;
-    if (affixId && AFFIX_ENCHANT_WEIGHTS[affixId]) {
-      addEntries(AFFIX_ENCHANT_WEIGHTS[affixId], SOURCE_WEIGHT.affix);
-    }
-    addEntries(this.counterEnchantPool(), SOURCE_WEIGHT.counter);
-    const role = unit.definition?.role ?? 'melee';
-    addEntries(ROLE_ENCHANT_FALLBACK[role] ?? ROLE_ENCHANT_FALLBACK.melee, SOURCE_WEIGHT.role);
-
-    const pool = [...weighted.entries()].map(([id, weight]) => ({ id, weight }));
+    const pool = ENEMY_RANDOM_ENCHANT_IDS.filter((buffId) => (
+      !used.has(buffId) && !unitResistsEnchant(unit, buffId)
+    ));
     if (!pool.length) return null;
     const roll = stableEnchantRoll(unit, waveConfig, slotIndex + pool.length * 7);
-    return pickWeightedEnchant(pool, roll);
-  }
-
-  counterEnchantPool() {
-    const intel = this.getPlayerIntel();
-    if (!intel) return [];
-    const pool = [];
-    if ((intel.buildingCount ?? 0) >= 1) pool.push(...PLAYER_COUNTER_ENCHANTS.buildings);
-    if ((intel.supportCount ?? 0) >= 1) pool.push(...PLAYER_COUNTER_ENCHANTS.support);
-    const rangedCount = intel.units?.filter((entry) => entry.role === 'ranged').length ?? 0;
-    const meleeCount = intel.units?.filter((entry) => entry.role === 'melee').length ?? 0;
-    if (rangedCount >= meleeCount && rangedCount >= 3) pool.push(...PLAYER_COUNTER_ENCHANTS.ranged);
-    if (meleeCount >= rangedCount + 2) pool.push(...PLAYER_COUNTER_ENCHANTS.melee);
-    return pool;
+    return pool[roll % pool.length];
   }
 
   getPlayerIntel() {
@@ -445,8 +217,7 @@ export class EnemyEnchantmentSystem {
     if (cost > 0 && !this.game.spendEnemyEnergy(cost)) return false;
     const applied = this.game.buffs.applyBuff(unit, buffId, unit, {
       level: Math.max(1, Math.floor(level)),
-      sourceEnemyEnchant: true,
-      sourceWaveAffix: waveConfig?.affixId ?? null
+      sourceEnemyEnchant: true
     });
     if (!applied) {
       if (cost > 0) {
@@ -476,27 +247,14 @@ export class EnemyEnchantmentSystem {
   }
 }
 
-function enemyEnchantLevel(threatTier, difficulty) {
-  return 1 +
-    Math.floor((Math.max(1, difficulty) - 1) / 2) +
-    Math.floor((Math.max(1, threatTier) - 1) / 4);
+function enemyEnchantLevel(difficulty) {
+  return 1 + Math.floor((Math.max(1, difficulty) - 1) / 2);
 }
 
 function enchantPriority(unit) {
   if (unit?.isBoss) return 3;
   if (unit?.isElite) return 2;
   return 1;
-}
-
-function pickWeightedEnchant(entries, roll) {
-  const total = entries.reduce((sum, entry) => sum + Math.max(1, entry.weight), 0);
-  if (total <= 0) return null;
-  let remaining = roll % total;
-  for (let i = 0; i < entries.length; i += 1) {
-    remaining -= Math.max(1, entries[i].weight);
-    if (remaining < 0) return entries[i].id;
-  }
-  return entries[entries.length - 1].id;
 }
 
 function unitResistsEnchant(unit, buffId) {
@@ -512,6 +270,6 @@ function unitResistsEnchant(unit, buffId) {
 function stableEnchantRoll(unit, waveConfig, salt = 0) {
   const unitId = Number(unit?.id) || 0;
   const forceId = Number(waveConfig?.id) || 0;
-  const threatTier = Number(waveConfig?.threatTier) || 1;
-  return Math.abs((unitId * 73856093) ^ (forceId * 19349663) ^ (threatTier * 83492791) ^ (salt * 2654435761));
+  const waveIndex = Number(waveConfig?.index) || 1;
+  return Math.abs((unitId * 73856093) ^ (forceId * 19349663) ^ (waveIndex * 83492791) ^ (salt * 2654435761));
 }

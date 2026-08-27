@@ -6,12 +6,8 @@ import {
 import { buildEnchantmentEncyclopediaSections } from '../data/enchantmentEncyclopedia.js';
 import { TEST_VERSION_LABEL } from '../version.js';
 import {
-  cardEnergyCost,
   cardThemeColor,
-  cardUseBarMarkup,
-  createCardArtMarkup,
-  createForgedCardMarkup,
-  toRomanNumeral
+  createForgedCardMarkup
 } from './CardSystem.js';
 import { calculateLevelReward } from '../utils/levelRewards.js';
 import { CHALLENGE_MODE, isEndlessMode, normalizeChallengeMode } from './endlessMode.js';
@@ -854,6 +850,33 @@ const DEVELOPMENT_CHANGELOG_ARCHIVE = [
 ];
 
 const CHANGELOG_ENTRIES = [
+  {
+    date: '2026-08-27',
+    title: '雪谷光照与相机观感打磨',
+    items: [
+      '第一关雪谷渲染调参重构：恢复暖阳主光的“阳光感”与冷暖对比，同时压掉死黑阴影——受光雪面镀暖金、背光岩面留深蓝灰，避免整场平白。',
+      '第一关默认相机俯角由约 45° 降至约 37°，更接近“跟在部队后方”的现场视角，行进方向与敌兵来向更清楚。'
+    ]
+  },
+  {
+    date: '2026-08-26',
+    title: '战斗界面交互修复',
+    items: [
+      '战斗中的操作提示、波次详情、卡牌与状态文字不再被鼠标拖拽选中，避免出现浏览器蓝色文字高亮；真正的可编辑输入框仍可正常选择文字。'
+    ]
+  },
+  {
+    date: '2026-08-25',
+    title: '单位成长、波次奖励与战斗界面更新',
+    items: [
+      '开局选择单位后改为获得对应单位卡，打出单位卡才会部署并自动进入一次驻守；单位卡现已加入普通波次奖励，获得后还会解锁对应兵种专精卡。',
+      '每个己方单位独立积攒免费附魔次数：每 60 秒获得 1 次、上限 4 次；用附魔卡时消耗 1 次免费次数并按卡牌等级完整附魔，不消耗能量。',
+      '波次奖励改为统一卡池抽取，训练与随机卡牌都需先获得再使用；重随固定消耗 4 银币，军需铺入口及快捷键暂时关闭，Boss 也不再赠送免费军需铺。',
+      '无尽模式波次详情新增“自动跳过奖励”选项，单机与联机均可跳过普通及 Boss 奖励；修复勾选框无法操作，并将详情数值精简为只显示难度。',
+      '能量改为每秒恢复 0.2，普通击杀不再回能，“猎魂潮汐”除外；敌人主题只决定怪物种类，剩余附魔完全随机，并精简重甲、冲锋、远射、攻城的属性。',
+      '统一手牌、临时牌、波次奖励、主界面商店与升级界面的卡牌样式和文字类型标识；补强雷法师雷云、全体强化反馈、免费附魔提示及祭坛范围表现。'
+    ]
+  },
   {
     date: '2026-08-24',
     title: '雪谷道路、构图与场景性能定稿',
@@ -1937,7 +1960,7 @@ export class MetaGameSystem {
     const baseDifficulty = Math.max(1, Math.floor(selectedLevel.baseDifficulty ?? 1));
     const endless = isEndlessMode(this.selectedChallengeMode);
     // The battle director uses a fixed 21-wave schedule.  Deriving this from
-    // the old threat value left the level-select screen advertising five waves.
+    // Keep the level-select description aligned with the actual campaign schedule.
     const totalWaves = 21;
 
     return `
@@ -2056,7 +2079,7 @@ export class MetaGameSystem {
             <div class="meta-section-title">出战牌组</div>
             <p>已选择 ${selectedCount} 张。牌组数量不再要求固定，但至少选择 1 张，并且必须包含单位卡；波次奖励会从已确认牌组中发放。</p>
             ${deckReady ? '' : `<p class="meta-deck-note">${deckValidationMessage(deckValidation)}</p>`}
-            <p class="meta-deck-note">能量不会自动恢复，战斗中靠击杀敌人充能。</p>
+            <p class="meta-deck-note">能量每秒自动恢复 0.2；普通击杀不再充能，“猎魂潮汐”除外。</p>
           </div>
           <div class="meta-deck-actions">
             <button class="meta-primary-button" type="button" data-action="start-level" ${deckReady ? '' : 'disabled'}>
@@ -2096,7 +2119,7 @@ export class MetaGameSystem {
         <section class="meta-guide-grid">
           <article class="meta-panel">
             <div class="meta-section-title">能量</div>
-            <p>能量不会随时间恢复。击杀敌军、精英、Boss 和占领能量祭坛可获得能量，用于出牌与弃牌。</p>
+            <p>能量每秒自动恢复 0.2，用于出牌与弃牌。普通击杀不再获得能量，“猎魂潮汐”等能力与能量祭坛仍可额外补充。</p>
           </article>
           <article class="meta-panel">
             <div class="meta-section-title">卡牌</div>
@@ -2184,7 +2207,6 @@ export class MetaGameSystem {
             return this.renderMetaCard(card, {
               action: 'upgrade-card',
               stateText: `升级 ${cost}`,
-              handStyle: true,
               disabled: this.progress.coins < cost,
               footer: `<span>下级费用 ${cost}</span>`
             });
@@ -2212,7 +2234,7 @@ export class MetaGameSystem {
           ${endReasonText ? `<p>${endReasonText}</p>` : ''}
           <div class="meta-result-grid">
             <span>用时 <strong>${formatTime(result.elapsedTime)}</strong></span>
-            <span>应对威胁 <strong>${result.threat ?? result.wave ?? 0}</strong></span>
+            <span>完成波次 <strong>${result.wave ?? 0}</strong></span>
             <span>获得金币 <strong>${result.reward}</strong></span>
             ${endless
               ? `<span>结束难度 <strong>${Number(result.endingDifficulty ?? 0).toFixed(1)}</strong></span>`
@@ -2240,42 +2262,14 @@ export class MetaGameSystem {
     const deckMarkMarkup = options.deckState
       ? '<div class="meta-card-deck-mark" aria-hidden="true"><span></span></div>'
       : '';
-    if (options.handStyle) {
-      return `
-        <article class="meta-card meta-forged-hand-card is-kind-${card.kind}" style="--card-color:${cardThemeColor(card)}" aria-label="${card.name}">
-          <div class="meta-forged-card-shell">
-            ${createForgedCardMarkup(card)}
-          </div>
-          ${options.footer ? `<div class="meta-forged-card-footer">${options.footer}</div>` : ''}
-          <button
-            class="meta-card-action${actionClass}"
-            type="button"
-            ${actionAttribute}="${options.action}"
-            data-card-id="${card.id}"
-            ${disabled}
-          >
-            ${options.stateText}
-          </button>
-        </article>
-      `;
-    }
     return `
-      <article class="meta-card is-kind-${card.kind}${selected}${deckState}" style="--card-color:${cardThemeColor(card)}">
-        <div class="meta-card-cost">${cardEnergyCost(card)}</div>
-        <div class="meta-card-level">${toRomanNumeral(card.level)}</div>
-        ${cardUseBarMarkup(card, 'meta-card-use-bar')}
+      <article class="meta-card meta-forged-hand-card is-kind-${card.kind}${selected}${deckState}" style="--card-color:${cardThemeColor(card)}" aria-label="${card.name}">
+        <div class="meta-forged-card-shell">
+          ${createForgedCardMarkup(card)}
+        </div>
         ${statusMarkup}
         ${deckMarkMarkup}
-        <div class="meta-card-face">
-          <div class="meta-card-header">
-            <span class="meta-card-rune">${card.label}</span>
-            <span>${kindLabel(card.kind)}</span>
-          </div>
-          ${createCardArtMarkup(card)}
-          <strong>${card.name}</strong>
-          <p>${card.summary}</p>
-          ${options.footer ? `<div class="meta-card-footer">${options.footer}</div>` : ''}
-        </div>
+        ${options.footer ? `<div class="meta-forged-card-footer">${options.footer}</div>` : ''}
         <button
           class="meta-card-action${actionClass}"
           type="button"
@@ -2374,16 +2368,6 @@ export class MetaGameSystem {
 
   clearDeckCards() {
     this.setDeckSelection([]);
-  }
-
-  // 战斗内消耗局外金币（波次奖励重新随机等），返回是否成功。
-  spendCoins(amount) {
-    if (!Number.isFinite(amount) || amount <= 0) return false;
-    const cost = Math.max(0, Math.floor(amount));
-    if (this.progress.coins < cost) return false;
-    this.progress.coins -= cost;
-    saveProgress(this.progress);
-    return true;
   }
 
   upgradeCard(id) {
@@ -2636,15 +2620,6 @@ function difficultyGrowthMultiplier(level, selectedDifficulty) {
 function formatGrowthMultiplier(value) {
   const rounded = Math.round(value * 100) / 100;
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/0$/, '');
-}
-
-function kindLabel(kind) {
-  if (kind === 'summon') return '单位';
-  if (kind === 'spell') return '法术';
-  if (kind === 'building') return '建筑';
-  if (kind === 'tactic') return '战术';
-  if (kind === 'ability') return '能力';
-  return '附魔';
 }
 
 function formatTime(seconds) {

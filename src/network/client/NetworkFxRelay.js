@@ -33,6 +33,9 @@ export function applyNetworkFx(game, event) {
     case 'fx_hit':
       effects.spawnHit(vecFrom(event), event.color ?? '#f6e7a0');
       break;
+    case 'fx_unit_upgrade':
+      effects.spawnUnitUpgrade(vecFrom(event), event.options ?? {});
+      break;
     case 'fx_damage':
       effects.spawnDamageNumber(vecFrom(event), event.amount ?? 0, {
         damageType: event.damageType,
@@ -156,6 +159,20 @@ const EFFECT_RELAY_SPECS = [
       name: 'fx_hit',
       ...vec3(position),
       color
+    })
+  },
+  {
+    method: 'spawnUnitUpgrade',
+    name: 'fx_unit_upgrade',
+    serialize: ([position, options = {}]) => ({
+      name: 'fx_unit_upgrade',
+      ...vec3(position),
+      options: {
+        color: options.color,
+        radius: options.radius,
+        height: options.height,
+        duration: options.duration
+      }
     })
   },
   {

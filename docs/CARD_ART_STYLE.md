@@ -12,6 +12,12 @@ Village War card art should use the same low-poly ImageGen style as the current 
 - Characters should use compact iconic poses. Effects, buildings, tactics, and abilities should be symbolic icons rather than scenes.
 - Generate on a solid `#ff00ff` chroma-key background, remove it locally, and save final assets as transparent PNGs under `public/card-art`.
 
+## Unified Card Face Contract
+
+- Every gameplay card uses `createForgedCardMarkup` as its single card-face renderer. This includes the live hand, temporary cards, draw/discard pile viewers, wave rewards, training and specialization rewards, the supply shop, the main-menu deck and upgrade screens, co-op deck selection, and loot pickup confirmation.
+- A screen may change the outer card size, grid density, selection state, purchase button, or status overlay. It must not replace the forged frame, cost housing, art region, top-right Chinese type plate, icon/name/level metadata row, description area, or use-count bar with a local card design.
+- Training and specialization remain cards: use the same forged structure and identify them with the `训练卡` and `专精卡` type plates instead of dedicated ledger-style faces.
+
 ## Approved Unit Character Anchor
 
 Use `public/card-art/swordsman-imagegen-lowpoly-v4.png` as the approved visual anchor for unit-card characters.
@@ -21,7 +27,7 @@ Use `public/card-art/swordsman-imagegen-lowpoly-v4.png` as the approved visual a
 - Keep the weapon, helmet, stance, and profession silhouette readable at `96x64` card-art size.
 - Prefer muted forest green, warm leather brown, desaturated steel, and one restrained class accent.
 - The character art itself must remain frameless: no hexagon, badge, border, attribute row, text, scenery, ground plane, or cast shadow.
-- Unit-card hand UI uses a dark forged-iron frame. Overlay the independently cropped `unit-cost-frame-v1.png` at the top-left using its original source-image proportions, then centre the energy numeral inside that component; do not reconstruct or align the housing with approximate CSS shapes. The cropped housing has its own fixed dark neutral centre and must never inherit or mix with the card-type colour. Directly below the character art, use a deliberately taller metadata row with a card-type icon on the left, the card name in the centre, and a numbered level badge on the right. Do not use text labels, sword icons, or heart icons for those edge slots. Centre the description, preserve the existing card-use system while placing its bar inside the bottom of the character-art panel, and keep the character-art region about 15% flatter than the previous hand-card layout.
+- Unit-card hand UI uses a dark forged-iron frame. Overlay the independently cropped `unit-cost-frame-v1.png` at the top-left using its original source-image proportions, then centre the energy numeral inside that component; do not reconstruct or align the housing with approximate CSS shapes. The cropped housing has its own fixed dark neutral centre and must never inherit or mix with the card-type colour. Directly below the character art, use a deliberately taller metadata row with a card-type icon on the left, the card name in the centre, and a numbered level badge on the right. Keep those edge slots icon-based, and add a concise Chinese card-type text plate at the top-right of the art panel for immediate recognition; do not add sword or heart stat labels. Centre the description, preserve the existing card-use system while placing its bar inside the bottom of the character-art panel, and keep the character-art region about 15% flatter than the previous hand-card layout.
 
 ## Unit Character Prompt Pattern
 

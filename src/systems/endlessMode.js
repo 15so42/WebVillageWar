@@ -1,3 +1,5 @@
+import { ENEMY_DIFFICULTY_STAT_SCALE } from './difficultyRules.js';
+
 export const CHALLENGE_MODE = Object.freeze({
   STANDARD: 'standard',
   ENDLESS: 'endless'
@@ -38,6 +40,7 @@ const MAX_DIFFICULTY_HEALTH_WEIGHT = 4;
 const FAST_KILL_PERFORMANCE_GAIN = 0.1;
 const SLOW_KILL_PERFORMANCE_LOSS = 0.05;
 const PLAYER_UNIT_DEATH_PERFORMANCE_LOSS = 0.1;
+const PLAYER_UNIT_DEATH_DIFFICULTY_SHARE = 0.3;
 
 export function normalizeChallengeMode(value) {
   return value === CHALLENGE_MODE.ENDLESS
@@ -160,18 +163,24 @@ export function resolveEndlessEnemyDefeat({
 export function applyEndlessDifficulty(currentDifficulty, delta) {
   const current = Number.isFinite(Number(currentDifficulty)) ? Number(currentDifficulty) : 0;
   const change = Number.isFinite(Number(delta)) ? Number(delta) : 0;
-  return roundTo(current + change, 2);
+  return Math.max(0, roundTo(current + change, 2));
 }
 
 export function endlessPlayerUnitDeathPerformanceDelta() {
   return -PLAYER_UNIT_DEATH_PERFORMANCE_LOSS;
 }
 
+export function endlessPlayerUnitDeathDifficultyDelta(currentDifficulty, ownedCombatUnitCount) {
+  const difficulty = Math.max(0, Number(currentDifficulty) || 0);
+  const unitCount = Math.max(1, Math.floor(Number(ownedCombatUnitCount) || 1));
+  return roundTo(-(difficulty / unitCount) * PLAYER_UNIT_DEATH_DIFFICULTY_SHARE, 4);
+}
+
 export function endlessEnemyStatFactors(difficulty) {
   const value = Number.isFinite(Number(difficulty)) ? Number(difficulty) : 0;
   return {
-    health: Math.max(0.1, 1 + value * 0.11),
-    damage: Math.max(0.1, 1 + value * 0.1)
+    health: Math.max(0.1, ENEMY_DIFFICULTY_STAT_SCALE * (1 + value * 0.11)),
+    damage: Math.max(0.1, ENEMY_DIFFICULTY_STAT_SCALE * (1 + value * 0.1))
   };
 }
 

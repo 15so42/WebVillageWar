@@ -181,10 +181,11 @@ body.is-game-active .pc-medieval-hud .wave-command-panel .wave-command-info {
   min-height: 72px;
   box-sizing: border-box;
   display: grid !important;
-  grid-template-columns: minmax(108px, 0.72fr) minmax(150px, 1.28fr);
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
-  padding: 7px 12px;
+  gap: 3px;
+  padding: 6px 12px 5px;
   overflow: hidden;
   border: 0 !important;
   border-radius: 0 !important;
@@ -195,6 +196,7 @@ body.is-game-active .pc-medieval-hud .wave-command-panel .wave-command-info {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.045),
     inset 0 -1px 0 rgba(0, 0, 0, 0.32) !important;
+  pointer-events: auto;
   transform: none !important;
 }
 
@@ -247,85 +249,31 @@ body.is-game-active .wave-command-roster {
   white-space: nowrap;
 }
 
-body.is-game-active .wave-command-affixes {
+body.is-game-active .wave-command-auto-skip {
   min-width: 0;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  overflow: hidden;
-}
-
-body.is-game-active .wave-affix-token {
-  --affix-color: #8ba5a2;
-  min-width: 0;
-  max-width: 126px;
-  min-height: 42px;
-  box-sizing: border-box;
-  display: grid;
-  grid-template-columns: 30px minmax(0, 1fr);
-  align-items: center;
-  gap: 7px;
-  padding: 5px 8px 5px 5px;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--affix-color) 45%, #595b57);
-  clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.07), transparent 42%),
-    linear-gradient(180deg, #3a3d3b, #262928);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    inset 0 -3px 0 rgba(8, 10, 9, 0.18),
-    0 3px 4px rgba(0, 0, 0, 0.3);
-}
-
-body.is-game-active .wave-affix-token[data-affix="swarm"] { --affix-color: #a2b57b; }
-body.is-game-active .wave-affix-token[data-affix="armored"] { --affix-color: #a8a49a; }
-body.is-game-active .wave-affix-token[data-affix="rush"] { --affix-color: #c98d70; }
-body.is-game-active .wave-affix-token[data-affix="ranged"] { --affix-color: #7fa89a; }
-body.is-game-active .wave-affix-token[data-affix="siege"] { --affix-color: #b9796b; }
-
-body.is-game-active .wave-affix-token-icon {
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  clip-path: polygon(50% 0, 94% 25%, 94% 75%, 50% 100%, 6% 75%, 6% 25%);
-  color: #f1eadc;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.22), transparent 38%),
-    color-mix(in srgb, var(--affix-color) 66%, #303331);
-  box-shadow: inset -3px -4px 4px rgba(0, 0, 0, 0.25);
-  font-size: 11px;
-  font-weight: 900;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
-}
-
-body.is-game-active .wave-affix-token-copy {
-  min-width: 0;
-  display: grid;
-  gap: 1px;
-}
-
-body.is-game-active .wave-affix-token strong,
-body.is-game-active .wave-affix-token small {
-  overflow: hidden;
-  text-overflow: ellipsis;
+  justify-self: start;
+  gap: 5px;
+  color: #bdb7ab;
+  font-size: 8px;
+  font-weight: 750;
+  line-height: 1;
   white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
 }
 
-body.is-game-active .wave-affix-token strong {
-  color: #e9dfce;
-  font-size: 10px;
-  font-weight: 850;
-  line-height: 1.1;
+body.is-game-active .wave-command-auto-skip input {
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  accent-color: #b98d59;
+  cursor: pointer;
 }
 
-body.is-game-active .wave-affix-token small {
-  color: #9e9d98;
-  font-size: 7px;
-  font-weight: 700;
-  line-height: 1.1;
+body.is-game-active .wave-command-auto-skip input:checked + span {
+  color: #e0c796;
 }
 
 body.is-game-active .pc-medieval-hud .brand {
@@ -1379,36 +1327,28 @@ body.is-game-active .pc-medieval-hud .run-shop-toggle {
 
   body.is-game-active .pc-medieval-hud .wave-command-panel .wave-command-info {
     min-height: 53px;
-    grid-template-columns: minmax(74px, 0.8fr) minmax(70px, 1.2fr);
+    grid-template-columns: minmax(0, 1fr);
     gap: 5px;
     padding: 5px 7px;
   }
 
   body.is-game-active .wave-command-kicker,
-  body.is-game-active .wave-command-roster,
-  body.is-game-active .wave-affix-token small {
+  body.is-game-active .wave-command-roster {
     font-size: 6px;
+  }
+
+  body.is-game-active .wave-command-auto-skip {
+    gap: 3px;
+    font-size: 6px;
+  }
+
+  body.is-game-active .wave-command-auto-skip input {
+    width: 10px;
+    height: 10px;
   }
 
   body.is-game-active .wave-command-kind {
     font-size: 11px;
-  }
-
-  body.is-game-active .wave-affix-token {
-    min-height: 34px;
-    grid-template-columns: 23px minmax(0, 1fr);
-    gap: 4px;
-    padding: 3px 5px 3px 3px;
-  }
-
-  body.is-game-active .wave-affix-token-icon {
-    width: 22px;
-    height: 22px;
-    font-size: 8px;
-  }
-
-  body.is-game-active .wave-affix-token strong {
-    font-size: 8px;
   }
 
   body.is-game-active .med-card-wrapper::before {
@@ -1433,17 +1373,6 @@ body.is-game-active .pc-medieval-hud .run-shop-toggle {
     grid-template-columns: 1fr;
   }
 
-  body.is-game-active .wave-command-summary {
-    display: none;
-  }
-
-  body.is-game-active .wave-affix-token {
-    max-width: none;
-  }
-
-  body.is-game-active .wave-affix-token small {
-    display: none;
-  }
 }
 
 /* ============================================================
@@ -3942,16 +3871,16 @@ body.is-game-active .run-shop-choice-card.is-compact-shop-picker .run-shop-choic
 
 /* Approved forged card treatment: live-hand cards and wave rewards share the
    exact extracted frame, cost housing, metadata row, and in-art use bar. */
-body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-wrapper {
+body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-wrapper {
   filter: drop-shadow(0 8px 6px rgba(5, 8, 7, 0.5));
 }
 
-body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-wrapper::before,
-body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-wrapper::after {
+body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-wrapper::before,
+body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-wrapper::after {
   display: none;
 }
 
-body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-bg {
+body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-bg {
   border: 0 !important;
   border-radius: 0 !important;
   clip-path: none !important;
@@ -3960,7 +3889,7 @@ body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-bg {
   filter: brightness(0.82) saturate(0.7) sepia(0.08) hue-rotate(72deg);
 }
 
-body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-face {
+body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-face {
   display: grid !important;
   grid-template-rows: minmax(0, 1fr) 30px 51px;
   gap: 0;
@@ -3970,7 +3899,7 @@ body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-face {
   padding: 19px 17px 31px !important;
 }
 
-body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-wrapper > .med-card-face > .med-card-art-container {
+body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-wrapper > .med-card-face > .med-card-art-container {
   position: relative !important;
   flex: none !important;
   align-self: stretch;
@@ -3986,14 +3915,41 @@ body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-wrapper >
   box-shadow: none !important;
 }
 
-body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-art-container .card-art-image,
-body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-art-container .card-art-svg {
+body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-art-container .card-art-image,
+body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-art-container .card-art-svg {
   transform: scale(1.18) !important;
   transform-origin: center;
   filter: saturate(0.94) contrast(1.04) brightness(0.98) drop-shadow(0 4px 2px rgba(7, 11, 9, 0.38)) !important;
 }
 
-body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-wrapper > .med-card-face > .med-card-bottom {
+.med-card-type-label {
+  position: absolute;
+  z-index: 5;
+  top: 5px;
+  right: 5px;
+  min-width: 30px;
+  box-sizing: border-box;
+  display: block;
+  padding: 2px 4px;
+  border: 1px solid color-mix(in srgb, var(--card-color) 52%, #b8b2a6);
+  border-radius: 2px;
+  color: #f1ede4;
+  background: rgba(18, 24, 21, 0.88);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 2px 3px rgba(0, 0, 0, 0.5);
+  font-family: var(--font-title);
+  font-size: 8px;
+  font-weight: 900;
+  line-height: 1.15;
+  letter-spacing: 0.04em;
+  text-align: center;
+  white-space: nowrap;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.82);
+  pointer-events: none;
+}
+
+body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-wrapper > .med-card-face > .med-card-bottom {
   min-height: 0;
   height: auto !important;
   margin: 0 !important;
@@ -4008,7 +3964,7 @@ body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-wrapper >
   box-shadow: none;
 }
 
-body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row {
+body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row {
   min-width: 0;
   min-height: 0;
   display: grid;
@@ -4025,8 +3981,8 @@ body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row 
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
 }
 
-body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row .med-card-kind,
-body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row .med-card-level {
+body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row .med-card-kind,
+body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row .med-card-level {
   position: static !important;
   inset: auto !important;
   min-width: 0 !important;
@@ -4045,11 +4001,11 @@ body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row 
   filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.72));
 }
 
-body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row .med-card-kind {
+body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row .med-card-kind {
   justify-self: start;
 }
 
-body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row .med-card-level {
+body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row .med-card-level {
   justify-self: end;
   color: #d0d1cb;
   font-family: var(--font-title);
@@ -4061,7 +4017,7 @@ body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row 
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.86);
 }
 
-body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-type-icon {
+body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-type-icon {
   width: 18px;
   height: 18px;
   overflow: visible;
@@ -4072,7 +4028,7 @@ body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-type-icon
   stroke-linejoin: round;
 }
 
-body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-level-icon {
+body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-level-icon {
   position: relative;
   width: 20px;
   height: 20px;
@@ -4080,7 +4036,7 @@ body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-level-ico
   place-items: center;
 }
 
-body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-level-icon > svg {
+body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-level-icon > svg {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -4093,7 +4049,7 @@ body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-level-ico
   stroke-linejoin: round;
 }
 
-body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-level-icon > span {
+body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-level-icon > span {
   position: relative;
   z-index: 1;
   padding-top: 1px;
@@ -4105,30 +4061,8 @@ body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-level-ico
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.86);
 }
 
-body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-level-roman {
+body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-level-roman {
   display: none;
-}
-
-/* 军需铺的旧卡壳与锻铁卡壳都只显示裸罗马数字，不能再出现
-   等级盾徽或胶囊底板。 */
-body.is-game-active .run-shop-panel .run-shop-choice-card > .card-level {
-  min-width: 0 !important;
-  width: auto !important;
-  height: auto !important;
-  padding: 0 !important;
-  border: 0 !important;
-  border-radius: 0 !important;
-  clip-path: none !important;
-  color: #e7dfd2 !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  font-family: var(--font-title);
-  font-size: 11px;
-  font-weight: 900;
-  line-height: 1;
-  letter-spacing: -0.04em;
-  white-space: nowrap;
-  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.86);
 }
 
 body.is-game-active .run-shop-panel .med-card-level {
@@ -4146,7 +4080,7 @@ body.is-game-active .run-shop-panel .med-card-level-roman {
   display: inline !important;
 }
 
-body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row .med-card-name {
+body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row .med-card-name {
   min-width: 0;
   width: auto;
   margin: 0;
@@ -4173,7 +4107,7 @@ body.is-game-active .wave-reward-card-frame .med-card-meta-row.is-title-only .me
   text-overflow: clip;
 }
 
-body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-desc {
+body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-desc {
   width: 100%;
   color: #aaafa9 !important;
   font-size: 8px;
@@ -4181,7 +4115,7 @@ body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-desc {
   text-align: center;
 }
 
-body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-cost {
+body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-cost {
   z-index: 6;
   top: 1.476% !important;
   right: auto !important;
@@ -4200,7 +4134,7 @@ body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-cost {
   filter: none;
 }
 
-body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-cost::before {
+body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-cost::before {
   content: "";
   position: absolute;
   z-index: 0;
@@ -4212,7 +4146,7 @@ body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-cost::bef
   filter: brightness(0.82) saturate(0.7) sepia(0.08) hue-rotate(72deg);
 }
 
-body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-cost span {
+body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-cost span {
   position: absolute !important;
   z-index: 1;
   inset: 0 !important;
@@ -4229,7 +4163,7 @@ body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-cost span
   transform: translate(0.5px, 1px);
 }
 
-body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-art-container > .card-use-bar {
+body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-art-container > .card-use-bar {
   top: auto !important;
   right: 5px !important;
   bottom: 4px !important;
@@ -4246,52 +4180,60 @@ body.is-game-active .card-hand .card.is-hand-card-target .med-card-bg {
 }
 
 @media (max-width: 900px) {
-  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-face {
+  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-face {
     grid-template-rows: minmax(0, 1fr) 25px 39px;
     gap: 0;
     padding: 15px 12px 24px !important;
   }
 
-  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-cost span {
+  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-cost span {
     font-size: 13px !important;
   }
 
-  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-wrapper > .med-card-face > .med-card-bottom {
+  .med-card-type-label {
+    top: 4px;
+    right: 4px;
+    min-width: 26px;
+    padding: 2px 3px;
+    font-size: 7px;
+  }
+
+  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-wrapper > .med-card-face > .med-card-bottom {
     padding: 4px 1px 1px !important;
   }
 
-  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row {
+  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row {
     grid-template-columns: 19px minmax(0, 1fr) 19px;
     gap: 2px;
     padding-inline: 3px;
   }
 
-  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row .med-card-kind,
-  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row .med-card-level,
-  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-level-icon {
+  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row .med-card-kind,
+  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row .med-card-level,
+  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-level-icon {
     width: 17px !important;
     height: 17px !important;
   }
 
-  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-type-icon {
+  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-type-icon {
     width: 16px;
     height: 16px;
   }
 
-  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-level-icon > span {
+  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-level-icon > span {
     font-size: 7px;
   }
 
-  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row .med-card-name {
+  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row .med-card-name {
     font-size: 8px;
   }
 
-  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-desc {
+  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-desc {
     font-size: 7px;
     line-height: 1.16;
   }
 
-  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-art-container > .card-use-bar {
+  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-art-container > .card-use-bar {
     right: 4px !important;
     bottom: 3px !important;
     left: 4px !important;
@@ -4304,22 +4246,22 @@ body.is-game-active .card-hand .card.is-hand-card-target .med-card-bg {
    Roman numerals. This covers the live hand, wave rewards and every forged
    supply-shop card because they share the wave-reward card frame. */
 @media (max-width: 900px) {
-  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row {
+  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row {
     grid-template-columns: 17px minmax(0, 1fr) max-content !important;
   }
 
-  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row .med-card-level {
+  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row .med-card-level {
     width: auto !important;
     min-width: 12px !important;
     height: 17px !important;
     padding-inline: 1px !important;
   }
 
-  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-level-icon {
+  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-level-icon {
     display: none !important;
   }
 
-  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-level-roman {
+  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-level-roman {
     display: block;
     color: #eee7da;
     font-family: var(--font-title);
@@ -4333,39 +4275,47 @@ body.is-game-active .card-hand .card.is-hand-card-target .med-card-bg {
 }
 
 @media (max-width: 700px) and (orientation: portrait) {
-  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-face {
+  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-face {
     grid-template-rows: minmax(0, 1fr) 22px 30px;
     gap: 0;
     padding: 12px 9px 20px !important;
   }
 
-  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row {
+  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row {
     grid-template-columns: 16px minmax(0, 1fr) 16px;
     gap: 1px;
     padding-inline: 2px;
   }
 
-  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row .med-card-kind,
-  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row .med-card-level,
-  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-level-icon {
+  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row .med-card-kind,
+  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row .med-card-level,
+  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-level-icon {
     width: 15px !important;
     height: 15px !important;
   }
 
-  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-type-icon {
+  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-type-icon {
     width: 14px;
     height: 14px;
   }
 
-  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-level-icon > span {
+  .med-card-type-label {
+    top: 3px;
+    right: 3px;
+    min-width: 24px;
+    padding: 1px 2px;
     font-size: 6px;
   }
 
-  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row .med-card-name {
+  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-level-icon > span {
+    font-size: 6px;
+  }
+
+  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row .med-card-name {
     font-size: 7px !important;
   }
 
-  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-desc {
+  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-desc {
     font-size: 6px !important;
     line-height: 1.1 !important;
   }
@@ -4495,20 +4445,6 @@ body.is-game-active .strategy-reward-option.meta-card.is-forged-reward:focus-vis
     drop-shadow(0 10px 7px rgba(5, 8, 7, 0.54));
 }
 
-body.is-game-active .strategy-reward-option.meta-card.is-training-reward:focus-visible .attribute-training-card {
-  filter:
-    drop-shadow(0 0 2px #f2dfb3)
-    drop-shadow(0 0 9px color-mix(in srgb, var(--training-accent) 62%, #d6c49e))
-    drop-shadow(0 10px 7px rgba(5, 8, 7, 0.54));
-}
-
-body.is-game-active .strategy-reward-option.meta-card.is-specialization-reward:focus-visible .unit-specialization-card {
-  filter:
-    drop-shadow(0 0 2px #f2dfb3)
-    drop-shadow(0 0 9px color-mix(in srgb, var(--training-accent) 62%, #d6c49e))
-    drop-shadow(0 10px 7px rgba(5, 8, 7, 0.54));
-}
-
 body.is-game-active .strategy-reward-option.meta-card.is-forged-reward.is-disabled,
 body.is-game-active .strategy-reward-option.meta-card.is-forged-reward:disabled {
   opacity: 0.62;
@@ -4533,6 +4469,39 @@ body.is-game-active .wave-reward-card-frame .med-card-wrapper {
   height: 100%;
 }
 
+/* Every card collection renders the same forged card component. Pile and loot
+   views only provide a host box; they do not restyle the card face. */
+body.is-game-active .pile-viewer-grid {
+  grid-template-columns: repeat(auto-fill, 184px);
+  justify-content: center;
+}
+
+body.is-game-active .pile-card,
+body.is-game-active .loot-confirm-card {
+  width: 184px;
+  min-width: 184px;
+  height: 290px;
+  min-height: 290px;
+  display: block;
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+body.is-game-active .pile-card::before,
+body.is-game-active .pile-card::after,
+body.is-game-active .loot-confirm-card::before,
+body.is-game-active .loot-confirm-card::after {
+  display: none;
+}
+
+body.is-game-active .loot-confirm-panel {
+  grid-template-columns: 184px minmax(0, 1fr);
+}
+
 body.is-game-active .run-shop-choice-list.is-horizontal-row .run-shop-reward-option.is-forged-reward {
   flex: 0 0 184px !important;
   max-width: 184px;
@@ -4543,388 +4512,6 @@ body.is-game-active .run-shop-choice-list.is-catalog-picker .run-shop-reward-opt
   justify-self: center;
 }
 
-/* Attribute training is purchased like a card but is not a playable hand card.
-   Its barracks ledger face deliberately avoids card type, level and energy UI. */
-body.is-game-active .attribute-training-card {
-  position: absolute;
-  inset: 0;
-  box-sizing: border-box;
-  display: grid;
-  grid-template-rows: 42% 19% minmax(0, 1fr) 12%;
-  align-items: center;
-  padding: 7% 8% 9%;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--training-accent) 36%, #8f846f);
-  clip-path: polygon(9px 0, calc(100% - 9px) 0, 100% 9px, 100% calc(100% - 9px), calc(100% - 9px) 100%, 9px 100%, 0 calc(100% - 9px), 0 9px);
-  color: #efe4ce;
-  background:
-    linear-gradient(100deg, transparent 0 47%, rgba(255, 255, 255, 0.035) 48% 52%, transparent 53%),
-    radial-gradient(circle at 50% 31%, color-mix(in srgb, var(--training-accent) 22%, transparent), transparent 35%),
-    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.012) 0 1px, transparent 1px 9px),
-    linear-gradient(145deg, #3a3932, #202522 58%, #151917);
-  box-shadow:
-    inset 0 0 0 1px #111513,
-    inset 0 0 0 6px rgba(151, 137, 107, 0.17),
-    inset 0 2px 0 rgba(255, 255, 255, 0.08),
-    inset 0 -9px 0 rgba(5, 7, 6, 0.32),
-    0 7px 0 #101311,
-    0 13px 15px rgba(0, 0, 0, 0.45);
-  transition: filter 130ms ease;
-}
-
-body.is-game-active .attribute-training-card::before,
-body.is-game-active .attribute-training-card::after {
-  content: "";
-  position: absolute;
-  pointer-events: none;
-}
-
-body.is-game-active .attribute-training-card::before {
-  inset: 7px;
-  border: 1px solid rgba(199, 185, 153, 0.3);
-  clip-path: polygon(5px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 5px), calc(100% - 5px) 100%, 5px 100%, 0 calc(100% - 5px), 0 5px);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.045),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.55);
-}
-
-body.is-game-active .attribute-training-card::after {
-  top: 9%;
-  right: 8%;
-  bottom: 9%;
-  width: 2px;
-  border-inline: 1px solid rgba(10, 13, 11, 0.58);
-  background: color-mix(in srgb, var(--training-accent) 42%, #80745f);
-  box-shadow: 1px 0 0 rgba(255, 255, 255, 0.055);
-}
-
-body.is-game-active .attribute-training-seal {
-  position: absolute;
-  z-index: 3;
-  top: 3.5%;
-  left: 4.5%;
-  width: 27%;
-  aspect-ratio: 1;
-  display: grid;
-  place-items: center;
-  border: 1px solid #171b18;
-  clip-path: polygon(24% 0, 76% 0, 100% 24%, 100% 76%, 76% 100%, 24% 100%, 0 76%, 0 24%);
-  color: #f4e7cd;
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.16), transparent 43%),
-    linear-gradient(145deg, color-mix(in srgb, var(--training-accent) 72%, #4a3e31), #292d29);
-  box-shadow:
-    inset 0 0 0 3px rgba(18, 22, 19, 0.45),
-    0 3px 3px rgba(0, 0, 0, 0.48);
-  font-family: var(--font-title);
-  font-size: clamp(12px, 9%, 18px);
-  font-weight: 900;
-  line-height: 1;
-  text-shadow: 0 2px 1px rgba(0, 0, 0, 0.72);
-}
-
-body.is-game-active .attribute-training-art {
-  min-height: 0;
-  align-self: stretch;
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
-  place-items: center;
-  gap: 3px;
-  margin: 2% 5% 0;
-  padding: 8% 4% 5%;
-  border-bottom: 1px solid rgba(188, 174, 142, 0.25);
-  background:
-    radial-gradient(circle at 50% 43%, color-mix(in srgb, var(--training-accent) 28%, #3d423d), transparent 54%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(0, 0, 0, 0.12));
-  box-shadow: inset 0 -6px 8px rgba(0, 0, 0, 0.18);
-}
-
-body.is-game-active .attribute-training-crest {
-  width: 54%;
-  max-height: 72%;
-  aspect-ratio: 1;
-  color: color-mix(in srgb, var(--training-accent) 76%, #e8ddc4);
-  filter: drop-shadow(0 5px 2px rgba(0, 0, 0, 0.45));
-}
-
-body.is-game-active .attribute-training-crest svg {
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-  fill: rgba(19, 24, 21, 0.82);
-  stroke: currentColor;
-  stroke-width: 3.2;
-  stroke-linecap: square;
-  stroke-linejoin: bevel;
-}
-
-body.is-game-active .attribute-training-discipline {
-  color: color-mix(in srgb, var(--training-accent) 58%, #d8cfbe);
-  font-size: 8px;
-  font-weight: 850;
-  letter-spacing: 0.14em;
-  line-height: 1;
-}
-
-body.is-game-active .attribute-training-title-row {
-  min-width: 0;
-  align-self: stretch;
-  display: grid;
-  align-content: center;
-  justify-items: center;
-  gap: 3px;
-  padding: 4px 6px;
-  border-block: 1px solid rgba(18, 23, 20, 0.72);
-  background: rgba(11, 16, 13, 0.34);
-}
-
-body.is-game-active .attribute-training-title-row > span {
-  color: #99978f;
-  font-size: 6px;
-  font-weight: 800;
-  letter-spacing: 0.2em;
-  line-height: 1;
-}
-
-body.is-game-active .attribute-training-title-row .med-card-name {
-  width: 100%;
-  min-width: 0;
-  overflow: hidden;
-  color: #f0e5d0;
-  font-family: var(--font-title);
-  font-size: 12px;
-  font-weight: 900;
-  line-height: 1;
-  text-align: center;
-  text-overflow: clip;
-  white-space: nowrap;
-  text-shadow: 0 2px 1px rgba(0, 0, 0, 0.72);
-}
-
-body.is-game-active .attribute-training-description.med-card-desc {
-  align-self: stretch;
-  display: grid;
-  place-items: center;
-  padding: 5% 7% 2%;
-  overflow: hidden;
-  color: #b6b3a9;
-  font-size: 9px;
-  font-weight: 700;
-  line-height: 1.28;
-  text-align: center;
-}
-
-body.is-game-active .attribute-training-footer {
-  align-self: stretch;
-  display: grid;
-  place-items: center;
-  margin: 0 5%;
-  border-top: 1px solid color-mix(in srgb, var(--training-accent) 32%, #52564f);
-  color: color-mix(in srgb, var(--training-accent) 56%, #c7c0b2);
-  font-size: 7px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  line-height: 1;
-}
-
-/* Unit specializations use the same non-playable barracks-card construction as
-   attribute training, with the affected unit replacing the training crest. */
-body.is-game-active .unit-specialization-card {
-  background:
-    linear-gradient(100deg, transparent 0 47%, rgba(255, 255, 255, 0.035) 48% 52%, transparent 53%),
-    radial-gradient(circle at 50% 29%, color-mix(in srgb, var(--training-accent) 26%, transparent), transparent 39%),
-    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.012) 0 1px, transparent 1px 9px),
-    linear-gradient(145deg, #383931, #202522 58%, #151917);
-}
-
-body.is-game-active .unit-specialization-seal {
-  color: #fff0cb;
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.18), transparent 43%),
-    linear-gradient(145deg, color-mix(in srgb, var(--training-accent) 78%, #53422e), #292d29);
-}
-
-body.is-game-active .unit-specialization-art {
-  padding: 4% 2% 4%;
-}
-
-body.is-game-active .unit-specialization-portrait {
-  position: relative;
-  width: 91%;
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-}
-
-body.is-game-active .unit-specialization-portrait .card-art {
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-  border: 0;
-  border-radius: 0;
-  overflow: visible;
-  background: transparent;
-  box-shadow: none;
-}
-
-body.is-game-active .unit-specialization-portrait .card-art::after {
-  opacity: 0.1;
-}
-
-body.is-game-active .unit-specialization-portrait .card-art-image,
-body.is-game-active .unit-specialization-portrait .card-art-svg {
-  object-fit: contain;
-  transform: scale(1.38);
-  filter: saturate(0.92) contrast(1.04) brightness(0.98) drop-shadow(0 5px 2px rgba(4, 8, 6, 0.48));
-}
-
-body.is-game-active .unit-specialization-title-row > span {
-  color: color-mix(in srgb, var(--training-accent) 62%, #d6cdbb);
-  letter-spacing: 0.13em;
-}
-
-/* Refined non-playable card face: hand-card proportions and layered forged
-   borders, without the energy housing, type badge or level badge. */
-body.is-game-active .attribute-training-card {
-  grid-template-rows: 45% 16% minmax(0, 1fr) 11%;
-  padding: 10px 11px 12px;
-  border: 1px solid #101412;
-  clip-path: polygon(
-    9px 0,
-    calc(100% - 9px) 0,
-    100% 9px,
-    100% calc(100% - 9px),
-    calc(100% - 9px) 100%,
-    59% 100%,
-    56% 97%,
-    44% 97%,
-    41% 100%,
-    9px 100%,
-    0 calc(100% - 9px),
-    0 9px
-  );
-  background:
-    radial-gradient(circle at 50% 28%, color-mix(in srgb, var(--training-accent) 16%, transparent), transparent 38%),
-    linear-gradient(102deg, transparent 0 46%, rgba(255, 255, 255, 0.026) 47% 51%, transparent 52%),
-    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.01) 0 1px, transparent 1px 10px),
-    linear-gradient(145deg, #30342f 0%, #1d221f 56%, #121614 100%);
-  box-shadow:
-    inset 0 0 0 2px #77786f,
-    inset 0 0 0 4px #252a26,
-    inset 0 0 0 7px #4b4e47,
-    inset 0 0 0 8px #111513,
-    inset 0 2px 0 rgba(255, 255, 255, 0.13),
-    inset 0 -7px 0 rgba(4, 7, 5, 0.32),
-    0 5px 0 #0c100e,
-    0 11px 14px rgba(0, 0, 0, 0.48);
-}
-
-body.is-game-active .attribute-training-card::before {
-  z-index: 0;
-  inset: 8px;
-  border-color: rgba(191, 192, 180, 0.28);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.055),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.62);
-}
-
-body.is-game-active .attribute-training-card::after {
-  display: none;
-}
-
-body.is-game-active .attribute-training-art {
-  position: relative;
-  z-index: 1;
-  gap: 2px;
-  margin: 1px 2px 0;
-  padding: 7px 5px 5px;
-  overflow: hidden;
-  border: 1px solid rgba(157, 160, 149, 0.24);
-  clip-path: polygon(5px 0, calc(100% - 5px) 0, 100% 5px, 100% 100%, 0 100%, 0 5px);
-  background:
-    radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--training-accent) 27%, #38403a), transparent 57%),
-    linear-gradient(160deg, rgba(255, 255, 255, 0.045), transparent 40%),
-    linear-gradient(180deg, #28302b, #151a17);
-  box-shadow:
-    inset 0 0 0 2px rgba(5, 8, 6, 0.32),
-    inset 0 -8px 10px rgba(0, 0, 0, 0.2);
-}
-
-body.is-game-active .attribute-training-crest {
-  width: 58%;
-  max-height: 76%;
-  filter: drop-shadow(0 5px 2px rgba(0, 0, 0, 0.5));
-}
-
-body.is-game-active .attribute-training-discipline {
-  max-width: 100%;
-  overflow: hidden;
-  color: color-mix(in srgb, var(--training-accent) 54%, #dad3c4);
-  font-size: 7px;
-  letter-spacing: 0.12em;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-body.is-game-active .attribute-training-title-row {
-  position: relative;
-  z-index: 1;
-  margin: 0 2px;
-  padding: 5px 7px 4px;
-  border-block-color: rgba(9, 13, 10, 0.82);
-  background:
-    linear-gradient(90deg, transparent, color-mix(in srgb, var(--training-accent) 10%, rgba(19, 25, 21, 0.88)) 20% 80%, transparent),
-    rgba(8, 12, 10, 0.44);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.045),
-    inset 0 -1px 0 rgba(95, 99, 91, 0.14);
-}
-
-body.is-game-active .attribute-training-title-row .med-card-name {
-  font-size: 12px;
-  line-height: 1.05;
-}
-
-body.is-game-active .attribute-training-description.med-card-desc {
-  position: relative;
-  z-index: 1;
-  margin: 0 2px;
-  padding: 8px 10px 5px;
-  color: #c0bdb3;
-  font-weight: 680;
-  line-height: 1.32;
-  text-wrap: pretty;
-}
-
-body.is-game-active .attribute-training-footer {
-  position: relative;
-  z-index: 1;
-  margin: 0 7px;
-  border-top-color: color-mix(in srgb, var(--training-accent) 28%, #555a53);
-  color: color-mix(in srgb, var(--training-accent) 48%, #c7c0b2);
-}
-
-body.is-game-active .unit-specialization-card {
-  background:
-    radial-gradient(circle at 50% 26%, color-mix(in srgb, var(--training-accent) 19%, transparent), transparent 39%),
-    linear-gradient(102deg, transparent 0 46%, rgba(255, 255, 255, 0.026) 47% 51%, transparent 52%),
-    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.01) 0 1px, transparent 1px 10px),
-    linear-gradient(145deg, #30342f 0%, #1d221f 56%, #121614 100%);
-}
-
-body.is-game-active .unit-specialization-art {
-  padding: 4px 3px 5px;
-}
-
-body.is-game-active .unit-specialization-portrait {
-  width: 96%;
-}
-
-body.is-game-active .unit-specialization-portrait .card-art-image,
-body.is-game-active .unit-specialization-portrait .card-art-svg {
-  transform: scale(1.32);
-  filter: saturate(0.96) contrast(1.05) brightness(1.01) drop-shadow(0 5px 2px rgba(4, 8, 6, 0.5));
-}
 
 @media (min-width: 901px) and (max-width: 1100px) {
   body.is-game-active .wave-reward-card-frame {
@@ -4947,6 +4534,30 @@ body.is-game-active .unit-specialization-portrait .card-art-svg {
   }
 }
 
+@media (max-width: 700px) {
+  body.is-game-active .loot-confirm-panel {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  body.is-game-active .loot-confirm-card {
+    justify-self: center;
+  }
+}
+
+@media (max-width: 560px) {
+  body.is-game-active .pile-viewer-grid {
+    grid-template-columns: repeat(auto-fill, 140px);
+  }
+
+  body.is-game-active .pile-card,
+  body.is-game-active .loot-confirm-card {
+    width: 140px;
+    min-width: 140px;
+    height: 220px;
+    min-height: 220px;
+  }
+}
+
 @media (max-width: 700px) and (orientation: portrait) {
   body.is-game-active .strategy-event-choices {
     padding: 11px 9px 15px !important;
@@ -4966,12 +4577,12 @@ body.is-game-active .unit-specialization-portrait .card-art-svg {
   }
 }
 
-/* Mobile supply-shop detail pages use the attribute-training card as their
-   size contract.  Catalog pickers previously kept the desktop 184px cards
+/* Mobile supply-shop detail pages use the unified forged card as their size
+   contract. Catalog pickers previously kept the desktop 184px cards
    inside their own vertical scroller while the shop panel also scrolled;
    that nested layout clipped card bottoms and made later rows appear stacked.
    Keep one scroll owner (the panel), and keep every three-choice service in
-   the same fixed row and 145x229 footprint as attribute training. */
+   the same fixed row and 145x229 forged-card footprint. */
 @media (max-width: 900px) {
   body.is-game-active .run-shop-choice-list.is-catalog-picker {
     grid-template-columns: repeat(auto-fill, 145px) !important;
@@ -5010,30 +4621,6 @@ body.is-game-active .unit-specialization-portrait .card-art-svg {
     flex: 0 0 145px !important;
   }
 
-  /* The generic hand-card name owns its own underline. Special reward cards
-     need one shared divider at the bottom of the title band instead. */
-  body.is-game-active .run-shop-choice-list:is(.is-training-card-picker, .is-specialization-card-picker) .attribute-training-title-row {
-    padding-bottom: 7px;
-    border-bottom: 0;
-  }
-
-  body.is-game-active .run-shop-choice-list:is(.is-training-card-picker, .is-specialization-card-picker) .attribute-training-title-row::after {
-    content: "";
-    position: absolute;
-    left: 7px;
-    right: 7px;
-    bottom: 2px;
-    height: 1px;
-    background: color-mix(in srgb, var(--training-accent) 28%, #555a53);
-    pointer-events: none;
-  }
-
-  body.is-game-active .run-shop-choice-list:is(.is-training-card-picker, .is-specialization-card-picker) .attribute-training-title-row .med-card-name {
-    width: 100%;
-    margin-bottom: 0;
-    padding-bottom: 0;
-    border-bottom: 0 !important;
-  }
 }
 
 /* Upgrade/copy/remove can contain a large owned deck. The slider changes both

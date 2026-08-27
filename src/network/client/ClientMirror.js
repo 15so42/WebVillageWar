@@ -12,6 +12,7 @@ import { SYNC, VISUAL_STATE_FROM_CODE } from '../protocol/syncConfig.js';
 import { MSG } from '../protocol/messages.js';
 import { applyNetworkFx } from './NetworkFxRelay.js';
 import { ProjectileMirror } from './ProjectileMirror.js';
+import { normalizeFreeEnchantmentCharges } from '../../systems/freeEnchantmentCharges.js';
 
 export class ClientMirror {
   constructor(game) {
@@ -109,6 +110,7 @@ export class ClientMirror {
   }
 
   applyUnitState(unit, state) {
+    let freeEnchantmentChargesChanged = false;
     if ('health' in state) unit.health = state.health;
     if ('maxHealth' in state) unit.attributes?.setBase?.('maxHealth', state.maxHealth);
     if ('physicalAttack' in state) unit.attributes?.setBase?.('physicalAttack', state.physicalAttack);
@@ -117,6 +119,11 @@ export class ClientMirror {
     if ('maxShield' in state) unit.attributes?.setBase?.('maxShield', state.maxShield);
     if ('maxEnchantmentSlots' in state) {
       unit.maxEnchantmentSlots = Math.max(0, Math.floor(state.maxEnchantmentSlots ?? 5));
+    }
+    if ('freeEnchantmentCharges' in state) {
+      const nextCharges = normalizeFreeEnchantmentCharges(state.freeEnchantmentCharges);
+      freeEnchantmentChargesChanged = nextCharges !== unit.freeEnchantmentCharges;
+      unit.freeEnchantmentCharges = nextCharges;
     }
     if ('maxDurability' in state) unit.attributes?.setBase?.('maxDurability', state.maxDurability);
     if ('durability' in state && unit.weapon) {
@@ -188,6 +195,13 @@ export class ClientMirror {
     if (state.animation) this.applyAnimation(unit, state.animation);
     unit.alive = state.alive !== false && unit.health > 0;
     unit.statusUiDirty = true;
+    if (freeEnchantmentChargesChanged) {
+      const localPlayerId = this.game.localPlayerId ?? this.game.localPlayerSlot;
+      const unitPlayerId = unit.controllerPlayerId ?? unit.ownerPlayerId ?? localPlayerId;
+      if (unitPlayerId === localPlayerId) {
+        this.game.cardSystem?.updateCardAffordability?.();
+      }
+    }
   }
 
   applyEnchantLabels(unit, labels) {

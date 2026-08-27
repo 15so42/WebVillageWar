@@ -45,6 +45,19 @@ body {
   min-width: 320px;
 }
 
+/* Battle UI is operated through clicks, drags and shortcuts. Prevent browser
+   text selection from stealing those gestures or leaving blue highlights over
+   the battlefield, while keeping actual editable controls selectable. */
+body.is-game-active {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+body.is-game-active :is(input[type="text"], input[type="number"], textarea, [contenteditable="true"]) {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 body.is-meta-open .hud,
 body.is-meta-open .wave-preview,
 body.is-meta-open .card-hand,
@@ -401,6 +414,34 @@ body.is-meta-open .mobile-box-select-hint {
 
 .world-durability-fill {
   background: #f2d06b;
+}
+
+.world-free-enchantment-charges {
+  min-height: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  margin: 0 0 -1px;
+}
+
+.world-free-enchantment-charges[hidden] {
+  display: none;
+}
+
+.world-free-enchantment-charges > span {
+  width: 5px;
+  height: 5px;
+  border: 1px solid rgba(23, 18, 15, 0.92);
+  background: var(--hp-color);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.6),
+    0 0 3px color-mix(in srgb, var(--hp-color) 58%, transparent);
+  transform: rotate(45deg);
+}
+
+.world-free-enchantment-charges > span[hidden] {
+  display: none;
 }
 
 .world-health-ticks {

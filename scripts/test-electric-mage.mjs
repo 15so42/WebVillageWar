@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
+import * as THREE from 'three';
 import { CARD_DEFINITIONS, UNIT_DEFINITIONS } from '../src/data/gameData.js';
 import { UNIT_SPECIAL_UPGRADES } from '../src/data/cardUpgrades.js';
 import { findNextChainLightningTarget } from '../src/systems/AttackSystem.js';
+import { EffectsSystem } from '../src/systems/EffectsSystem.js';
 
 const mage = UNIT_DEFINITIONS.lightningMage;
 assert.equal(mage.attackDamageType, 'magic');
@@ -35,5 +37,25 @@ assert.equal(
   findNextChainLightningTarget([near, closer, distant], origin, alreadyHit, 4),
   null
 );
+
+const effectScene = new THREE.Scene();
+const cloudEffects = new EffectsSystem(effectScene);
+cloudEffects.spawnThunderCloud({
+  position: new THREE.Vector3(2, 0, -3),
+  age: 0,
+  ability: mage.specialAbilities.thunderCloud
+});
+assert.equal(cloudEffects.effects.length, 1);
+const cloudVisual = cloudEffects.effects[0].object;
+assert.deepEqual(cloudVisual.userData.thunderCloudVisual, {
+  lobeCount: 9,
+  boltCount: 3
+});
+assert.equal(cloudVisual.children.filter((child) => child.isLine).length, 3);
+assert.equal(cloudVisual.children.filter((child) => child.userData.stormFlashCore).length, 1);
+cloudEffects.update(0.25);
+assert.deepEqual(cloudVisual.position.toArray(), [2, 0, -3]);
+assert.ok(cloudVisual.children.some((child) => child.isLine && child.material.opacity > 0.08));
+cloudEffects.destroy();
 
 console.log('electric mage checks passed');

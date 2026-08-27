@@ -66,16 +66,32 @@ const [
 ]);
 
 const rerollPricingGame = Object.create(Game.prototype);
-for (const [rerollCount, expectedCost] of [[0, 8], [1, 20], [2, 32], [3, 44]]) {
+for (const [rerollCount, expectedCost] of [[0, 4], [1, 4], [2, 4], [3, 4]]) {
   rerollPricingGame.strategyRewardRerollCount = rerollCount;
   assert.equal(rerollPricingGame.getStrategyRewardRerollCost(), expectedCost);
 }
 rerollPricingGame.strategyRewardRerollCount = 3;
 rerollPricingGame.resetStrategyRewardRerollForEvent('wave-reward');
-assert.equal(rerollPricingGame.strategyRewardRerollCount, 0, '每波波次奖励应从初始重随价格开始');
+assert.equal(rerollPricingGame.strategyRewardRerollCount, 0, '每波波次奖励应重置本波重随次数显示');
 rerollPricingGame.strategyRewardRerollCount = 3;
 rerollPricingGame.resetStrategyRewardRerollForEvent('altar-reward');
-assert.equal(rerollPricingGame.strategyRewardRerollCount, 3, '非波次奖励不应重置重随价格');
+assert.equal(rerollPricingGame.strategyRewardRerollCount, 3, '非波次奖励不应重置波次重随次数');
+
+const fixedSilverRerollGame = Object.assign(Object.create(Game.prototype), {
+  strategyRewardRerollCount: 0,
+  strategyEvent: { type: 'wave-reward', wave: {}, choices: [{ card: { id: 'old' } }] },
+  createCardWaveRewardChoices: () => [{ card: { id: 'new' } }],
+  silver: 10,
+  getSilver() { return this.silver; },
+  setSilver(value) { this.silver = value; }
+});
+assert.equal(fixedSilverRerollGame.rerollStrategyRewardChoices({ render: false }), true);
+assert.equal(fixedSilverRerollGame.silver, 6);
+assert.equal(fixedSilverRerollGame.strategyRewardRerollCount, 1);
+assert.equal(fixedSilverRerollGame.getStrategyRewardRerollCost(), 4);
+fixedSilverRerollGame.silver = 3.99;
+assert.equal(fixedSilverRerollGame.rerollStrategyRewardChoices({ render: false }), false);
+assert.equal(fixedSilverRerollGame.silver, 3.99);
 
 assert.equal(resolveUnitPlayerName({
   players: { 'player-2': { name: '沼泽骑士' } }
@@ -269,7 +285,7 @@ function makeCommand({ playerId, seq, name, payload = {} }) {
       assert.equal(options.kind, undefined);
       return remainingCards;
     },
-    weightedCardChoices({ pool, action, actionLabel }) {
+    randomCardChoices({ pool, action, actionLabel }) {
       return pool.slice(0, 3).map((card) => ({
         card,
         action,
@@ -567,6 +583,7 @@ function makeCommand({ playerId, seq, name, payload = {} }) {
     strategyRewardRerollCount: 0
   });
   const newChoices = [{ choiceId: 'new-choice', title: '新奖励' }];
+  const dirtySlots = [];
   const game = Object.assign(Object.create(Game.prototype), {
     localPlayerSlot: 'host',
     activeEconomySlot: 'host',
@@ -590,14 +607,19 @@ function makeCommand({ playerId, seq, name, payload = {} }) {
     teamSpecialUpgrades: new Set(),
     teamSupportModifiersApplied: new Set(),
     createCardWaveRewardChoices: () => newChoices,
-    networkBridge: { markPrivateStateDirty: () => {} }
+    networkBridge: {
+      markPrivateStateDirty(slot) {
+        dirtySlots.push(slot);
+      }
+    }
   });
 
   assert.equal(game.applyNetworkStrategyReroll('guest'), true);
-  // 重新随机改扣局外金币（发起端本地扣），Host 执行不再扣银币
-  assert.equal(guestRun.silver, 52);
+  // 联机重随由 Host 从发起玩家的私有局内账户固定扣除 4 银币。
+  assert.equal(guestRun.silver, 48);
   assert.equal(guestRun.strategyRewardRerollCount, 1);
   assert.deepEqual(guestRun.strategyEvent.choices, newChoices);
+  assert.ok(dirtySlots.includes('guest'), 'Host 扣银币后应标记该玩家私有状态待同步');
 }
 
 {
@@ -782,9 +804,8 @@ function makeCommand({ playerId, seq, name, payload = {} }) {
     }
   });
 
-  game.toggleRunShop();
-
-  assert.equal(waitingShown, 1);
+  assert.equal(game.toggleRunShop(), false);
+  assert.equal(waitingShown, 0);
   assert.equal(opened, 0);
 }
 
@@ -807,7 +828,7 @@ function makeCommand({ playerId, seq, name, payload = {} }) {
   });
 
   assert.equal(Game.prototype.openRunShop.call(game), false);
-  assert.equal(waitingShown, 1);
+  assert.equal(waitingShown, 0);
 }
 
 {

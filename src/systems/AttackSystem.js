@@ -247,6 +247,7 @@ export class AttackSystem {
     if (!source.alive) return;
     if (target?.alive === false) return;
     if (attack.monsterAbility) {
+      this.spawnAttackAccent(attack);
       this.resolveMonsterAbility(attack);
       return;
     }
@@ -255,6 +256,8 @@ export class AttackSystem {
         this.game.modifiers.getAttackRange(source) + targetCombatRadius(target) + 0.85;
       if (distance2D(source.position, target.position) > allowedRange) return;
     }
+
+    this.spawnAttackAccent(attack);
 
     if (source.definition.attackBehavior?.type === 'chainLightning') {
       this.syncSourcePoseForAttackEvent(attack);
@@ -269,6 +272,33 @@ export class AttackSystem {
       return;
     }
     this.game.combat.applyAttack(source, target);
+  }
+
+  spawnAttackAccent(attack) {
+    const source = attack?.source;
+    if (!source?.position) return;
+    const ranged = Boolean(attack.projectileOverride || source.definition?.role === 'ranged');
+    const origin = ranged
+      ? this.getProjectileLaunchPosition(source).clone()
+      : source.position.clone().add(new THREE.Vector3(0, source.projectileHitHeight ?? 1.05, 0));
+    const targetPosition = attack.abilityPoint?.clone?.()
+      ?? getTargetPosition(attack.target)?.clone?.()
+      ?? origin.clone().add(new THREE.Vector3(0, 0, 1));
+    const direction = targetPosition.sub(origin);
+    if (!ranged && direction.lengthSq() > 0.001) {
+      origin.addScaledVector(direction.clone().normalize(), 0.38);
+    }
+    const damageType = attack.projectileOverride?.attackDamageType
+      ?? source.definition?.attackDamageType;
+    const color = attack.projectileOverride?.projectileColor
+      ?? source.definition?.projectileColor
+      ?? (damageType === 'magic'
+        ? '#bda6ff'
+        : source.team === TEAMS.PLAYER ? '#ffd487' : '#ff9a78');
+    this.game.effects.spawnAttackBurst(origin, direction, {
+      color,
+      scale: source.isBoss ? 1.45 : source.isElite ? 1.18 : 1
+    });
   }
 
   resolveChainLightningAttack(source, initialTarget, behavior = {}) {

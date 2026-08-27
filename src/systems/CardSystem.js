@@ -4,6 +4,10 @@ import { ACTIVE_DECK_SIZE, BALANCE, CARD_DEFINITIONS, isTerrainCard, TERRAIN_CAR
 import { insideBattlefield } from '../utils/math.js';
 import { disposeObject3D } from '../utils/dispose.js';
 import { isEnchantmentCardBlocked } from './enchantmentSlots.js';
+import {
+  consumeFreeEnchantmentCharge,
+  hasFreeEnchantmentCharge
+} from './freeEnchantmentCharges.js';
 
 const HAND_SIZE = 5;
 // 附魔卡长按连续使用：按住超过 ENCHANT_HOLD_START_MS 进入连续模式，
@@ -13,6 +17,12 @@ const ENCHANT_HOLD_TICK_MS = 1000;
 const energyBalance = BALANCE.playerEnergy ?? {};
 const INITIAL_ENERGY = Number(energyBalance.initial) || 4;
 const MAX_ENERGY = Number(energyBalance.max) || 12;
+const configuredEnergyRegeneration = Number(energyBalance.regenerationPerSecond);
+const ENERGY_REGENERATION_PER_SECOND = Math.max(
+  0,
+  Number.isFinite(configuredEnergyRegeneration) ? configuredEnergyRegeneration : 0.2
+);
+const ENERGY_REGENERATION_TICK_SECONDS = 1;
 const TEMPORARY_CARD_LIMIT = 3;
 const PLAY_DRAG_RATIO = 0.5;
 const DISCARD_DRAG_RATIO = 0.3;
@@ -130,13 +140,24 @@ export class CardSystem {
   }
 
   update(dt) {
-    this.cooldownClock += Math.max(0, Number(dt) || 0);
-    const previousEnergy = this.energy;
+    const elapsed = Math.max(0, Number(dt) || 0);
+    this.cooldownClock += elapsed;
+    this.regenerateEnergy(elapsed);
     this.updateEnergyUi();
-    if (previousEnergy !== this.energy) {
-      this.updateCardAffordability();
-    }
     this.updateCardCooldownUi();
+  }
+
+  regenerateEnergy(dt) {
+    if (this.game.networkClientMode || ENERGY_REGENERATION_PER_SECOND <= 0) return 0;
+    if (this.energy >= MAX_ENERGY) {
+      this.energyTimer = 0;
+      return 0;
+    }
+    this.energyTimer += Math.max(0, Number(dt) || 0);
+    const ticks = Math.floor(this.energyTimer / ENERGY_REGENERATION_TICK_SECONDS);
+    if (ticks <= 0) return 0;
+    this.energyTimer -= ticks * ENERGY_REGENERATION_TICK_SECONDS;
+    return this.addEnergy(ticks * ENERGY_REGENERATION_PER_SECOND);
   }
 
   markNetworkStateDirty() {
@@ -192,29 +213,8 @@ export class CardSystem {
     element.style.setProperty('--card-color', cardThemeColor(card));
     element.dataset.cost = cardEnergyCost(card);
     element.dataset.kind = card.kind;
-    const useBarMarkup = cardUseBarMarkup(card);
     const cooldownMarkup = cardCooldownOverlayMarkup(this, card);
-    element.innerHTML = location === 'hand'
-      ? createForgedCardMarkup(card, { cooldownMarkup })
-      : `
-        <div class="med-card-wrapper">
-          <div class="med-card-bg"></div>
-          <div class="med-card-cost"><span>${cardEnergyCost(card)}</span></div>
-          <div class="med-card-kind">${kindLabel(card.kind)}</div>
-          <div class="med-card-level">${toRomanNumeral(card.level)}</div>
-          ${useBarMarkup}
-          ${cooldownMarkup}
-          <div class="med-card-face">
-            <div class="med-card-art-container">
-              ${createCardArtMarkup(card)}
-            </div>
-            <div class="med-card-bottom">
-              <div class="med-card-name">${card.name}</div>
-              <div class="med-card-desc">${card.summary}</div>
-            </div>
-          </div>
-        </div>
-      `;
+    element.innerHTML = createForgedCardMarkup(card, { cooldownMarkup });
     fitCardElementText(element);
     bindScrollableCardText(element);
     if (isDrawn) {
@@ -331,7 +331,12 @@ export class CardSystem {
       this.flashEnergyPanel();
       return;
     }
-    if (!this.isCardOnCooldown(card) && !this.canSpend(cardEnergyCost(card)) && !this.canSpend(discardEnergyCost(card))) {
+    if (
+      !this.isCardOnCooldown(card)
+      && !this.canSpend(cardEnergyCost(card))
+      && !this.hasAvailableFreeEnchantmentTarget(card)
+      && !this.canSpend(discardEnergyCost(card))
+    ) {
       this.flashEnergyPanel();
       return;
     }
@@ -436,7 +441,11 @@ export class CardSystem {
     this.drag.valid = false;
     this.drag.targetUnit = null;
     this.drag.targetCard = null;
-    this.drag.canPayPlay = !this.isCardOnCooldown(this.drag.card) && this.canSpend(cardEnergyCost(this.drag.card));
+    this.drag.canPayPlay = !this.isCardOnCooldown(this.drag.card)
+      && (
+        this.canSpend(cardEnergyCost(this.drag.card))
+        || this.hasAvailableFreeEnchantmentTarget(this.drag.card)
+      );
     this.drag.canPayDiscard = this.canSpend(discardEnergyCost(this.drag.card));
     this.drag.mode = this.resolveDragMode(event);
     this.clearHandCardTargetHighlights();
@@ -501,13 +510,24 @@ export class CardSystem {
       this.ghost.hidden = false;
       const target = this.pickFriendlyUnit(previousTargetUnit);
       this.drag.targetUnit = target;
+      const playCost = this.cardPlayEnergyCost(this.drag.card, target);
+      const usesFreeEnchantment = playCost === 0 && hasFreeEnchantmentCharge(this.drag.card, target);
+      this.drag.playEnergyCost = playCost;
+      this.drag.usesFreeEnchantment = usesFreeEnchantment;
+      this.drag.canPayPlay = !this.isCardOnCooldown(this.drag.card) && this.canSpend(playCost);
       this.drag.valid = Boolean(target) && target.canReceiveBuffs !== false && this.drag.canPayPlay;
+      this.updateDragGhostEnergyCost(playCost);
       this.ghost.classList.toggle('is-valid', this.drag.valid);
       this.showEnchantPreview(target, this.drag.card);
       this.reticle.visible = false;
       if (this.drag.valid) {
         if (this.drag.card.kind === 'enchant') {
-          if (this.game.networkBridge?.shouldRouteLocalCommands?.()) {
+          if (usesFreeEnchantment) {
+            this.setHintOnce(
+              '免费附魔：消耗 1 次免费次数，按卡牌等级附魔，本次不消耗能量',
+              'card-drag'
+            );
+          } else if (this.game.networkBridge?.shouldRouteLocalCommands?.()) {
             this.setHintOnce('松手对目标施放附魔', 'card-drag');
           } else {
             this.setHintOnce('按住不放连续附魔 · 松手完成使用', 'card-drag');
@@ -772,6 +792,25 @@ export class CardSystem {
     this.ghost.style.top = `${y}px`;
   }
 
+  cardPlayEnergyCost(card, targetUnit = null) {
+    return hasFreeEnchantmentCharge(card, targetUnit) ? 0 : cardEnergyCost(card);
+  }
+
+  hasAvailableFreeEnchantmentTarget(card) {
+    if (card?.kind !== 'enchant') return false;
+    return (this.game.friendlyUnits ?? []).some((unit) => (
+      unit?.alive
+      && unit.canReceiveBuffs !== false
+      && (this.game.unitBelongsToPlayer?.(unit, this.playerSlot) ?? true)
+      && hasFreeEnchantmentCharge(card, unit)
+    ));
+  }
+
+  updateDragGhostEnergyCost(cost) {
+    const label = this.ghost.querySelector('.med-card-cost span, .card-cost');
+    if (label) label.textContent = String(Math.max(0, Number(cost) || 0));
+  }
+
   prepareDragGhost(sourceElement, card, pointerType) {
     this.ghost.textContent = '';
     this.ghost.classList.remove('has-card-preview');
@@ -875,7 +914,8 @@ export class CardSystem {
       return this.sendPlayCardCommand(drag, options);
     }
     if (this.isCardOnCooldown(drag.card)) return false;
-    const cost = cardEnergyCost(drag.card);
+    const usesFreeEnchantment = hasFreeEnchantmentCharge(drag.card, drag.targetUnit);
+    const cost = usesFreeEnchantment ? 0 : cardEnergyCost(drag.card);
     if (!this.canSpend(cost)) {
       this.flashEnergyPanel();
       return false;
@@ -887,9 +927,20 @@ export class CardSystem {
       : { ...drag, card: preparedCard };
     if (!this.resolveCard(preparedDrag)) return false;
     abilities?.consumePreparedCardPlay?.(drag.card, preparedCard);
-    this.spendEnergy(cost);
+    if (usesFreeEnchantment) {
+      consumeFreeEnchantmentCharge(drag.card, drag.targetUnit);
+    } else {
+      this.spendEnergy(cost);
+    }
     this.game.runCardsPlayedCount = (this.game.runCardsPlayedCount ?? 0) + 1;
-    abilities?.onCardPlayed(preparedCard, preparedDrag);
+    const resolvedCard = usesFreeEnchantment
+      ? { ...preparedCard, energyCost: 0 }
+      : preparedCard;
+    abilities?.onCardPlayed(resolvedCard, {
+      ...preparedDrag,
+      card: resolvedCard,
+      usedFreeEnchantment: usesFreeEnchantment
+    });
     if (isTerrainCard(drag.card) && !cardHasUseLimit(drag.card)) {
       this.startCardCooldown(drag.card);
       this.renderHand();
@@ -956,7 +1007,6 @@ export class CardSystem {
       this.enchantHoldStartAt = null;
       return;
     }
-    const cost = cardEnergyCost(card);
     const maxUses = cardMaxUses(card);
     const remainingUses = maxUses > 0
       ? Math.max(0, Number(card.remainingUses ?? maxUses))
@@ -965,7 +1015,6 @@ export class CardSystem {
     this.enchantHold = {
       drag,
       target: drag.targetUnit,
-      cost,
       remainingUses,
       tickCount: 0
     };
@@ -989,7 +1038,9 @@ export class CardSystem {
       this.stopEnchantHold({ commit: false });
       return;
     }
-    if (!this.canSpend(hold.cost)) {
+    const usesFreeEnchantment = hasFreeEnchantmentCharge(hold.drag.card, hold.target);
+    const playCost = usesFreeEnchantment ? 0 : cardEnergyCost(hold.drag.card);
+    if (!this.canSpend(playCost)) {
       this.stopEnchantHold({ commit: false });
       this.setHint('能量不足：长按附魔已停止，松手完成使用', 'card-drag');
       return;
@@ -1012,8 +1063,12 @@ export class CardSystem {
         this.setHint('联机命令发送失败：未消耗能量', 'card-drag');
         return;
       }
-      this.energy -= hold.cost;
-      this.updateEnergyUi(true);
+      if (usesFreeEnchantment) {
+        consumeFreeEnchantmentCharge(hold.drag.card, hold.target);
+      } else {
+        this.energy -= playCost;
+        this.updateEnergyUi(true);
+      }
       if (hold.remainingUses != null) {
         hold.remainingUses = Math.max(0, hold.remainingUses - 1);
         if (cardHasUseLimit(hold.drag.card)) {
@@ -1933,7 +1988,10 @@ export class CardSystem {
         : this.handCards[Number(element.dataset.handIndex)];
       if (!card) return;
       const onCooldown = this.isCardOnCooldown(card);
-      const canPlay = !onCooldown && this.canSpend(cardEnergyCost(card));
+      const canPlay = !onCooldown && (
+        this.canSpend(cardEnergyCost(card))
+        || this.hasAvailableFreeEnchantmentTarget(card)
+      );
       const canDiscard = this.canSpend(discardEnergyCost(card));
       element.setAttribute('aria-disabled', String(!canPlay));
       element.classList.toggle('is-discard-only', !canPlay && canDiscard);
@@ -2209,13 +2267,13 @@ export class CardSystem {
       this.lastNetworkPlayRejectionReason = 'card_cooldown';
       return false;
     }
-    if (!this.canSpend(cardEnergyCost(card))) {
-      this.lastNetworkPlayRejectionReason = 'insufficient_energy';
-      return false;
-    }
     const drag = this.buildDragFromNetworkPayload(card, payload);
     if (card.target === 'ground' && !drag.point) {
       this.lastNetworkPlayRejectionReason = 'invalid_target_point';
+      return false;
+    }
+    if (!this.canSpend(this.cardPlayEnergyCost(card, drag.targetUnit))) {
+      this.lastNetworkPlayRejectionReason = 'insufficient_energy';
       return false;
     }
     const applied = this.game.withPlayerContext(this.playerSlot, () => (
@@ -2426,6 +2484,7 @@ export function createForgedCardMarkup(card, options = {}) {
   const cardLevelRoman = toRomanNumeral(cardLevel);
   const title = options.title ?? card.name ?? '';
   const summary = options.summary ?? card.summary ?? '';
+  const typeLabel = options.typeLabel ?? kindLabel(card.kind);
   const cooldownMarkup = options.cooldownMarkup ?? '';
   const titleOnlyMeta = options.titleOnlyMeta === true;
   const useBarMarkup = cardUseBarMarkup(card);
@@ -2441,10 +2500,11 @@ export function createForgedCardMarkup(card, options = {}) {
       <div class="med-card-face">
         <div class="med-card-art-container">
           ${createCardArtMarkup(card)}
+          <div class="med-card-type-label" aria-hidden="true">${escapeHtml(typeLabel)}</div>
           ${useBarMarkup}
         </div>
         <div class="med-card-meta-row${titleOnlyMeta ? ' is-title-only' : ''}">
-          ${titleOnlyMeta ? '' : `<div class="med-card-kind" role="img" aria-label="${kindLabel(card.kind)}" title="${kindLabel(card.kind)}">
+          ${titleOnlyMeta ? '' : `<div class="med-card-kind" role="img" aria-label="${escapeHtml(typeLabel)}" title="${escapeHtml(typeLabel)}">
             ${cardKindIconMarkup(card.kind)}
           </div>`}
           <div class="med-card-name">${escapeHtml(title)}</div>
@@ -3324,18 +3384,6 @@ const CARD_ART_RENDERERS = {
     <circle fill="#ffffff" opacity="0.7" cx="71" cy="48" r="3" />
     <circle fill="#ffffff" opacity="0.55" cx="78" cy="28" r="2" />
   `),
-  waveSwarm: () => artSvg(`
-    <polygon fill="#223827" points="0,51 18,42 43,44 68,38 96,49 96,64 0,64" />
-    <ellipse fill="#93c86f" opacity="0.2" cx="50" cy="40" rx="36" ry="18" />
-    <polygon fill="#93c86f" points="47,12 58,23 52,41 39,41 33,23" />
-    <polygon fill="#3f6f35" points="47,19 53,25 50,38 41,38 38,25" />
-    <path fill="none" stroke="#d7f6b8" stroke-width="3" stroke-linecap="round" d="M20 47 C30 33 40 39 49 27 C57 16 69 22 78 12" />
-    <path fill="none" stroke="#93c86f" stroke-width="3" stroke-linecap="round" d="M17 55 C31 43 45 47 57 36 C66 28 72 31 82 24" />
-    <circle fill="#d7f6b8" cx="27" cy="39" r="4" />
-    <circle fill="#d7f6b8" opacity="0.72" cx="66" cy="25" r="4" />
-    <polygon fill="#fff2c7" points="39,18 31,9 36,27" />
-    <polygon fill="#fff2c7" points="56,18 65,9 59,27" />
-  `),
   swarmPack: () => artSvg(`
     <polygon fill="#223827" points="0,51 18,42 43,44 68,38 96,49 96,64 0,64" />
     <ellipse fill="#93c86f" opacity="0.2" cx="50" cy="40" rx="36" ry="18" />
@@ -3547,7 +3595,7 @@ function collectEnergyPanel(panel) {
         <span>能量</span>
         <strong class="energy-value">0/${MAX_ENERGY}</strong>
       </div>
-      <div class="energy-subtitle">击杀充能</div>
+      <div class="energy-subtitle">自动恢复 · 0.2/秒</div>
       <div class="energy-panel-toolbar" hidden>
         <div class="ability-icon-row" hidden></div>
         <div class="core-icon-row" hidden></div>
@@ -3610,14 +3658,14 @@ function fitCardElementText(element) {
     const isCompactShopPicker = element.classList.contains('is-compact-shop-picker');
     const isForgedReward = element.classList.contains('is-forged-reward');
     const usesForgedMarkup = isForgedReward || Boolean(element.querySelector('.med-card-meta-row'));
-    const isMobileHandCard = element.dataset.cardLocation === 'hand'
+    const isMobilePlayableCard = ['hand', 'temporary'].includes(element.dataset.cardLocation)
       && window.matchMedia?.('(max-width: 900px)')?.matches;
     const isSpecializationReward = element.classList.contains('is-specialization-reward');
     const isTrainingReward = element.classList.contains('is-training-reward');
     const isSpecialReward = isSpecializationReward || isTrainingReward;
     const name = element.querySelector(usesForgedMarkup ? '.med-card-name' : '.card-name');
     if (!isCompactShopPicker) {
-      if (isMobileHandCard) {
+      if (isMobilePlayableCard) {
         fitSingleLineText(name, 6);
       } else {
         fitTextBlock(
@@ -3924,26 +3972,13 @@ function createPileCardElement(card, index) {
   element.dataset.cardId = card.id;
   element.dataset.pileIndex = String(index);
   element.style.setProperty('--card-color', cardThemeColor(card));
-      element.dataset.cost = cardEnergyCost(card);
-    element.dataset.kind = card.kind;
-    element.innerHTML = `
-      <div class="med-card-wrapper">
-        <div class="med-card-bg"></div>
-        <div class="med-card-cost"><span>${cardEnergyCost(card)}</span></div>
-        <div class="med-card-level" hidden>${toRomanNumeral(card.level)}</div>
-        ${cardUseBarMarkup(card)}
-        ${cardCooldownOverlayMarkup(this, card)}
-        <div class="med-card-face">
-          <div class="med-card-art-container">
-            ${createCardArtMarkup(card)}
-          </div>
-          <div class="med-card-bottom">
-            <div class="med-card-name">${card.name}</div>
-            <div class="med-card-desc">${card.summary}</div>
-          </div>
-        </div>
-      </div>
-    `;
+  element.dataset.cost = cardEnergyCost(card);
+  element.dataset.kind = card.kind;
+  element.innerHTML = `
+    <div class="meta-forged-card-shell">
+      ${createForgedCardMarkup(card)}
+    </div>
+  `;
   return element;
 }
 

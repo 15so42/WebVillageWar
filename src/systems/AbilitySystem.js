@@ -13,7 +13,6 @@ const RANDOM_HEAL_PERCENT = 0.16;
 const TRIAGE_HEAL_PERCENT = 0.12;
 const VICTORY_GOLD_PER_STACK = 0.2;
 const WAR_DRUM_CARDS_PER_DRAW = 3;
-const BLOOD_RAGE_ENERGY_PER_KILL = 1;
 const ARSENAL_ATTACK_PER_SUMMON = 1;
 const SUMMON_REINFORCEMENT_CHANCE_PER_STACK = 0.5;
 const PERIODIC_ENERGY_INTERVAL_SECONDS = 10;
@@ -132,10 +131,6 @@ export class AbilitySystem {
     const harvestStacks = this.getStacks('killHarvest');
     if (harvestStacks > 0) {
       this.gainEnergy(harvestStacks * KILL_HARVEST_ENERGY_PER_STACK, position ?? unit?.position);
-    }
-    const bloodRageStacks = this.getStacks('bloodRage');
-    if (bloodRageStacks > 0) {
-      this.gainEnergy(BLOOD_RAGE_ENERGY_PER_KILL * bloodRageStacks, position ?? unit?.position);
     }
   }
 

@@ -12,13 +12,12 @@ import {
   endlessEnemyStatFactors,
   endlessExpectedLifetime,
   endlessKillPerformanceDelta,
+  endlessPlayerUnitDeathDifficultyDelta,
   endlessPlayerUnitDeathPerformanceDelta,
   normalizeChallengeMode,
   resetEndlessDeckLevels,
   resolveEndlessEnemyDefeat
 } from '../src/systems/endlessMode.js';
-import { AttributeSet } from '../src/systems/AttributeSet.js';
-import { ModifierSystem } from '../src/systems/ModifierSystem.js';
 import { EnemyEnchantmentSystem } from '../src/systems/EnemyEnchantmentSystem.js';
 import { BUFF_DEFINITIONS, TEAMS } from '../src/data/gameData.js';
 
@@ -77,7 +76,10 @@ assert.deepEqual(resolveEndlessEnemyDefeat({
   enemyDifficulty: 0.84,
   difficultyDelta: -0.252
 });
-assert.equal(applyEndlessDifficulty(-0.25, -0.125), -0.37);
+assert.equal(applyEndlessDifficulty(-0.25, -0.125), 0);
+assert.equal(endlessPlayerUnitDeathDifficultyDelta(30, 10), -0.9);
+assert.equal(endlessPlayerUnitDeathDifficultyDelta(30, 2), -4.5);
+assert.equal(endlessPlayerUnitDeathDifficultyDelta(30, 1), -9);
 
 {
   let difficulty = 10;
@@ -113,7 +115,7 @@ assert.equal(applyEndlessDifficulty(-0.25, -0.125), -0.37);
   assert(difficulty >= 20 && difficulty <= 24, `连续劣势后的难度不应瞬间塌陷，实际 ${difficulty}`);
 }
 
-assert.deepEqual(endlessEnemyStatFactors(0), { health: 1, damage: 1 });
+assert.deepEqual(endlessEnemyStatFactors(0), { health: 0.6, damage: 0.6 });
 assert.deepEqual(endlessEnemyStatFactors(-100), { health: 0.1, damage: 0.1 });
 for (const seed of [1, 7, 31, 99, 707]) {
   assert.match(String(endlessEnchantCount(100, { enemyClass: 'normal', seed })), /^[01]$/);
@@ -134,24 +136,6 @@ assert.equal(calculateEndlessReward(-3, 2), 0);
 assert.equal(calculateEndlessReward(7.9, 1.5), 71);
 assert.equal(calculateEndlessReward(7.9, 600, 1.5), 75);
 assert.equal(calculateEndlessReward(7.9, 7200, 1.5), 92);
-
-const swarmSpeedAttributes = new AttributeSet({ moveSpeed: 2.75 });
-swarmSpeedAttributes.addModifier({
-  stat: 'moveSpeed',
-  type: 'multiply',
-  factor: 1.02,
-  factorPerLevel: 0.02,
-  levelCurve: 'sqrt'
-}, 'test:swarm', { level: 100 });
-const swarmEnemy = {
-  team: 'enemy',
-  definition: { speed: 2.75 },
-  attributes: swarmSpeedAttributes,
-  hasEnchantment: (id) => id === 'waveSwarm'
-};
-const swarmSpeed = new ModifierSystem({}).getMoveSpeed(swarmEnemy);
-assert(Math.abs(swarmSpeed - 3.355) < 1e-9);
-assert(swarmSpeed > 3.2);
 
 const upgradedDeck = [
   { id: 'militia', level: 5, instanceId: 'card-1' },
@@ -205,7 +189,6 @@ new EnemyEnchantmentSystem(eliteSpawnGame).enchantSpawnWave([eliteUnit], {
   id: 3,
   index: 3,
   kind: 'elite',
-  threatTier: 3,
   effectiveDifficulty: 0
 });
 assert.equal(eliteUnit.enchantments.size, 1, 'endless elite spawn receives its guaranteed enchantment');

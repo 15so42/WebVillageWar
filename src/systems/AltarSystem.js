@@ -11,6 +11,8 @@ const TEAM_COLORS = {
 
 const PROGRESS_SEGMENTS = 72;
 const FULL_CIRCLE = Math.PI * 2;
+const ALTAR_RANGE_RING_SEGMENTS = 96;
+const ALTAR_RANGE_TERRAIN_OFFSET = 0.09;
 
 export class AltarSystem {
   constructor(game, altarConfigs = BALANCE.world.altars ?? []) {
@@ -43,14 +45,30 @@ export class AltarSystem {
     const effectRadius = config.effectRadius ?? definition.effectRadius ?? captureRadius;
     const parts = model.userData.parts;
     parts.areaDisc.scale.setScalar(captureRadius);
-    parts.areaRing.scale.setScalar(captureRadius);
     parts.progressRing.scale.setScalar(captureRadius);
+    parts.areaRing.geometry.dispose();
+    parts.areaRing.geometry = createTerrainProjectedRangeRingGeometry(
+      altarPosition,
+      captureRadius,
+      this.game.groundHeightAt.bind(this.game),
+      { rotationY: model.rotation.y }
+    );
+    parts.areaRing.position.set(0, 0, 0);
+    parts.areaRing.rotation.set(0, 0, 0);
+    parts.areaRing.scale.setScalar(1);
+    parts.areaRing.material.depthTest = true;
+    parts.areaRing.material.depthWrite = false;
+    parts.areaRing.material.polygonOffset = true;
+    parts.areaRing.material.polygonOffsetFactor = -4;
+    parts.areaRing.material.polygonOffsetUnits = -4;
 
     parts.areaDisc.traverse((child) => {
       child.layers.set(1);
     });
     parts.areaRing.traverse((child) => {
-      child.layers.set(1);
+      // The range ribbon belongs in the main depth pass: terrain receives a
+      // small polygon offset beneath it, while unit geometry still occludes it.
+      child.layers.set(0);
     });
     parts.progressRing.traverse((child) => {
       child.layers.set(1);
@@ -348,6 +366,63 @@ export class AltarSystem {
 
 function teamColor(team) {
   return TEAM_COLORS[team] ?? TEAM_COLORS.neutral;
+}
+
+export function createTerrainProjectedRangeRingGeometry(
+  center,
+  radius,
+  groundHeightAt,
+  options = {}
+) {
+  const safeRadius = Math.max(0.1, Number(radius) || 0.1);
+  const segments = Math.max(24, Math.floor(options.segments ?? ALTAR_RANGE_RING_SEGMENTS));
+  const bandWidth = clamp(
+    Number(options.bandWidth) || safeRadius * 0.025,
+    0.07,
+    0.18
+  );
+  const innerRadius = Math.max(0.02, safeRadius - bandWidth * 0.5);
+  const outerRadius = safeRadius + bandWidth * 0.5;
+  const rotationY = Number(options.rotationY) || 0;
+  const terrainOffset = Number.isFinite(options.terrainOffset)
+    ? options.terrainOffset
+    : ALTAR_RANGE_TERRAIN_OFFSET;
+  const fallbackGroundHeight = (Number(center?.y) || 0) - 0.12;
+  const positions = [];
+
+  const pointAt = (angle, pointRadius) => {
+    const worldAngle = angle + rotationY;
+    const worldX = (Number(center?.x) || 0) + Math.cos(worldAngle) * pointRadius;
+    const worldZ = (Number(center?.z) || 0) + Math.sin(worldAngle) * pointRadius;
+    const sampledGroundHeight = Number(groundHeightAt?.(worldX, worldZ));
+    const groundHeight = Number.isFinite(sampledGroundHeight)
+      ? sampledGroundHeight
+      : fallbackGroundHeight;
+    return [
+      Math.cos(angle) * pointRadius,
+      groundHeight + terrainOffset - (Number(center?.y) || 0),
+      Math.sin(angle) * pointRadius
+    ];
+  };
+
+  for (let index = 0; index < segments; index += 1) {
+    const angle0 = (index / segments) * FULL_CIRCLE;
+    const angle1 = ((index + 1) / segments) * FULL_CIRCLE;
+    const inner0 = pointAt(angle0, innerRadius);
+    const outer0 = pointAt(angle0, outerRadius);
+    const inner1 = pointAt(angle1, innerRadius);
+    const outer1 = pointAt(angle1, outerRadius);
+    positions.push(...inner0, ...outer0, ...outer1, ...inner0, ...outer1, ...inner1);
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.computeBoundingSphere();
+  geometry.userData.terrainProjected = true;
+  geometry.userData.radius = safeRadius;
+  geometry.userData.bandWidth = bandWidth;
+  geometry.userData.terrainOffset = terrainOffset;
+  return geometry;
 }
 
 function createAltarOwnershipSnapshot(altar) {

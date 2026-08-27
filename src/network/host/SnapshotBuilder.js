@@ -6,6 +6,7 @@ import {
 } from '../protocol/syncConfig.js';
 import { MSG } from '../protocol/messages.js';
 import { ensureInteractionIdentity } from './interactionIdentity.js';
+import { normalizeFreeEnchantmentCharges } from '../../systems/freeEnchantmentCharges.js';
 
 const NETWORK_KNOCKBACK_EPSILON_SQ = 0.0004;
 
@@ -364,6 +365,7 @@ export class SnapshotBuilder {
       shield: round(unit.shield ?? 0, 1),
       maxShield: round(unit.maxShield ?? 0, 1),
       maxEnchantmentSlots: Math.max(0, Math.floor(unit.maxEnchantmentSlots ?? 5)),
+      freeEnchantmentCharges: normalizeFreeEnchantmentCharges(unit.freeEnchantmentCharges),
       durability: round(unit.weapon?.durability ?? 0),
       maxDurability: round(unit.weapon?.maxDurability ?? 0),
       underConstruction: Boolean(unit.underConstruction),

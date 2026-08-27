@@ -3,6 +3,9 @@ import { basicMat, mat } from './lowpoly.js';
 
 const SMOKE_PARTICLE_COUNT = 22;
 const WILDFIRE_FLAME_COUNT = 34;
+const WILDFIRE_TRACE_COUNT = 14;
+const TOXIC_ATMOSPHERE_COUNT = 10;
+const TOXIC_MOTE_COUNT = 16;
 const ROOT_VINE_COUNT = 15;
 const UP_AXIS = new THREE.Vector3(0, 1, 0);
 
@@ -14,6 +17,7 @@ export function createAreaEffectVisual({ radius, color, accent, kind }) {
   group.userData.baseRadius = radius;
   group.userData.kind = kind;
   const isWildfire = kind === 'wildfire';
+  const isToxic = kind === 'poisonFog' || kind === 'plagueFog';
   // The smoke uses a lit material and must stay in the world pass. Only the
   // flat range markers belong in the layer-1 overlay pass.
   group.userData.preserveRenderLayers = true;
@@ -48,6 +52,139 @@ export function createAreaEffectVisual({ radius, color, accent, kind }) {
   ring.renderOrder = 1321;
   ring.layers.set(1);
   group.add(ring);
+
+  if (isWildfire) {
+    const scorchMaterial = basicMat('#28140f', {
+      transparent: true,
+      opacity: 0.34,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    }).clone();
+    const emberTraceMaterial = basicMat('#ff6a22', {
+      transparent: true,
+      opacity: 0.52,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    }).clone();
+    const scorchGeometry = new THREE.CircleGeometry(1, 12);
+    const traceGeometry = new THREE.RingGeometry(0.72, 1, 12, 1, 0, Math.PI * 1.18);
+    const groundTraces = [];
+    for (let index = 0; index < WILDFIRE_TRACE_COUNT; index += 1) {
+      const angle = Math.random() * Math.PI * 2;
+      const distance = radius * Math.sqrt(Math.random()) * 0.78;
+      const width = radius * (0.07 + Math.random() * 0.12);
+      const length = radius * (0.12 + Math.random() * 0.22);
+      const patch = new THREE.Mesh(scorchGeometry, scorchMaterial);
+      patch.position.set(Math.cos(angle) * distance, 0.016 + index * 0.0003, Math.sin(angle) * distance);
+      patch.rotation.x = -Math.PI / 2;
+      patch.rotation.z = angle + (Math.random() - 0.5) * 0.8;
+      patch.scale.set(width, length, 1);
+      patch.renderOrder = 1321;
+      patch.layers.set(1);
+      const emberTrace = new THREE.Mesh(traceGeometry, emberTraceMaterial);
+      emberTrace.position.copy(patch.position);
+      emberTrace.position.y += 0.006;
+      emberTrace.rotation.x = -Math.PI / 2;
+      emberTrace.rotation.z = patch.rotation.z + Math.random() * 0.5;
+      emberTrace.scale.set(width * 0.74, length * 0.72, 1);
+      emberTrace.userData.phase = Math.random() * Math.PI * 2;
+      emberTrace.renderOrder = 1322;
+      emberTrace.layers.set(1);
+      groundTraces.push({ patch, emberTrace });
+      group.add(patch, emberTrace);
+    }
+    group.userData.groundTraces = groundTraces;
+    group.userData.scorchMaterial = scorchMaterial;
+    group.userData.emberTraceMaterial = emberTraceMaterial;
+  }
+
+  if (isToxic) {
+    const stainMaterial = basicMat(kind === 'plagueFog' ? '#27351f' : '#314a25', {
+      transparent: true,
+      opacity: 0.24,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    }).clone();
+    const atmosphereMaterial = mat(color, {
+      transparent: true,
+      opacity: kind === 'plagueFog' ? 0.2 : 0.17,
+      emissive: accent,
+      emissiveIntensity: kind === 'plagueFog' ? 0.16 : 0.22,
+      roughness: 0.46,
+      depthWrite: false,
+      side: THREE.DoubleSide
+    }).clone();
+    const toxicMoteMaterial = basicMat(accent, {
+      transparent: true,
+      opacity: 0.64,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    }).clone();
+    const stainGeometry = new THREE.CircleGeometry(1, 14);
+    const atmosphereGeometry = new THREE.SphereGeometry(1, 12, 8);
+    const toxicMoteGeometry = new THREE.OctahedronGeometry(0.035, 0);
+    const stains = [];
+    for (let index = 0; index < 8; index += 1) {
+      const angle = Math.random() * Math.PI * 2;
+      const distance = radius * Math.sqrt(Math.random()) * 0.7;
+      const stain = new THREE.Mesh(stainGeometry, stainMaterial);
+      stain.position.set(Math.cos(angle) * distance, 0.014 + index * 0.0002, Math.sin(angle) * distance);
+      stain.rotation.x = -Math.PI / 2;
+      stain.rotation.z = Math.random() * Math.PI;
+      stain.scale.set(radius * (0.1 + Math.random() * 0.16), radius * (0.08 + Math.random() * 0.14), 1);
+      stain.renderOrder = 1321;
+      stain.layers.set(1);
+      stains.push(stain);
+      group.add(stain);
+    }
+    const atmospherePuffs = [];
+    for (let index = 0; index < TOXIC_ATMOSPHERE_COUNT; index += 1) {
+      const angle = Math.random() * Math.PI * 2;
+      const distance = radius * Math.sqrt(Math.random()) * 0.7;
+      const puff = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
+      puff.position.set(
+        Math.cos(angle) * distance,
+        0.24 + Math.random() * 1.12,
+        Math.sin(angle) * distance
+      );
+      puff.userData.base = puff.position.clone();
+      puff.userData.phase = Math.random() * Math.PI * 2;
+      puff.userData.speed = 0.2 + Math.random() * 0.42;
+      puff.userData.atmosphere = true;
+      puff.userData.baseScale = radius * (0.18 + Math.random() * 0.2);
+      puff.userData.aspect = new THREE.Vector3(
+        1.2 + Math.random() * 0.75,
+        0.48 + Math.random() * 0.36,
+        1.05 + Math.random() * 0.7
+      );
+      puff.renderOrder = 1320;
+      puff.layers.set(0);
+      atmospherePuffs.push(puff);
+      group.add(puff);
+    }
+    const toxicMotes = [];
+    for (let index = 0; index < TOXIC_MOTE_COUNT; index += 1) {
+      const angle = Math.random() * Math.PI * 2;
+      const distance = radius * Math.sqrt(Math.random()) * 0.82;
+      const mote = new THREE.Mesh(toxicMoteGeometry, toxicMoteMaterial);
+      mote.position.set(Math.cos(angle) * distance, 0.15 + Math.random() * 1.5, Math.sin(angle) * distance);
+      mote.userData.base = mote.position.clone();
+      mote.userData.phase = Math.random() * Math.PI * 2;
+      mote.userData.speed = 0.34 + Math.random() * 0.7;
+      mote.userData.toxicMote = true;
+      mote.userData.baseScale = 0.6 + Math.random() * 1.25;
+      mote.layers.set(0);
+      toxicMotes.push(mote);
+      group.add(mote);
+    }
+    group.userData.stains = stains;
+    group.userData.stainMaterial = stainMaterial;
+    group.userData.atmospherePuffs = atmospherePuffs;
+    group.userData.atmosphereMaterial = atmosphereMaterial;
+    group.userData.toxicMotes = toxicMotes;
+    group.userData.toxicMoteMaterial = toxicMoteMaterial;
+  }
 
   const puffMaterial = isWildfire
     ? basicMat('#ff7a2d', {
@@ -129,8 +266,41 @@ export function updateAreaEffectVisual(group, { age, duration, radius, kind }, d
   group.userData.puffMaterial.opacity = (
     kind === 'wildfire' ? 0.9 : (kind === 'whiteSmoke' ? 0.42 : 0.34)
   ) * alpha;
+  if (kind === 'wildfire' && group.userData.groundTraces) {
+    group.userData.scorchMaterial.opacity = 0.34 * alpha;
+    group.userData.emberTraceMaterial.opacity = (0.42 + Math.sin(age * 8.4) * 0.1) * alpha;
+    group.userData.groundTraces.forEach(({ patch, emberTrace }, index) => {
+      const flicker = 0.92 + Math.sin(age * (5.8 + index * 0.08) + emberTrace.userData.phase) * 0.09;
+      emberTrace.scale.x = patch.scale.x * 0.74 * flicker;
+      emberTrace.scale.y = patch.scale.y * 0.72 * flicker;
+      emberTrace.rotation.z += dt * (index % 2 ? -0.045 : 0.045);
+    });
+  }
+  if ((kind === 'poisonFog' || kind === 'plagueFog') && group.userData.atmospherePuffs) {
+    group.userData.stainMaterial.opacity = 0.24 * alpha;
+    group.userData.atmosphereMaterial.opacity = (kind === 'plagueFog' ? 0.2 : 0.17) * alpha;
+    group.userData.toxicMoteMaterial.opacity = 0.64 * alpha;
+    group.userData.atmospherePuffs.forEach((puff, index) => {
+      const phase = puff.userData.phase + age * puff.userData.speed;
+      puff.position.x = puff.userData.base.x + Math.cos(phase * 0.72) * radius * 0.055;
+      puff.position.z = puff.userData.base.z + Math.sin(phase * 0.64) * radius * 0.055;
+      puff.position.y = puff.userData.base.y + Math.sin(phase) * 0.16;
+      const breathe = puff.userData.baseScale * (0.86 + Math.sin(phase * 1.3 + index) * 0.12);
+      puff.scale.copy(puff.userData.aspect).multiplyScalar(breathe);
+      puff.rotation.y += dt * (0.08 + index * 0.006);
+    });
+    group.userData.toxicMotes.forEach((mote, index) => {
+      const phase = mote.userData.phase + age * mote.userData.speed;
+      mote.position.x = mote.userData.base.x + Math.cos(phase + index) * 0.12;
+      mote.position.z = mote.userData.base.z + Math.sin(phase * 0.8 + index) * 0.12;
+      mote.position.y = mote.userData.base.y + Math.sin(phase * 1.4) * 0.18;
+      mote.rotation.y += dt * (1.2 + index * 0.04);
+      mote.scale.setScalar(mote.userData.baseScale * (0.72 + Math.sin(phase * 2.2) * 0.24));
+    });
+  }
   group.children.forEach((child, index) => {
     if (!child.userData.base) return;
+    if (child.userData.atmosphere || child.userData.toxicMote) return;
     const phase = child.userData.phase + age * child.userData.speed;
     if (child.userData.isFlame) {
       const lick = 0.76 + Math.sin(phase * 5.3) * 0.14 + Math.sin(age * 13 + index) * 0.11;

@@ -73,9 +73,36 @@ assert.equal(prevented, true);
 
 const styles = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
 const battleHudStyles = readFileSync(new URL('../src/battleHud.css', import.meta.url), 'utf8');
+const cardSystemSource = readFileSync(new URL('../src/systems/CardSystem.js', import.meta.url), 'utf8');
+const gameSource = readFileSync(new URL('../src/systems/Game.js', import.meta.url), 'utf8');
+assert.match(
+  styles,
+  /body\.is-game-active\s*\{[^}]*-webkit-user-select:\s*none;[^}]*user-select:\s*none;/s,
+  '战斗界面应统一禁止浏览器文字选中'
+);
+assert.match(
+  styles,
+  /body\.is-game-active :is\(input\[type="text"\], input\[type="number"\], textarea, \[contenteditable="true"\]\)\s*\{[^}]*user-select:\s*text;/s,
+  '真正的可编辑控件仍应允许选择文字'
+);
 assert.match(styles, /\.ability-icon-row\s*\{[^}]*min-width:\s*0;/s);
 assert.match(styles, /\.ability-icon-row\s*\{[^}]*touch-action:\s*none;/s);
 assert.match(styles, /\.ability-icon-row\s*\{[^}]*pointer-events:\s*auto;/s);
+assert.match(
+  cardSystemSource,
+  /element\.innerHTML\s*=\s*createForgedCardMarkup\(card,\s*\{\s*cooldownMarkup\s*\}\);/,
+  'hand and temporary cards should render through the same forged card face'
+);
+assert.doesNotMatch(
+  cardSystemSource,
+  /element\.innerHTML\s*=\s*location\s*===\s*['"]hand['"]/,
+  'temporary cards should not keep a separate legacy card face'
+);
+assert.match(
+  cardSystemSource,
+  /\['hand',\s*'temporary'\]\.includes\(element\.dataset\.cardLocation\)/,
+  'hand and temporary cards should share compact mobile text fitting'
+);
 const levelMarkup = createForgedCardMarkup({
   id: 'roman-level-test',
   name: '等级测试',
@@ -88,10 +115,75 @@ const levelMarkup = createForgedCardMarkup({
 });
 assert.match(levelMarkup, /<div class="med-card-level"[^>]*>XI<\/div>/);
 assert.doesNotMatch(levelMarkup, /med-card-level-icon|med-card-level-roman|Lv\.|>11</);
+assert.match(levelMarkup, /<div class="med-card-type-label" aria-hidden="true">单位卡<\/div>/);
+for (const [kind, label] of [
+  ['spell', '法术卡'],
+  ['building', '建筑卡'],
+  ['tactic', '战术卡'],
+  ['ability', '能力卡'],
+  ['enchant', '附魔卡']
+]) {
+  const markup = createForgedCardMarkup({
+    id: `type-label-${kind}`,
+    name: '类型测试',
+    summary: '测试卡牌类型文字',
+    label: '测',
+    kind,
+    level: 1,
+    energyCost: 1,
+    color: '#ffffff'
+  });
+  assert.match(markup, new RegExp(`<div class="med-card-type-label" aria-hidden="true">${label}<\\/div>`));
+}
+assert.match(
+  battleHudStyles,
+  /\.med-card-type-label\s*\{[^}]*top:\s*5px;[^}]*right:\s*5px;[^}]*display:\s*block;/s,
+  'every forged card should show its text type marker at the top-right of the art panel'
+);
+assert.match(
+  battleHudStyles,
+  /:is\(\.card-hand,\s*\.temporary-card-slot,\s*\.wave-reward-card-frame\) \.med-card-face/,
+  'hand, temporary and reward cards should share the exact forged face rules'
+);
+const trainingMarkup = createForgedCardMarkup({
+  id: 'training-type-label',
+  name: '训练测试',
+  summary: '测试自定义类型文字',
+  label: '训',
+  kind: 'tactic',
+  level: 1,
+  energyCost: 0,
+  color: '#ffffff'
+}, { typeLabel: '训练卡' });
+assert.match(trainingMarkup, /<div class="med-card-type-label" aria-hidden="true">训练卡<\/div>/);
 assert.match(
   battleHudStyles,
   /\.med-card-meta-row \.med-card-level\s*\{[^}]*font-family:\s*var\(--font-title\);[^}]*font-weight:\s*900;/s
 );
+assert.doesNotMatch(gameSource, /wave-command-affixes/, '战斗顶部不应显示波次主题或附魔信息');
+assert.doesNotMatch(gameSource, /function waveCommandAffixMarkup/, '顶部附魔令牌生成逻辑应移除');
+assert.doesNotMatch(battleHudStyles, /\.wave-affix-token/, '顶部附魔令牌样式应移除');
+assert.match(
+  battleHudStyles,
+  /\.wave-command-panel \.wave-command-info\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\);/s,
+  '移除附魔信息后波次摘要应占满中间区域'
+);
+assert.match(
+  battleHudStyles,
+  /\.wave-command-auto-skip\s*\{[^}]*display:\s*inline-flex;/s,
+  '无尽自动跳过勾选框应显示在波次详情下方'
+);
+assert.match(
+  battleHudStyles,
+  /\.wave-command-panel \.wave-command-info\s*\{[^}]*pointer-events:\s*auto;/s,
+  '波次详情必须接收指针事件，确保无尽自动跳过勾选框可操作'
+);
+assert.match(
+  gameSource,
+  /battleTimeLabel\) this\.dom\.battleTimeLabel\.textContent = '难度';\s*this\.dom\.battleTime\.textContent = Number\(this\.endlessDifficulty \|\| 0\)\.toFixed\(1\);/s,
+  '无尽模式波次详情应只显示难度数值'
+);
+assert.doesNotMatch(gameSource, /难度 \/ 表现/, '无尽模式波次详情不应再显示表现标题');
 
 release();
 assert.equal(listeners.size, 0);

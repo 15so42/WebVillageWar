@@ -4,9 +4,7 @@ import { CARD_DEFINITIONS } from '../data/gameData.js';
 import {
   cardEnergyCost,
   cardMaxUses,
-  cardUseBarMarkup,
-  createCardArtMarkup,
-  toRomanNumeral
+  createForgedCardMarkup
 } from './CardSystem.js';
 
 const CARD_BY_ID = new Map(CARD_DEFINITIONS.map((card) => [card.id, card]));
@@ -106,16 +104,9 @@ export class LootDropSystem {
     this.ui.root.hidden = false;
     this.ui.card.style.setProperty('--card-color', drop.card.color);
     this.ui.card.innerHTML = `
-      <div class="loot-card-cost">${cardEnergyCost(drop.card)}</div>
-      <div class="loot-card-level">${toRomanNumeral(drop.card.level)}</div>
-      ${cardUseBarMarkup(drop.card, 'loot-card-use-bar')}
-      <div class="loot-card-header">
-        <span class="loot-card-rune">${drop.card.label}</span>
-        <span>${kindLabel(drop.card.kind)}</span>
+      <div class="meta-forged-card-shell">
+        ${createForgedCardMarkup(drop.card)}
       </div>
-      ${createCardArtMarkup(drop.card)}
-      <strong>${drop.card.name}</strong>
-      <p>${drop.card.summary}</p>
     `;
     this.ui.title.textContent = `${drop.card.name}`;
     this.ui.summary.textContent = '拿取后优先进入临时卡牌位。临时位已有卡时，会放入抽牌堆顶。';
@@ -479,12 +470,6 @@ function collectLootConfirmUi(root) {
     declineButton: root.querySelector('.loot-confirm-decline'),
     closeButton: root.querySelector('.loot-confirm-close')
   };
-}
-
-function kindLabel(kind) {
-  if (kind === 'summon') return '单位卡';
-  if (kind === 'spell') return '法术卡';
-  return '附魔卡';
 }
 
 function stopUiEvent(event) {

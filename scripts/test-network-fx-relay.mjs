@@ -95,6 +95,29 @@ assert.deepEqual(rootWarningEvents, [{
 }]);
 restoreRootWarning();
 
+const unitUpgradeEvents = [];
+const unitUpgradeGame = {
+  effects: {
+    spawnUnitUpgrade: () => true
+  }
+};
+const restoreUnitUpgrade = installHostEffectsRelay(
+  unitUpgradeGame,
+  (event) => unitUpgradeEvents.push(event)
+);
+unitUpgradeGame.effects.spawnUnitUpgrade(
+  { x: 4, y: 0.2, z: 9 },
+  { color: '#ffd166', radius: 0.9, height: 1.7, duration: 0.9 }
+);
+assert.deepEqual(unitUpgradeEvents, [{
+  name: 'fx_unit_upgrade',
+  x: 4,
+  y: 0.2,
+  z: 9,
+  options: { color: '#ffd166', radius: 0.9, height: 1.7, duration: 0.9 }
+}]);
+restoreUnitUpgrade();
+
 const lightningEvents = [];
 const lightningGame = {
   effects: {
@@ -181,5 +204,21 @@ applyNetworkFx({
 }, selfDestructEvents[0]);
 assert.deepEqual(replayedSelfDestruct[0].position.toArray(), [6, 0, 8]);
 assert.equal(replayedSelfDestruct[0].radius, 6);
+
+const replayedUnitUpgrade = [];
+applyNetworkFx({
+  effects: {
+    spawnUnitUpgrade(position, options) {
+      replayedUnitUpgrade.push({ position, options });
+    }
+  }
+}, unitUpgradeEvents[0]);
+assert.deepEqual(replayedUnitUpgrade[0].position.toArray(), [4, 0.2, 9]);
+assert.deepEqual(replayedUnitUpgrade[0].options, {
+  color: '#ffd166',
+  radius: 0.9,
+  height: 1.7,
+  duration: 0.9
+});
 
 console.log('Network FX relay rate-limit checks passed.');

@@ -4,6 +4,11 @@ import { basicMat, mat } from '../art/lowpoly.js';
 import { createUnitModel, updateUnitAnimation } from '../art/visualRegistry.js';
 import { AttributeSet, bindAttributeGetter } from '../systems/AttributeSet.js';
 import { scaleResourceAfterMaximumChange } from '../systems/unitResourceSync.js';
+import {
+  advanceFreeEnchantmentState,
+  FREE_ENCHANTMENT_HINT_INTERVAL_SECONDS,
+  normalizeFreeEnchantmentCharges
+} from '../systems/freeEnchantmentCharges.js';
 import { clamp } from '../utils/math.js';
 
 let nextUnitId = 1;
@@ -78,6 +83,9 @@ export class UnitEntity {
     this.buffs = new Map();
     this.enchantments = new Map();
     this.maxEnchantmentSlots = 5;
+    this.freeEnchantmentCharges = 0;
+    this.freeEnchantmentProgress = 0;
+    this.freeEnchantmentHintTimer = FREE_ENCHANTMENT_HINT_INTERVAL_SECONDS;
     this.status = {
       burnTime: 0,
       burnDamagePerSecond: 0,
@@ -305,6 +313,21 @@ export class UnitEntity {
 
   updateStatusLagVisual(dt = 0) {
     refreshStatusLagElement(this, dt);
+  }
+
+  updateFreeEnchantmentCharges(dt = 0) {
+    if (this.team !== TEAMS.PLAYER || !this.alive) return 0;
+    const next = advanceFreeEnchantmentState(
+      this.freeEnchantmentCharges,
+      this.freeEnchantmentProgress,
+      dt
+    );
+    this.freeEnchantmentProgress = next.progress;
+    if (next.charges !== this.freeEnchantmentCharges) {
+      this.freeEnchantmentCharges = next.charges;
+      this.statusUiDirty = true;
+    }
+    return next.gained;
   }
 
   takeRawDamage(amount, options = {}) {
@@ -582,6 +605,9 @@ function createUnitStatusElement(team) {
     <div class="world-durability-bar">
       <span class="world-durability-fill"></span>
     </div>
+    <div class="world-free-enchantment-charges" hidden aria-label="免费附魔次数">
+      <span></span><span></span><span></span><span></span>
+    </div>
     <div class="world-enchantments" hidden></div>
   `;
   element.hidden = true;
@@ -591,6 +617,7 @@ function createUnitStatusElement(team) {
     healthLoss: element.querySelector('.world-health-loss-fill'),
     ticks: element.querySelector('.world-health-ticks'),
     shield: element.querySelector('.world-shield-fill'),
+    freeEnchantmentCharges: element.querySelector('.world-free-enchantment-charges'),
     durability: element.querySelector('.world-durability-fill'),
     enchantments: element.querySelector('.world-enchantments')
   };
@@ -613,6 +640,16 @@ function refreshStatusElement(unit, dt = 0) {
   element.parts.shield.style.transform = `scaleX(${shieldRatio})`;
   element.parts.shield.hidden = shieldRatio <= 0;
   element.parts.durability.style.transform = `scaleX(${durabilityRatio})`;
+
+  const freeCharges = normalizeFreeEnchantmentCharges(unit.freeEnchantmentCharges);
+  if (element.parts.freeEnchantmentCharges) {
+    element.parts.freeEnchantmentCharges.hidden = freeCharges <= 0;
+    element.parts.freeEnchantmentCharges.dataset.count = String(freeCharges);
+    element.parts.freeEnchantmentCharges.setAttribute('aria-label', `免费附魔次数 ${freeCharges}`);
+    element.parts.freeEnchantmentCharges.querySelectorAll('span').forEach((marker, index) => {
+      marker.hidden = index >= freeCharges;
+    });
+  }
 
   const enchantmentStatuses = [...unit.enchantments.values()]
     .filter((enchantment) => !enchantment.hidden)

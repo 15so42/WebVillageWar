@@ -34,21 +34,22 @@ assert.deepEqual(collectRunShopCardInstances({
 const battleHudStyles = readFileSync(new URL('../src/battleHud.css', import.meta.url), 'utf8');
 const metaHudStyles = readFileSync(new URL('../src/metaHud.css', import.meta.url), 'utf8');
 const indexMarkup = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+const gameSource = readFileSync(new URL('../src/systems/Game.js', import.meta.url), 'utf8');
+const metaGameSource = readFileSync(new URL('../src/systems/MetaGameSystem.js', import.meta.url), 'utf8');
+const cardSystemSource = readFileSync(new URL('../src/systems/CardSystem.js', import.meta.url), 'utf8');
+const lootDropSource = readFileSync(new URL('../src/systems/LootDropSystem.js', import.meta.url), 'utf8');
+assert.match(metaGameSource, /<div class="meta-forged-card-shell">\s*\$\{createForgedCardMarkup\(card\)\}/);
+assert.doesNotMatch(metaGameSource, /options\.handStyle|<div class="meta-card-face">/);
+assert.match(metaHudStyles, /\.meta-forged-card-shell \.med-card-wrapper\s*\{/);
+assert.match(cardSystemSource, /function createPileCardElement[\s\S]*?meta-forged-card-shell[\s\S]*?createForgedCardMarkup\(card\)/);
+assert.match(lootDropSource, /this\.ui\.card\.innerHTML\s*=\s*`[\s\S]*?meta-forged-card-shell[\s\S]*?createForgedCardMarkup\(drop\.card\)/);
+assert.doesNotMatch(gameSource, /runShopCardFaceInnerMarkup|runShopAttributeTrainingMarkup|unitSpecializationRewardMarkup/);
 assert.match(
-  metaHudStyles,
-  /body\.is-meta-open \.meta-root \.meta-card > \.meta-card-level\s*\{[\s\S]*?border:\s*0\s*!important;[\s\S]*?background:\s*transparent\s*!important;[\s\S]*?box-shadow:\s*none\s*!important;/,
-  'main-menu cards should render the Roman level without a badge'
+  gameSource,
+  /options\.useAttributeTrainingStyle[\s\S]*?options\.useSpecializationStyle[\s\S]*?options\.useWaveRewardStyle[\s\S]*?runShopChoiceUsesCardFace\(choice\)[\s\S]*?strategyRewardMarkup\(choice, index/,
+  'every supply-shop card path should use the wave-reward forged card renderer'
 );
-assert.match(
-  battleHudStyles,
-  /body\.is-game-active \.run-shop-panel \.run-shop-choice-card > \.card-level\s*\{[\s\S]*?border:\s*0\s*!important;[\s\S]*?background:\s*transparent\s*!important;[\s\S]*?box-shadow:\s*none\s*!important;/,
-  'legacy supply-shop cards should render the Roman level without a badge'
-);
-assert.match(
-  battleHudStyles,
-  /body\.is-game-active \.run-shop-panel \.med-card-level-icon\s*\{\s*display:\s*none\s*!important;/,
-  'forged supply-shop cards must never display a level icon'
-);
+assert.doesNotMatch(gameSource, /class="(?:card-level|meta-card-level)"/);
 assert.match(
   battleHudStyles,
   /@media \(max-width: 900px\)[\s\S]*?\.run-shop-choice-list\.is-catalog-picker\s*\{[\s\S]*?grid-template-columns:\s*repeat\(auto-fill,\s*145px\)[\s\S]*?max-height:\s*none\s*!important;[\s\S]*?overflow:\s*visible\s*!important;/,
@@ -64,16 +65,7 @@ assert.match(
   /\.run-shop-choice-list\.is-compact-three-choice-picker\s*\{[\s\S]*?display:\s*grid\s*!important;[\s\S]*?grid-template-columns:\s*repeat\(3,\s*145px\)\s*!important;[\s\S]*?overflow:\s*visible\s*!important;/,
   'three-choice mobile services should fit in one non-scrolling row'
 );
-assert.match(
-  battleHudStyles,
-  /\.attribute-training-title-row::after\s*\{[\s\S]*?bottom:\s*2px;[\s\S]*?height:\s*1px;/,
-  'special-card title divider should sit below the name'
-);
-assert.match(
-  battleHudStyles,
-  /\.attribute-training-title-row \.med-card-name\s*\{[\s\S]*?margin-bottom:\s*0;[\s\S]*?padding-bottom:\s*0;[\s\S]*?border-bottom:\s*0\s*!important;/,
-  'special-card names should not inherit the hand-card underline'
-);
+assert.doesNotMatch(gameSource, /attribute-training-card|unit-specialization-card/);
 assert.match(
   battleHudStyles,
   /\.run-shop-choice-list\.is-scalable-card-picker\s*\{[\s\S]*?grid-template-columns:\s*repeat\(auto-fill,\s*var\(--run-shop-card-width,\s*184px\)\)/,
@@ -90,7 +82,6 @@ assert.match(
   'the card density slider should scale the forged card face with its grid cell'
 );
 
-const gameSource = readFileSync(new URL('../src/systems/Game.js', import.meta.url), 'utf8');
 for (const className of ['is-training-card-picker', 'is-specialization-card-picker', 'is-temporary-card-picker', 'is-compact-three-choice-picker']) {
   assert.match(gameSource, new RegExp(`classList\\.toggle\\('${className}'`), `${className} should be toggled for its picker`);
   assert.match(gameSource, new RegExp(`'${className}'`), `${className} should be cleared when leaving the picker`);
