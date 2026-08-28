@@ -48,14 +48,70 @@ cloudEffects.spawnThunderCloud({
 assert.equal(cloudEffects.effects.length, 1);
 const cloudVisual = cloudEffects.effects[0].object;
 assert.deepEqual(cloudVisual.userData.thunderCloudVisual, {
-  lobeCount: 9,
-  boltCount: 3
+  lobeCount: 15,
+  boltCount: 4,
+  shadowCount: 1,
+  polygonal: true,
+  shadowShape: 'ellipse'
 });
-assert.equal(cloudVisual.children.filter((child) => child.isLine).length, 3);
+const cloudLobes = cloudVisual.children.filter((child) => child.userData.isThunderCloudLobe);
+const cloudBolts = cloudVisual.children.filter((child) => child.userData.isThunderCloudBolt);
+const cloudShadows = cloudVisual.children.filter((child) => child.userData.isThunderCloudShadow);
+assert.equal(cloudVisual.children.filter((child) => child.isLine).length, 0);
+assert.equal(cloudLobes.length, 15);
+assert.equal(cloudLobes.every((lobe) => lobe.geometry?.type === 'DodecahedronGeometry'), true);
+assert.equal(cloudBolts.length, 4);
+assert.equal(cloudBolts.every((bolt) => (
+  bolt.children.length === 3
+  && bolt.children.every((segment) => segment.userData?.core?.geometry?.type === 'CylinderGeometry')
+  && bolt.userData.coreMaterial?.toneMapped === false
+  && Math.max(
+    bolt.userData.coreMaterial.color.r,
+    bolt.userData.coreMaterial.color.g,
+    bolt.userData.coreMaterial.color.b
+  ) > 1
+)), true);
+assert.equal(cloudShadows.length, 1);
+assert.equal(cloudShadows.every((shadow) => (
+  shadow.geometry?.type === 'CircleGeometry'
+  && shadow.material.depthTest === true
+)), true);
+const cloudShadowAspect = cloudShadows[0].scale.x / cloudShadows[0].scale.y;
+assert(
+  cloudShadowAspect >= 1.15 && cloudShadowAspect <= 1.5,
+  'thunder-cloud shadow should be a moderately proportioned ellipse, not a flat or overly wide oval'
+);
 assert.equal(cloudVisual.children.filter((child) => child.userData.stormFlashCore).length, 1);
 cloudEffects.update(0.25);
 assert.deepEqual(cloudVisual.position.toArray(), [2, 0, -3]);
-assert.ok(cloudVisual.children.some((child) => child.isLine && child.material.opacity > 0.08));
+assert.ok(cloudBolts.some((bolt) => bolt.userData.coreMaterial.opacity > 0.03));
+
+cloudEffects.spawnLightningChain(
+  new THREE.Vector3(-1, 1.5, 0),
+  new THREE.Vector3(4, 1.1, 0.5),
+  { color: mage.attackBehavior.color }
+);
+const chainVisual = cloudEffects.effects.at(-1).object;
+const chainStyle = chainVisual.userData.lightningChainVisual;
+assert(chainStyle.segmentCount >= 3 && chainStyle.segmentCount <= 9);
+assert(chainStyle.haloRadius >= 0.075, 'basic lightning must use a readable world-space width');
+assert(chainStyle.coreRadius >= 0.028);
+assert(chainStyle.hdrIntensity > 1);
+const visibleChainSegments = chainVisual.userData.lightningSegments.filter((segment) => segment.visible);
+assert.equal(visibleChainSegments.length, chainStyle.segmentCount);
+assert.equal(visibleChainSegments.every((segment) => (
+  segment.userData.halo.geometry?.type === 'CylinderGeometry'
+  && segment.userData.core.geometry?.type === 'CylinderGeometry'
+)), true, 'basic lightning must use thick segmented meshes instead of one-pixel WebGL lines');
+assert.equal(chainVisual.userData.lightningCoreMaterial.toneMapped, false);
+assert(
+  Math.max(
+    chainVisual.userData.lightningCoreMaterial.color.r,
+    chainVisual.userData.lightningCoreMaterial.color.g,
+    chainVisual.userData.lightningCoreMaterial.color.b
+  ) > 1,
+  'basic lightning core must retain HDR color values'
+);
 cloudEffects.destroy();
 
 console.log('electric mage checks passed');

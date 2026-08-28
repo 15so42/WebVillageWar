@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import * as THREE from 'three';
 import { createSelectionRing } from '../src/art/lowpoly.js';
 import { UnitRegistry } from '../src/systems/UnitRegistry.js';
@@ -16,11 +17,23 @@ const registry = new UnitRegistry(game);
 
 const firstSelectionRing = createSelectionRing('#62d56f');
 const secondSelectionRing = createSelectionRing('#62d56f');
+firstSelectionRing.traverse((node) => {
+  assert.equal(node.layers.mask, 1, '单位框选标志必须固定在 layer 0');
+  if (!node.material) return;
+  assert.equal(node.material.depthTest, true, '单位框选标志必须接受单位深度遮挡');
+  assert.equal(node.renderOrder, 0, '单位框选标志不能强制置顶渲染');
+});
+assert.equal(firstSelectionRing.userData.preserveRenderLayers, true);
 assert.notEqual(
   firstSelectionRing.userData.ring.material,
   secondSelectionRing.userData.ring.material,
   '单位选择环材质必须独立，防止释放阵亡单位时破坏其他单位的选择环'
 );
+const gameSource = readFileSync(new URL('../src/systems/Game.js', import.meta.url), 'utf8');
+const selectionStateSource = gameSource.match(
+  /applyUnitSelectionState\(unit, selected, selectedByPlayerId = null\) \{([\s\S]*?)\n  onCanvasPointerDown\(event\)/
+)?.[1] ?? '';
+assert.match(selectionStateSource, /ring\.traverse\(\(child\) => child\.layers\.set\(0\)\)/);
 
 function createUnit(id) {
   const geometry = new THREE.BoxGeometry(1, 1, 1);

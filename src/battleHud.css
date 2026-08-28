@@ -753,6 +753,137 @@ body.is-game-active .hud-toolbar .fps-meter {
   }
 }
 
+/* The former fixed-cap energy bar is now an extensible resource shelf. Keep
+   the surrounding panel/toolbar anchors so hand, temporary cards and ability
+   icons retain their established battlefield placement. */
+body.is-game-active .energy-panel.resource-panel {
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-areas:
+    "resources"
+    "toolbar" !important;
+  align-items: stretch !important;
+  min-height: 54px;
+}
+
+body.is-game-active .resource-list {
+  grid-area: resources;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  align-items: stretch;
+  gap: 8px;
+}
+
+body.is-game-active .resource-item {
+  --resource-accent: #86aaa7;
+  --resource-accent-light: #d0e2df;
+  position: relative;
+  min-width: 0;
+  min-height: 36px;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: 25px minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 9px;
+  overflow: hidden;
+  border: 1px solid #666b66;
+  clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
+  background:
+    linear-gradient(132deg, rgba(255, 255, 255, 0.08), transparent 34%),
+    linear-gradient(180deg, #303634, #202523);
+  box-shadow:
+    inset 0 0 0 1px rgba(12, 15, 14, 0.72),
+    inset 0 -3px 0 rgba(5, 7, 6, 0.18);
+}
+
+body.is-game-active .resource-item[data-resource-id="silver"] {
+  --resource-accent: #aaa69b;
+  --resource-accent-light: #eee8da;
+}
+
+body.is-game-active .resource-icon {
+  width: 21px;
+  height: 21px;
+  display: block;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.66) 0 18%, transparent 19%),
+    linear-gradient(145deg, var(--resource-accent-light), var(--resource-accent) 58%, #405b59);
+  clip-path: polygon(50% 0, 88% 28%, 76% 82%, 50% 100%, 24% 82%, 12% 28%);
+  filter: drop-shadow(0 2px 1px rgba(0, 0, 0, 0.5));
+}
+
+body.is-game-active .resource-item[data-resource-id="silver"] .resource-icon {
+  border: 2px solid #d6d0c2;
+  border-radius: 50%;
+  clip-path: none;
+  background:
+    radial-gradient(circle at 38% 34%, #f4f0e6 0 16%, transparent 17%),
+    linear-gradient(145deg, #d8d5ca, #8c8b85 60%, #555853);
+  box-shadow: inset 0 0 0 3px #74756f;
+}
+
+body.is-game-active .resource-label {
+  min-width: 0;
+  overflow: hidden;
+  color: #aeb7b2;
+  font-family: var(--font-body);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.is-game-active .resource-value {
+  min-width: 32px;
+  color: #f0e8d8;
+  font-family: var(--font-title);
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 900;
+  line-height: 1;
+  text-align: right;
+  text-shadow: 0 2px 2px rgba(0, 0, 0, 0.72);
+}
+
+body.is-game-active .energy-panel.resource-panel .energy-panel-toolbar {
+  grid-area: toolbar !important;
+}
+
+@media (max-width: 560px) {
+  body.is-game-active .energy-panel.resource-panel {
+    grid-template-columns: minmax(0, 1fr) !important;
+    padding-inline: 8px !important;
+  }
+
+  body.is-game-active .resource-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  body.is-game-active .resource-item {
+    grid-template-columns: 20px minmax(0, 1fr) max-content;
+    gap: 5px;
+    min-height: 32px;
+    padding: 4px 6px;
+  }
+
+  body.is-game-active .resource-icon {
+    width: 18px;
+    height: 18px;
+  }
+
+  body.is-game-active .resource-label {
+    font-size: 8px;
+  }
+
+  body.is-game-active .resource-value {
+    min-width: 25px;
+    font-size: 15px;
+  }
+}
+
 /* ============================================================
    HAND CARDS — DARK PHYSICAL TABLETOP COMPONENTS
    Geometry, information and illustration areas remain unchanged.
@@ -3004,6 +3135,11 @@ body.is-game-active .strategy-event-action.is-reroll strong {
   color: #d2b981;
 }
 
+body.is-game-active .strategy-event-reroll-balance {
+  color: #d6c8ae;
+  font-variant-numeric: tabular-nums;
+}
+
 body.is-game-active .strategy-event-action.is-disabled,
 body.is-game-active .strategy-event-action:disabled {
   opacity: 0.55;
@@ -3968,7 +4104,7 @@ body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-fram
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) 22px;
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
   gap: 2px;
   padding: 2px 2px;
@@ -4082,7 +4218,8 @@ body.is-game-active .run-shop-panel .med-card-level-roman {
 
 body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row .med-card-name {
   min-width: 0;
-  width: auto;
+  width: 100%;
+  max-width: 100%;
   margin: 0;
   padding: 0;
   overflow: hidden;
@@ -4091,19 +4228,19 @@ body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-fram
   font-size: 8px;
   line-height: 1;
   text-align: center;
-  text-overflow: ellipsis;
+  text-overflow: clip;
   white-space: nowrap;
 }
 
-body.is-game-active .wave-reward-card-frame .med-card-meta-row.is-title-only {
+body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row.is-title-only {
   grid-template-columns: minmax(0, 1fr);
   padding-inline: 6px;
 }
 
-body.is-game-active .wave-reward-card-frame .med-card-meta-row.is-title-only .med-card-name {
+body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row.is-title-only .med-card-name {
   width: 100%;
   max-width: 100%;
-  overflow: visible;
+  overflow: hidden;
   text-overflow: clip;
 }
 
@@ -4203,7 +4340,7 @@ body.is-game-active .card-hand .card.is-hand-card-target .med-card-bg {
   }
 
   body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row {
-    grid-template-columns: 19px minmax(0, 1fr) 19px;
+    grid-template-columns: minmax(0, 1fr);
     gap: 2px;
     padding-inline: 3px;
   }
@@ -4241,13 +4378,11 @@ body.is-game-active .card-hand .card.is-hand-card-target .med-card-bg {
   }
 }
 
-/* On compact forged cards, the level crest spends too much of the title row.
-   Keep the card-kind symbol and replace only the level crest with readable
-   Roman numerals. This covers the live hand, wave rewards and every forged
-   supply-shop card because they share the wave-reward card frame. */
+/* Every compact forged card reserves the complete title row for one continuous
+   "card name + Roman level" label. */
 @media (max-width: 900px) {
   body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row {
-    grid-template-columns: 17px minmax(0, 1fr) max-content !important;
+    grid-template-columns: minmax(0, 1fr) !important;
   }
 
   body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row .med-card-level {
@@ -4282,7 +4417,7 @@ body.is-game-active .card-hand .card.is-hand-card-target .med-card-bg {
   }
 
   body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row {
-    grid-template-columns: 16px minmax(0, 1fr) 16px;
+    grid-template-columns: minmax(0, 1fr);
     gap: 1px;
     padding-inline: 2px;
   }

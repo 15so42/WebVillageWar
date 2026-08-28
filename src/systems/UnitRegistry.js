@@ -70,7 +70,7 @@ export class UnitRegistry {
       this.game.lootDrops?.handleUnitDeath(unit);
       this.game.score += 1;
     }
-    this.game.buffs?.unitDeath(unit);
+    this.game.buffs?.unitDeath(unit, source);
     const deathRadius = deathBurstRadius(
       unit,
       this.game.movement?.crowdRadius?.(unit) ?? 0

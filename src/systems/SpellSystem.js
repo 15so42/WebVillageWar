@@ -1,5 +1,9 @@
 import { distance2D } from '../utils/math.js';
-import { targetCombatRadius } from './combatHelpers.js';
+import {
+  applyKnockbackImpulse,
+  KNOCKBACK_IMPULSE_SPEED_PER_STRENGTH,
+  targetCombatRadius
+} from './combatHelpers.js';
 
 export class SpellSystem {
   constructor(game) {
@@ -51,12 +55,10 @@ export class SpellSystem {
           }
         );
 
-        const dir = unit.position.clone().sub(point).setY(0);
-        if (dir.lengthSq() > 0.001 && !isStaticUnit(unit)) {
-          dir.normalize();
-          unit.knockbackVelocity.addScaledVector(dir, knockback * (0.45 + falloff));
+        const meteorKnockbackStrength = knockback * (0.45 + falloff)
+          / KNOCKBACK_IMPULSE_SPEED_PER_STRENGTH;
+        if (applyKnockbackImpulse(this.game, unit, point, meteorKnockbackStrength)) {
           unit.hitStunTimer = Math.max(unit.hitStunTimer, 0.22);
-          this.game.pathfinding?.clear?.(unit);
         }
       });
       this.game.effects.spawnRing(point, '#ff9a47', radius, 0.72);

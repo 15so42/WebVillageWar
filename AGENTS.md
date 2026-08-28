@@ -14,6 +14,7 @@
 所有新增内容都应服务于“卡牌决策 + 实时战斗 + 阵地推进”的核心循环。不要为了展示效果加入与玩法无关的复杂系统。
 当前战斗架构已拆分：`UnitRegistry` 管生命周期，`UnitLogicSystem` 管状态机，`TargetingSystem` 管索敌，`PathfindingSystem`/`MovementAgent` 管寻路，`AttackSystem` 管攻击/投射物，`CombatSystem` 管伤害结算。主要数据入口在 `src/data/gameData.js`。
 卡牌UI和卡面在 `src/systems/CardSystem.js`，卡面制作遵循 `docs/CARD_ART_STYLE.md`。
+战斗特效制作遵循 `docs/VFX_STYLE.md`：非实体粒子默认使用软边透明度渐变，只有岩石、木屑等实体碎片可以保留不透明硬边几何体。
 
 ## 性能原则
 

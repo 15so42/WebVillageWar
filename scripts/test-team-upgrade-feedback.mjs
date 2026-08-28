@@ -120,10 +120,34 @@ assert.equal(effectsSystem.spawnUnitUpgrade(
 ), true);
 assert.equal(effectsSystem.effects.length, 1);
 const upgradeVisual = effectsSystem.effects[0].object;
-assert.equal(upgradeVisual.userData.unitUpgradeVisual.shardCount, 6);
-const initialHaloY = upgradeVisual.userData.parts.risingHalo.position.y;
+assert.equal(upgradeVisual.userData.unitUpgradeVisual.orbitBeamCount, 3);
+assert.equal(upgradeVisual.userData.unitUpgradeVisual.sparkleCount, 8);
+assert.equal(upgradeVisual.userData.unitUpgradeVisual.renderLayer, 0);
+assert.equal(upgradeVisual.userData.preserveRenderLayers, true);
+const orbitBeams = upgradeVisual.userData.parts.orbitBeams;
+const sparkles = upgradeVisual.userData.parts.sparkles;
+assert.equal(orbitBeams.every((beam) => (
+  beam.userData.isUnitUpgradeOrbitBeam
+  && beam.material.isShaderMaterial
+  && beam.material.depthTest === true
+  && beam.material.depthWrite === false
+  && beam.material.blending === THREE.AdditiveBlending
+)), true);
+assert.equal(sparkles.every((sparkle) => (
+  sparkle.userData.isUnitUpgradeSparkle
+  && sparkle.material.isShaderMaterial
+  && sparkle.material.depthTest === true
+  && sparkle.material.depthWrite === false
+)), true);
+upgradeVisual.traverse((node) => {
+  assert.equal(node.layers.mask, 1, 'unit upgrade effects must remain on ordinary layer 0');
+  assert.equal(node.renderOrder, 0, 'unit upgrade effects must not force an overlay render order');
+});
+const initialPhase = orbitBeams[0].material.uniforms.uPhase.value;
 effectsSystem.update(0.45);
-assert.ok(upgradeVisual.userData.parts.risingHalo.position.y > initialHaloY);
+assert.notEqual(orbitBeams[0].material.uniforms.uPhase.value, initialPhase);
+assert(orbitBeams.some((beam) => beam.material.uniforms.uOpacity.value > 0.2));
+assert(sparkles.some((sparkle) => sparkle.material.uniforms.uOpacity.value > 0.2));
 effectsSystem.update(0.5);
 assert.equal(effectsSystem.effects.length, 0);
 effectsSystem.destroy();

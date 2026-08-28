@@ -6,7 +6,7 @@ import {
   TEAMS,
   UNIT_DEFINITIONS
 } from '../../data/gameData.js';
-import { triggerUnitHitFlash } from '../../art/visualRegistry.js';
+import { setUnitRuntimeVisualScale, triggerUnitHitFlash } from '../../art/visualRegistry.js';
 import { UnitEntity } from '../../entities/UnitEntity.js';
 import { SYNC, VISUAL_STATE_FROM_CODE } from '../protocol/syncConfig.js';
 import { MSG } from '../protocol/messages.js';
@@ -111,6 +111,19 @@ export class ClientMirror {
 
   applyUnitState(unit, state) {
     let freeEnchantmentChargesChanged = false;
+    if ('isBoss' in state) unit.isBoss = Boolean(state.isBoss);
+    if ('isElite' in state) unit.isElite = Boolean(state.isElite);
+    if ('runtimeVisualScale' in state) {
+      const nextScale = Math.max(0.1, Number(state.runtimeVisualScale) || 1);
+      setUnitRuntimeVisualScale(unit, nextScale);
+      unit.networkRuntimeVisualScale = nextScale;
+    }
+    if ('runtimeStatusHeightScale' in state) {
+      unit.runtimeStatusHeightScale = Math.max(1, Number(state.runtimeStatusHeightScale) || 1);
+    }
+    if ('projectileHitHeight' in state) {
+      unit.projectileHitHeight = Math.max(0.1, Number(state.projectileHitHeight) || 1.45);
+    }
     if ('health' in state) unit.health = state.health;
     if ('maxHealth' in state) unit.attributes?.setBase?.('maxHealth', state.maxHealth);
     if ('physicalAttack' in state) unit.attributes?.setBase?.('physicalAttack', state.physicalAttack);
@@ -421,6 +434,9 @@ export class ClientMirror {
     }
     const run = this.game.players?.[localPlayerId];
     if (run) {
+      if (Array.isArray(state.waveRewardDeck)) {
+        run.waveRewardDeck = [...state.waveRewardDeck];
+      }
       if ('silver' in state) {
         run.silver = state.silver;
         this.game.silver = state.silver;
@@ -499,6 +515,10 @@ export class ClientMirror {
     if (event.name === 'projectile_spawn') this.projectiles.spawn(event.projectile);
     if (event.name === 'projectile_despawn') this.projectiles.remove(event.projectileId);
     if (event.name === 'unit_died') this.removeMirrorUnit(event.unitId);
+    if (event.name === 'unit_hit_flash') {
+      const unit = this.records.get(event.unitId)?.unit;
+      if (unit) triggerUnitHitFlash(unit, event.duration ?? 0.1);
+    }
     if (event.name === 'animation_changed' || event.name === 'play_anim') {
       const unit = this.records.get(event.unitId)?.unit;
       if (unit) this.applyAnimation(unit, {

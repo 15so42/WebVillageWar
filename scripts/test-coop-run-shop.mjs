@@ -89,6 +89,11 @@ assert.equal(fixedSilverRerollGame.rerollStrategyRewardChoices({ render: false }
 assert.equal(fixedSilverRerollGame.silver, 6);
 assert.equal(fixedSilverRerollGame.strategyRewardRerollCount, 1);
 assert.equal(fixedSilverRerollGame.getStrategyRewardRerollCost(), 4);
+fixedSilverRerollGame.strategyEventUi = {
+  actions: { hidden: true, innerHTML: '' }
+};
+fixedSilverRerollGame.renderStrategyEventActions(fixedSilverRerollGame.strategyEvent);
+assert.match(fixedSilverRerollGame.strategyEventUi.actions.innerHTML, /当前剩余 6 银币/);
 fixedSilverRerollGame.silver = 3.99;
 assert.equal(fixedSilverRerollGame.rerollStrategyRewardChoices({ render: false }), false);
 assert.equal(fixedSilverRerollGame.silver, 3.99);

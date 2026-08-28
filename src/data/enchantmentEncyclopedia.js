@@ -16,6 +16,11 @@ const ENCHANTMENT_SECTIONS = [
       'curse',
       'drain',
       'lifesteal',
+      'undying',
+      'assault',
+      'shockwave',
+      'solarFlare',
+      'fireworks',
       'frost'
     ]
   },
@@ -42,6 +47,7 @@ const ENCHANTMENT_SECTIONS = [
     ids: [
       'power',
       'soulEater',
+      'triumph',
       'wolfInstinct',
       'ursineSpirit'
     ]

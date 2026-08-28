@@ -137,6 +137,7 @@ export class ModifierSystem {
       attackDamageType,
       knockback: override.knockback ?? this.getKnockback(source),
       damageTypes: new Set(override.damageTypes ?? []),
+      hitPosition: override.hitPosition?.clone?.() ?? override.hitPosition ?? null,
       isProjectile: Boolean(override.isProjectile),
       isExplosionDamage: Boolean(override.isExplosionDamage),
       allowDeadSourceEffects: Boolean(override.allowDeadSourceEffects),

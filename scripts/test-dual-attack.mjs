@@ -1,9 +1,16 @@
 import assert from 'node:assert/strict';
+import * as THREE from 'three';
 import { BUFF_DEFINITIONS, TEAMS, UNIT_DEFINITIONS } from '../src/data/gameData.js';
 import { AttributeSet } from '../src/systems/AttributeSet.js';
 import { BuffSystem } from '../src/systems/BuffSystem.js';
-import { CombatSystem } from '../src/systems/CombatSystem.js';
+import { CombatSystem, resolveHitEffectPosition } from '../src/systems/CombatSystem.js';
 import { ModifierSystem } from '../src/systems/ModifierSystem.js';
+import {
+  applyKnockbackImpulse,
+  KNOCKBACK_STOP_SPEED_SQ,
+  KNOCKBACK_VELOCITY_RETAIN_PER_SECOND,
+  knockbackImpulseSpeed
+} from '../src/systems/combatHelpers.js';
 
 for (const [type, definition] of Object.entries(UNIT_DEFINITIONS)) {
   assert.ok(Number.isFinite(definition.physicalAttack), `${type} 缺少物理攻击力`);
@@ -64,6 +71,46 @@ assert.equal(magicContext.attackDamageType, 'magic');
 const physicalContext = modifiers.createAttackContext(unit, {});
 assert.equal(physicalContext.damage, 30);
 assert.equal(physicalContext.attackDamageType, 'physical');
+
+const projectileCollision = new THREE.Vector3(3.4, 1.27, -0.2);
+const hitContext = modifiers.createAttackContext(unit, {}, { hitPosition: projectileCollision });
+assert.notEqual(hitContext.hitPosition, projectileCollision);
+assert.deepEqual(hitContext.hitPosition.toArray(), projectileCollision.toArray());
+const resolvedCollision = resolveHitEffectPosition(
+  new THREE.Vector3(),
+  { position: new THREE.Vector3(4, 0, 0), projectileHitHeight: 1.8, collisionRadius: 0.5 },
+  { position: new THREE.Vector3(0, 0, 0) },
+  hitContext
+);
+assert.deepEqual(resolvedCollision.toArray(), projectileCollision.toArray(), 'hit FX should use the projectile collision point');
+const meleeContact = resolveHitEffectPosition(
+  new THREE.Vector3(),
+  { position: new THREE.Vector3(4, 0, 0), projectileHitHeight: 1.8, collisionRadius: 0.5 },
+  { position: new THREE.Vector3(0, 0, 0) }
+);
+assert(meleeContact.x < 4 && meleeContact.y > 0.8, 'melee hit FX should use the target body surface, not its feet');
+
+assert.equal(knockbackImpulseSpeed(1.45, { type: 'archer' }), 3.19);
+assert.equal(KNOCKBACK_STOP_SPEED_SQ, 0.04);
+assert(KNOCKBACK_VELOCITY_RETAIN_PER_SECOND < 0.01, 'knockback should be a short impulse, not a long sliding tail');
+
+{
+  let pathClearCount = 0;
+  const target = {
+    type: 'archer',
+    position: new THREE.Vector3(2, 0, 0),
+    definition: { role: 'ranged' },
+    knockbackVelocity: new THREE.Vector3(),
+    hitStunTimer: 0
+  };
+  assert.equal(applyKnockbackImpulse({
+    pathfinding: { clear: () => { pathClearCount += 1; } }
+  }, target, new THREE.Vector3(0, 0, 0), 1.45), true);
+  assert.equal(target.knockbackVelocity.x, 3.19);
+  assert.equal(target.knockbackVelocity.z, 0);
+  assert(target.hitStunTimer > 0);
+  assert.equal(pathClearCount, 1);
+}
 
 const combatGame = createCombatGame();
 const swordsman = createCombatUnit({

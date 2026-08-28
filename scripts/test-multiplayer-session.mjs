@@ -24,4 +24,26 @@ for (const [playerCount, expected] of [
   );
 }
 
+const leveledOpeningSession = normalizeMultiplayerSession({
+  mode: 'multiplayer',
+  localPlayerId: 'p1',
+  players: {
+    p1: {
+      deck: [
+        { id: 'swordsmen', level: 6 },
+        { id: 'meteor', level: 3 }
+      ]
+    },
+    p2: { deck: [{ id: 'archers', level: 4 }] }
+  }
+});
+assert.equal(
+  leveledOpeningSession.players.p1.deck.some((card) => card.id === 'swordsmen'),
+  false,
+  '单位卡仍不应进入初始牌组'
+);
+assert.equal(leveledOpeningSession.players.p1.cardLevels.swordsmen, 6);
+assert.equal(leveledOpeningSession.players.p1.cardLevels.meteor, 3);
+assert.equal(leveledOpeningSession.players.p2.cardLevels.archers, 4);
+
 console.log('Multiplayer player-count scaling checks passed.');

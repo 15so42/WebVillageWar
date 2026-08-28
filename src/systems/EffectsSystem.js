@@ -2,11 +2,14 @@ import * as THREE from 'three';
 import { basicMat, mat } from '../art/lowpoly.js';
 import { createAreaEffectVisual, updateAreaEffectVisual } from '../art/areaEffectVisual.js';
 import { createSpellModel } from '../art/visualRegistry.js';
+import { createSoftParticleMaterial, createSoftParticleSprite } from '../art/vfxMaterials.js';
 import { disposeObject3D } from '../utils/dispose.js';
 import { clamp, lerp } from '../utils/math.js';
 
 const MAX_ACTIVE_EFFECTS = 260;
 const MAX_POOLED_EFFECTS_PER_KEY = 56;
+const LIGHTNING_MAX_SEGMENTS = 9;
+const LIGHTNING_UP_AXIS = new THREE.Vector3(0, 1, 0);
 const METEOR_TRAIL_AXIS = new THREE.Vector3(0, 1, 0);
 const RECOVERY_PULSE_INTERVAL_SECONDS = 1;
 
@@ -137,55 +140,274 @@ export class EffectsSystem {
     }, () => this.releasePooledEffect(poolKey, ring));
   }
 
+  spawnYellowShockwave(position, radius = 5) {
+    if (!position) return false;
+    const poolKey = 'yellow-shockwave';
+    const group = this.acquirePooledEffect(poolKey, () => {
+      const root = new THREE.Group();
+      root.userData.isYellowShockwave = true;
+      const outer = new THREE.Mesh(
+        new THREE.RingGeometry(0.82, 1, 44),
+        basicMat('#ffe36a', {
+          transparent: true,
+          opacity: 0,
+          side: THREE.DoubleSide,
+          depthTest: true,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+          toneMapped: false
+        }).clone()
+      );
+      const inner = new THREE.Mesh(
+        new THREE.RingGeometry(0.48, 0.66, 40),
+        outer.material.clone()
+      );
+      outer.rotation.x = -Math.PI / 2;
+      inner.rotation.x = -Math.PI / 2;
+      inner.position.y = 0.016;
+      const sparks = [];
+      for (let index = 0; index < 10; index += 1) {
+        const spark = createSoftParticleSprite(index % 2 === 0 ? '#fff1a0' : '#f3c83f', {
+          falloff: 'tight',
+          opacity: 0,
+          depthTest: true,
+          toneMapped: false
+        });
+        spark.userData.angle = (index / 10) * Math.PI * 2 + (index % 2) * 0.17;
+        spark.userData.phase = index / 10;
+        sparks.push(spark);
+        root.add(spark);
+      }
+      root.add(outer, inner);
+      root.userData.parts = { outer, inner, sparks };
+      return root;
+    });
+    const effectRadius = Math.max(0.2, Number(radius) || 5);
+    const { outer, inner, sparks } = group.userData.parts;
+    group.position.set(position.x, (position.y ?? 0) + 0.09, position.z);
+    outer.scale.setScalar(0.08);
+    inner.scale.setScalar(0.06);
+    outer.material.opacity = 0;
+    inner.material.opacity = 0;
+    sparks.forEach((spark) => {
+      spark.position.set(0, 0.06, 0);
+      spark.scale.setScalar(0.02);
+      spark.material.opacity = 0;
+    });
+    this.addEffect(group, 0.62, (_, t) => {
+      const burst = Math.min(1, t / 0.12);
+      const fade = 1 - Math.max(0, (t - 0.46) / 0.54);
+      const easeOut = 1 - (1 - t) ** 3;
+      outer.scale.setScalar(effectRadius * (0.08 + easeOut * 0.92));
+      inner.scale.setScalar(effectRadius * (0.04 + easeOut * 0.72));
+      outer.material.opacity = burst * fade * 0.82;
+      inner.material.opacity = burst * fade * 0.46;
+      sparks.forEach((spark) => {
+        const distance = effectRadius * (0.12 + easeOut * (0.68 + spark.userData.phase * 0.2));
+        spark.position.set(
+          Math.cos(spark.userData.angle) * distance,
+          0.08 + Math.sin(t * Math.PI) * (0.22 + spark.userData.phase * 0.16),
+          Math.sin(spark.userData.angle) * distance
+        );
+        const scale = effectRadius * (0.026 + (1 - t) * 0.026);
+        spark.scale.set(scale, scale * 0.72, 1);
+        spark.material.opacity = burst * fade * (0.44 + spark.userData.phase * 0.28);
+      });
+    }, () => this.releasePooledEffect(poolKey, group));
+    return true;
+  }
+
+  spawnSolarFlarePulse(position, radius = 5) {
+    if (!position) return false;
+    const poolKey = 'solar-flare-pulse';
+    const group = this.acquirePooledEffect(poolKey, () => {
+      const root = new THREE.Group();
+      root.userData.isSolarFlarePulse = true;
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(0.74, 1, 44),
+        basicMat('#ffb43b', {
+          transparent: true,
+          opacity: 0,
+          side: THREE.DoubleSide,
+          depthTest: true,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+          toneMapped: false
+        }).clone()
+      );
+      ring.rotation.x = -Math.PI / 2;
+      const flames = [];
+      for (let index = 0; index < 9; index += 1) {
+        const flame = createSoftParticleSprite(index % 3 === 0 ? '#fff078' : '#ff9e31', {
+          falloff: 'tight',
+          opacity: 0,
+          depthTest: true,
+          toneMapped: false
+        });
+        flame.userData.angle = (index / 9) * Math.PI * 2;
+        flame.userData.phase = index / 9;
+        flames.push(flame);
+        root.add(flame);
+      }
+      root.add(ring);
+      root.userData.parts = { ring, flames };
+      return root;
+    });
+    const effectRadius = Math.max(0.2, Number(radius) || 5);
+    const { ring, flames } = group.userData.parts;
+    group.position.set(position.x, (position.y ?? 0) + 0.09, position.z);
+    ring.scale.setScalar(effectRadius * 0.18);
+    ring.material.opacity = 0;
+    flames.forEach((flame) => {
+      flame.position.set(0, 0.1, 0);
+      flame.scale.setScalar(0.02);
+      flame.material.opacity = 0;
+    });
+    this.addEffect(group, 0.7, (_, t) => {
+      const appear = Math.min(1, t / 0.14);
+      const fade = 1 - Math.max(0, (t - 0.5) / 0.5);
+      const expansion = 1 - (1 - t) ** 2;
+      ring.scale.setScalar(effectRadius * (0.18 + expansion * 0.82));
+      ring.material.opacity = appear * fade * 0.58;
+      flames.forEach((flame) => {
+        const distance = effectRadius * (0.12 + expansion * (0.72 + flame.userData.phase * 0.12));
+        flame.position.set(
+          Math.cos(flame.userData.angle) * distance,
+          0.08 + Math.sin(t * Math.PI) * (0.42 + flame.userData.phase * 0.22),
+          Math.sin(flame.userData.angle) * distance
+        );
+        const scale = effectRadius * (0.032 + Math.sin(t * Math.PI) * 0.024);
+        flame.scale.set(scale * 0.72, scale * 1.35, 1);
+        flame.material.opacity = appear * fade * (0.42 + flame.userData.phase * 0.38);
+      });
+    }, () => this.releasePooledEffect(poolKey, group));
+    return true;
+  }
+
+  spawnFirework(position, radius = 7) {
+    if (!position) return false;
+    const poolKey = 'enchantment-firework';
+    const group = this.acquirePooledEffect(poolKey, () => {
+      const root = new THREE.Group();
+      root.userData.isEnchantmentFirework = true;
+      const core = createSoftParticleSprite('#fff7c2', {
+        falloff: 'tight',
+        opacity: 0,
+        depthTest: true,
+        toneMapped: false
+      });
+      const colors = ['#ff6fb5', '#ffe36a', '#72e6ff', '#ff9a4d'];
+      const sparks = [];
+      for (let index = 0; index < 16; index += 1) {
+        const angle = (index / 16) * Math.PI * 2;
+        const lift = 0.16 + (index % 5) * 0.13;
+        const horizontal = Math.sqrt(Math.max(0.12, 1 - lift * lift));
+        const spark = createSoftParticleSprite(colors[index % colors.length], {
+          falloff: 'tight',
+          opacity: 0,
+          depthTest: true,
+          toneMapped: false
+        });
+        spark.userData.direction = new THREE.Vector3(
+          Math.cos(angle) * horizontal,
+          lift,
+          Math.sin(angle) * horizontal
+        ).normalize();
+        spark.userData.phase = index / 16;
+        sparks.push(spark);
+        root.add(spark);
+      }
+      root.add(core);
+      root.userData.parts = { core, sparks };
+      return root;
+    });
+    const visualRadius = clamp((Number(radius) || 7) * 0.3, 1.35, 2.4);
+    const { core, sparks } = group.userData.parts;
+    group.position.set(position.x, position.y ?? 1.8, position.z);
+    core.position.set(0, 0, 0);
+    core.scale.setScalar(0.05);
+    core.material.opacity = 0;
+    sparks.forEach((spark) => {
+      spark.position.set(0, 0, 0);
+      spark.scale.setScalar(0.03);
+      spark.material.opacity = 0;
+    });
+    this.addEffect(group, 0.86, (_, t) => {
+      const flash = 1 - Math.min(1, t / 0.24);
+      const appear = Math.min(1, t / 0.08);
+      const fade = 1 - Math.max(0, (t - 0.48) / 0.52);
+      core.scale.setScalar(visualRadius * (0.12 + flash * 0.26));
+      core.material.opacity = appear * flash * 0.92;
+      sparks.forEach((spark) => {
+        const phase = spark.userData.phase;
+        const travel = visualRadius * (0.08 + (1 - (1 - t) ** 2) * (0.72 + phase * 0.2));
+        spark.position.copy(spark.userData.direction).multiplyScalar(travel);
+        spark.position.y -= visualRadius * t * t * (0.18 + phase * 0.12);
+        const scale = visualRadius * (0.045 + (1 - t) * 0.035);
+        spark.scale.set(scale * 0.68, scale * 1.2, 1);
+        spark.material.opacity = appear * fade * (0.58 + phase * 0.36);
+      });
+    }, () => this.releasePooledEffect(poolKey, group));
+    return true;
+  }
+
   spawnUnitUpgrade(position, options = {}) {
     if (!position) return false;
     const poolKey = 'unit-upgrade';
     const group = this.acquirePooledEffect(poolKey, () => {
       const root = new THREE.Group();
-      const ringMaterial = basicMat('#ffd166', {
-        transparent: true,
-        opacity: 0.82,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-        depthTest: false
-      }).clone();
-      const glowMaterial = ringMaterial.clone();
-      const shardMaterial = ringMaterial.clone();
-      const groundRing = new THREE.Mesh(new THREE.RingGeometry(0.62, 0.92, 36), ringMaterial);
-      groundRing.rotation.x = -Math.PI / 2;
-      groundRing.position.y = 0.06;
-      groundRing.renderOrder = 1680;
+      const orbitBeams = [
+        { radius: 0.94, y: 0.3, tiltX: 0.08, tiltY: -0.12, direction: 1, phase: 0.04 },
+        { radius: 0.78, y: 0.64, tiltX: -0.16, tiltY: 0.18, direction: -1, phase: 0.38 },
+        { radius: 0.62, y: 0.98, tiltX: 0.14, tiltY: 0.1, direction: 1, phase: 0.7 }
+      ].map((config, index) => {
+        const beam = new THREE.Mesh(
+          new THREE.RingGeometry(0.84, 1, 52),
+          createUpgradeOrbitBeamMaterial('#ffd166')
+        );
+        beam.rotation.set(-Math.PI / 2 + config.tiltX, config.tiltY, 0);
+        beam.position.y = config.y;
+        beam.renderOrder = 0;
+        beam.userData.isUnitUpgradeOrbitBeam = true;
+        beam.userData.baseY = config.y;
+        beam.userData.baseScale = config.radius * (0.82 + index * 0.02);
+        beam.userData.baseRotation = beam.rotation.clone();
+        beam.userData.direction = config.direction;
+        beam.userData.phase = config.phase;
+        root.add(beam);
+        return beam;
+      });
 
-      const risingHalo = new THREE.Mesh(new THREE.TorusGeometry(0.58, 0.035, 4, 28), glowMaterial);
-      risingHalo.rotation.x = Math.PI / 2;
-      risingHalo.position.y = 0.26;
-      risingHalo.renderOrder = 1682;
-
-      const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.42, 1.5, 8, 1, true), glowMaterial);
-      beam.position.y = 0.78;
-      beam.renderOrder = 1679;
-
-      const shardGeometry = new THREE.OctahedronGeometry(0.1, 0);
-      const shards = [];
-      for (let index = 0; index < 6; index += 1) {
-        const shard = new THREE.Mesh(shardGeometry, shardMaterial);
-        shard.userData.angle = (index / 6) * Math.PI * 2;
-        shard.userData.heightOffset = (index % 3) * 0.12;
-        shard.renderOrder = 1683;
-        shards.push(shard);
-        root.add(shard);
+      const sparkles = [];
+      for (let index = 0; index < 8; index += 1) {
+        const sparkle = new THREE.Sprite(createUpgradeSparkleMaterial('#ffd166'));
+        sparkle.renderOrder = 0;
+        sparkle.userData.isUnitUpgradeSparkle = true;
+        sparkle.userData.angle = (index / 8) * Math.PI * 2;
+        sparkle.userData.phase = ((index * 5) % 8) / 8;
+        sparkle.userData.heightOffset = 0.24 + (index % 4) * 0.2;
+        root.add(sparkle);
+        sparkles.push(sparkle);
       }
-      root.add(beam, groundRing, risingHalo);
+
+      root.userData.preserveRenderLayers = true;
+      root.traverse((child) => {
+        child.layers.set(0);
+        child.renderOrder = 0;
+        if (child.material) {
+          child.material.depthTest = true;
+          child.material.depthWrite = false;
+        }
+      });
       root.userData.parts = {
-        beam,
-        groundRing,
-        risingHalo,
-        shards,
-        ringMaterial,
-        glowMaterial,
-        shardMaterial
+        orbitBeams,
+        sparkles
       };
-      root.userData.unitUpgradeVisual = { shardCount: shards.length };
+      root.userData.unitUpgradeVisual = {
+        orbitBeamCount: orbitBeams.length,
+        sparkleCount: sparkles.length,
+        renderLayer: 0
+      };
       return root;
     });
 
@@ -196,44 +418,50 @@ export class EffectsSystem {
     const parts = group.userData.parts;
     group.position.set(position.x, (position.y ?? 0) + 0.02, position.z);
     group.scale.set(radius, height / 1.55, radius);
-    parts.ringMaterial.color.set(color);
-    parts.glowMaterial.color.set(color);
-    parts.shardMaterial.color.set(color);
-    parts.ringMaterial.opacity = 0.82;
-    parts.glowMaterial.opacity = 0.42;
-    parts.shardMaterial.opacity = 0.92;
-    parts.groundRing.scale.setScalar(0.62);
-    parts.risingHalo.position.y = 0.24;
-    parts.risingHalo.scale.setScalar(0.72);
-    parts.beam.scale.set(1, 0.04, 1);
-    parts.shards.forEach((shard) => {
-      shard.position.set(
-        Math.cos(shard.userData.angle) * 0.54,
-        0.18 + shard.userData.heightOffset,
-        Math.sin(shard.userData.angle) * 0.54
+    parts.orbitBeams.forEach((beam) => {
+      beam.material.uniforms.uColor.value.set(color);
+      beam.material.uniforms.uOpacity.value = 0;
+      beam.material.uniforms.uPhase.value = beam.userData.phase;
+      beam.position.y = beam.userData.baseY;
+      beam.rotation.copy(beam.userData.baseRotation);
+      beam.scale.setScalar(beam.userData.baseScale);
+    });
+    parts.sparkles.forEach((sparkle) => {
+      sparkle.material.uniforms.uColor.value.set(color);
+      sparkle.material.uniforms.uOpacity.value = 0;
+      const angle = sparkle.userData.angle;
+      sparkle.position.set(
+        Math.cos(angle) * 0.68,
+        sparkle.userData.heightOffset,
+        Math.sin(angle) * 0.68
       );
-      shard.scale.setScalar(0.2);
+      sparkle.scale.setScalar(0.01);
     });
 
     this.addEffect(group, duration, (_, t) => {
-      const appear = Math.min(1, t / 0.18);
-      const fade = 1 - Math.max(0, (t - 0.56) / 0.44);
-      parts.groundRing.scale.setScalar(0.62 + t * 0.72);
-      parts.risingHalo.position.y = 0.24 + t * 0.92;
-      parts.risingHalo.scale.setScalar(0.72 + Math.sin(t * Math.PI) * 0.32);
-      parts.beam.scale.y = Math.max(0.04, Math.sin(t * Math.PI) * 0.92);
-      parts.ringMaterial.opacity = 0.82 * fade;
-      parts.glowMaterial.opacity = 0.42 * fade;
-      parts.shardMaterial.opacity = 0.92 * fade;
-      parts.shards.forEach((shard, index) => {
-        const angle = shard.userData.angle + t * (1.8 + index * 0.04);
-        const orbit = 0.54 + Math.sin(t * Math.PI) * 0.18;
-        shard.position.x = Math.cos(angle) * orbit;
-        shard.position.z = Math.sin(angle) * orbit;
-        shard.position.y = 0.18 + shard.userData.heightOffset + t * 1.08;
-        shard.rotation.x += 0.08;
-        shard.rotation.y += 0.12;
-        shard.scale.setScalar(Math.max(0.02, appear * fade));
+      const appear = Math.min(1, t / 0.14);
+      const fade = 1 - Math.max(0, (t - 0.68) / 0.32);
+      const envelope = appear * fade;
+      parts.orbitBeams.forEach((beam, index) => {
+        const direction = beam.userData.direction;
+        const pulse = 0.88 + Math.sin((t * 2.4 + beam.userData.phase) * Math.PI * 2) * 0.12;
+        beam.material.uniforms.uPhase.value = beam.userData.phase + direction * t * 1.36;
+        beam.material.uniforms.uOpacity.value = envelope * pulse * (0.78 - index * 0.08);
+        beam.position.y = beam.userData.baseY + t * 0.16 + Math.sin((t + index * 0.21) * Math.PI * 2) * 0.035;
+        beam.rotation.y = beam.userData.baseRotation.y + direction * t * (0.58 + index * 0.12);
+        const beamScale = beam.userData.baseScale + Math.sin(t * Math.PI) * (0.18 - index * 0.025);
+        beam.scale.setScalar(beamScale);
+      });
+      parts.sparkles.forEach((sparkle, index) => {
+        const phase = sparkle.userData.phase;
+        const angle = sparkle.userData.angle + t * (1.7 + (index % 3) * 0.2);
+        const orbit = 0.62 + Math.sin((t + phase) * Math.PI * 2) * 0.09;
+        const flash = Math.max(0, Math.sin((t * 2.35 + phase) * Math.PI * 2));
+        sparkle.position.x = Math.cos(angle) * orbit;
+        sparkle.position.z = Math.sin(angle) * orbit;
+        sparkle.position.y = sparkle.userData.heightOffset + t * 0.42 + Math.sin(angle * 1.7) * 0.06;
+        sparkle.material.uniforms.uOpacity.value = envelope * (0.16 + flash * 0.84);
+        sparkle.scale.setScalar((0.055 + flash * 0.16) * appear * Math.max(0.15, fade));
       });
     }, () => this.releasePooledEffect(poolKey, group));
     return true;
@@ -317,46 +545,87 @@ export class EffectsSystem {
     const color = options.color ?? '#bba8ff';
     const duration = Math.max(0.08, options.duration ?? 0.2);
     const points = lightningPoints(start, end, distance);
-    const group = new THREE.Group();
-    const haloMaterial = new THREE.LineBasicMaterial({
-      color,
-      transparent: true,
-      opacity: 0.3,
-      depthWrite: false,
-      depthTest: false
-    });
-    const coreMaterial = new THREE.LineBasicMaterial({
-      color: '#f7f2ff',
-      transparent: true,
-      opacity: 0.98,
-      depthWrite: false,
-      depthTest: false
-    });
-    const halo = new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), haloMaterial);
-    const core = new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), coreMaterial);
-    halo.scale.setScalar(1.018);
-    halo.renderOrder = 1880;
-    core.renderOrder = 1881;
-    const impact = new THREE.Mesh(
-      new THREE.OctahedronGeometry(0.11, 0),
-      basicMat('#ffffff', {
+    const poolKey = `lightning-chain:${LIGHTNING_MAX_SEGMENTS}`;
+    const group = this.acquirePooledEffect(poolKey, () => {
+      const effect = new THREE.Group();
+      const segmentGeometry = new THREE.CylinderGeometry(1, 1, 1, 6, 1, true);
+      const haloMaterial = new THREE.MeshBasicMaterial({
+        color: '#ffffff',
         transparent: true,
-        opacity: 0.95,
+        opacity: 0.38,
         depthWrite: false,
-        depthTest: false
-      })
-    );
+        depthTest: false,
+        blending: THREE.AdditiveBlending,
+        toneMapped: false
+      });
+      const coreMaterial = haloMaterial.clone();
+      coreMaterial.opacity = 0.98;
+      const segments = Array.from({ length: LIGHTNING_MAX_SEGMENTS }, () => (
+        createLightningSegmentNode(segmentGeometry, haloMaterial, coreMaterial)
+      ));
+      segments.forEach((segment) => effect.add(segment));
+      const impactMaterial = haloMaterial.clone();
+      impactMaterial.opacity = 0.95;
+      const impact = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.11, 0),
+        impactMaterial
+      );
+      impact.renderOrder = 1882;
+      effect.add(impact);
+      effect.userData.lightningSegments = segments;
+      effect.userData.lightningHaloMaterial = haloMaterial;
+      effect.userData.lightningCoreMaterial = coreMaterial;
+      effect.userData.lightningImpact = impact;
+      effect.userData.lightningImpactMaterial = impactMaterial;
+      return effect;
+    });
+    const segments = group.userData.lightningSegments;
+    const haloMaterial = group.userData.lightningHaloMaterial;
+    const coreMaterial = group.userData.lightningCoreMaterial;
+    const impact = group.userData.lightningImpact;
+    const impactMaterial = group.userData.lightningImpactMaterial;
+    const sourceColor = new THREE.Color(color);
+    haloMaterial.color.copy(sourceColor).multiplyScalar(3.2);
+    coreMaterial.color.setRGB(6.2, 5.8, 8.4);
+    impactMaterial.color.setRGB(6.6, 5.9, 8.8);
+    haloMaterial.opacity = 0.38;
+    coreMaterial.opacity = 0.98;
+    impactMaterial.opacity = 0.95;
+    const thickness = Math.max(0.6, Number(options.thickness) || 1);
+    const haloRadius = 0.075 * thickness;
+    const coreRadius = 0.028 * thickness;
+    const direction = new THREE.Vector3();
+    const midpoint = new THREE.Vector3();
+    segments.forEach((segment, index) => {
+      const visible = index < points.length - 1;
+      segment.visible = visible;
+      if (!visible) return;
+      setLightningSegmentTransform(
+        segment,
+        points[index],
+        points[index + 1],
+        haloRadius,
+        coreRadius,
+        direction,
+        midpoint
+      );
+    });
     impact.position.copy(end);
-    impact.renderOrder = 1882;
-    group.add(halo, core, impact);
+    impact.scale.setScalar(1);
+    group.userData.lightningChainVisual = {
+      segmentCount: points.length - 1,
+      haloRadius,
+      coreRadius,
+      hdrIntensity: 6.2
+    };
     this.addEffect(group, duration, (_, t) => {
-      const fade = Math.max(0, 1 - t);
-      haloMaterial.opacity = 0.3 * fade;
+      const fade = Math.max(0, 1 - t * t);
+      haloMaterial.opacity = 0.38 * fade;
       coreMaterial.opacity = 0.98 * fade;
-      impact.material.opacity = 0.95 * fade;
+      impactMaterial.opacity = 0.95 * fade;
       impact.scale.setScalar(1 + t * 2.2);
       impact.rotation.y += 0.24;
-    });
+    }, () => this.releasePooledEffect(poolKey, group));
     if (options.impactRadius > 0) {
       this.spawnRing(end, color, options.impactRadius, Math.min(0.42, duration + 0.12));
     }
@@ -369,117 +638,141 @@ export class EffectsSystem {
     const height = Math.max(2.6, ability.height ?? 5.1);
     const visualScale = Math.max(0.1, Number(ability.visualScale) || 1);
     const group = new THREE.Group();
-    const cloudMaterial = mat('#20283c', {
+    const cloudMaterial = mat('#1d2539', {
       transparent: true,
-      opacity: 0.96,
-      emissive: '#171d36',
-      emissiveIntensity: 0.38,
+      opacity: 0.94,
+      emissive: '#161c35',
+      emissiveIntensity: 0.44,
       depthWrite: false
     }).clone();
-    const cloudLightMaterial = mat('#465272', {
+    const cloudLightMaterial = mat('#3f4a68', {
       transparent: true,
       opacity: 0.9,
-      emissive: '#635aa0',
-      emissiveIntensity: 0.46,
+      emissive: '#5e5598',
+      emissiveIntensity: 0.54,
       depthWrite: false
     }).clone();
-    const cloudUndersideMaterial = mat('#111727', {
+    const cloudUndersideMaterial = mat('#101627', {
       transparent: true,
-      opacity: 0.95,
-      emissive: '#332d61',
-      emissiveIntensity: 0.36,
+      opacity: 0.96,
+      emissive: '#352e66',
+      emissiveIntensity: 0.42,
       depthWrite: false
     }).clone();
+    [cloudMaterial, cloudLightMaterial, cloudUndersideMaterial].forEach((material) => {
+      material.flatShading = true;
+      material.needsUpdate = true;
+    });
     const lobeSpecs = [
-      [-0.92, 0.02, 0.02, 0.7],
-      [-0.52, 0.18, -0.18, 0.9],
-      [-0.08, 0.24, -0.08, 1.04],
-      [0.42, 0.18, -0.16, 0.92],
-      [0.88, 0.01, 0.02, 0.66],
-      [-0.58, -0.08, 0.36, 0.72],
-      [-0.08, -0.14, 0.42, 0.88],
-      [0.48, -0.09, 0.34, 0.74],
-      [0.02, -0.2, 0.02, 0.76]
+      [-0.94, 0.02, 0.02, 0.76, 0.62, 0.78, 0],
+      [-0.67, 0.22, -0.18, 0.92, 0.76, 0.86, 1],
+      [-0.32, 0.34, -0.13, 1.02, 0.84, 0.92, 0],
+      [0.08, 0.4, -0.08, 1.08, 0.88, 0.96, 1],
+      [0.48, 0.28, -0.17, 0.96, 0.8, 0.9, 0],
+      [0.84, 0.08, -0.02, 0.78, 0.64, 0.78, 1],
+      [-0.76, -0.05, 0.34, 0.78, 0.68, 0.86, 0],
+      [-0.42, 0.08, 0.42, 0.94, 0.76, 0.94, 1],
+      [-0.02, 0.1, 0.45, 1.06, 0.8, 0.98, 0],
+      [0.4, 0.06, 0.4, 0.96, 0.74, 0.92, 1],
+      [0.73, -0.06, 0.27, 0.78, 0.64, 0.8, 0],
+      [-0.45, -0.17, 0.03, 0.9, 0.56, 0.9, 2],
+      [-0.05, -0.22, 0.08, 1.02, 0.58, 0.94, 2],
+      [0.38, -0.17, 0.05, 0.9, 0.56, 0.88, 2],
+      [0.02, 0.05, -0.4, 0.9, 0.72, 0.86, 0]
     ];
-    const cloudLobeGeometry = new THREE.DodecahedronGeometry(0.62, 0);
-    const lobes = lobeSpecs.map(([x, y, z, scale], index) => {
+    const cloudMaterials = [cloudMaterial, cloudLightMaterial, cloudUndersideMaterial];
+    const cloudLobeGeometry = new THREE.DodecahedronGeometry(0.68, 0);
+    const lobes = lobeSpecs.map(([x, y, z, sx, sy, sz, materialIndex], index) => {
       const lobe = new THREE.Mesh(
         cloudLobeGeometry,
-        index === lobeSpecs.length - 1
-          ? cloudUndersideMaterial
-          : (index % 3 === 1 ? cloudLightMaterial : cloudMaterial)
+        cloudMaterials[materialIndex] ?? cloudMaterial
       );
       lobe.position.set(x * visualScale, height + y * visualScale, z * visualScale);
-      lobe.scale.set(
-        scale * visualScale,
-        scale * visualScale * (index === lobeSpecs.length - 1 ? 0.46 : 0.62),
-        scale * visualScale * 0.84
-      );
-      lobe.userData.baseY = lobe.position.y;
-      lobe.userData.stormPhase = index * 0.73;
+      lobe.scale.set(sx * visualScale, sy * visualScale, sz * visualScale);
+      lobe.userData.basePosition = lobe.position.clone();
+      lobe.userData.baseScale = lobe.scale.clone();
+      lobe.userData.stormPhase = index * 0.67;
+      lobe.userData.stormOrbit = (0.025 + (index % 4) * 0.012) * visualScale;
+      lobe.userData.isThunderCloudLobe = true;
       lobe.renderOrder = 1870;
       return lobe;
     });
-    const groundShadowMaterial = basicMat('#17162c', {
+    const groundShadowMaterial = basicMat('#111322', {
       transparent: true,
-      opacity: 0.2,
+      opacity: 0.11,
       side: THREE.DoubleSide,
       depthWrite: false,
-      depthTest: false
+      depthTest: true
     }).clone();
     const groundShadow = new THREE.Mesh(
-      new THREE.CircleGeometry(1.45 * visualScale, 24),
+      new THREE.CircleGeometry(1, 28),
       groundShadowMaterial
     );
     groundShadow.rotation.x = -Math.PI / 2;
-    groundShadow.position.y = 0.045;
-    groundShadow.scale.set(1.45, 0.7, 1);
-    groundShadow.renderOrder = 1867;
-    const glow = new THREE.Mesh(
-      new THREE.CircleGeometry(0.92 * visualScale, 24),
-      basicMat('#bba8ff', {
-        transparent: true,
-        opacity: 0.2,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-        depthTest: false
-      }).clone()
-    );
-    glow.rotation.x = -Math.PI / 2;
-    glow.position.y = height - 0.58 * visualScale;
+    groundShadow.position.set(0, 0.045, 0.08 * visualScale);
+    groundShadow.scale.set(1.18 * visualScale, 0.88 * visualScale, 1);
+    groundShadow.userData.baseScale = groundShadow.scale.clone();
+    groundShadow.userData.isThunderCloudShadow = true;
+    const glow = createSoftParticleSprite('#c3b4ff', {
+      opacity: 0.18,
+      depthTest: false,
+      blending: THREE.AdditiveBlending,
+      toneMapped: false
+    });
+    glow.material.color.multiplyScalar(3.2);
+    glow.position.y = height - 0.08 * visualScale;
+    glow.scale.set(1.8 * visualScale, 1.18 * visualScale, 1);
+    glow.userData.baseScale = glow.scale.clone();
     glow.renderOrder = 1869;
-    glow.material.blending = THREE.AdditiveBlending;
 
     const boltLayouts = [
-      [[-0.48, -0.28, 0.08], [-0.3, -0.6, 0.03], [-0.44, -0.92, 0.1], [-0.18, -1.32, 0]],
-      [[0.02, -0.3, 0.18], [0.2, -0.58, 0.12], [0.02, -0.86, 0.16], [0.22, -1.3, 0.04]],
-      [[0.54, -0.25, -0.04], [0.36, -0.54, 0.04], [0.58, -0.78, 0], [0.38, -1.12, 0.08]]
+      [[-0.84, 0.16, 0.08], [-0.56, -0.08, 0.16], [-0.24, 0.12, 0.02], [0.05, -0.12, 0.12]],
+      [[-0.34, 0.34, -0.2], [-0.1, 0.06, -0.08], [0.18, 0.28, -0.16], [0.46, -0.02, -0.04]],
+      [[0.1, -0.04, 0.34], [0.34, 0.18, 0.22], [0.62, -0.08, 0.28], [0.82, 0.1, 0.08]],
+      [[-0.54, -0.14, 0.34], [-0.28, 0.1, 0.22], [0.04, -0.08, 0.28], [0.32, 0.14, 0.12]]
     ];
+    const boltGeometry = new THREE.CylinderGeometry(1, 1, 1, 5, 1, true);
     const bolts = boltLayouts.map((layout, index) => {
-      const material = new THREE.LineBasicMaterial({
-        color: index === 1 ? '#ffffff' : '#d9d3ff',
+      const haloMaterial = new THREE.MeshBasicMaterial({
+        color: '#ffffff',
         transparent: true,
-        opacity: 0.18,
+        opacity: 0.08,
         depthWrite: false,
         depthTest: false,
-        blending: THREE.AdditiveBlending
+        blending: THREE.AdditiveBlending,
+        toneMapped: false
       });
+      haloMaterial.color.setRGB(2.5, 2.2, 4.8);
+      const coreMaterial = haloMaterial.clone();
+      coreMaterial.color.setRGB(6.4, 6, 8.8);
+      coreMaterial.opacity = 0.12;
       const points = layout.map(([x, y, z]) => new THREE.Vector3(
         x * visualScale,
         height + y * visualScale,
         z * visualScale
       ));
-      const bolt = new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), material);
-      bolt.userData.stormPhase = index * 2.1;
+      const bolt = createSegmentedLightningArc(points, {
+        geometry: boltGeometry,
+        haloMaterial,
+        coreMaterial,
+        haloRadius: 0.032 * visualScale,
+        coreRadius: 0.012 * visualScale
+      });
+      bolt.userData.stormPhase = index * 1.63;
+      bolt.userData.haloMaterial = haloMaterial;
+      bolt.userData.coreMaterial = coreMaterial;
+      bolt.userData.isThunderCloudBolt = true;
       bolt.renderOrder = 1874 + index;
       return bolt;
     });
-    const flashCoreMaterial = basicMat('#b9adff', {
+    const flashCoreMaterial = basicMat('#ffffff', {
       transparent: true,
       opacity: 0.18,
       depthWrite: false,
-      depthTest: false
+      depthTest: false,
+      toneMapped: false
     }).clone();
+    flashCoreMaterial.color.setRGB(4.8, 4.2, 7.8);
     flashCoreMaterial.blending = THREE.AdditiveBlending;
     const flashCore = new THREE.Mesh(
       new THREE.IcosahedronGeometry(0.28 * visualScale, 0),
@@ -490,7 +783,10 @@ export class EffectsSystem {
     flashCore.userData.stormFlashCore = true;
     group.userData.thunderCloudVisual = {
       lobeCount: lobes.length,
-      boltCount: bolts.length
+      boltCount: bolts.length,
+      shadowCount: 1,
+      polygonal: true,
+      shadowShape: 'ellipse'
     };
     group.add(groundShadow, glow, ...lobes, flashCore, ...bolts);
     this.addEffect(group, duration, (dt, progress) => {
@@ -498,32 +794,45 @@ export class EffectsSystem {
       // Host 持有的雷云状态会持续更新 age；Client 只收到一次生成事件，
       // 因此还要用本地特效进度驱动动画，避免联机雷云停在首帧。
       const visualAge = Math.max(Number(state.age) || 0, progress * duration);
-      const fade = Math.min(1, (1 - progress) * 2.4);
+      const fade = Math.min(1, progress * 6, (1 - progress) * 2.4);
       lobes.forEach((lobe) => {
         const phase = lobe.userData.stormPhase ?? 0;
-        lobe.position.y = lobe.userData.baseY + Math.sin(visualAge * 1.8 + phase) * 0.055 * visualScale;
-        lobe.rotation.y += dt * (0.12 + phase * 0.015);
-        lobe.rotation.z = Math.sin(visualAge * 0.7 + phase) * 0.06;
+        const basePosition = lobe.userData.basePosition;
+        const orbit = lobe.userData.stormOrbit ?? 0;
+        lobe.position.set(
+          basePosition.x + Math.cos(visualAge * 0.82 + phase) * orbit,
+          basePosition.y + Math.sin(visualAge * 1.7 + phase) * 0.075 * visualScale,
+          basePosition.z + Math.sin(visualAge * 0.74 + phase) * orbit
+        );
+        lobe.rotation.y += dt * (0.16 + (phase % 1.4) * 0.08);
+        lobe.rotation.z = Math.sin(visualAge * 0.74 + phase) * 0.085;
+        const swell = 1 + Math.sin(visualAge * 1.34 + phase) * 0.045;
+        lobe.scale.copy(lobe.userData.baseScale).multiplyScalar(swell);
       });
       const flashes = bolts.map((bolt) => {
         const phase = bolt.userData.stormPhase ?? 0;
-        const flash = Math.pow(Math.max(0, Math.sin(visualAge * 5.8 + phase)), 10);
-        bolt.material.opacity = (0.08 + flash * 0.92) * fade;
+        const flash = Math.pow(Math.max(0, Math.sin(visualAge * 6.4 + phase)), 12);
+        bolt.userData.haloMaterial.opacity = (0.025 + flash * 0.52) * fade;
+        bolt.userData.coreMaterial.opacity = (0.035 + flash * 0.98) * fade;
+        bolt.position.x = Math.sin(visualAge * 1.8 + phase) * 0.025 * visualScale;
+        bolt.rotation.y = Math.sin(visualAge * 1.2 + phase) * 0.08;
         return flash;
       });
       const strongestFlash = Math.max(...flashes, 0);
-      const pulse = 0.9 + Math.sin(visualAge * 3.2) * 0.1 + strongestFlash * 0.2;
-      glow.scale.setScalar(pulse);
-      glow.material.opacity = (0.12 + strongestFlash * 0.48) * fade;
-      groundShadow.material.opacity = (0.14 + strongestFlash * 0.1) * fade;
+      const pulse = 0.96 + Math.sin(visualAge * 2.7) * 0.045 + strongestFlash * 0.14;
+      glow.scale.copy(glow.userData.baseScale).multiplyScalar(pulse);
+      glow.material.opacity = (0.08 + strongestFlash * 0.34) * fade;
+      groundShadowMaterial.opacity = (0.08 + strongestFlash * 0.035) * fade;
+      const shadowPulse = 1 + Math.sin(visualAge * 0.9) * 0.025;
+      groundShadow.scale.copy(groundShadow.userData.baseScale).multiplyScalar(shadowPulse);
       flashCore.material.opacity = (0.12 + strongestFlash * 0.86) * fade;
       flashCore.scale.setScalar(0.8 + strongestFlash * 1.45);
       flashCore.rotation.y += dt * (0.8 + strongestFlash * 1.4);
-      cloudMaterial.opacity = 0.96 * fade;
-      cloudLightMaterial.opacity = (0.82 + strongestFlash * 0.12) * fade;
-      cloudUndersideMaterial.opacity = 0.95 * fade;
-      cloudLightMaterial.emissiveIntensity = 0.42 + strongestFlash * 1.1;
-      cloudUndersideMaterial.emissiveIntensity = 0.32 + strongestFlash * 0.9;
+      cloudMaterial.opacity = 0.94 * fade;
+      cloudLightMaterial.opacity = (0.84 + strongestFlash * 0.1) * fade;
+      cloudUndersideMaterial.opacity = 0.96 * fade;
+      cloudLightMaterial.emissiveIntensity = 0.5 + strongestFlash * 1.45;
+      cloudUndersideMaterial.emissiveIntensity = 0.4 + strongestFlash * 1.2;
     });
   }
 
@@ -631,101 +940,53 @@ export class EffectsSystem {
   }
 
   spawnHit(position, color = '#f6e7a0') {
-    const poolKey = 'hit:5';
+    const poolKey = 'hit:7:soft-burst';
     const group = this.acquirePooledEffect(poolKey, () => {
       const pooledGroup = new THREE.Group();
-      for (let i = 0; i < 5; i += 1) {
-        const spark = new THREE.Mesh(
-          new THREE.DodecahedronGeometry(0.07, 0),
-          mat('#f6e7a0', { emissive: '#f6e7a0', emissiveIntensity: 0.45 })
-        );
+      for (let i = 0; i < 7; i += 1) {
+        const spark = createSoftParticleSprite('#f6e7a0', {
+          opacity: 0.62,
+          depthTest: false,
+          blending: THREE.NormalBlending,
+          toneMapped: true,
+          falloff: 'tight'
+        });
         spark.userData.velocity = new THREE.Vector3();
+        spark.renderOrder = 1710;
         pooledGroup.add(spark);
       }
       return pooledGroup;
     });
-    group.children.forEach((spark) => {
-      setEffectMaterialColor(spark.material, color, {
-        emissive: color,
-        emissiveIntensity: 0.45
-      });
-      spark.position.copy(position);
-      spark.rotation.set(0, 0, 0);
-      spark.scale.setScalar(1);
-      spark.userData.velocity.set(
-        (Math.random() - 0.5) * 3,
-        1 + Math.random() * 2,
-        (Math.random() - 0.5) * 3
-      );
-    });
-    this.addEffect(group, 0.48, (dt, t) => {
-      group.children.forEach((spark) => {
-        spark.userData.velocity.y -= 5 * dt;
-        spark.position.addScaledVector(spark.userData.velocity, dt);
-        spark.scale.setScalar(1 - t * 0.7);
-      });
-    }, () => this.releasePooledEffect(poolKey, group));
-  }
-
-  spawnAttackBurst(position, direction, options = {}) {
-    if (!position) return;
-    const color = options.color ?? '#ffd48a';
-    const scale = Math.max(0.35, Number(options.scale) || 1);
-    const duration = Math.max(0.2, Number(options.duration) || 0.4);
-    const poolKey = 'attack-burst:8';
-    const group = this.acquirePooledEffect(poolKey, () => {
-      const pooledGroup = new THREE.Group();
-      const geometry = new THREE.DodecahedronGeometry(0.095, 0);
-      for (let index = 0; index < 8; index += 1) {
-        const particle = new THREE.Mesh(
-          geometry,
-          basicMat('#ffffff', {
-            transparent: true,
-            opacity: 0.96,
-            depthTest: false,
-            depthWrite: false,
-            blending: THREE.AdditiveBlending
-          }).clone()
-        );
-        particle.userData.velocity = new THREE.Vector3();
-        particle.renderOrder = 1840;
-        pooledGroup.add(particle);
-      }
-      return pooledGroup;
-    });
     group.position.copy(position);
-    const forward = direction?.clone?.() ?? new THREE.Vector3(0, 0.2, 1);
-    if (forward.lengthSq() < 0.001) forward.set(0, 0.2, 1);
-    forward.normalize();
-    const side = new THREE.Vector3(-forward.z, 0, forward.x);
-    if (side.lengthSq() < 0.001) side.set(1, 0, 0);
-    side.normalize();
-    group.children.forEach((particle, index) => {
-      setEffectMaterialColor(particle.material, color, {
-        emissive: color,
-        emissiveIntensity: 1.25
+    group.children.forEach((spark, index) => {
+      setEffectMaterialColor(spark.material, color, {
+        opacity: 0.62
       });
-      particle.material.opacity = 0.9;
-      particle.position.set(
-        (Math.random() - 0.5) * 0.28 * scale,
-        (Math.random() - 0.4) * 0.24 * scale,
-        (Math.random() - 0.5) * 0.28 * scale
+      const angle = (index / group.children.length) * Math.PI * 2 + (Math.random() - 0.5) * 0.48;
+      const horizontalSpeed = 0.72 + Math.random() * 0.92;
+      spark.position.set(
+        Math.cos(angle) * 0.025,
+        (Math.random() - 0.5) * 0.06,
+        Math.sin(angle) * 0.025
       );
-      particle.scale.setScalar(scale * (0.86 + Math.random() * 0.78));
-      particle.userData.baseScale = particle.scale.x;
-      particle.userData.velocity.copy(forward).multiplyScalar(0.9 + Math.random() * 1.8)
-        .addScaledVector(side, (Math.random() - 0.5) * 2.15)
-        .add(new THREE.Vector3(0, 0.52 + Math.random() * 1.15, 0));
-      particle.userData.spin = (index % 2 ? -1 : 1) * (4 + Math.random() * 7);
+      spark.rotation.set(0, 0, 0);
+      spark.userData.baseScale = 0.11 + Math.random() * 0.09;
+      spark.scale.setScalar(spark.userData.baseScale * 0.28);
+      spark.material.opacity = 0.62;
+      spark.userData.velocity.set(
+        Math.cos(angle) * horizontalSpeed,
+        (Math.random() - 0.35) * 0.9,
+        Math.sin(angle) * horizontalSpeed
+      );
     });
-    this.addEffect(group, duration, (dt, t) => {
-      group.children.forEach((particle) => {
-        particle.position.addScaledVector(particle.userData.velocity, dt);
-        particle.userData.velocity.y -= dt * 1.8;
-        particle.rotation.x += particle.userData.spin * dt;
-        particle.rotation.z -= particle.userData.spin * dt * 0.7;
-        particle.scale.setScalar(particle.userData.baseScale * (1 - t) ** 0.72);
-        particle.material.opacity = 0.96 * (1 - t) ** 1.18;
+    this.addEffect(group, 0.3, (dt, t) => {
+      const expansion = 1 - (1 - Math.min(1, t * 5.5)) ** 2;
+      const opacity = 0.62 * (1 - t) ** 1.35;
+      group.children.forEach((spark) => {
+        spark.position.addScaledVector(spark.userData.velocity, dt);
+        spark.userData.velocity.multiplyScalar(Math.max(0, 1 - dt * 5.2));
+        spark.scale.setScalar(spark.userData.baseScale * (0.28 + expansion * 0.9) * (1 - t * 0.42));
+        spark.material.opacity = opacity;
       });
     }, () => this.releasePooledEffect(poolKey, group));
   }
@@ -878,24 +1139,22 @@ export class EffectsSystem {
       impactGroup.add(shard);
     }
 
-    const dissipateMaterial = basicMat(color, {
-      transparent: true,
+    const dissipateMaterial = createSoftParticleMaterial(color, {
       opacity: 0.88,
       depthTest: false,
-      depthWrite: false,
       blending: THREE.AdditiveBlending
-    }).clone();
+    });
     const dissipateGroup = new THREE.Group();
-    const dissipateGeometry = new THREE.DodecahedronGeometry(0.09, 0);
     for (let index = 0; index < 18; index += 1) {
-      const particle = new THREE.Mesh(dissipateGeometry, dissipateMaterial);
+      const particle = new THREE.Sprite(dissipateMaterial);
+      particle.userData.isSoftParticle = true;
       const distanceAlongBeam = length * (0.08 + Math.random() * 0.88);
       particle.position.copy(startPoint).addScaledVector(forward, distanceAlongBeam);
       particle.userData.origin = particle.position.clone();
       particle.userData.drift = side.clone().multiplyScalar((Math.random() - 0.5) * 2.1)
         .addScaledVector(liftAxis, (Math.random() - 0.35) * 1.65)
         .addScaledVector(forward, (Math.random() - 0.5) * 0.45);
-      particle.userData.baseScale = 0.78 + Math.random() * 1.35;
+      particle.userData.baseScale = 0.15 + Math.random() * 0.18;
       particle.userData.spin = (Math.random() - 0.5) * 12;
       particle.visible = false;
       particle.renderOrder = 1833;
@@ -943,8 +1202,6 @@ export class EffectsSystem {
         particle.visible = dissipateT > 0;
         particle.position.copy(particle.userData.origin)
           .addScaledVector(particle.userData.drift, dissipateT * 0.72);
-        particle.rotation.x += particle.userData.spin * dt;
-        particle.rotation.y -= particle.userData.spin * dt * 0.63;
         particle.scale.setScalar(particle.userData.baseScale * (1 - dissipateT) ** 0.72);
       });
       dissipateMaterial.opacity = 0.88 * Math.sin(Math.min(1, dissipateT * 1.45) * Math.PI) ** 0.72;
@@ -954,44 +1211,21 @@ export class EffectsSystem {
   spawnDeathBurst(position, radius = 0.8) {
     const group = new THREE.Group();
     group.position.set(position.x, position.y ?? 0, position.z);
-
-    const smokeMaterial = mat('#f7fbff', {
-      transparent: true,
-      opacity: 0.72,
-      emissive: '#ffffff',
-      emissiveIntensity: 0.24,
-      roughness: 0.32,
-      depthWrite: false,
-      side: THREE.DoubleSide
-    }).clone();
-    const smokeShadeMaterial = mat('#d9e0e5', {
-      transparent: true,
-      opacity: 0.5,
-      emissive: '#ffffff',
-      emissiveIntensity: 0.08,
-      roughness: 0.5,
-      depthWrite: false,
-      side: THREE.DoubleSide
-    }).clone();
+    group.userData.preserveRenderLayers = true;
     const flashMaterial = basicMat('#ffffff', {
       transparent: true,
-      opacity: 0.64,
+      opacity: 0.24,
       side: THREE.DoubleSide,
       depthWrite: false,
-      blending: THREE.AdditiveBlending
+      depthTest: false,
+      blending: THREE.NormalBlending
     }).clone();
     const smokeRingMaterial = basicMat('#f2f6f8', {
       transparent: true,
-      opacity: 0.42,
+      opacity: 0.32,
       side: THREE.DoubleSide,
-      depthWrite: false
-    }).clone();
-    const moteMaterial = mat('#ffffff', {
-      emissive: '#ffffff',
-      emissiveIntensity: 1.1,
-      transparent: true,
-      opacity: 0.82,
-      depthWrite: false
+      depthWrite: false,
+      depthTest: false
     }).clone();
 
     const flash = new THREE.Mesh(
@@ -1000,186 +1234,252 @@ export class EffectsSystem {
     );
     flash.rotation.x = -Math.PI / 2;
     flash.position.y = 0.08;
-    flash.renderOrder = 1700;
+    flash.renderOrder = 1728;
     const smokeRing = new THREE.Mesh(
       new THREE.RingGeometry(radius * 0.28, radius * 0.44, 36),
       smokeRingMaterial
     );
     smokeRing.rotation.x = -Math.PI / 2;
     smokeRing.position.y = 0.11;
-    smokeRing.renderOrder = 1699;
+    smokeRing.renderOrder = 1727;
     group.add(flash, smokeRing);
 
     const smokePuffs = [];
-    const smokeGeometry = new THREE.SphereGeometry(1, 10, 7);
-    for (let i = 0; i < 16; i += 1) {
+    const smokeGeometry = new THREE.DodecahedronGeometry(1, 0);
+    for (let i = 0; i < 18; i += 1) {
       const angle = Math.random() * Math.PI * 2;
-      const speed = radius * (0.85 + Math.random() * 1.8);
-      const baseScale = radius * (0.2 + Math.random() * 0.27);
+      const speed = radius * (1.15 + Math.random() * 2.05);
+      const sizeTier = i % 6;
+      const coreBoost = i < 7 ? 0.18 : 0;
+      const baseScale = radius * (
+        0.48 + coreBoost + sizeTier * 0.11 + Math.random() * 0.14
+      );
+      const shaded = i % 4 === 0;
       const puff = new THREE.Mesh(
         smokeGeometry,
-        i % 3 === 0 ? smokeShadeMaterial : smokeMaterial
+        mat(shaded ? '#c8d0d4' : (i % 3 === 0 ? '#ffffff' : '#edf2f4'), {
+          transparent: true,
+          opacity: shaded ? 0.48 : 0.62,
+          depthTest: true,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+          roughness: 0.9,
+          flatShading: true
+        }).clone()
       );
       puff.position.set(
-        Math.cos(angle) * radius * Math.random() * 0.2,
-        radius * (0.24 + Math.random() * 0.74),
-        Math.sin(angle) * radius * Math.random() * 0.2
+        Math.cos(angle) * radius * Math.random() * 0.16,
+        radius * (0.34 + Math.random() * 0.72),
+        Math.sin(angle) * radius * Math.random() * 0.16
       );
       puff.userData.velocity = new THREE.Vector3(
         Math.cos(angle) * speed,
-        radius * (0.62 + Math.random() * 1.45),
+        radius * (0.74 + Math.random() * 1.55),
         Math.sin(angle) * speed
       );
       puff.userData.baseScale = baseScale;
       puff.userData.aspect = new THREE.Vector3(
-        0.8 + Math.random() * 0.45,
-        0.76 + Math.random() * 0.5,
-        0.8 + Math.random() * 0.45
+        0.72 + Math.random() * 0.58,
+        0.62 + Math.random() * 0.56,
+        0.72 + Math.random() * 0.58
       );
-      puff.userData.birth = Math.random() * 0.13;
+      puff.userData.birth = i < 7 ? 0 : Math.random() * 0.075;
+      puff.userData.baseOpacity = shaded ? 0.48 : 0.62;
       puff.userData.curl = (Math.random() - 0.5) * radius * 1.2;
+      puff.userData.spin = new THREE.Vector3(
+        (Math.random() - 0.5) * 2.4,
+        (Math.random() - 0.5) * 2.8,
+        (Math.random() - 0.5) * 2.4
+      );
       puff.userData.isDeathSmoke = true;
+      puff.renderOrder = 1730 + (i % 3);
+      puff.layers.set(0);
       puff.scale.setScalar(0.02);
       smokePuffs.push(puff);
       group.add(puff);
     }
 
-    const motes = [];
-    const moteGeometry = new THREE.OctahedronGeometry(radius * 0.055, 0);
-    for (let index = 0; index < 8; index += 1) {
-      const angle = Math.random() * Math.PI * 2;
-      const mote = new THREE.Mesh(moteGeometry, moteMaterial);
-      mote.position.y = radius * (0.28 + Math.random() * 0.55);
-      mote.userData.velocity = new THREE.Vector3(
-        Math.cos(angle) * radius * (1.8 + Math.random() * 2.2),
-        radius * (1.25 + Math.random() * 2.1),
-        Math.sin(angle) * radius * (1.8 + Math.random() * 2.2)
-      );
-      mote.userData.baseScale = 0.55 + Math.random() * 0.75;
-      motes.push(mote);
-      group.add(mote);
-    }
+    group.traverse((child) => child.layers.set(0));
 
-    this.addEffect(group, 1.02, (dt, t) => {
+    this.addEffect(group, 0.92, (dt, t) => {
       flash.scale.setScalar(1 + t * 4.6);
-      flash.material.opacity = 0.64 * (1 - t) ** 2.4;
+      flash.material.opacity = 0.24 * (1 - t) ** 2.4;
       smokeRing.scale.setScalar(0.72 + t * 3.1);
-      smokeRing.material.opacity = 0.42 * (1 - t) ** 1.5;
+      smokeRing.material.opacity = 0.32 * (1 - t) ** 1.5;
       smokePuffs.forEach((puff) => {
         const localT = clamp((t - puff.userData.birth) / Math.max(0.01, 1 - puff.userData.birth), 0, 1);
         puff.visible = t >= puff.userData.birth;
         if (!puff.visible) return;
         puff.position.addScaledVector(puff.userData.velocity, dt);
-        puff.userData.velocity.multiplyScalar(Math.max(0, 1 - dt * 2.1));
+        puff.userData.velocity.multiplyScalar(Math.max(0, 1 - dt * 2.35));
         puff.position.x += puff.userData.curl * dt * (0.25 + localT);
         puff.position.y += radius * dt * (0.32 + localT * 0.24);
-        puff.rotation.y += dt * (0.5 + puff.userData.birth * 5);
-        const grow = 1 - (1 - Math.min(1, localT * 3.4)) ** 2;
-        const scale = puff.userData.baseScale * (0.18 + grow * 1.34) * (1 - localT * 0.24);
-        puff.scale.copy(puff.userData.aspect).multiplyScalar(scale);
+        puff.rotation.x += puff.userData.spin.x * dt;
+        puff.rotation.y += puff.userData.spin.y * dt;
+        puff.rotation.z += puff.userData.spin.z * dt;
+        const grow = 1 - (1 - Math.min(1, localT * 5.4)) ** 2;
+        const scale = puff.userData.baseScale * (0.18 + grow * 0.82) * (1 - localT * 0.24);
+        puff.scale.set(
+          puff.userData.aspect.x * scale,
+          puff.userData.aspect.y * scale,
+          puff.userData.aspect.z * scale
+        );
+        const fadeIn = Math.min(1, localT * 9);
+        puff.material.opacity = puff.userData.baseOpacity * fadeIn * (1 - localT) ** 0.82;
       });
-      smokeMaterial.opacity = 0.72 * (1 - t) ** 1.35;
-      smokeShadeMaterial.opacity = 0.5 * (1 - t) ** 1.5;
-      motes.forEach((mote) => {
-        mote.position.addScaledVector(mote.userData.velocity, dt);
-        mote.userData.velocity.y -= radius * 3.1 * dt;
-        mote.rotation.x += dt * 9;
-        mote.rotation.z -= dt * 7;
-        mote.scale.setScalar(mote.userData.baseScale * (1 - t) ** 0.8);
-      });
-      moteMaterial.opacity = 0.82 * (1 - t) ** 1.7;
     }, () => {
-      smokeMaterial.dispose();
-      smokeShadeMaterial.dispose();
-      flashMaterial.dispose();
-      smokeRingMaterial.dispose();
-      moteMaterial.dispose();
+      disposeObject3D(group, { materials: true });
+      return false;
     });
   }
 
+  spawnExplosion(position, radius = 2.4) {
+    return this.spawnPolygonExplosion(position, radius, false);
+  }
+
   spawnSelfDestructExplosion(position, radius = 6) {
-    const effectRadius = Math.max(0.5, Number(radius) || 6);
-    const group = new THREE.Group();
-    group.position.set(position.x, (position.y ?? 0) + 0.08, position.z);
+    return this.spawnPolygonExplosion(position, radius, true);
+  }
 
-    const coreMaterial = basicMat('#ffe0a1', {
-      transparent: true,
-      opacity: 0.54,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending
-    }).clone();
-    const core = new THREE.Mesh(new THREE.CircleGeometry(1, 36), coreMaterial);
-    core.rotation.x = -Math.PI / 2;
-    core.renderOrder = 1510;
-    group.add(core);
+  spawnPolygonExplosion(position, radius, isSelfDestruct) {
+    if (!position) return false;
+    const effectRadius = Math.max(0.5, Number(radius) || (isSelfDestruct ? 6 : 2.4));
+    const poolKey = 'polygon-explosion:20';
+    const group = this.acquirePooledEffect(poolKey, () => {
+      const root = new THREE.Group();
+      const coreMaterial = basicMat('#ff7218', {
+        transparent: true,
+        opacity: 1,
+        depthTest: false,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        toneMapped: false
+      }).clone();
+      coreMaterial.color.setRGB(6.4, 1.15, 0.08);
+      const core = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 0), coreMaterial);
+      core.userData.isExplosionCore = true;
+      core.renderOrder = 1560;
+      root.add(core);
 
-    const waveMaterial = basicMat('#ff8b4e', {
-      transparent: true,
-      opacity: 0.84,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending
-    }).clone();
-    const wave = new THREE.Mesh(new THREE.RingGeometry(0.82, 1, 48), waveMaterial);
-    wave.rotation.x = -Math.PI / 2;
-    wave.renderOrder = 1512;
-    group.add(wave);
-
-    const boundaryMaterial = basicMat('#ffd28b', {
-      transparent: true,
-      opacity: 0.74,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-      depthTest: false,
-      blending: THREE.AdditiveBlending
-    }).clone();
-    const boundary = new THREE.Mesh(
-      new THREE.RingGeometry(0.965, 1, 48),
-      boundaryMaterial
-    );
-    boundary.rotation.x = -Math.PI / 2;
-    boundary.scale.setScalar(effectRadius);
-    boundary.renderOrder = 1514;
-    group.add(boundary);
-
-    const sparkMaterial = basicMat('#fff1bf', {
-      transparent: true,
-      opacity: 0.92,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending
-    }).clone();
-    const sparks = [];
-    const sparkSize = clamp(0.055 + effectRadius * 0.008, 0.065, 0.12);
-    for (let index = 0; index < 18; index += 1) {
-      const angle = (index / 18) * Math.PI * 2 + (Math.random() - 0.5) * 0.14;
-      const spark = new THREE.Mesh(new THREE.TetrahedronGeometry(sparkSize, 0), sparkMaterial);
-      spark.userData.angle = angle;
-      spark.userData.lift = 0.24 + Math.random() * 0.36;
-      spark.userData.spin = 6 + Math.random() * 8;
-      spark.position.y = 0.13;
-      spark.renderOrder = 1515;
-      sparks.push(spark);
-      group.add(spark);
-    }
-
-    this.addEffect(group, 0.54, (_, t) => {
-      const expansion = 0.08 + Math.min(1, t * 1.4) * 0.92;
-      core.scale.setScalar(effectRadius * expansion);
-      coreMaterial.opacity = (1 - t) * 0.54;
-      wave.scale.setScalar(effectRadius * expansion);
-      waveMaterial.opacity = (1 - t) * 0.84;
-      boundaryMaterial.opacity = (1 - t) * 0.74;
-      sparks.forEach((spark) => {
-        const distance = effectRadius * (0.1 + Math.min(1, t * 1.18) * 0.9);
-        spark.position.x = Math.cos(spark.userData.angle) * distance;
-        spark.position.z = Math.sin(spark.userData.angle) * distance;
-        spark.position.y = 0.13 + Math.sin(t * Math.PI) * effectRadius * spark.userData.lift;
-        spark.rotation.x += spark.userData.spin * 0.016;
-        spark.rotation.y += spark.userData.spin * 0.012;
-      });
-      sparkMaterial.opacity = (1 - t) * 0.92;
+      const smokeGeometry = new THREE.DodecahedronGeometry(1, 0);
+      const smokePuffs = [];
+      const smokeColors = ['#ffffff', '#f2f3ee', '#d9ddd9', '#faf9f2'];
+      for (let index = 0; index < 20; index += 1) {
+        const smokeMaterial = mat(smokeColors[index % smokeColors.length], {
+          transparent: true,
+          opacity: 0,
+          depthTest: true,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+          roughness: 0.92,
+          flatShading: true
+        }).clone();
+        const puff = new THREE.Mesh(smokeGeometry, smokeMaterial);
+        puff.userData.isExplosionSmoke = true;
+        puff.userData.origin = new THREE.Vector3();
+        puff.userData.spin = new THREE.Vector3();
+        puff.userData.aspect = new THREE.Vector3(1, 1, 1);
+        puff.renderOrder = 1550 + (index % 3);
+        smokePuffs.push(puff);
+        root.add(puff);
+      }
+      root.userData.explosionCore = core;
+      root.userData.explosionSmoke = smokePuffs;
+      return root;
     });
+
+    const core = group.userData.explosionCore;
+    const smokePuffs = group.userData.explosionSmoke;
+    const visualRadius = clamp(effectRadius * 0.34, 0.78, 2.4);
+    const coreScale = visualRadius * 0.72;
+    group.position.set(position.x, (position.y ?? 0) + 0.08, position.z);
+    group.userData.explosionRadius = effectRadius;
+    core.position.set(0, visualRadius * 0.42, 0);
+    core.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+    core.scale.setScalar(coreScale);
+    core.material.opacity = 1;
+
+    smokePuffs.forEach((puff, index) => {
+      const angle = (index / smokePuffs.length) * Math.PI * 2 + (Math.random() - 0.5) * 0.54;
+      const centerBias = index < 7 ? 0.12 : 0.28;
+      const baseScale = visualRadius * (0.38 + (index % 5) * 0.07 + Math.random() * 0.12);
+      puff.position.set(
+        Math.cos(angle) * visualRadius * Math.random() * centerBias,
+        visualRadius * (0.2 + Math.random() * 0.42),
+        Math.sin(angle) * visualRadius * Math.random() * centerBias
+      );
+      puff.userData.origin.copy(puff.position);
+      puff.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+      puff.userData.spin.set(
+        (Math.random() - 0.5) * 4.8,
+        (Math.random() - 0.5) * 5.8,
+        (Math.random() - 0.5) * 4.8
+      );
+      puff.userData.aspect.set(
+        0.7 + Math.random() * 0.65,
+        0.62 + Math.random() * 0.7,
+        0.7 + Math.random() * 0.65
+      );
+      puff.userData.baseScale = baseScale;
+      puff.userData.birth = index < 7 ? 0 : Math.random() * 0.03;
+      puff.userData.angle = angle;
+      puff.userData.burstDistance = effectRadius * (
+        0.74 + (index % 5) * 0.075 + Math.random() * 0.025
+      );
+      puff.userData.burstRise = visualRadius * (0.2 + Math.random() * 0.28);
+      puff.userData.steamRise = visualRadius * (0.72 + Math.random() * 0.72);
+      puff.userData.baseOpacity = 0.72 + Math.random() * 0.18;
+      puff.scale.set(
+        puff.userData.aspect.x * baseScale,
+        puff.userData.aspect.y * baseScale,
+        puff.userData.aspect.z * baseScale
+      );
+      puff.material.opacity = 0;
+      puff.visible = index < 6;
+    });
+
+    this.addEffect(group, 1.55, (dt, t) => {
+      const flashT = clamp(t / 0.085, 0, 1);
+      const flashScale = coreScale * (0.82 + Math.sin(flashT * Math.PI) * 0.42) * (1 - flashT * 0.32);
+      core.scale.setScalar(Math.max(0.001, flashScale));
+      core.rotation.x += dt * 12;
+      core.rotation.y += dt * 15;
+      core.material.opacity = (1 - flashT) ** 2;
+      core.visible = flashT < 1;
+
+      smokePuffs.forEach((puff) => {
+        const birth = puff.userData.birth;
+        const localT = clamp((t - birth) / Math.max(0.01, 1 - birth), 0, 1);
+        puff.visible = t >= birth;
+        if (!puff.visible) return;
+        const burstT = clamp(localT / 0.28, 0, 1);
+        const burstEase = 1 - (1 - burstT) ** 3;
+        const steamT = clamp((localT - 0.18) / 0.82, 0, 1);
+        const horizontalDistance = puff.userData.burstDistance * burstEase
+          + visualRadius * 0.08 * steamT;
+        puff.position.set(
+          puff.userData.origin.x + Math.cos(puff.userData.angle) * horizontalDistance,
+          puff.userData.origin.y + puff.userData.burstRise * burstEase
+            + puff.userData.steamRise * steamT,
+          puff.userData.origin.z + Math.sin(puff.userData.angle) * horizontalDistance
+        );
+        puff.rotation.x += puff.userData.spin.x * dt;
+        puff.rotation.y += puff.userData.spin.y * dt;
+        puff.rotation.z += puff.userData.spin.z * dt;
+        const finalShrink = 1 - clamp((localT - 0.82) / 0.18, 0, 1) * 0.82;
+        const shrink = Math.max(0.001, (1 - localT * 0.42) * finalShrink);
+        const scale = puff.userData.baseScale * shrink;
+        puff.scale.set(
+          puff.userData.aspect.x * scale,
+          puff.userData.aspect.y * scale,
+          puff.userData.aspect.z * scale
+        );
+        const fadeIn = Math.min(1, localT * 18);
+        const fadeOut = 1 - clamp((localT - 0.48) / 0.52, 0, 1);
+        puff.material.opacity = puff.userData.baseOpacity * fadeIn * fadeOut ** 1.35;
+      });
+    }, () => this.releasePooledEffect(poolKey, group));
+    return true;
   }
 
   spawnDamageNumber(position, amount, options = {}) {
@@ -1318,7 +1618,7 @@ export class EffectsSystem {
   spawnEnergyNumber(position, amount, options = {}) {
     if (amount <= 0.001) return;
     this.spawnDamageNumber(position, amount, {
-      text: `能量+${formatResourceAmount(amount)}`,
+      text: options.text ?? `能量+${formatResourceAmount(amount)}`,
       color: options.color ?? '#7ee8ff',
       stroke: options.stroke ?? '#12303a',
       height: options.height ?? 2.28,
@@ -2120,6 +2420,7 @@ export class EffectsSystem {
   spawnMeteor(position, radius, onImpact) {
     const group = new THREE.Group();
     const meteor = createSpellModel('meteor');
+    meteor.userData.isMeteorBody = true;
     const meteorScale = clamp(1.25 + radius * 0.14, 1.36, 1.82);
     meteor.scale.setScalar(meteorScale);
     meteor.rotation.set(0.8, 0.2, 0.5);
@@ -2160,50 +2461,34 @@ export class EffectsSystem {
     const flameShell = [];
     for (let index = 0; index < 10; index += 1) {
       const angle = index / 10 * Math.PI * 2 + Math.random() * 0.35;
-      const elevation = -0.48 + (index % 4) * 0.3;
-      const outward = new THREE.Vector3(
-        Math.cos(angle) * Math.cos(elevation),
-        Math.sin(elevation),
-        Math.sin(angle) * Math.cos(elevation)
-      ).normalize();
       const flame = new THREE.Mesh(flameShellGeometry, flameShellMaterial);
-      flame.position.copy(outward).multiplyScalar(0.62 + Math.random() * 0.16);
-      flame.quaternion.setFromUnitVectors(METEOR_TRAIL_AXIS, outward);
       flame.userData.baseScale = 0.58 + Math.random() * 0.62;
       flame.userData.phase = Math.random() * Math.PI * 2;
+      flame.userData.trailDistance = 0.42 + (index % 4) * 0.18 + Math.random() * 0.12;
+      flame.userData.radialX = Math.cos(angle) * (0.18 + Math.random() * 0.18);
+      flame.userData.radialY = Math.sin(angle) * (0.18 + Math.random() * 0.18);
       flame.userData.isMeteorFlame = true;
       flame.renderOrder = 1604;
       flameShell.push(flame);
-      meteor.add(flame);
+      group.add(flame);
     }
 
-    const trailBeamMaterial = basicMat('#ff7a2f', {
-      transparent: true,
-      opacity: 0.72,
-      depthTest: false,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-      blending: THREE.AdditiveBlending
-    }).clone();
+    const trailBeamMaterial = createFireGradientMaterial('#ff5a1f', '#ffd36f');
     const trailBeam = new THREE.Mesh(new THREE.ConeGeometry(0.42, 3.4, 12, 1, true), trailBeamMaterial);
     trailBeam.renderOrder = 1598;
     group.add(trailBeam);
 
-    const trailMaterial = basicMat('#ff9a3d', {
-      transparent: true,
-      opacity: 0.8,
-      depthTest: false,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending
-    }).clone();
     const trail = [];
     for (let index = 0; index < 12; index += 1) {
-      const ember = new THREE.Mesh(
-        new THREE.TetrahedronGeometry(0.14 + index * 0.02, 0),
-        trailMaterial
-      );
+      const ember = createSoftParticleSprite(index % 3 === 0 ? '#ffd36f' : '#ff7a2f', {
+        opacity: 0.72,
+        depthTest: false,
+        blending: THREE.AdditiveBlending,
+        falloff: 'tight'
+      });
       ember.userData.phase = Math.random() * Math.PI * 2;
       ember.userData.side = (Math.random() - 0.5) * (0.16 + index * 0.035);
+      ember.userData.baseScale = 0.18 + index * 0.018;
       ember.renderOrder = 1604;
       trail.push(ember);
       group.add(ember);
@@ -2228,7 +2513,7 @@ export class EffectsSystem {
       transparent: true,
       opacity: 0.14,
       side: THREE.DoubleSide,
-      depthTest: false,
+      depthTest: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending
     }).clone();
@@ -2236,7 +2521,7 @@ export class EffectsSystem {
       transparent: true,
       opacity: 0.82,
       side: THREE.DoubleSide,
-      depthTest: false,
+      depthTest: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending
     }).clone();
@@ -2260,13 +2545,34 @@ export class EffectsSystem {
       tick.renderOrder = 1591;
       warningGroup.add(tick);
     }
-    group.add(warningGroup);
-
     const start = new THREE.Vector3(position.x - 2.7, (position.y ?? 0) + 9.8, position.z - 2.35);
     const end = new THREE.Vector3(position.x, (position.y ?? 0) + 1.08, position.z);
     const trailDirection = start.clone().sub(end).normalize();
+    const trailSide = new THREE.Vector3(-trailDirection.z, 0, trailDirection.x).normalize();
+    const trailLift = new THREE.Vector3().crossVectors(trailDirection, trailSide).normalize();
+    const flightDuration = 1.18;
+    const impactSeconds = flightDuration * 0.9;
+    const warningFadeSeconds = 0.38;
+    warningGroup.userData.preserveRenderLayers = true;
+    warningGroup.traverse((child) => child.layers.set(0));
+    this.addEffect(warningGroup, impactSeconds + warningFadeSeconds, (dt, warningT) => {
+      const age = warningT * (impactSeconds + warningFadeSeconds);
+      const flightT = clamp(age / flightDuration, 0, 1);
+      const ease = flightT * flightT * (3 - 2 * flightT);
+      const fadeAfterImpact = 1 - clamp((age - impactSeconds) / warningFadeSeconds, 0, 1);
+      const warningPulse = 1 + Math.sin(flightT * 28) * 0.022;
+      warningRing.scale.setScalar(radius * warningPulse);
+      warningDisc.scale.setScalar(radius * (0.99 + Math.sin(flightT * 18) * 0.012));
+      warningInner.scale.setScalar(radius * lerp(1.38, 0.26, ease));
+      warningGroup.rotation.y += dt * 0.42;
+      warningDiscMaterial.opacity = lerp(0.1, 0.26, ease) * fadeAfterImpact;
+      warningRingMaterial.opacity = (0.64 + ease * 0.28) * fadeAfterImpact;
+    }, () => {
+      disposeObject3D(warningGroup, { materials: true });
+      return false;
+    });
     let impacted = false;
-    this.addEffect(group, 1.18, (dt, t) => {
+    this.addEffect(group, flightDuration, (dt, t) => {
       const ease = t * t * (3 - 2 * t);
       meteor.position.lerpVectors(start, end, ease);
       meteor.rotation.x += dt * 8.4;
@@ -2282,18 +2588,23 @@ export class EffectsSystem {
       coreFlareMaterial.opacity = (0.66 + (1 - t) * 0.22) * flightAlpha;
       flameShell.forEach((flame, index) => {
         const lick = 0.74 + Math.sin(flame.userData.phase + t * (44 + index)) * 0.2;
+        flame.position.copy(meteor.position)
+          .addScaledVector(trailDirection, flame.userData.trailDistance * (0.82 + lick * 0.28))
+          .addScaledVector(trailSide, flame.userData.radialX * lick)
+          .addScaledVector(trailLift, flame.userData.radialY * lick);
+        flame.quaternion.setFromUnitVectors(METEOR_TRAIL_AXIS, trailDirection);
+        flame.rotateY(flame.userData.phase + t * (2.4 + index * 0.08));
         flame.scale.set(
           flame.userData.baseScale * (0.74 + lick * 0.22),
           flame.userData.baseScale * (0.76 + lick * 0.58),
           flame.userData.baseScale * (0.74 + lick * 0.22)
         );
-        flame.rotation.y += dt * (1.6 + index * 0.08);
       });
       flameShellMaterial.uniforms.uOpacity.value = (0.58 + flicker * 0.16) * flightAlpha;
       trailBeam.position.copy(meteor.position).addScaledVector(trailDirection, 1.55);
       trailBeam.quaternion.setFromUnitVectors(METEOR_TRAIL_AXIS, trailDirection);
       trailBeam.scale.setScalar(0.72 + (1 - t) * 0.34);
-      trailBeamMaterial.opacity = (0.3 + (1 - t) * 0.46) * flightAlpha;
+      trailBeamMaterial.uniforms.uOpacity.value = (0.3 + (1 - t) * 0.46) * flightAlpha;
 
       trail.forEach((ember, index) => {
         const distance = 0.52 + index * 0.31;
@@ -2302,26 +2613,21 @@ export class EffectsSystem {
         ember.position.x += Math.sin(ember.userData.phase + t * 24) * side;
         ember.position.z += Math.cos(ember.userData.phase + t * 21) * side;
         const taper = 1 - index / (trail.length + 2);
-        ember.scale.setScalar(taper * (0.72 + Math.sin(ember.userData.phase + t * 40) * 0.18));
-        ember.rotation.x += dt * (4 + index * 0.35);
-        ember.rotation.y -= dt * (3 + index * 0.28);
+        ember.scale.setScalar(
+          ember.userData.baseScale * taper * (0.72 + Math.sin(ember.userData.phase + t * 40) * 0.18)
+        );
+        ember.material.opacity = (0.5 + (1 - t) * 0.4) * flightAlpha;
       });
-      trailMaterial.opacity = (0.5 + (1 - t) * 0.4) * flightAlpha;
       shadow.scale.setScalar(radius * lerp(0.22, 0.72, ease));
       shadowMaterial.opacity = lerp(0.08, 0.34, ease);
-      const warningPulse = 1 + Math.sin(t * 28) * 0.022;
-      warningRing.scale.setScalar(radius * warningPulse);
-      warningDisc.scale.setScalar(radius * (0.99 + Math.sin(t * 18) * 0.012));
-      warningInner.scale.setScalar(radius * lerp(1.38, 0.26, ease));
-      warningGroup.rotation.y += dt * 0.42;
-      warningDiscMaterial.opacity = lerp(0.1, 0.26, ease);
-      warningRingMaterial.opacity = 0.64 + ease * 0.28;
-
       if (!impacted && t > 0.9) {
         impacted = true;
         this.spawnMeteorImpact(position, radius);
         onImpact?.();
       }
+    }, () => {
+      disposeObject3D(group, { materials: true });
+      return false;
     });
   }
 
@@ -2339,26 +2645,32 @@ export class EffectsSystem {
     flash.scale.set(1, 0.55, 1);
     group.add(flash);
 
+    const impactCore = createSoftParticleSprite('#ffe2a0', {
+      opacity: 0.74,
+      depthTest: false,
+      blending: THREE.NormalBlending,
+      toneMapped: true,
+      falloff: 'tight'
+    });
+    impactCore.position.y = radius * 0.22;
+    impactCore.scale.setScalar(radius * 0.32);
+    impactCore.renderOrder = 1750;
+    impactCore.userData.isMeteorImpactCore = true;
+    group.add(impactCore);
+
     const dustMaterial = basicMat('#c65c2f', {
       transparent: true,
-      opacity: 0.58,
+      opacity: 0.72,
       side: THREE.DoubleSide,
-      depthWrite: false
+      depthWrite: false,
+      depthTest: false
     }).clone();
     const dustRing = new THREE.Mesh(new THREE.RingGeometry(0.62, 0.92, 36), dustMaterial);
     dustRing.rotation.x = -Math.PI / 2;
     group.add(dustRing);
 
-    const fragmentMaterial = mat('#5a4034', {
-      emissive: '#7c2d16',
-      emissiveIntensity: 0.32,
-      roughness: 0.86
-    }).clone();
-    const fragmentShadeMaterial = mat('#342c29', {
-      emissive: '#4e1f16',
-      emissiveIntensity: 0.18,
-      roughness: 0.96
-    }).clone();
+    const fragmentMaterial = basicMat('#65483a').clone();
+    const fragmentShadeMaterial = basicMat('#372b27').clone();
     const fragments = [];
     for (let index = 0; index < 22; index += 1) {
       const angle = (index / 22) * Math.PI * 2 + Math.random() * 0.34;
@@ -2388,18 +2700,15 @@ export class EffectsSystem {
       group.add(fragment);
     }
 
-    const soilMaterial = mat('#a67a5b', {
-      transparent: true,
-      opacity: 0.48,
-      roughness: 0.98,
-      depthWrite: false,
-      side: THREE.DoubleSide
-    }).clone();
     const soilPuffs = [];
-    const soilGeometry = new THREE.SphereGeometry(1, 9, 6);
     for (let index = 0; index < 14; index += 1) {
       const angle = index / 14 * Math.PI * 2 + Math.random() * 0.42;
-      const puff = new THREE.Mesh(soilGeometry, soilMaterial);
+      const puff = createSoftParticleSprite(index % 3 === 0 ? '#755344' : '#b48766', {
+        opacity: index % 3 === 0 ? 0.52 : 0.64,
+        depthTest: false,
+        blending: THREE.NormalBlending,
+        toneMapped: true
+      });
       puff.position.set(
         Math.cos(angle) * radius * (0.08 + Math.random() * 0.2),
         0.12 + Math.random() * 0.28,
@@ -2411,27 +2720,29 @@ export class EffectsSystem {
         Math.sin(angle) * radius * (0.42 + Math.random() * 0.52)
       );
       puff.userData.baseScale = radius * (0.075 + Math.random() * 0.085);
-      puff.userData.aspect = new THREE.Vector3(1.2 + Math.random() * 0.7, 0.7 + Math.random() * 0.4, 1.2 + Math.random() * 0.7);
+      puff.userData.aspect = new THREE.Vector2(1.2 + Math.random() * 0.7, 0.7 + Math.random() * 0.4);
+      puff.userData.baseOpacity = index % 3 === 0 ? 0.52 : 0.64;
       puff.userData.isMeteorSoil = true;
+      puff.renderOrder = 1742 + (index % 3);
       soilPuffs.push(puff);
       group.add(puff);
     }
 
-    const emberMaterial = basicMat('#ffb24f', {
-      transparent: true,
-      opacity: 0.9,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending
-    }).clone();
     const embers = [];
     for (let index = 0; index < 10; index += 1) {
       const angle = Math.random() * Math.PI * 2;
-      const ember = new THREE.Mesh(new THREE.OctahedronGeometry(0.055, 0), emberMaterial);
+      const ember = createSoftParticleSprite('#ffb24f', {
+        opacity: 0.78,
+        depthTest: false,
+        blending: THREE.AdditiveBlending,
+        falloff: 'tight'
+      });
       ember.userData.velocity = new THREE.Vector3(
         Math.cos(angle) * (1.5 + Math.random() * 3),
         2.2 + Math.random() * 3.6,
         Math.sin(angle) * (1.5 + Math.random() * 3)
       );
+      ember.userData.baseScale = 0.07 + Math.random() * 0.055;
       embers.push(ember);
       group.add(ember);
     }
@@ -2440,6 +2751,8 @@ export class EffectsSystem {
       const expansion = radius * (0.42 + t * 0.88);
       flash.scale.set(expansion, expansion * (0.42 + t * 0.3), expansion);
       flashMaterial.opacity = 0.88 * (1 - t) ** 2;
+      impactCore.scale.setScalar(radius * (0.32 + t * 0.86));
+      impactCore.material.opacity = 0.74 * (1 - t) ** 2.4;
       dustRing.scale.setScalar(radius * (0.72 + t * 0.7));
       dustMaterial.opacity = 0.58 * (1 - t);
       fragments.forEach((fragment) => {
@@ -2455,15 +2768,22 @@ export class EffectsSystem {
         puff.userData.velocity.multiplyScalar(Math.max(0, 1 - dt * 1.8));
         puff.userData.velocity.y -= radius * 0.72 * dt;
         const puffScale = puff.userData.baseScale * (0.35 + Math.sin(Math.min(1, t * 1.3) * Math.PI) * 1.35);
-        puff.scale.copy(puff.userData.aspect).multiplyScalar(puffScale);
+        puff.scale.set(
+          puff.userData.aspect.x * puffScale,
+          puff.userData.aspect.y * puffScale,
+          1
+        );
+        puff.material.opacity = puff.userData.baseOpacity * Math.sin(Math.min(1, t * 1.25) * Math.PI) ** 0.72;
       });
-      soilMaterial.opacity = 0.48 * Math.sin(Math.min(1, t * 1.25) * Math.PI) ** 0.72;
       embers.forEach((ember) => {
         ember.position.addScaledVector(ember.userData.velocity, dt);
         ember.userData.velocity.y -= 4.6 * dt;
-        ember.scale.setScalar(1 - t * 0.72);
+        ember.scale.setScalar(ember.userData.baseScale * (1 - t * 0.72));
+        ember.material.opacity = 0.78 * (1 - t);
       });
-      emberMaterial.opacity = 0.9 * (1 - t);
+    }, () => {
+      disposeObject3D(group, { materials: true });
+      return false;
     });
   }
 
@@ -2795,9 +3115,7 @@ function createSoftBeamMaterial(color, hotColor) {
         float edgeDistance = abs(vUv.y - 0.5) * 2.0;
         float softEdge = 1.0 - smoothstep(0.08, 1.0, edgeDistance);
         float hotCore = 1.0 - smoothstep(0.0, 0.24, edgeDistance);
-        float headFade = smoothstep(0.0, 0.075, vUv.x);
-        float tailFade = smoothstep(0.0, 0.12, 1.0 - vUv.x);
-        float alpha = (softEdge * 0.48 + hotCore * 0.72) * headFade * tailFade * uOpacity;
+        float alpha = (softEdge * 0.48 + hotCore * 0.72) * uOpacity;
         vec3 beamColor = mix(uColor, vec3(1.0), hotCore * 0.82);
         beamColor += uHotColor * hotCore * 0.62;
         gl_FragColor = vec4(beamColor, alpha);
@@ -2807,6 +3125,94 @@ function createSoftBeamMaterial(color, hotColor) {
     depthTest: false,
     depthWrite: false,
     side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending,
+    toneMapped: false
+  });
+}
+
+function createUpgradeOrbitBeamMaterial(color) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: new THREE.Color(color) },
+      uOpacity: { value: 0 },
+      uPhase: { value: 0 }
+    },
+    vertexShader: `
+      varying vec2 vLocalPosition;
+      void main() {
+        vLocalPosition = position.xy;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform vec3 uColor;
+      uniform float uOpacity;
+      uniform float uPhase;
+      varying vec2 vLocalPosition;
+      const float PI = 3.141592653589793;
+      void main() {
+        float radius = length(vLocalPosition);
+        float radialDistance = abs(radius - 0.92) / 0.08;
+        float softEdge = 1.0 - smoothstep(0.08, 1.0, radialDistance);
+        float angle = fract((atan(vLocalPosition.y, vLocalPosition.x) + PI) / (PI * 2.0));
+        float phase = fract(uPhase);
+        float phaseDistance = abs(angle - phase);
+        phaseDistance = min(phaseDistance, 1.0 - phaseDistance);
+        float sweep = 1.0 - smoothstep(0.06, 0.3, phaseDistance);
+        float oppositeDistance = abs(angle - fract(phase + 0.5));
+        oppositeDistance = min(oppositeDistance, 1.0 - oppositeDistance);
+        float echo = (1.0 - smoothstep(0.04, 0.2, oppositeDistance)) * 0.44;
+        float alpha = softEdge * (0.12 + max(sweep, echo)) * uOpacity;
+        vec3 beamColor = mix(uColor, vec3(1.0), sweep * 0.64 + softEdge * 0.16);
+        gl_FragColor = vec4(beamColor, alpha);
+      }
+    `,
+    transparent: true,
+    depthTest: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending,
+    toneMapped: false
+  });
+}
+
+function createUpgradeSparkleMaterial(color) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: new THREE.Color(color) },
+      uOpacity: { value: 0 }
+    },
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        vec4 viewPosition = modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+        vec2 worldScale = vec2(
+          length(modelMatrix[0].xyz),
+          length(modelMatrix[1].xyz)
+        );
+        viewPosition.xy += position.xy * worldScale;
+        gl_Position = projectionMatrix * viewPosition;
+      }
+    `,
+    fragmentShader: `
+      uniform vec3 uColor;
+      uniform float uOpacity;
+      varying vec2 vUv;
+      void main() {
+        vec2 point = (vUv - 0.5) * 2.0;
+        float horizontal = (1.0 - smoothstep(0.03, 0.34, abs(point.y)))
+          * (1.0 - smoothstep(0.18, 1.0, abs(point.x)));
+        float vertical = (1.0 - smoothstep(0.03, 0.34, abs(point.x)))
+          * (1.0 - smoothstep(0.18, 1.0, abs(point.y)));
+        float core = 1.0 - smoothstep(0.0, 0.3, length(point));
+        float alpha = max(max(horizontal, vertical) * 0.78, core) * uOpacity;
+        gl_FragColor = vec4(mix(uColor, vec3(1.0), core * 0.86), alpha);
+      }
+    `,
+    transparent: true,
+    depthTest: true,
+    depthWrite: false,
     blending: THREE.AdditiveBlending,
     toneMapped: false
   });
@@ -2859,6 +3265,65 @@ function damageNumberColor(damageType) {
   return '#ff9b35';
 }
 
+function createLightningSegmentNode(geometry, haloMaterial, coreMaterial) {
+  const segment = new THREE.Group();
+  const halo = new THREE.Mesh(geometry, haloMaterial);
+  const core = new THREE.Mesh(geometry, coreMaterial);
+  halo.renderOrder = 1880;
+  core.renderOrder = 1881;
+  segment.add(halo, core);
+  segment.userData.halo = halo;
+  segment.userData.core = core;
+  return segment;
+}
+
+function setLightningSegmentTransform(
+  segment,
+  start,
+  end,
+  haloRadius,
+  coreRadius,
+  direction = new THREE.Vector3(),
+  midpoint = new THREE.Vector3()
+) {
+  direction.subVectors(end, start);
+  const length = direction.length();
+  if (length <= 0.0001) {
+    segment.visible = false;
+    return;
+  }
+  direction.multiplyScalar(1 / length);
+  midpoint.lerpVectors(start, end, 0.5);
+  segment.position.copy(midpoint);
+  segment.quaternion.setFromUnitVectors(LIGHTNING_UP_AXIS, direction);
+  segment.userData.halo.scale.set(haloRadius, length, haloRadius);
+  segment.userData.core.scale.set(coreRadius, length, coreRadius);
+}
+
+function createSegmentedLightningArc(points, options = {}) {
+  const arc = new THREE.Group();
+  const direction = new THREE.Vector3();
+  const midpoint = new THREE.Vector3();
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const segment = createLightningSegmentNode(
+      options.geometry,
+      options.haloMaterial,
+      options.coreMaterial
+    );
+    setLightningSegmentTransform(
+      segment,
+      points[index],
+      points[index + 1],
+      options.haloRadius,
+      options.coreRadius,
+      direction,
+      midpoint
+    );
+    arc.add(segment);
+  }
+  return arc;
+}
+
 function lightningPoints(start, end, distance) {
   const segmentCount = Math.max(3, Math.min(9, Math.ceil(distance * 1.35)));
   const direction = new THREE.Vector3().subVectors(end, start).normalize();
@@ -2889,10 +3354,7 @@ function formatResourceAmount(value) {
 }
 
 function createPooledParticle(color, materialOptions = {}) {
-  const particle = new THREE.Mesh(
-    new THREE.DodecahedronGeometry(1, 0),
-    mat(color, materialOptions).clone()
-  );
+  const particle = createSoftParticleSprite(color, materialOptions);
   particle.userData.velocity = new THREE.Vector3();
   particle.userData.spin = new THREE.Vector3();
   particle.userData.baseScale = 1;

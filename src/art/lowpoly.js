@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createSoftParticleSprite } from './vfxMaterials.js';
 
 const MATERIALS = new Map();
 
@@ -333,6 +334,17 @@ function createPlayerRobeStructure(team, material) {
   );
   structure.add(upper, skirt, frontPanel);
   return structure;
+}
+
+function createOnePieceRobeStructure(team, material) {
+  const robe = mesh(
+    humanoidRobeGeometry(0.38, 0.46, 1.28, team),
+    material,
+    new THREE.Vector3(0, 0.7, 0),
+    new THREE.Vector3(1, 1, team === 'player' ? 0.78 : 0.88)
+  );
+  robe.name = team === 'player' ? 'playerOnePieceRobe' : 'onePieceRobe';
+  return robe;
 }
 
 function createPlayerBattleCoatStructure(team, material, trimMaterial) {
@@ -2209,13 +2221,22 @@ export function createBerserkerModel(team) {
   const helmetMaterial = mat('#625d50', { metalness: 0.08, roughness: 0.84 });
 
   const body = mesh(
-    humanoidTorsoGeometry(0.54, team),
+    new THREE.CylinderGeometry(
+      team === 'player' ? 0.42 : 0.46,
+      team === 'player' ? 0.39 : 0.42,
+      team === 'player' ? 0.82 : 0.88,
+      6,
+      1,
+      false,
+      Math.PI / 6
+    ),
     bodyMaterial,
     new THREE.Vector3(0, 0.9, 0),
     team === 'player'
-      ? new THREE.Vector3(0.82, 1.14, 0.68)
-      : new THREE.Vector3(0.92, 1.22, 0.7)
+      ? new THREE.Vector3(1, 1.06, 0.82)
+      : new THREE.Vector3(1, 1.08, 0.84)
   );
+  body.name = 'berserkerBody';
   const head = mesh(
     humanoidHeadGeometry(0.28, team),
     skinMat,
@@ -2234,9 +2255,9 @@ export function createBerserkerModel(team) {
   const torsoStructure = createPlayerTorsoStructure({
     team,
     centerY: 0.9,
-    width: 0.76,
+    width: 0.68,
     height: 0.82,
-    depth: 0.5,
+    depth: 0.47,
     panelMaterial: mat('#5c3d2d'),
     beltMaterial: leather
   });
@@ -2274,30 +2295,34 @@ export function createBerserkerModel(team) {
     ? mesh(
       new THREE.DodecahedronGeometry(0.18, 0),
       fur,
-      new THREE.Vector3(-0.38, 1.18, 0.01),
-      new THREE.Vector3(1.18, 0.62, 0.9)
+      new THREE.Vector3(-0.31, 1.17, 0.01),
+      new THREE.Vector3(0.9, 0.56, 0.82)
     )
     : null;
   const furShoulderRight = furShoulderLeft?.clone() ?? null;
-  if (furShoulderRight) furShoulderRight.position.x = 0.38;
+  if (furShoulderLeft) furShoulderLeft.name = 'berserkerFurShoulderLeft';
+  if (furShoulderRight) {
+    furShoulderRight.name = 'berserkerFurShoulderRight';
+    furShoulderRight.position.x = 0.31;
+  }
   const chestHarness = team === 'player'
     ? boxBetween(
-      new THREE.Vector3(-0.2, 1.2, 0.35),
-      new THREE.Vector3(0.2, 0.76, 0.36),
+      new THREE.Vector3(-0.17, 1.2, 0.35),
+      new THREE.Vector3(0.17, 0.76, 0.36),
       0.075,
       0.05,
       leather
     )
     : null;
   const rightArm = limb(
-    new THREE.Vector3(-0.34, 1.16, 0.04),
+    new THREE.Vector3(-0.29, 1.16, 0.04),
     new THREE.Vector3(-0.25, 0.68, 0.42),
     humanoidArmRadius(0.068, team),
     skinMat
   );
   const rightSleeve = createPlayerSleeve(
     team,
-    new THREE.Vector3(-0.34, 1.16, 0.04),
+    new THREE.Vector3(-0.29, 1.16, 0.04),
     new THREE.Vector3(-0.25, 0.68, 0.42),
     0.074,
     fur,
@@ -2305,7 +2330,7 @@ export function createBerserkerModel(team) {
   );
   const rightArmGuard = createPlayerArmGuard(
     team,
-    new THREE.Vector3(-0.34, 1.16, 0.04),
+    new THREE.Vector3(-0.29, 1.16, 0.04),
     new THREE.Vector3(-0.25, 0.68, 0.42),
     0.075,
     leather,
@@ -2319,14 +2344,14 @@ export function createBerserkerModel(team) {
     new THREE.Vector3(1, 1, 1)
   );
   const leftArm = limb(
-    new THREE.Vector3(0.34, 1.14, 0.04),
+    new THREE.Vector3(0.29, 1.14, 0.04),
     new THREE.Vector3(0.28, 0.74, 0.34),
     humanoidArmRadius(0.062, team),
     skinMat
   );
   const leftSleeve = createPlayerSleeve(
     team,
-    new THREE.Vector3(0.34, 1.14, 0.04),
+    new THREE.Vector3(0.29, 1.14, 0.04),
     new THREE.Vector3(0.28, 0.74, 0.34),
     0.069,
     fur,
@@ -2334,7 +2359,7 @@ export function createBerserkerModel(team) {
   );
   const leftArmGuard = createPlayerArmGuard(
     team,
-    new THREE.Vector3(0.34, 1.14, 0.04),
+    new THREE.Vector3(0.29, 1.14, 0.04),
     new THREE.Vector3(0.28, 0.74, 0.34),
     0.07,
     leather,
@@ -2400,7 +2425,7 @@ export function createBerserkerModel(team) {
   }
   const weaponPivot = createPivot(
     'berserkerWeaponPivot',
-    new THREE.Vector3(-0.34, 1.16, 0.04),
+    new THREE.Vector3(-0.29, 1.16, 0.04),
     [
       rightArm,
       ...(rightSleeve ? [rightSleeve] : []),
@@ -2411,7 +2436,7 @@ export function createBerserkerModel(team) {
   );
   const offhandPivot = createPivot(
     'berserkerOffhandPivot',
-    new THREE.Vector3(0.34, 1.14, 0.04),
+    new THREE.Vector3(0.29, 1.14, 0.04),
     [
       leftArm,
       ...(leftSleeve ? [leftSleeve] : []),
@@ -2439,6 +2464,10 @@ export function createBerserkerModel(team) {
     ...legDetails
   );
   group.userData.parts = {
+    body,
+    torsoStructure,
+    furShoulderLeft,
+    furShoulderRight,
     weaponPivot,
     weaponSwingPivot,
     offhandPivot
@@ -3086,8 +3115,12 @@ export function createPriestModel(team, options = {}) {
   const shortTunic = options.bodyStyle === 'shortTunic'
     ? createPlayerShortTunicStructure(geometryTeam, robeMaterial, trimMaterial)
     : null;
+  const onePieceRobe = options.bodyStyle === 'onePieceRobe'
+    ? createOnePieceRobeStructure(geometryTeam, robeMaterial)
+    : null;
   const isPlayerCombatOutfit = geometryTeam === 'player'
     && (options.bodyStyle === 'battleCoat' || options.bodyStyle === 'shortTunic');
+  const hasOnePieceRobe = options.bodyStyle === 'onePieceRobe';
   const shoulderOffset = options.shoulderOffset ?? 0.32;
   const mantleWidthScale = options.mantleWidthScale ?? 1;
 
@@ -3098,13 +3131,13 @@ export function createPriestModel(team, options = {}) {
       new THREE.Vector3(0, 0.9, 0),
       new THREE.Vector3(0.86, 1.02, 0.66)
     )
-    : battleCoat ?? shortTunic ?? createPlayerRobeStructure(geometryTeam, robeMaterial) ?? mesh(
+    : onePieceRobe ?? battleCoat ?? shortTunic ?? createPlayerRobeStructure(geometryTeam, robeMaterial) ?? mesh(
       humanoidRobeGeometry(0.42, 0.56, 1.18, geometryTeam),
       robeMaterial,
       new THREE.Vector3(0, 0.78, 0),
       new THREE.Vector3(1, 1, 1)
     );
-  const sash = isPlayerCombatOutfit
+  const sash = isPlayerCombatOutfit || hasOnePieceRobe
     ? null
     : mesh(
       new THREE.BoxGeometry(0.58, 0.08, team === 'player' ? 0.46 : 0.08),
@@ -3272,6 +3305,8 @@ export function createPriestModel(team, options = {}) {
     ...(rightBoot ? [rightBoot] : [])
   );
   group.userData.parts = {
+    robe,
+    sash,
     weaponPivot,
     weaponSwingPivot,
     offhandPivot,
@@ -3279,6 +3314,7 @@ export function createPriestModel(team, options = {}) {
     focusGem,
     rightHand
   };
+  group.userData.bodyStyle = options.bodyStyle ?? 'robe';
   if (Number.isFinite(options.scale)) {
     group.scale.setScalar(options.scale);
   }
@@ -3784,7 +3820,7 @@ export function createWarderModel(team) {
 
 export function createWaterMageModel(team) {
   const group = createPriestModel(team, {
-    bodyStyle: 'shortTunic',
+    bodyStyle: 'onePieceRobe',
     shoulderOffset: 0.285,
     mantleWidthScale: 0.82,
     robeColor: team === 'player' ? '#3e8fb3' : '#476575',
@@ -5687,18 +5723,29 @@ export function createSnowDuskShamanModel() {
     [leftArm, leftSleeve, leftHand]
   );
   const shardRing = new THREE.Group();
+  shardRing.name = 'snowDuskStaffShardRing';
   for (let i = 0; i < 5; i += 1) {
     const angle = (i / 5) * Math.PI * 2;
+    const radial = new THREE.Vector3(
+      Math.cos(angle),
+      Math.sin(angle),
+      Math.sin(angle * 2) * 0.16
+    ).normalize();
     const shard = mesh(
       new THREE.ConeGeometry(0.045, 0.28, 5),
       ice,
-      new THREE.Vector3(Math.cos(angle) * 0.44, 1.63 + (i % 2) * 0.08, Math.sin(angle) * 0.3),
+      new THREE.Vector3(
+        Math.cos(angle) * 0.27,
+        Math.sin(angle) * 0.27,
+        Math.sin(angle * 2) * 0.045
+      ),
       new THREE.Vector3(1, 1, 1)
     );
-    shard.rotation.z = Math.cos(angle) * 0.45;
-    shard.rotation.x = Math.sin(angle) * 0.28;
+    shard.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), radial);
     shardRing.add(shard);
   }
+  shardRing.position.copy(focus.position);
+  weaponSwingPivot.add(shardRing);
   const legLeft = mesh(
     new THREE.BoxGeometry(0.17, 0.33, 0.17),
     cloakDark,
@@ -5716,7 +5763,7 @@ export function createSnowDuskShamanModel() {
   const bootRight = bootLeft.clone();
   bootRight.position.x = 0.15;
 
-  group.add(robe, mantle, head, hood, hoodFrame, faceVeil, eyeLeft, eyeRight, shardRing, weaponPivot, offhandPivot, legLeft, legRight, bootLeft, bootRight);
+  group.add(robe, mantle, head, hood, hoodFrame, faceVeil, eyeLeft, eyeRight, weaponPivot, offhandPivot, legLeft, legRight, bootLeft, bootRight);
   group.userData.parts = {
     weaponPivot,
     weaponSwingPivot,
@@ -7003,10 +7050,10 @@ export function createFrostTrollBossModel() {
     wood
   );
   const hammerHead = mesh(
-    new THREE.DodecahedronGeometry(0.52, 0),
+    new THREE.SphereGeometry(0.62, 12, 8),
     rock,
     new THREE.Vector3(-1.14, 2.36, 0.62),
-    new THREE.Vector3(1.7, 0.82, 0.78)
+    new THREE.Vector3(1.06, 1, 1.02)
   );
   hammerHead.rotation.z = -0.08;
   const hammerPoreA = mesh(
@@ -7257,6 +7304,8 @@ export function createFrostArrowModel(color = '#bfeeff') {
 
 export function createDuskFrostOrbModel(color = '#8fdfff') {
   const group = new THREE.Group();
+  const spinRoot = new THREE.Group();
+  const flowRoot = new THREE.Group();
   const coreMat = mat(color, {
     emissive: '#4bbbe9',
     emissiveIntensity: 0.7,
@@ -7266,25 +7315,62 @@ export function createDuskFrostOrbModel(color = '#8fdfff') {
   });
   const duskMat = mat('#273f63', { transparent: true, opacity: 0.78, depthWrite: false });
   const rimMat = basicMat('#e2faff', { transparent: true, opacity: 0.76, depthWrite: false });
-  const core = new THREE.Mesh(new THREE.OctahedronGeometry(0.16, 0), coreMat);
-  core.scale.set(0.9, 1.2, 0.9);
+  const core = new THREE.Mesh(new THREE.OctahedronGeometry(0.2, 1), coreMat);
+  core.scale.set(0.92, 1.18, 0.92);
   const shellA = new THREE.Mesh(new THREE.TetrahedronGeometry(0.19, 0), duskMat);
   shellA.position.set(0.13, -0.02, -0.02);
   shellA.rotation.set(0.3, 0.62, -0.18);
   const shellB = shellA.clone();
   shellB.position.set(-0.12, 0.07, 0.04);
   shellB.rotation.set(-0.25, -0.4, 0.27);
-  const ringA = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.014, 5, 16), rimMat);
+  const ringA = new THREE.Mesh(
+    new THREE.TorusGeometry(0.27, 0.018, 5, 24, Math.PI * 1.52),
+    rimMat
+  );
   ringA.rotation.set(Math.PI / 2, 0.22, 0.14);
-  const ringB = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.012, 5, 14), coreMat);
+  ringA.userData.baseRotation = ringA.rotation.clone();
+  const ringB = new THREE.Mesh(
+    new THREE.TorusGeometry(0.21, 0.014, 5, 20, Math.PI * 1.36),
+    coreMat
+  );
   ringB.rotation.set(0.32, Math.PI / 2, -0.18);
+  ringB.userData.baseRotation = ringB.rotation.clone();
   const tail = new THREE.Mesh(
     new THREE.ConeGeometry(0.11, 0.5, 6),
     mat('#4b7ca7', { emissive: '#4bbbe9', emissiveIntensity: 0.5, transparent: true, opacity: 0.55, depthWrite: false })
   );
   tail.position.z = -0.34;
   tail.rotation.x = -Math.PI / 2;
-  group.add(core, shellA, shellB, ringA, ringB, tail);
+  const aura = createSoftParticleSprite('#bdefff', {
+    opacity: 0.34,
+    depthTest: true,
+    blending: THREE.AdditiveBlending
+  });
+  aura.scale.setScalar(0.58);
+  const frostMotes = [];
+  for (let index = 0; index < 6; index += 1) {
+    const mote = createSoftParticleSprite(index % 2 === 0 ? '#effcff' : '#6fcff4', {
+      opacity: 0.58,
+      depthTest: true,
+      blending: THREE.AdditiveBlending,
+      falloff: 'tight'
+    });
+    mote.userData.orbitPhase = index / 6 * Math.PI * 2;
+    mote.userData.orbitRadius = 0.25 + (index % 2) * 0.07;
+    mote.userData.baseScale = 0.065 + (index % 3) * 0.014;
+    frostMotes.push(mote);
+    flowRoot.add(mote);
+  }
+  spinRoot.add(core, shellA, shellB);
+  flowRoot.add(ringA, ringB);
+  group.add(aura, spinRoot, flowRoot, tail);
+  group.userData.isDuskFrostOrb = true;
+  group.userData.duskSpinRoot = spinRoot;
+  group.userData.duskFlowRoot = flowRoot;
+  group.userData.duskFlowRings = [ringA, ringB];
+  group.userData.duskFrostMotes = frostMotes;
+  group.userData.duskAura = aura;
+  group.userData.duskTail = tail;
   return enableShadows(group);
 }
 
@@ -7561,6 +7647,8 @@ export function createEnergyOrbModel(color = '#b46aff') {
 
 export function createWaterOrbModel(color = '#65d8ff') {
   const group = new THREE.Group();
+  const spinRoot = new THREE.Group();
+  const flowRoot = new THREE.Group();
   const core = new THREE.Mesh(
     new THREE.DodecahedronGeometry(0.52, 1),
     mat(color, {
@@ -7580,18 +7668,45 @@ export function createWaterOrbModel(color = '#65d8ff') {
       depthWrite: false
     })
   );
-  const ringA = new THREE.Mesh(
-    new THREE.TorusGeometry(0.55, 0.018, 5, 24),
-    basicMat('#dff8ff', {
-      transparent: true,
-      opacity: 0.66,
-      depthWrite: false
-    })
-  );
-  ringA.rotation.y = Math.PI / 2;
-  const ringB = ringA.clone();
-  ringB.rotation.x = Math.PI / 2;
-  ringB.rotation.z = Math.PI / 4;
+  const flowMaterial = mat('#b8f1ff', {
+    emissive: '#3bc7f3',
+    emissiveIntensity: 0.82,
+    transparent: true,
+    opacity: 0.5,
+    roughness: 0.18,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending
+  });
+  const flowRings = [
+    { radius: 0.59, tube: 0.024, arc: Math.PI * 1.58, rotation: [0.18, Math.PI / 2, 0.18] },
+    { radius: 0.66, tube: 0.018, arc: Math.PI * 1.34, rotation: [Math.PI / 2, 0.25, Math.PI / 4] },
+    { radius: 0.55, tube: 0.014, arc: Math.PI * 1.18, rotation: [0.72, 0.28, Math.PI / 2] }
+  ].map((definition, index) => {
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(definition.radius, definition.tube, 6, 34, definition.arc),
+      flowMaterial
+    );
+    ring.rotation.set(...definition.rotation);
+    ring.userData.baseRotation = ring.rotation.clone();
+    ring.userData.flowIndex = index;
+    flowRoot.add(ring);
+    return ring;
+  });
+  const orbitDroplets = [];
+  for (let index = 0; index < 7; index += 1) {
+    const droplet = createSoftParticleSprite(index % 2 === 0 ? '#d8f8ff' : '#5fd6ff', {
+      opacity: index % 2 === 0 ? 0.72 : 0.56,
+      depthTest: true,
+      blending: THREE.AdditiveBlending
+    });
+    droplet.userData.orbitPhase = (index / 7) * Math.PI * 2;
+    droplet.userData.orbitSpeed = 2.15 + (index % 3) * 0.36;
+    droplet.userData.orbitRadius = 0.6 + (index % 2) * 0.1;
+    droplet.userData.orbitHeight = 0.18 + (index % 3) * 0.05;
+    droplet.userData.baseScale = 0.09 + (index % 3) * 0.018;
+    orbitDroplets.push(droplet);
+    flowRoot.add(droplet);
+  }
   const wake = new THREE.Mesh(
     new THREE.ConeGeometry(0.25, 0.72, 8),
     mat('#8feaff', {
@@ -7604,7 +7719,13 @@ export function createWaterOrbModel(color = '#65d8ff') {
   );
   wake.position.z = -0.58;
   wake.rotation.x = -Math.PI / 2;
-  group.add(core, inner, ringA, ringB, wake);
+  spinRoot.add(core, inner);
+  group.add(spinRoot, flowRoot, wake);
+  group.userData.isWaterOrb = true;
+  group.userData.waterSpinRoot = spinRoot;
+  group.userData.waterFlowRoot = flowRoot;
+  group.userData.waterFlowRings = flowRings;
+  group.userData.waterOrbitDroplets = orbitDroplets;
   return enableShadows(group);
 }
 
@@ -9328,7 +9449,10 @@ export function createAltarModel(definition = {}) {
       opacity: 0.86,
       side: THREE.DoubleSide,
       depthWrite: false,
-      depthTest: false
+      depthTest: true,
+      polygonOffset: true,
+      polygonOffsetFactor: -3,
+      polygonOffsetUnits: -3
     }).clone()
   );
   const ownerCrown = new THREE.Mesh(
@@ -9348,7 +9472,7 @@ export function createAltarModel(definition = {}) {
   areaDisc.renderOrder = 1180;
   areaDisc.visible = false;
   areaRing.renderOrder = 1181;
-  progressRing.renderOrder = 1182;
+  progressRing.renderOrder = 0;
   ownerCrown.position.y = 0.39;
 
   group.add(areaDisc, areaRing, progressRing, ownerCrown, base, snowCap, plinth, crystal);
@@ -9371,7 +9495,10 @@ export function createSelectionRing(color = '#62d56f') {
       opacity: 0.24,
       side: THREE.DoubleSide,
       depthWrite: false,
-      depthTest: false
+      depthTest: true,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2
     }).clone()
   );
   const ring = new THREE.Mesh(
@@ -9381,19 +9508,24 @@ export function createSelectionRing(color = '#62d56f') {
       opacity: 0.96,
       side: THREE.DoubleSide,
       depthWrite: false,
-      depthTest: false
+      depthTest: true,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2
     }).clone()
   );
   glow.rotation.x = -Math.PI / 2;
   ring.rotation.x = -Math.PI / 2;
-  glow.renderOrder = 2000;
-  ring.renderOrder = 2001;
+  glow.renderOrder = 0;
+  ring.renderOrder = 0;
   group.add(glow, ring);
   group.position.y = 0.05;
   group.visible = false;
   group.userData.glow = glow;
   group.userData.ring = ring;
   group.userData.colorMeshes = [glow, ring];
+  group.userData.preserveRenderLayers = true;
+  group.traverse((child) => child.layers.set(0));
   return group;
 }
 

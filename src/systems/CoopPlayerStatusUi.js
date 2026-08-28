@@ -1,4 +1,3 @@
-const MAX_ENERGY = 12;
 const STATUS_REFRESH_INTERVAL = 0.25;
 
 export class CoopPlayerStatusUi {
@@ -126,7 +125,7 @@ export class CoopPlayerStatusUi {
       >
         <span class="coop-player-chip-title">${escapeHtml(row.name)}（${role}${hostMark}${offline}）</span>
         <span class="coop-player-chip-stats">
-          <span>⚡ ${formatNum(row.energy)}/${MAX_ENERGY}</span>
+          <span>⚡ ${formatNum(row.energy)}</span>
           <span>🪙 ${formatNum(row.silver)}</span>
           <span>🃏 ${row.handCount}</span>
         </span>
@@ -143,7 +142,7 @@ export class CoopPlayerStatusUi {
           <button type="button" class="coop-player-detail-close" data-coop-close-detail>收起</button>
         </div>
         <dl class="coop-player-detail-grid">
-          <div><dt>能量</dt><dd>${formatNum(row.energy)} / ${MAX_ENERGY}</dd></div>
+          <div><dt>能量</dt><dd>${formatNum(row.energy)}</dd></div>
           <div><dt>银币</dt><dd>${formatNum(row.silver)}</dd></div>
           <div><dt>手牌</dt><dd>${row.handCount}</dd></div>
           <div><dt>抽牌堆</dt><dd>${row.drawCount}</dd></div>

@@ -3,7 +3,12 @@ import { readFileSync } from 'node:fs';
 import * as THREE from 'three';
 import { createAttackRangeRing } from '../src/art/lowpoly.js';
 import { UNIT_SPECIAL_UPGRADES } from '../src/data/cardUpgrades.js';
-import { shouldConsumeWaveRewardCard } from '../src/systems/waveRewardPool.js';
+import { CARD_DEFINITIONS } from '../src/data/gameData.js';
+import {
+  createWaveRewardDeckIds,
+  shouldConsumeWaveRewardCard,
+  waveRewardUnitCards
+} from '../src/systems/waveRewardPool.js';
 
 globalThis.window = {
   innerWidth: 1,
@@ -62,9 +67,55 @@ assert.equal(shouldConsumeWaveRewardCard({
   action: 'add-card',
   card: { kind: 'summon' }
 }), false, 'run shop choices never use the wave reward pool rule');
+assert.equal(shouldConsumeWaveRewardCard({
+  action: 'add-card',
+  card: { id: 'fire-enchant', kind: 'enchant' }
+}, 'wave-reward', ['fire-enchant']), true, 'a synchronized wave reward still consumes without a source marker');
+assert.equal(shouldConsumeWaveRewardCard({
+  action: 'add-card',
+  card: { id: 'team-upgrade-unit-attack', kind: 'tactic' }
+}, 'wave-reward', ['fire-enchant']), false, 'repeatable training cards stay outside the one-time reward deck');
 
 const unitRewardCard = { id: 'lightning-mages', kind: 'summon', unitType: 'lightningMage' };
 const regularRewardCard = { id: 'fire-enchant', kind: 'enchant' };
+const liveSessionRewardDeck = createWaveRewardDeckIds([regularRewardCard], CARD_DEFINITIONS);
+const availableUnitRewardCards = waveRewardUnitCards(CARD_DEFINITIONS);
+assert.equal(availableUnitRewardCards.length, 15);
+assert.ok(
+  availableUnitRewardCards.every((card) => liveSessionRewardDeck.includes(card.id)),
+  'real sessions exclude summons from the combat deck, so reward initialization must add every unit card separately'
+);
+const liveSessionPoolGame = Object.assign(Object.create(Game.prototype), {
+  localPlayerSlot: 'p1',
+  levelSession: {
+    challengeMode: 'standard',
+    deck: [regularRewardCard],
+    cardLevels: { 'lightning-mages': 2 },
+    players: {
+      p1: { cardLevels: { 'lightning-mages': 2 } },
+      p2: { cardLevels: { 'lightning-mages': 5 } }
+    }
+  },
+  waveRewardDeck: liveSessionRewardDeck,
+  acquiredUnitCardTypes: new Set(),
+  teamSpecialUpgrades: new Map(),
+  selectedCardPool() {
+    return [regularRewardCard];
+  },
+  cardSystem: {
+    applyRuntimeCardLevel(card) {
+      return card;
+    }
+  }
+});
+const liveUnitRewardPool = liveSessionPoolGame.waveRewardCardPool()
+  .filter((card) => card.kind === 'summon');
+assert.equal(liveUnitRewardPool.length, 15, 'normal live-session rewards must actually expose unit cards');
+assert.equal(
+  liveUnitRewardPool.find((card) => card.id === 'lightning-mages')?.level,
+  5,
+  'wave-reward unit cards use the highest multiplayer card level'
+);
 const rewardPoolGame = Object.assign(Object.create(Game.prototype), {
   localPlayerSlot: 'p1',
   levelSession: { deck: [unitRewardCard, regularRewardCard] },
@@ -82,6 +133,44 @@ assert.deepEqual(
 );
 assert.equal(rewardPoolGame.consumeWaveRewardCard(unitRewardCard), true);
 assert.equal(rewardPoolGame.waveRewardDeck.includes(unitRewardCard.id), false);
+assert.equal(rewardPoolGame.consumeWaveRewardCard(regularRewardCard), true);
+assert.equal(rewardPoolGame.waveRewardDeck.includes(regularRewardCard.id), false);
+assert.equal(rewardPoolGame.consumeWaveRewardCard(regularRewardCard), false, 'a claimed fire enchant cannot be consumed or offered twice');
+
+const sharedWaveChoices = [{ action: 'add-card', card: regularRewardCard }];
+const waveEventGame = {
+  resetStrategyRewardRerollForEvent() {},
+  createCardWaveRewardChoices: () => sharedWaveChoices
+};
+const normalWaveEvent = Game.prototype.createStrategyEvent.call(waveEventGame, 'wave-reward', {
+  wave: { index: 2, kind: 'normal' }
+});
+const eliteWaveEvent = Game.prototype.createStrategyEvent.call(waveEventGame, 'wave-reward', {
+  wave: { index: 3, kind: 'elite' }
+});
+assert.equal(normalWaveEvent.type, 'wave-reward');
+assert.equal(eliteWaveEvent.type, 'wave-reward');
+assert.equal(normalWaveEvent.choices, sharedWaveChoices);
+assert.equal(eliteWaveEvent.choices, sharedWaveChoices, 'normal and elite waves must use the same reward choice source');
+
+let synchronizedChoiceConsumed = null;
+const synchronizedChoiceGame = {
+  strategyEvent: { type: 'wave-reward' },
+  cardSystem: {
+    addCardToDrawPile: () => ({ added: true })
+  },
+  waveRewardDeckIds: () => ['fire-enchant'],
+  consumeWaveRewardCard(card) {
+    synchronizedChoiceConsumed = card.id;
+    return true;
+  },
+  applyStrategyChoiceCost() {}
+};
+assert.equal(Game.prototype.applyStrategyChoice.call(synchronizedChoiceGame, {
+  action: 'add-card',
+  card: regularRewardCard
+}), true);
+assert.equal(synchronizedChoiceConsumed, 'fire-enchant', 'restored wave choices must still consume the selected definition');
 
 let rewardPoolDirtyMarks = 0;
 rewardPoolGame.networkBridge = {
@@ -128,6 +217,30 @@ assert.equal(normalizeStrategyEventType('altar-reward'), 'altar-reward');
 assert.equal(shouldAutoGuardSummonedUnit(unitRewardCard), true);
 assert.equal(shouldAutoGuardSummonedUnit({ kind: 'ability' }), false);
 
+let openedBossShopOptions = null;
+const bossRewardGame = Object.assign(Object.create(Game.prototype), {
+  currentWave: { index: 7, kind: 'boss' },
+  currentEnemyForce: { index: 7, kind: 'boss' },
+  levelFinished: false,
+  waveIndex: 7,
+  bossesDefeated: 0,
+  pendingWaveAdvance: false,
+  coop: { enabled: false },
+  isEndlessMode: () => true,
+  ensureWaveConfig() {},
+  updateWavePreview() {},
+  grantWaveSilver() {},
+  openRunShop(options) {
+    openedBossShopOptions = options;
+    return true;
+  }
+});
+bossRewardGame.completeCurrentWave();
+assert.deepEqual(openedBossShopOptions, { freeReward: true });
+assert.equal(bossRewardGame.pendingWaveAdvance, true);
+assert.equal(bossRewardGame.strategyEvent, undefined, 'Boss 结算不应再生成随机三选一策略奖励');
+assert.equal(Game.prototype.createBossRewardChoices, undefined);
+
 let soloAutoSkipCount = 0;
 const soloAutoSkipGame = Object.assign(Object.create(Game.prototype), {
   autoSkipWaveRewards: true,
@@ -154,7 +267,7 @@ const networkAutoSkipGame = Object.assign(Object.create(Game.prototype), {
   autoSkippedWaveRewardKey: null,
   strategyEvent: {
     networkInteractionId: 'reward-auto-skip-1',
-    type: 'boss-reward',
+    type: 'wave-reward',
     choices: [{ id: 'untouched' }]
   },
   wave: 14,
@@ -177,6 +290,35 @@ const networkAutoSkipGame = Object.assign(Object.create(Game.prototype), {
 });
 assert.equal(networkAutoSkipGame.tryAutoSkipWaveReward(), true);
 assert.equal(networkSkipRequests, 1, '联机自动跳过必须发送已有的 Host 权威跳过命令');
+
+let shopSkipRequests = 0;
+let shopWaitingDisplays = 0;
+const freeShopAutoSkipGame = Object.assign(Object.create(Game.prototype), {
+  autoSkipWaveRewards: true,
+  autoSkippedWaveRewardKey: null,
+  runShopFreeReward: true,
+  bossesDefeated: 2,
+  activeEconomySlot: 'p2',
+  localPlayerSlot: 'p2',
+  networkClientMode: true,
+  isEndlessMode: () => true,
+  networkBridge: {
+    shouldRouteLocalCommands: () => true,
+    commandSender: {
+      shopRewardSkip() {
+        shopSkipRequests += 1;
+        return true;
+      }
+    }
+  },
+  showCoopRunShopWaitingUi() {
+    shopWaitingDisplays += 1;
+  }
+});
+assert.equal(freeShopAutoSkipGame.tryAutoSkipRunShopReward(), true);
+assert.equal(shopSkipRequests, 1, '无尽联机应通过免费军需铺的 Host 权威跳过命令完成 Boss 奖励');
+assert.equal(shopWaitingDisplays, 1);
+assert.equal(freeShopAutoSkipGame.tryAutoSkipRunShopReward(), false, '同一次免费军需铺不能重复跳过');
 assert.equal(networkWaitingDisplays, 1, '联机跳过后应立即进入选择完成等待状态');
 
 let completedNetworkSlot = null;
@@ -259,6 +401,52 @@ assert.equal(openingGame.heroUnitType, 'swordsman');
 assert.equal(receivedOpeningCards.length, 1);
 assert.equal(receivedOpeningCards[0].card, openingCard);
 assert.match(receivedOpeningCards[0].options.prefix, /^opening-swordsmen-/);
+
+const upgradedOpeningCards = [
+  { id: 'barbarians', name: '蛮族', summary: '测试', kind: 'summon', unitType: 'raider' },
+  { id: 'swordsmen', name: '剑士', summary: '测试', kind: 'summon', unitType: 'swordsman' },
+  { id: 'archers', name: '弓手', summary: '测试', kind: 'summon', unitType: 'archer' }
+];
+const upgradedOpeningGame = {
+  activeEconomySlot: 'local-player',
+  localPlayerSlot: 'local-player',
+  levelSession: {
+    challengeMode: 'standard',
+    cardLevels: { barbarians: 2, swordsmen: 5, archers: 3 }
+  },
+  isEndlessMode: () => false,
+  openingUnitCardLevel: Game.prototype.openingUnitCardLevel,
+  cardSystem: {
+    applyRuntimeCardLevel(card) {
+      return card;
+    }
+  }
+};
+const upgradedOpeningChoices = Game.prototype.openingUnitChoices.call(upgradedOpeningGame, {
+  pool: upgradedOpeningCards,
+  action: 'grant-opening-unit-card',
+  actionLabel: '获得单位卡'
+});
+assert.deepEqual(
+  Object.fromEntries(upgradedOpeningChoices.map((choice) => [choice.card.id, choice.card.level])),
+  { barbarians: 2, swordsmen: 5, archers: 3 },
+  '开局单位卡必须使用玩家局外升级后的实际等级'
+);
+assert.equal(Game.prototype.openingUnitCardLevel.call({
+  activeEconomySlot: 'p2',
+  localPlayerSlot: 'p1',
+  levelSession: {
+    players: {
+      p1: { cardLevels: { swordsmen: 7 } },
+      p2: { cardLevels: { swordsmen: 4 } }
+    }
+  },
+  isEndlessMode: () => false
+}, 'swordsmen'), 7, '联机开局单位卡必须使用所有参战玩家中的最高等级');
+assert.equal(Game.prototype.openingUnitCardLevel.call({
+  levelSession: { cardLevels: { swordsmen: 8 } },
+  isEndlessMode: () => true
+}, 'swordsmen'), 1, '无尽模式仍应覆盖为 Lv.1');
 
 const guardUnit = {
   alive: true,

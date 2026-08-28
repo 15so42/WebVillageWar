@@ -7,8 +7,7 @@ import {
 import { MSG } from '../protocol/messages.js';
 import { ensureInteractionIdentity } from './interactionIdentity.js';
 import { normalizeFreeEnchantmentCharges } from '../../systems/freeEnchantmentCharges.js';
-
-const NETWORK_KNOCKBACK_EPSILON_SQ = 0.0004;
+import { KNOCKBACK_STOP_SPEED_SQ } from '../../systems/combatHelpers.js';
 
 export class SnapshotBuilder {
   constructor(game, { matchId = 'match' } = {}) {
@@ -53,7 +52,7 @@ export class SnapshotBuilder {
     this.allUnits().forEach((unit) => {
       if (!unit?.alive) return;
       const previousMode = this.lastMotionMode.get(unit.id) ?? 'idle';
-      const knockbackActive = (unit.knockbackVelocity?.lengthSq?.() ?? 0) > NETWORK_KNOCKBACK_EPSILON_SQ;
+      const knockbackActive = (unit.knockbackVelocity?.lengthSq?.() ?? 0) > KNOCKBACK_STOP_SPEED_SQ;
       const mode = knockbackActive
         ? 'knockback'
         : (unit.visualState === 'walk' ? 'moving' : 'idle');
@@ -95,7 +94,7 @@ export class SnapshotBuilder {
     return this.allUnits().filter((unit) => unit?.alive).map((unit) => {
       const revision = Math.max(1, this.motionRevisions.get(unit.id) ?? 0);
       this.motionRevisions.set(unit.id, revision);
-      if ((unit.knockbackVelocity?.lengthSq?.() ?? 0) > NETWORK_KNOCKBACK_EPSILON_SQ) {
+      if ((unit.knockbackVelocity?.lengthSq?.() ?? 0) > KNOCKBACK_STOP_SPEED_SQ) {
         return {
           type: MSG.MOTION_EVENT,
           ...motionEventFor(unit, 'knockback_start', sampleTimeMs, revision)
@@ -355,6 +354,11 @@ export class SnapshotBuilder {
       ownerPlayerId: unit.ownerPlayerId ?? null,
       controllerPlayerId: unit.controllerPlayerId ?? unit.ownerPlayerId ?? null,
       playerColorIndex: playerColorIndex(this.game, unit.controllerPlayerId ?? unit.ownerPlayerId),
+      isBoss: Boolean(unit.isBoss),
+      isElite: Boolean(unit.isElite),
+      runtimeVisualScale: round(unit.runtimeVisualScale ?? 1, 2),
+      runtimeStatusHeightScale: round(unit.runtimeStatusHeightScale ?? 1, 2),
+      projectileHitHeight: round(unit.projectileHitHeight ?? unit.definition?.projectileHitHeight ?? 1.45, 2),
       health: round(unit.health),
       maxHealth: round(unit.maxHealth),
       physicalAttack: round(this.game.modifiers?.getPhysicalAttack?.(unit) ?? unit.physicalAttack ?? 0),
@@ -468,6 +472,7 @@ export class SnapshotBuilder {
         reserve: serializeCardZone(cards.reservePile)
       },
       cardRuntime: serializeCardRuntimeState(cards),
+      waveRewardDeck: [...(run.waveRewardDeck ?? [])],
       silver: round(isLocal ? this.game.getSilver(playerId) : run.silver),
       coopRewardAutoSelectSecondsRemaining: rewardSeconds,
       strategyUi: serializeStrategyUi(strategyEvent, {
@@ -603,6 +608,7 @@ function serializeStrategyUi(event, options = {}) {
       actionLabel: choice.actionLabel,
       title: choice.title,
       description: choice.description,
+      rewardSource: choice.rewardSource ?? null,
       card: serializeCard(choice.card ?? choice.targetCard ?? choice.temporaryCard)
     }))
   };

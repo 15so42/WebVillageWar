@@ -61,6 +61,12 @@ export class AltarSystem {
     parts.areaRing.material.polygonOffset = true;
     parts.areaRing.material.polygonOffsetFactor = -4;
     parts.areaRing.material.polygonOffsetUnits = -4;
+    parts.progressRing.material.depthTest = true;
+    parts.progressRing.material.depthWrite = false;
+    parts.progressRing.material.polygonOffset = true;
+    parts.progressRing.material.polygonOffsetFactor = -3;
+    parts.progressRing.material.polygonOffsetUnits = -3;
+    parts.progressRing.renderOrder = 0;
 
     parts.areaDisc.traverse((child) => {
       child.layers.set(1);
@@ -71,7 +77,7 @@ export class AltarSystem {
       child.layers.set(0);
     });
     parts.progressRing.traverse((child) => {
-      child.layers.set(1);
+      child.layers.set(0);
     });
 
     return {

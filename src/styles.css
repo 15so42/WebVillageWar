@@ -3535,10 +3535,34 @@ body:not(.is-game-active) .mobile-action-dock {
   backdrop-filter: none;
 }
 
-.drag-ghost.has-card-preview .card {}
+.drag-ghost.has-card-preview .drag-ghost-card-host.card-hand {
+  position: static !important;
+  inset: auto !important;
+  z-index: auto !important;
+  width: var(--drag-card-width) !important;
+  max-width: none !important;
+  height: var(--drag-card-height) !important;
+  display: block !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
+  pointer-events: none !important;
+  transform: none !important;
+  perspective: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
 
-.drag-ghost.has-card-preview .card:hover {
-  transform: scale(0.84);
+.drag-ghost.has-card-preview .drag-ghost-card-host > .drag-ghost-card,
+.drag-ghost.has-card-preview .drag-ghost-card-host > .drag-ghost-card:hover {
+  width: 100% !important;
+  min-width: 0 !important;
+  height: 100% !important;
+  aspect-ratio: auto !important;
+  flex: none !important;
+  pointer-events: none !important;
+  transform: none !important;
+  transition: none !important;
 }
 
 .drag-ghost.enchant-crosshair {
@@ -4777,12 +4801,11 @@ body:not(.is-game-active) .mobile-action-dock {
   filter: grayscale(0.45) brightness(0.72);
 }
 
-/* Main-menu forged cards follow the compact battle-hand level treatment:
-   keep the card-kind icon, remove the crest, and reserve only the width needed
-   by the Roman numeral. Desktop cards retain the full crest. */
+/* Main-menu forged cards reserve the complete title row for the card name and
+   its appended Roman level. */
 @media (max-width: 900px) {
   body.is-meta-open .meta-forged-hand-card .med-card-meta-row {
-    grid-template-columns: 17px minmax(0, 1fr) max-content !important;
+    grid-template-columns: minmax(0, 1fr) !important;
   }
 
   body.is-meta-open .meta-forged-hand-card .med-card-meta-row .med-card-level {

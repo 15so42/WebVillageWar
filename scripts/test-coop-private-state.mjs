@@ -26,6 +26,7 @@ function runState(overrides = {}) {
     silver: 24,
     strategyEvent: null,
     strategyRewardRerollCount: 0,
+    waveRewardDeck: ['fire-enchant'],
     runShopFreeReward: false,
     runShopActiveCategory: null,
     runShopChoices: [],
@@ -96,6 +97,7 @@ assert.equal(privateState.zones.temporary[0].effect.buffId, 'immortality');
 assert.equal(privateState.zones.temporary[0].uses, 1);
 assert.deepEqual(privateState.cardRuntime.levelBonuses, [['swordsman', 1]]);
 assert.equal(privateState.cardRuntime.upgrades[0].upgradeIds[0], 'swordsman:runtime-level:test');
+assert.deepEqual(privateState.waveRewardDeck, ['fire-enchant']);
 
 hostGame.runShopActiveCategory = 'unit';
 hostGame.shopPrices = { unit: 15 };
@@ -115,7 +117,12 @@ hostRun.strategyEvent = {
   type: 'wave-reward',
   title: '波次奖励',
   summary: '请选择一项奖励。',
-  choices: [{ choiceId: 'reward-choice', title: '剑士', card: card('reward-swordsman', 2) }]
+  choices: [{
+    choiceId: 'reward-choice',
+    title: '剑士',
+    rewardSource: 'wave-reward-deck',
+    card: card('reward-swordsman', 2)
+  }]
 };
 hostGame.runShopFreeReward = true;
 hostGame.runShopActiveCategory = 'unit';
@@ -127,6 +134,7 @@ const countdownPrivateState = snapshotBuilder.buildPrivateState('guest');
 assert.equal(countdownPrivateState.coopRewardAutoSelectSecondsRemaining, 9);
 assert.equal('autoSelectSecondsRemaining' in countdownPrivateState.strategyUi, false);
 assert.equal('autoSelectSecondsRemaining' in countdownPrivateState.runShopState, false);
+assert.equal(countdownPrivateState.strategyUi.choices[0].rewardSource, 'wave-reward-deck');
 
 let renderedHandLevel = null;
 const clientCards = {
@@ -177,6 +185,7 @@ assert.deepEqual(
 );
 assert.equal(clientRun.silver, 24);
 assert.equal(clientGame.silver, 24);
+assert.deepEqual(clientRun.waveRewardDeck, ['fire-enchant']);
 
 const guardedHostUnit = {
   id: 'guarded-unit',

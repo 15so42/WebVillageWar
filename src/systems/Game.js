@@ -24,7 +24,12 @@ import {
 } from '../data/cardUpgrades.js';
 import { pickAltarSpecializationChoices } from './altarRewardChoices.js';
 import { UnitEntity } from '../entities/UnitEntity.js';
-import { prewarmUnitModelTemplates } from '../art/visualRegistry.js';
+import {
+  playUnitAnimation,
+  prewarmUnitModelTemplates,
+  setUnitRuntimeVisualScale,
+  triggerUnitHitFlash
+} from '../art/visualRegistry.js';
 import { createWorld } from '../world/createWorld.js';
 import { createCoopPlayerStates, isCoopSession } from '../coop/CoopSession.js';
 import { BuffSystem } from './BuffSystem.js';
@@ -68,7 +73,12 @@ import {
 } from './selfDestructRules.js';
 import { clamp, distance2D, polarOffset, seededRandom } from '../utils/math.js';
 import { calculateLevelReward } from '../utils/levelRewards.js';
-import { formatSupportAmount, targetCombatRadius } from './combatHelpers.js';
+import {
+  applyKnockbackImpulse,
+  formatSupportAmount,
+  KNOCKBACK_MOTION_TIME_SCALE,
+  targetCombatRadius
+} from './combatHelpers.js';
 import {
   applyEndlessDifficulty,
   applyEndlessPerformanceMultiplier,
@@ -93,7 +103,11 @@ import {
 } from './playerBaseRules.js';
 import { scaleResourceAfterMaximumChange } from './unitResourceSync.js';
 import { NetworkAnalysisUi } from './NetworkAnalysisUi.js';
-import { shouldConsumeWaveRewardCard } from './waveRewardPool.js';
+import {
+  createWaveRewardDeckIds,
+  shouldConsumeWaveRewardCard,
+  waveRewardUnitCards
+} from './waveRewardPool.js';
 import { normalizeFreeEnchantmentCharges } from './freeEnchantmentCharges.js';
 import { autoRebirthDurationFor } from './rebirthRules.js';
 import {
@@ -501,14 +515,15 @@ const SNOW_VALLEY_HEAD_RENDER_TUNING = Object.freeze({
   aoScale: 3.2,
   aoKernelRadius: 10,
   aoBias: 0.24,
-  bloomStrength: 0.12,
-  vignetteStrength: 0.06,
+  // 风格化：轻微 bloom + 暗角把焦点收在中路，软深蓝描边（非生硬黑）给画面“插画感”。
+  bloomStrength: 0.14,
+  vignetteStrength: 0.12,
   snowColor: '#e9eef6',
   rockColor: '#7c7f85',
   treeColor: '#46685a',
-  outlineThickness: 0,
-  outlineColor: '#fea97c',
-  outlineThreshold: 0.26
+  outlineThickness: 0.5,
+  outlineColor: '#39434f',
+  outlineThreshold: 0.44
 });
 const DUNGEON_HALLS_HEAD_RENDER_TUNING = Object.freeze({
   toneMapping: 'linear',
@@ -813,8 +828,8 @@ export class Game {
     this.composer.addPass(this.bloomPass);
 
     this.outlinePass = new ShaderPass(OutlineShader);
-    // Disable outline pass for snow-valley toon style (rim light handles edge definition)
-    this.outlinePass.enabled = useFullPostProcessing && this.worldConfig.sceneKey !== 'snow-valley';
+    // 风格化：对所有地图启用卡通描边（含雪谷第一关，由 render tuning 控制粗细/颜色/阈值）。
+    this.outlinePass.enabled = useFullPostProcessing;
     this.composer.addPass(this.outlinePass);
 
     this.vignettePass = new ShaderPass(StorybookVignetteShader);
@@ -892,7 +907,7 @@ export class Game {
     this.autoSkipWaveRewards = false;
     this.autoSkippedWaveRewardKey = null;
     this.shopPrices = createInitialShopPrices();
-    this.waveRewardDeck = createRewardDeckIds(this.levelSession.deck);
+    this.waveRewardDeck = createWaveRewardDeckIds(this.levelSession.deck, CARD_DEFINITIONS);
     this.rebirthQueue = [];
     this.nextRebirthQueueId = 1;
     this.awaitingOpeningReward = false;
@@ -1515,9 +1530,9 @@ export class Game {
       }
       this.pendingWaveAdvance = true;
       if (this.coop?.enabled) {
-        this.openCoopStrategyEventForAll('boss-reward');
+        this.openCoopRunShopForAll({ freeReward: true });
       } else {
-        this.openStrategyEvent('boss-reward');
+        this.openRunShop({ freeReward: true });
       }
       return;
     }
@@ -1581,7 +1596,7 @@ export class Game {
     return Boolean(
       this.isEndlessMode()
       && this.autoSkipWaveRewards
-      && (event?.type === 'wave-reward' || event?.type === 'boss-reward')
+      && event?.type === 'wave-reward'
     );
   }
 
@@ -1611,6 +1626,27 @@ export class Game {
     if (this.skipStrategyReward()) return true;
     this.autoSkippedWaveRewardKey = null;
     return false;
+  }
+
+  tryAutoSkipRunShopReward() {
+    if (!(this.isEndlessMode() && this.autoSkipWaveRewards && this.runShopFreeReward)) return false;
+    const slot = this.activeEconomySlot ?? this.localPlayerSlot ?? 'local';
+    const rewardKey = `run-shop:${this.bossesDefeated ?? 0}:${slot}`;
+    if (rewardKey === this.autoSkippedWaveRewardKey) return false;
+
+    if (this.networkBridge?.shouldRouteLocalCommands?.()) {
+      const sent = this.networkBridge.commandSender?.shopRewardSkip?.();
+      if (!sent) return false;
+      this.autoSkippedWaveRewardKey = rewardKey;
+      if (this.networkClientMode || this.coopRewardWaitSlots?.size) {
+        this.showCoopRunShopWaitingUi();
+      }
+      return true;
+    }
+
+    this.autoSkippedWaveRewardKey = rewardKey;
+    this.closeRunShop({ force: true });
+    return true;
   }
 
   enemyEnchantCost(unit, level = 1) {
@@ -2428,12 +2464,6 @@ export class Game {
     if (category === 'unit' && !this.waveRewardCardPool().length) {
       return { ok: false, reason: '剩余波次奖励牌组已用完' };
     }
-    if (category === 'energy') {
-      const maxEnergy = Number(BALANCE.playerEnergy?.max) || 12;
-      if ((this.cardSystem?.energy ?? 0) + 0.001 >= maxEnergy) {
-        return { ok: false, reason: '能量已满' };
-      }
-    }
     if (category === 'attribute' && !this.buildAttributeUpgradeChoicePool().length) {
       return { ok: false, reason: '暂无可购强化' };
     }
@@ -2555,6 +2585,7 @@ export class Game {
       run.runShopChoices = [];
       run.runShopPendingOffers = {};
     }
+    if (this.tryAutoSkipRunShopReward()) return true;
     if (this.runShopUi.overlay) {
       this.runShopUi.overlay.hidden = false;
       this.runShopUi.overlay.removeAttribute('hidden');
@@ -3135,15 +3166,6 @@ export class Game {
         })
       };
     }
-    if (type === 'boss-reward') {
-      return {
-        type,
-        kicker: `Boss 战利 #${this.bossesDefeated}`,
-        title: '选择 Boss 奖励',
-        summary: '三选一：升级、复制或移除一张已有卡牌。',
-        choices: this.createBossRewardChoices()
-      };
-    }
     if (type === 'altar-reward') {
       const altarName = options.altar?.name ?? '祭坛';
       return {
@@ -3286,12 +3308,12 @@ export class Game {
     const run = this.players?.[slot];
     if (run) {
       if (!Array.isArray(run.waveRewardDeck)) {
-        run.waveRewardDeck = createRewardDeckIds(run.deck);
+        run.waveRewardDeck = createWaveRewardDeckIds(run.deck, CARD_DEFINITIONS);
       }
       return run.waveRewardDeck;
     }
     if (!Array.isArray(this.waveRewardDeck)) {
-      this.waveRewardDeck = createRewardDeckIds(this.levelSession.deck);
+      this.waveRewardDeck = createWaveRewardDeckIds(this.levelSession.deck, CARD_DEFINITIONS);
     }
     return this.waveRewardDeck;
   }
@@ -3305,9 +3327,16 @@ export class Game {
       ...options,
       allowAllFallback: false
     });
+    const unitCards = waveRewardUnitCards(CARD_DEFINITIONS).map((card) => {
+      const leveledCard = {
+        ...card,
+        level: this.openingUnitCardLevel(card.id)
+      };
+      return this.cardSystem?.applyRuntimeCardLevel?.(leveledCard) ?? leveledCard;
+    });
     const specializationCards = this.unitSpecializationRewardCards(slot);
     const seen = new Set();
-    return [...selectedCards, ...specializationCards].filter((card) => {
+    return [...selectedCards, ...unitCards, ...specializationCards].filter((card) => {
       if (!card?.id || seen.has(card.id) || !remainingIds.has(card.id)) return false;
       seen.add(card.id);
       return true;
@@ -3341,7 +3370,7 @@ export class Game {
   }
 
   consumeWaveRewardCard(card) {
-    const cardId = card?.id ?? card?.cardDefinitionId;
+    const cardId = card?.cardDefinitionId ?? card?.id;
     if (!cardId) return false;
     const remaining = this.waveRewardDeckIds();
     const index = remaining.indexOf(cardId);
@@ -3373,13 +3402,33 @@ export class Game {
   openingUnitChoices({ pool, action, actionLabel }) {
     const combatPool = pool.filter((card) => isOpeningCombatSummon(card));
     const sourcePool = combatPool.length >= STRATEGY_CHOICE_COUNT ? combatPool : pool;
-    return pickRandomItems(sourcePool, STRATEGY_CHOICE_COUNT).map((card) => ({
-      action,
-      actionLabel,
-      card,
-      title: card.name,
-      description: card.summary
-    }));
+    return pickRandomItems(sourcePool, STRATEGY_CHOICE_COUNT).map((card) => {
+      const leveledCard = {
+        ...card,
+        level: this.openingUnitCardLevel(card.id)
+      };
+      const resolvedCard = this.cardSystem?.applyRuntimeCardLevel?.(leveledCard) ?? leveledCard;
+      return {
+        action,
+        actionLabel,
+        card: resolvedCard,
+        title: resolvedCard.name,
+        description: resolvedCard.summary
+      };
+    });
+  }
+
+  openingUnitCardLevel(cardId) {
+    if (!cardId || this.isEndlessMode()) return 1;
+    const sharedPlayerLevel = Object.values(this.levelSession?.players ?? {}).reduce(
+      (highest, player) => Math.max(
+        highest,
+        Math.floor(Number(player?.cardLevels?.[cardId]) || 1)
+      ),
+      1
+    );
+    const localLevel = Math.floor(Number(this.levelSession?.cardLevels?.[cardId]) || 1);
+    return Math.max(1, sharedPlayerLevel, localLevel);
   }
 
   genericTrainingRewardChoices() {
@@ -3439,27 +3488,6 @@ export class Game {
 
   createWaveRewardOptionChoices() {
     return this.createCardWaveRewardChoices();
-  }
-
-  createBossRewardChoices() {
-    const cards = pickRandomItems(this.uniqueRuntimeCards(), STRATEGY_CHOICE_COUNT);
-    if (!cards.length) return [];
-    const actions = [
-      { action: 'upgrade-card', actionLabel: '升级', verb: '升级', description: '该牌及同名牌等级 +1。' },
-      { action: 'copy-card', actionLabel: '复制', verb: '复制', description: '加入一张同等级复制牌。' },
-      { action: 'remove-card', actionLabel: '移除', verb: '移除', description: '移出本局全部同名卡牌。' }
-    ];
-    return cards.slice(0, actions.length).map((card, index) => {
-      const meta = actions[index];
-      return {
-        action: meta.action,
-        actionLabel: meta.actionLabel,
-        title: `${meta.verb} ${card.name}`,
-        description: meta.description,
-        card,
-        targetCard: card
-      };
-    });
   }
 
   createAltarSpecializationRewardChoices() {
@@ -3950,12 +3978,12 @@ export class Game {
       return;
     }
     const rerollCost = this.getStrategyRewardRerollCost();
-    const canAffordReroll = this.getSilver() + 0.001 >= rerollCost;
+    const currentSilver = Math.max(0, this.getSilver());
+    const canAffordReroll = currentSilver + 0.001 >= rerollCost;
     const rerollCount = Math.max(0, this.strategyRewardRerollCount ?? 0);
     const rerollCostLabel = `${rerollCost} 银币`;
-    const rerollHint = rerollCount === 0
-      ? '每次重新随机均为固定价格'
-      : `已刷新 ${rerollCount} 次，价格不变`;
+    const rerollLabel = rerollCount === 0 ? '重新随机' : `重新随机 · 已刷新 ${rerollCount} 次`;
+    const remainingSilverLabel = `当前剩余 ${formatSilverAmount(currentSilver)} 银币`;
     actions.hidden = false;
     actions.innerHTML = `
       <button
@@ -3964,9 +3992,9 @@ export class Game {
         data-strategy-action="reroll"
         ${canAffordReroll ? '' : 'disabled aria-disabled="true"'}
       >
-        <span class="strategy-event-action-label">重新随机</span>
+        <span class="strategy-event-action-label">${rerollLabel}</span>
         <strong>${rerollCostLabel}</strong>
-        <small>${rerollHint}</small>
+        <small class="strategy-event-reroll-balance">${remainingSilverLabel}</small>
       </button>
       <button class="strategy-event-action is-skip" type="button" data-strategy-action="skip">
         <span class="strategy-event-action-label">放弃奖励</span>
@@ -4082,8 +4110,12 @@ export class Game {
       }) !== false;
     }
     if (!applied) return false;
-    if (shouldConsumeWaveRewardCard(choice)) {
-      this.consumeWaveRewardCard(choice.card);
+    const rewardEventType = this.strategyEvent?.type ?? null;
+    if (choice.rewardSource === 'wave-reward-deck' || rewardEventType === 'wave-reward') {
+      const remainingWaveRewardIds = this.waveRewardDeckIds();
+      if (shouldConsumeWaveRewardCard(choice, rewardEventType, remainingWaveRewardIds)) {
+        this.consumeWaveRewardCard(choice.card);
+      }
     }
     this.applyStrategyChoiceCost(choice);
     return true;
@@ -5262,17 +5294,23 @@ export class Game {
 
   grantKillEnergy(unit, source = null) {
     if (!unit || unit.team !== TEAMS.ENEMY || unit.isSilentRemoval) return;
-    // 普通击杀不再提供基础能量；这里只转发击杀事件给“猎魂潮汐”。
+    const triggerKillHarvest = (slot) => {
+      const abilities = this.abilitiesFor(slot);
+      if ((abilities?.getStacks?.('killHarvest') ?? 0) <= 0) return false;
+      abilities.onEnemyKilled?.(unit, unit.position);
+      return true;
+    };
+    // 普通击杀不产生能量；只有明确持有“猎魂潮汐”的玩家才处理该事件。
     if (this.coop?.enabled && this.players) {
       this.coopPlayerSlots().forEach((slot) => {
-        this.abilitiesFor(slot)?.onEnemyKilled?.(unit, unit.position);
+        triggerKillHarvest(slot);
       });
       return;
     }
 
     const ownerSlot = resolveKillOwnerSlot(this, source);
     const slot = ownerSlot ?? this.localPlayerSlot;
-    this.abilitiesFor(slot)?.onEnemyKilled?.(unit, unit.position);
+    triggerKillHarvest(slot);
   }
 
   getEnemyForceSpawnPoints(count) {
@@ -5510,6 +5548,19 @@ export class Game {
     });
     target.takeRawDamage(damage, { bypassShield: false });
     target.statusUiDirty = true;
+    const knockbackResistance = this.modifiers.getKnockbackResistance(target);
+    const knockback = Math.max(
+      0,
+      (BALANCE.playerBase.attackKnockback ?? 1.35) * (1 - knockbackResistance)
+    );
+    if (applyKnockbackImpulse(this, target, this.playerBase.position, knockback)) {
+      target.recentPlayerKnockback = true;
+      target.recentPlayerKnockbackOwner = null;
+      target.knockbackSessionDistance = 0;
+    }
+    playUnitAnimation(target, 'hit');
+    triggerUnitHitFlash(target, 0.14);
+    this.networkBridge?.notifyUnitHitFlash?.(target.id, 0.14);
     this.effects.spawnDamageNumber(target.position, damage, {
       color: '#9eeedb',
       stroke: '#12342d',
@@ -5663,7 +5714,10 @@ export class Game {
       unit.health = unit.maxHealth;
       unit.shield = 0;
       unit.weapon.durability = unit.weapon.maxDurability;
-      unit.visualRoot?.scale?.multiplyScalar?.(1.1);
+      unit.runtimeVisualScale = 1.1;
+      unit.runtimeStatusHeightScale = 1.1;
+      setUnitRuntimeVisualScale(unit, unit.runtimeVisualScale);
+      unit.projectileHitHeight = (unit.projectileHitHeight ?? 1.6) * unit.runtimeStatusHeightScale;
       return;
     }
     if (waveConfig.kind !== 'boss') return;
@@ -5709,8 +5763,11 @@ export class Game {
       unit.health = unit.maxHealth;
       unit.shield = unit.maxShield;
       unit.weapon.durability = unit.weapon.maxDurability;
-      unit.visualRoot?.scale?.multiplyScalar?.(unit.type === 'frostTrollBoss' ? 1 : 1.32);
-      unit.projectileHitHeight = (unit.projectileHitHeight ?? 1.6) * 1.18;
+      const bossVisualScale = unit.type === 'frostTrollBoss' ? 2.5 : 1.32;
+      unit.runtimeVisualScale = bossVisualScale;
+      unit.runtimeStatusHeightScale = bossVisualScale;
+      setUnitRuntimeVisualScale(unit, bossVisualScale);
+      unit.projectileHitHeight = (unit.projectileHitHeight ?? 1.6) * bossVisualScale;
       return;
     }
     unit.attributes.addModifiers([
@@ -6002,18 +6059,22 @@ export class Game {
       return;
     }
 
-    if (groundOffset >= -UNIT_GROUND_EPSILON) {
+    if (groundOffset >= -UNIT_GROUND_EPSILON && (unit.verticalVelocity ?? 0) <= 0) {
       unit.position.y = groundY;
       unit.verticalVelocity = 0;
       unit.grounded = true;
       return;
     }
 
+    const previousVerticalVelocity = unit.verticalVelocity ?? 0;
+    const verticalDt = previousVerticalVelocity <= UNIT_GRAVITY * dt
+      ? dt * KNOCKBACK_MOTION_TIME_SCALE
+      : dt;
     unit.verticalVelocity = Math.max(
-      (unit.verticalVelocity ?? 0) - UNIT_GRAVITY * dt,
+      previousVerticalVelocity - UNIT_GRAVITY * verticalDt,
       -UNIT_MAX_FALL_SPEED
     );
-    unit.position.y += unit.verticalVelocity * dt;
+    unit.position.y += (previousVerticalVelocity + unit.verticalVelocity) * 0.5 * verticalDt;
 
     if (unit.position.y <= groundY + UNIT_GROUND_EPSILON) {
       unit.position.y = groundY;
@@ -6905,7 +6966,7 @@ export class Game {
     let ring = unit.networkSelectionRing;
     if (nextSelected && !ring) {
       ring = createSelectionRing(this.playerVisualColor(selectedByPlayerId));
-      ring.traverse((child) => child.layers.set(1));
+      ring.traverse((child) => child.layers.set(0));
       ring.position.set(0, 0.05, 0);
       unit.mesh.add(ring);
       unit.networkSelectionRing = ring;
@@ -8460,6 +8521,7 @@ function normalizeLevelSession(session) {
     difficulty: clampLevelDifficulty(session?.difficulty ?? 1),
     challengeMode,
     deck: normalizeRuntimeDeck(sessionDeck),
+    cardLevels: normalizeSessionCardLevels(session?.cardLevels, sessionDeck, challengeMode),
     debug: session?.debug === true,
     startedAt: session?.startedAt ?? Date.now()
   };
@@ -8479,12 +8541,37 @@ function normalizeLevelSession(session) {
           playerId,
           {
             ...player,
-            deck: normalizeRuntimeDeck(Array.isArray(player?.deck) ? player.deck : [])
+            deck: normalizeRuntimeDeck(Array.isArray(player?.deck) ? player.deck : []),
+            cardLevels: normalizeSessionCardLevels(
+              player?.cardLevels,
+              Array.isArray(player?.deck) ? player.deck : [],
+              challengeMode
+            )
           }
         ]))
       : null;
   }
   return normalized;
+}
+
+function normalizeSessionCardLevels(sourceLevels, deck = [], challengeMode = 'standard') {
+  const levels = {};
+  Object.entries(sourceLevels ?? {}).forEach(([id, level]) => {
+    if (!id) return;
+    levels[id] = Math.max(1, Math.floor(Number(level) || 1));
+  });
+  (Array.isArray(deck) ? deck : []).forEach((card) => {
+    const id = typeof card === 'string' ? card : (card?.id ?? card?.cardDefinitionId);
+    if (!id) return;
+    const level = typeof card === 'string' ? 1 : Math.max(1, Math.floor(Number(card?.level) || 1));
+    levels[id] = Math.max(levels[id] ?? 1, level);
+  });
+  if (isEndlessMode(challengeMode)) {
+    Object.keys(levels).forEach((id) => {
+      levels[id] = 1;
+    });
+  }
+  return levels;
 }
 
 function enemyForceTypes({
@@ -9355,20 +9442,6 @@ function createInitialShopPrices() {
   return prices;
 }
 
-function createRewardDeckIds(deck = []) {
-  const seen = new Set();
-  const result = [];
-  (Array.isArray(deck) ? deck : []).forEach((entry) => {
-    const id = typeof entry === 'string'
-      ? entry
-      : (entry?.cardDefinitionId ?? entry?.id);
-    if (!id || seen.has(id)) return;
-    seen.add(id);
-    result.push(id);
-  });
-  return result;
-}
-
 export function normalizeStrategyEventType(type) {
   return type === 'unit-upgrade' ? 'wave-reward' : type;
 }
@@ -9995,7 +10068,9 @@ function createRenderQualityProfile(settings = loadRenderSettings()) {
     pixelRatio: clamp(pixelRatio, MIN_DPR, MAX_DPR),
     nativePixelRatio: rawPixelRatio,
     antialias: !mobile,
-    realtimeShadows: true
+    // 半烘焙半实时：桌面端走实时阴影（山体/装饰物/单位能正确接收与投射阴影），
+    // 移动端关掉实时阴影贴图、回落到烘焙地面遮罩以省算力（手机顶不住每帧阴影渲染）。
+    realtimeShadows: !mobile
   };
 }
 
@@ -10010,7 +10085,9 @@ function applyRenderQualityToWorldConfig(worldConfig, renderQuality) {
     sky: {
       ...sky,
       realtimeShadows,
-      bakedShadows: sky.bakedShadows ?? !realtimeShadows
+      // 半烘焙半实时：实时阴影开启时关掉烘焙（避免地面双重投影），
+      // 实时关闭（移动端/低画质）时回落到烘焙遮罩省算力（手机顶不住每帧阴影渲染）。
+      bakedShadows: realtimeShadows ? false : true
     }
   };
 }
@@ -11091,7 +11168,8 @@ function createStructureStatusElement(team) {
 }
 
 function unitStatusHeight(unit) {
-  if (Number.isFinite(unit.definition?.statusHeight)) return unit.definition.statusHeight;
+  const runtimeScale = Math.max(1, Number(unit?.runtimeStatusHeightScale) || 1);
+  if (Number.isFinite(unit.definition?.statusHeight)) return unit.definition.statusHeight * runtimeScale;
   if (unit.type === 'goblinTroll' || unit.type === 'shieldBearer') return 2.35;
   if (unit.type === 'ogre') return 3.98;
   if (unit.type === 'wizard' || unit.type === 'frostAcolyte') return 1.85;

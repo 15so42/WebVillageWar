@@ -1,4 +1,8 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import * as THREE from 'three';
+import { GameNetworkBridge } from '../src/network/bridge/GameNetworkBridge.js';
+import { ClientMirror } from '../src/network/client/ClientMirror.js';
 import {
   applyNetworkFx,
   installHostEffectsRelay
@@ -73,6 +77,48 @@ assert.deepEqual(selfDestructEvents, [{
   radius: 6
 }]);
 restoreSelfDestruct();
+
+const explosionEvents = [];
+const explosionGame = {
+  effects: {
+    spawnExplosion: () => true
+  }
+};
+const restoreExplosion = installHostEffectsRelay(
+  explosionGame,
+  (event) => explosionEvents.push(event)
+);
+assert.equal(explosionGame.effects.spawnExplosion({ x: 2, y: 0.6, z: 9 }, 2.8), true);
+assert.deepEqual(explosionEvents, [{
+  name: 'fx_explosion',
+  x: 2,
+  y: 0.6,
+  z: 9,
+  radius: 2.8
+}]);
+restoreExplosion();
+
+const enchantmentFxEvents = [];
+const enchantmentFxGame = {
+  effects: {
+    spawnYellowShockwave: () => true,
+    spawnSolarFlarePulse: () => true,
+    spawnFirework: () => true
+  }
+};
+const restoreEnchantmentFx = installHostEffectsRelay(
+  enchantmentFxGame,
+  (event) => enchantmentFxEvents.push(event)
+);
+enchantmentFxGame.effects.spawnYellowShockwave({ x: 3, y: 0, z: 4 }, 5);
+enchantmentFxGame.effects.spawnSolarFlarePulse({ x: 6, y: 0.1, z: 7 }, 5);
+enchantmentFxGame.effects.spawnFirework({ x: 9, y: 2.2, z: 10 }, 7);
+assert.deepEqual(enchantmentFxEvents, [
+  { name: 'fx_yellow_shockwave', x: 3, y: 0, z: 4, radius: 5 },
+  { name: 'fx_solar_flare_pulse', x: 6, y: 0.1, z: 7, radius: 5 },
+  { name: 'fx_firework', x: 9, y: 2.2, z: 10, radius: 7 }
+]);
+restoreEnchantmentFx();
 
 const rootWarningEvents = [];
 const rootWarningGame = {
@@ -205,6 +251,42 @@ applyNetworkFx({
 assert.deepEqual(replayedSelfDestruct[0].position.toArray(), [6, 0, 8]);
 assert.equal(replayedSelfDestruct[0].radius, 6);
 
+const replayedExplosion = [];
+applyNetworkFx({
+  effects: {
+    spawnExplosion(position, radius) {
+      replayedExplosion.push({ position, radius });
+    }
+  }
+}, explosionEvents[0]);
+assert.deepEqual(replayedExplosion[0].position.toArray(), [2, 0.6, 9]);
+assert.equal(replayedExplosion[0].radius, 2.8);
+
+const replayedEnchantmentFx = [];
+for (const event of enchantmentFxEvents) {
+  applyNetworkFx({
+    effects: {
+      spawnYellowShockwave(position, radius) {
+        replayedEnchantmentFx.push({ kind: 'shockwave', position, radius });
+      },
+      spawnSolarFlarePulse(position, radius) {
+        replayedEnchantmentFx.push({ kind: 'solar', position, radius });
+      },
+      spawnFirework(position, radius) {
+        replayedEnchantmentFx.push({ kind: 'firework', position, radius });
+      }
+    }
+  }, event);
+}
+assert.deepEqual(
+  replayedEnchantmentFx.map(({ kind, position, radius }) => ({ kind, position: position.toArray(), radius })),
+  [
+    { kind: 'shockwave', position: [3, 0, 4], radius: 5 },
+    { kind: 'solar', position: [6, 0.1, 7], radius: 5 },
+    { kind: 'firework', position: [9, 2.2, 10], radius: 7 }
+  ]
+);
+
 const replayedUnitUpgrade = [];
 applyNetworkFx({
   effects: {
@@ -220,5 +302,42 @@ assert.deepEqual(replayedUnitUpgrade[0].options, {
   height: 1.7,
   duration: 0.9
 });
+
+const hitFlashEvents = [];
+const bridge = Object.create(GameNetworkBridge.prototype);
+bridge.host = { emitEvent: (event) => hitFlashEvents.push(event) };
+bridge.notifyUnitHitFlash(73, 0.14);
+assert.deepEqual(hitFlashEvents, [{ name: 'unit_hit_flash', unitId: 73, duration: 0.14 }]);
+const flashedUnit = { hitFlashTimer: 0, hitFlashDuration: 0 };
+ClientMirror.prototype.applyEvent.call({
+  game: { effects: null },
+  records: new Map([[73, { unit: flashedUnit }]])
+}, hitFlashEvents[0]);
+assert.equal(flashedUnit.hitFlashTimer, 0.14);
+const gameSource = readFileSync(new URL('../src/systems/Game.js', import.meta.url), 'utf8');
+assert.match(gameSource, /notifyUnitHitFlash\?\.\(target\.id, 0\.14\)/);
+
+const bossMirror = {
+  health: 100,
+  visualRoot: new THREE.Group()
+};
+bossMirror.visualRoot.add(new THREE.Group());
+const mirrorContext = { game: {} };
+const bossState = {
+  isBoss: true,
+  runtimeVisualScale: 2.5,
+  runtimeStatusHeightScale: 2.5,
+  projectileHitHeight: 6
+};
+ClientMirror.prototype.applyUnitState.call(mirrorContext, bossMirror, bossState);
+ClientMirror.prototype.applyUnitState.call(mirrorContext, bossMirror, bossState);
+assert.equal(
+  bossMirror.visualRoot.userData.runtimeVisualScaleRoot.scale.x,
+  2.5,
+  'repeated boss state patches must not compound visual scale'
+);
+assert.equal(bossMirror.visualRoot.scale.x, 1, 'animation root should remain free to animate at unit scale');
+assert.equal(bossMirror.runtimeStatusHeightScale, 2.5);
+assert.equal(bossMirror.projectileHitHeight, 6);
 
 console.log('Network FX relay rate-limit checks passed.');

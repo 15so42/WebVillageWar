@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { BALANCE } from '../src/data/gameData.js';
 import {
   consumeBaseHealthLossMilestones,
   resolvePlayerBaseDamage,
@@ -25,5 +27,12 @@ assert.deepEqual(
   consumeBaseHealthLossMilestones(4, 5, 10),
   { milestones: 0, progress: 9 }
 );
+
+assert.equal(BALANCE.playerBase.attackKnockback, 1.35);
+const gameSource = readFileSync(new URL('../src/systems/Game.js', import.meta.url), 'utf8');
+const playerBaseAttackSource = gameSource.match(
+  /applyPlayerBaseAttack\(target\) \{([\s\S]*?)\n  updateEnemyCampAttack\(dt\)/
+)?.[1] ?? '';
+assert.match(playerBaseAttackSource, /applyKnockbackImpulse\(this, target, this\.playerBase\.position, knockback\)/);
 
 console.log('Player-base damage and energy milestone checks passed.');

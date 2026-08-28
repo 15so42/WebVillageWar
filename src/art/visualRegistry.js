@@ -170,6 +170,23 @@ export function createUnitModel(type, team) {
   return root;
 }
 
+export function setUnitRuntimeVisualScale(unit, scale = 1) {
+  const root = unit?.visualRoot;
+  if (!root) return;
+  const normalizedScale = Math.max(0.1, Number(scale) || 1);
+  let scaleRoot = root.userData.runtimeVisualScaleRoot;
+  if (!scaleRoot) {
+    scaleRoot = new THREE.Group();
+    scaleRoot.name = 'unitRuntimeVisualScaleRoot';
+    const visualChildren = [...root.children];
+    visualChildren.forEach((child) => scaleRoot.add(child));
+    root.add(scaleRoot);
+    root.userData.runtimeVisualScaleRoot = scaleRoot;
+  }
+  scaleRoot.scale.setScalar(normalizedScale);
+  unit.runtimeVisualScale = normalizedScale;
+}
+
 function cloneUnitMaterials(root) {
   root.traverse((object) => {
     if (!object.isMesh || !object.material) return;
@@ -198,6 +215,101 @@ function createUnitModelRoot(type, team) {
 export function createProjectileModel(type, options = {}) {
   const factory = PROJECTILE_FACTORIES[type] ?? PROJECTILE_FACTORIES.arrow;
   return factory(options);
+}
+
+export function resetProjectileVisual(object, type) {
+  if (type === 'waterOrb' && object?.userData?.isWaterOrb) {
+    object.userData.waterSpinRoot?.rotation.set(0, 0, 0);
+    object.userData.waterFlowRoot?.rotation.set(0, 0, 0);
+    object.userData.waterFlowRings?.forEach((ring) => {
+      ring.rotation.copy(ring.userData.baseRotation);
+    });
+  } else if (type === 'duskFrostOrb' && object?.userData?.isDuskFrostOrb) {
+    object.userData.duskSpinRoot?.rotation.set(0, 0, 0);
+    object.userData.duskFlowRoot?.rotation.set(0, 0, 0);
+    object.userData.duskFlowRings?.forEach((ring) => {
+      ring.rotation.copy(ring.userData.baseRotation);
+    });
+  } else {
+    return;
+  }
+  updateProjectileVisual(object, type, 0, 0);
+}
+
+export function updateProjectileVisual(object, type, dt, age = 0) {
+  if (type === 'duskFrostOrb' && object?.userData?.isDuskFrostOrb) {
+    updateDuskFrostOrbVisual(object, dt, age);
+    return;
+  }
+  if (type !== 'waterOrb' || !object?.userData?.isWaterOrb) return;
+  const spinRoot = object.userData.waterSpinRoot;
+  const flowRoot = object.userData.waterFlowRoot;
+  if (spinRoot) {
+    spinRoot.rotation.x += dt * 3.8;
+    spinRoot.rotation.y += dt * 5.6;
+    spinRoot.rotation.z -= dt * 2.7;
+  }
+  if (flowRoot) {
+    flowRoot.rotation.x = Math.sin(age * 2.4) * 0.16;
+    flowRoot.rotation.y += dt * 2.35;
+    flowRoot.rotation.z -= dt * 3.15;
+  }
+  object.userData.waterFlowRings?.forEach((ring, index) => {
+    const direction = index % 2 === 0 ? 1 : -1;
+    ring.rotation.x += dt * (0.72 + index * 0.28) * direction;
+    ring.rotation.z += dt * (1.05 + index * 0.34) * direction;
+  });
+  object.userData.waterOrbitDroplets?.forEach((droplet, index) => {
+    const phase = droplet.userData.orbitPhase + age * droplet.userData.orbitSpeed;
+    const radius = droplet.userData.orbitRadius;
+    droplet.position.set(
+      Math.cos(phase) * radius,
+      Math.sin(phase * 1.7 + index * 0.42) * droplet.userData.orbitHeight,
+      Math.sin(phase) * radius
+    );
+    const pulse = 0.82 + Math.sin(age * 7.2 + index * 1.3) * 0.18;
+    droplet.scale.setScalar(droplet.userData.baseScale * pulse);
+  });
+}
+
+function updateDuskFrostOrbVisual(object, dt, age) {
+  const spinRoot = object.userData.duskSpinRoot;
+  const flowRoot = object.userData.duskFlowRoot;
+  if (spinRoot) {
+    spinRoot.rotation.x += dt * 5.2;
+    spinRoot.rotation.y -= dt * 7.4;
+    spinRoot.rotation.z += dt * 3.1;
+  }
+  if (flowRoot) {
+    flowRoot.rotation.x = Math.sin(age * 3.4) * 0.18;
+    flowRoot.rotation.y += dt * 4.8;
+    flowRoot.rotation.z -= dt * 3.6;
+  }
+  object.userData.duskFlowRings?.forEach((ring, index) => {
+    const direction = index % 2 === 0 ? 1 : -1;
+    ring.rotation.z += dt * (2.6 + index * 0.9) * direction;
+  });
+  object.userData.duskFrostMotes?.forEach((mote, index) => {
+    const phase = mote.userData.orbitPhase + age * (3.5 + index * 0.16);
+    const radius = mote.userData.orbitRadius;
+    mote.position.set(
+      Math.cos(phase) * radius,
+      Math.sin(phase * 1.6 + index * 0.54) * 0.13,
+      Math.sin(phase) * radius
+    );
+    const pulse = 0.76 + Math.sin(age * 10 + index) * 0.24;
+    mote.scale.setScalar(mote.userData.baseScale * pulse);
+  });
+  const aura = object.userData.duskAura;
+  if (aura) {
+    const auraPulse = 0.54 + Math.sin(age * 11.5) * 0.05;
+    aura.scale.setScalar(auraPulse);
+    aura.material.opacity = 0.26 + Math.sin(age * 9.2) * 0.06;
+  }
+  const tail = object.userData.duskTail;
+  if (tail) {
+    tail.scale.set(0.84 + Math.sin(age * 12) * 0.08, 1.05 + Math.sin(age * 15) * 0.14, 0.84);
+  }
 }
 
 export function createSpellModel(type) {

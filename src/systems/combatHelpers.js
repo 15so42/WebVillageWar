@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { clamp } from '../utils/math.js';
+import { clamp, direction2D } from '../utils/math.js';
 
 export function getTargetPosition(target) {
   if (!target) return null;
@@ -51,6 +51,53 @@ export function isStaticUnit(unit) {
 
 export function hitStunDuration(knockback) {
   return clamp(0.08 + knockback * 0.024, 0.1, 0.24);
+}
+
+export const KNOCKBACK_STOP_SPEED_SQ = 0.04;
+export const KNOCKBACK_MOTION_TIME_SCALE = 0.67;
+export const KNOCKBACK_VELOCITY_RETAIN_PER_SECOND = 0.00002;
+export const KNOCKBACK_AIRBORNE_VELOCITY_RETAIN_PER_SECOND = 0.04;
+export const KNOCKBACK_LIFT_SPEED_CAP = 3.2;
+export const KNOCKBACK_IMPULSE_SPEED_PER_STRENGTH = 2.2;
+
+export function knockbackImpulseSpeed(knockback, unit) {
+  const strength = Math.max(0, Number(knockback) || 0);
+  return Math.min(maxKnockbackVelocity(unit), strength * KNOCKBACK_IMPULSE_SPEED_PER_STRENGTH);
+}
+
+export function knockbackLiftSpeed(knockback) {
+  const strength = Math.max(0, Number(knockback) || 0);
+  if (strength <= 0) return 0;
+  return Math.min(KNOCKBACK_LIFT_SPEED_CAP, 1.2 + Math.sqrt(strength) * 0.8);
+}
+
+export function applyKnockbackImpulse(game, target, sourcePosition, knockback) {
+  const strength = Math.max(0, Number(knockback) || 0);
+  if (
+    strength <= 0
+    || !sourcePosition
+    || !target?.position
+    || !target.knockbackVelocity
+    || isStaticUnit(target)
+  ) return false;
+
+  const direction = direction2D(sourcePosition, target.position);
+  target.knockbackVelocity.multiplyScalar(0.5);
+  target.knockbackVelocity.addScaledVector(
+    direction,
+    knockbackImpulseSpeed(strength, target)
+  );
+  target.knockbackVelocity.clampLength(0, maxKnockbackVelocity(target));
+  if (target.grounded !== false && Number.isFinite(target.verticalVelocity)) {
+    target.verticalVelocity = Math.min(
+      KNOCKBACK_LIFT_SPEED_CAP,
+      Math.max(0, target.verticalVelocity) * 0.5 + knockbackLiftSpeed(strength)
+    );
+    target.grounded = false;
+  }
+  target.hitStunTimer = Math.max(target.hitStunTimer ?? 0, hitStunDuration(strength));
+  game?.pathfinding?.clear?.(target);
+  return true;
 }
 
 export function maxKnockbackVelocity(unit) {

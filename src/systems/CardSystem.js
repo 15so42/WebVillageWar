@@ -16,11 +16,10 @@ const ENCHANT_HOLD_START_MS = 350;
 const ENCHANT_HOLD_TICK_MS = 1000;
 const energyBalance = BALANCE.playerEnergy ?? {};
 const INITIAL_ENERGY = Number(energyBalance.initial) || 4;
-const MAX_ENERGY = Number(energyBalance.max) || 12;
 const configuredEnergyRegeneration = Number(energyBalance.regenerationPerSecond);
 const ENERGY_REGENERATION_PER_SECOND = Math.max(
   0,
-  Number.isFinite(configuredEnergyRegeneration) ? configuredEnergyRegeneration : 0.2
+  Number.isFinite(configuredEnergyRegeneration) ? configuredEnergyRegeneration : 0.1
 );
 const ENERGY_REGENERATION_TICK_SECONDS = 1;
 const TEMPORARY_CARD_LIMIT = 3;
@@ -44,6 +43,20 @@ const CARD_KIND_COLORS = {
 };
 const CARD_RANGE_DISC_RENDER_ORDER = 62;
 const CARD_RANGE_RING_RENDER_ORDER = 63;
+const HUD_RESOURCE_DEFINITIONS = [
+  {
+    id: 'energy',
+    label: '能量',
+    read: (system) => system.energy,
+    format: formatEnergy
+  },
+  {
+    id: 'silver',
+    label: '银币',
+    read: (system) => system.game.getSilver?.(system.playerSlot) ?? system.game.silver ?? 0,
+    format: formatHudSilver
+  }
+];
 
 export class CardSystem {
   constructor(game, options = {}) {
@@ -60,8 +73,7 @@ export class CardSystem {
     this.reservePile = options.startWithEmptyDrawPile ? [...shuffledDeck] : shuffledDeck.splice(activeDeckSize);
     this.energy = INITIAL_ENERGY;
     this.energyTimer = 0;
-    this.lastRenderedEnergy = -1;
-    this.lastRenderedProgress = -1;
+    this.lastRenderedResourceSignature = '';
     this.drawPile = options.startWithEmptyDrawPile ? [] : shuffledDeck;
     this.discardPile = [];
     this.handCards = [];
@@ -73,6 +85,7 @@ export class CardSystem {
     this.lastNetworkPlayRejectionReason = null;
     this.pendingDrawAnimations = new Set();
     this.drag = null;
+    this.dragGhostPreviewCache = new WeakMap();
     // 附魔卡长按连续使用状态
     this.enchantHold = null;
     this.enchantHoldInterval = null;
@@ -149,10 +162,6 @@ export class CardSystem {
 
   regenerateEnergy(dt) {
     if (this.game.networkClientMode || ENERGY_REGENERATION_PER_SECOND <= 0) return 0;
-    if (this.energy >= MAX_ENERGY) {
-      this.energyTimer = 0;
-      return 0;
-    }
     this.energyTimer += Math.max(0, Number(dt) || 0);
     const ticks = Math.floor(this.energyTimer / ENERGY_REGENERATION_TICK_SECONDS);
     if (ticks <= 0) return 0;
@@ -223,6 +232,9 @@ export class CardSystem {
     element.addEventListener('pointerenter', () => this.setHint(CARD_USAGE_HINT, 'card-hover'));
     element.addEventListener('pointerleave', () => this.clearHint('card-hover'));
     element.addEventListener('pointerdown', (event) => this.startDrag(event, card));
+    if (shouldUseCardFaceGhost(card, 'mouse')) {
+      this.dragGhostPreviewCache.set(element, this.createDragGhostCardPreview(element));
+    }
     return element;
   }
 
@@ -811,10 +823,7 @@ export class CardSystem {
     if (label) label.textContent = String(Math.max(0, Number(cost) || 0));
   }
 
-  prepareDragGhost(sourceElement, card, pointerType) {
-    this.ghost.textContent = '';
-    this.ghost.classList.remove('has-card-preview');
-    if (!shouldUseCardFaceGhost(card, pointerType) || !sourceElement) return;
+  createDragGhostCardPreview(sourceElement) {
     const clone = sourceElement.cloneNode(true);
     clone.classList.remove(
       'is-dragging',
@@ -830,8 +839,25 @@ export class CardSystem {
     clone.setAttribute('aria-hidden', 'true');
     clone.style.removeProperty('--card-drag-y');
     clone.style.removeProperty('--card-drag-rotate');
+    return clone;
+  }
+
+  prepareDragGhost(sourceElement, card, pointerType) {
+    this.ghost.textContent = '';
+    this.ghost.classList.remove('has-card-preview');
+    if (!shouldUseCardFaceGhost(card, pointerType) || !sourceElement) return;
+    const clone = this.dragGhostPreviewCache.get(sourceElement)
+      ?? this.createDragGhostCardPreview(sourceElement);
+    this.dragGhostPreviewCache.set(sourceElement, clone);
+    const host = document.createElement('div');
+    host.className = 'card-hand drag-ghost-card-host';
+    const width = Math.max(1, (this.drag?.sourceRight ?? 0) - (this.drag?.sourceLeft ?? 0));
+    const height = Math.max(1, this.drag?.sourceHeight ?? sourceElement.offsetHeight ?? 1);
+    host.style.setProperty('--drag-card-width', `${width}px`);
+    host.style.setProperty('--drag-card-height', `${height}px`);
+    host.appendChild(clone);
     this.ghost.classList.add('has-card-preview');
-    this.ghost.appendChild(clone);
+    this.ghost.appendChild(host);
   }
 
   updateDraggedCardMotion(event) {
@@ -950,8 +976,11 @@ export class CardSystem {
     if (options.hold) {
       // 长按连续附魔：施放但卡保留在手牌，仅按次数规则扣减
       this.consumeCardUse(drag.card);
-      this.renderHand();
+      // 持续拖拽期间不能重绘整张手牌，否则倒计时所在的 sourceElement 会被
+      // 新 DOM 替换，后续循环仍在更新已经脱离页面的旧节点。
+      this.updateEnchantHoldCardUi(drag.card);
       this.updateCardAffordability();
+      this.markNetworkStateDirty();
       return true;
     }
     this.moveCardToDiscard(drag.card);
@@ -1190,6 +1219,23 @@ export class CardSystem {
     void timer.offsetWidth; // 重启环形倒计时动画
     timer.classList.add('is-ticking');
     element.classList.add('is-enchant-holding');
+    this.updateEnchantHoldCardUi(this.enchantHold?.drag?.card);
+  }
+
+  updateEnchantHoldCardUi(card) {
+    const element = this.drag?.sourceElement;
+    if (!element || !card || !cardHasUseLimit(card)) return;
+    ensureCardUses(card);
+    const max = cardMaxUses(card);
+    const remaining = Math.max(0, Math.floor(card.remainingUses ?? max));
+    const useBar = element.querySelector('.card-use-bar');
+    if (!useBar) return;
+    useBar.dataset.remaining = String(remaining);
+    useBar.dataset.max = String(max);
+    useBar.setAttribute('aria-label', `剩余使用次数 ${remaining}/${max}`);
+    useBar.querySelectorAll('span').forEach((segment, index) => {
+      segment.classList.toggle('is-filled', index < remaining);
+    });
   }
 
   hideEnchantHoldUi() {
@@ -1966,9 +2012,9 @@ export class CardSystem {
   }
 
   addEnergy(amount) {
-    if (!Number.isFinite(amount) || amount <= 0 || this.energy >= MAX_ENERGY) return 0;
+    if (!Number.isFinite(amount) || amount <= 0) return 0;
     const previousEnergy = this.energy;
-    this.energy = Math.min(MAX_ENERGY, this.energy + amount);
+    this.energy += amount;
     this.updateEnergyUi();
     if (previousEnergy !== this.energy) {
       this.updateCardAffordability();
@@ -2184,21 +2230,19 @@ export class CardSystem {
   }
 
   updateEnergyUi(force = false) {
-    const progress = this.energy >= MAX_ENERGY ? 1 : 0;
-    const progressStep = Math.round(progress * 100);
-    const energyStep = Math.floor(this.energy * 10 + 0.0001);
-    if (!force && this.lastRenderedEnergy === energyStep && this.lastRenderedProgress === progressStep) {
-      return;
-    }
-    this.lastRenderedEnergy = energyStep;
-    this.lastRenderedProgress = progressStep;
-    const filledEnergy = Math.floor(this.energy + 0.0001);
-    this.energyPanel.style.setProperty('--energy-progress', `${progress * 100}%`);
-    if (this.energyParts?.value) {
-      this.energyParts.value.textContent = `${formatEnergy(this.energy)}/${MAX_ENERGY}`;
-    }
-    this.energyParts?.cells?.forEach((cell, index) => {
-      cell.classList.toggle('is-filled', index < filledEnergy);
+    const resources = HUD_RESOURCE_DEFINITIONS.map((definition) => {
+      const rawValue = Number(definition.read(this));
+      const value = Number.isFinite(rawValue) ? Math.max(0, rawValue) : 0;
+      return { ...definition, value, display: definition.format(value) };
+    });
+    const signature = resources
+      .map(({ id, display }) => `${id}:${display}`)
+      .join('|');
+    if (!force && this.lastRenderedResourceSignature === signature) return;
+    this.lastRenderedResourceSignature = signature;
+    resources.forEach(({ id, display }) => {
+      const element = this.energyParts?.values?.get(id);
+      if (element) element.textContent = display;
     });
   }
 
@@ -2483,10 +2527,10 @@ export function createForgedCardMarkup(card, options = {}) {
   const cardLevel = card.level ?? 1;
   const cardLevelRoman = toRomanNumeral(cardLevel);
   const title = options.title ?? card.name ?? '';
+  const titleWithLevel = `${title} ${cardLevelRoman}`;
   const summary = options.summary ?? card.summary ?? '';
   const typeLabel = options.typeLabel ?? kindLabel(card.kind);
   const cooldownMarkup = options.cooldownMarkup ?? '';
-  const titleOnlyMeta = options.titleOnlyMeta === true;
   const useBarMarkup = cardUseBarMarkup(card);
   const frameStyle = [
     `--hand-card-frame: url('${resolveCardArtAsset('card-art/unit-hand-frame-imagegen-v1.png')}')`,
@@ -2503,12 +2547,8 @@ export function createForgedCardMarkup(card, options = {}) {
           <div class="med-card-type-label" aria-hidden="true">${escapeHtml(typeLabel)}</div>
           ${useBarMarkup}
         </div>
-        <div class="med-card-meta-row${titleOnlyMeta ? ' is-title-only' : ''}">
-          ${titleOnlyMeta ? '' : `<div class="med-card-kind" role="img" aria-label="${escapeHtml(typeLabel)}" title="${escapeHtml(typeLabel)}">
-            ${cardKindIconMarkup(card.kind)}
-          </div>`}
-          <div class="med-card-name">${escapeHtml(title)}</div>
-          ${titleOnlyMeta ? '' : `<div class="med-card-level" aria-label="等级 ${cardLevelRoman}" title="等级 ${cardLevelRoman}">${cardLevelRoman}</div>`}
+        <div class="med-card-meta-row is-title-only">
+          <div class="med-card-name" title="${escapeHtml(titleWithLevel)}">${escapeHtml(titleWithLevel)}</div>
         </div>
         <div class="med-card-bottom">
           <div class="med-card-desc">${escapeHtml(summary)}</div>
@@ -2538,19 +2578,6 @@ function kindLabel(kind) {
   if (kind === 'tactic') return '战术卡';
   if (kind === 'ability') return '能力卡';
   return '附魔卡';
-}
-
-function cardKindIconMarkup(kind) {
-  const paths = {
-    summon: '<path d="M5 17v-6a7 7 0 0 1 14 0v6M5 13h4v6M19 13h-4v6M9 19h6"/>',
-    building: '<path d="M5 20h14M7 20V9h10v11M6 9V5h3v3h3V5h3v3h3v1M10 20v-5h4v5"/>',
-    spell: '<path d="m12 3 1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3Z"/><path d="m18.5 15 .7 2.3 2.3.7-2.3.7-.7 2.3-.7-2.3-2.3-.7 2.3-.7.7-2.3Z"/>',
-    enchant: '<path d="m12 3 7 6-7 12L5 9l7-6Z"/><path d="m5 9 7 3 7-3M12 3v9"/>',
-    tactic: '<path d="M6 21V4M7 5h11l-3 4 3 4H7"/>',
-    ability: '<circle cx="12" cy="12" r="8"/><path d="m13 5-5 8h4l-1 6 5-9h-4l1-5Z"/>'
-  };
-  const path = paths[kind] ?? paths.enchant;
-  return `<svg class="med-card-type-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${path}</svg>`;
 }
 
 export function toRomanNumeral(level) {
@@ -3507,6 +3534,12 @@ function formatEnergy(value) {
   return Number.isInteger(stepped) ? String(stepped) : stepped.toFixed(1);
 }
 
+function formatHudSilver(value) {
+  const amount = Math.max(0, Number(value) || 0);
+  if (Math.abs(amount - Math.round(amount)) < 0.05) return String(Math.round(amount));
+  return amount.toFixed(1);
+}
+
 function discardEnergyCost(card) {
   void card;
   return 1;
@@ -3555,11 +3588,15 @@ function shuffleCards(cards) {
 
 function createEnergyPanel(hand, mountUi = true) {
   const existing = mountUi ? document.querySelector('#energy-panel') : null;
-  if (existing) return existing;
+  if (existing) {
+    existing.classList.add('resource-panel');
+    existing.setAttribute('aria-label', '战斗资源');
+    return existing;
+  }
   const panel = document.createElement('section');
   panel.id = 'energy-panel';
-  panel.className = 'energy-panel';
-  panel.setAttribute('aria-label', 'energy');
+  panel.className = 'energy-panel resource-panel';
+  panel.setAttribute('aria-label', '战斗资源');
   hand.before(panel);
   return panel;
 }
@@ -3588,20 +3625,21 @@ function createTemporaryCardSlot(anchor, mountUi = true) {
 }
 
 function collectEnergyPanel(panel) {
-  if (!panel.querySelector('.energy-value')) {
-    const cells = Array.from({ length: MAX_ENERGY }, () => '<span class="energy-cell"></span>').join('');
+  if (!panel.querySelector('.resource-list')) {
     panel.innerHTML = `
-      <div class="energy-title">
-        <span>能量</span>
-        <strong class="energy-value">0/${MAX_ENERGY}</strong>
+      <div class="resource-list" role="group" aria-label="当前资源">
+        ${HUD_RESOURCE_DEFINITIONS.map((resource) => `
+          <div class="resource-item" data-resource-id="${resource.id}">
+            <span class="resource-icon" aria-hidden="true"></span>
+            <span class="resource-label">${resource.label}</span>
+            <strong class="resource-value" data-resource-value="${resource.id}">0</strong>
+          </div>
+        `).join('')}
       </div>
-      <div class="energy-subtitle">自动恢复 · 0.2/秒</div>
       <div class="energy-panel-toolbar" hidden>
         <div class="ability-icon-row" hidden></div>
         <div class="core-icon-row" hidden></div>
       </div>
-      <div class="energy-cells">${cells}</div>
-      <div class="energy-progress"><div class="energy-progress-fill"></div></div>
     `;
   } else if (!panel.querySelector('.energy-panel-toolbar')) {
     const toolbar = document.createElement('div');
@@ -3611,7 +3649,7 @@ function collectEnergyPanel(panel) {
       <div class="ability-icon-row" hidden></div>
       <div class="core-icon-row" hidden></div>
     `;
-    panel.querySelector('.energy-cells')?.before(toolbar);
+    panel.appendChild(toolbar);
   } else {
     if (!panel.querySelector('.ability-icon-row')) {
       const row = document.createElement('div');
@@ -3627,8 +3665,10 @@ function collectEnergyPanel(panel) {
     }
   }
   return {
-    value: panel.querySelector('.energy-value'),
-    cells: [...panel.querySelectorAll('.energy-cell')],
+    values: new Map([...panel.querySelectorAll('[data-resource-value]')].map((element) => [
+      element.dataset.resourceValue,
+      element
+    ])),
     toolbar: panel.querySelector('.energy-panel-toolbar'),
     abilities: panel.querySelector('.ability-icon-row'),
     cores: panel.querySelector('.core-icon-row')

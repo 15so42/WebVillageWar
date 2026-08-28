@@ -943,7 +943,8 @@ const WORLD_PRESETS = {
       shadowRadius: 8,
       shadowBias: -0.0005,
       shadowNormalBias: 0.02,
-      // 第一关暂时切回实时阴影，便于继续校准山体、树木与单位的空间关系。
+      // 第一关使用实时阴影：让山体/装饰物/单位都能正确接收、投射与自阴影；
+      // 卡通描边用较高阈值，避免勾到实时阴影边缘。
       realtimeShadows: true,
       bakedShadows: false
     },

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { BUFF_DEFINITIONS, CARD_DEFINITIONS, UNIT_DEFINITIONS } from '../src/data/gameData.js';
 import { AbilitySystem } from '../src/systems/AbilitySystem.js';
 import { BuffSystem } from '../src/systems/BuffSystem.js';
@@ -51,6 +52,22 @@ assert.deepEqual(
   ['moveSpeed', 'attackRate'],
   '冲锋附魔只增加移速和攻速'
 );
+assert.deepEqual(BUFF_DEFINITIONS.waveArmored.modifiers, [
+  { stat: 'maxHealth', type: 'multiply', factor: 1, factorPerLevel: 0.05 },
+  { stat: 'armor', type: 'add', amount: 0, amountPerLevel: 1 }
+], '重甲附魔每级只增加 5% 生命和 1 护甲');
+assert.deepEqual(BUFF_DEFINITIONS.waveRush.modifiers, [
+  { stat: 'moveSpeed', type: 'multiply', factor: 1, factorPerLevel: 0.05 },
+  { stat: 'attackRate', type: 'multiply', factor: 1, factorPerLevel: 0.05 }
+], '冲锋附魔每级只增加 5% 移速和 5% 攻速');
+assert.equal(
+  CARD_DEFINITIONS.find((card) => card.id === 'armored-enchant')?.summary,
+  '每级：生命 +5%、护甲 +1'
+);
+assert.equal(
+  CARD_DEFINITIONS.find((card) => card.id === 'rush-enchant')?.summary,
+  '每级：移速 +5%、攻速 +5%'
+);
 assert.deepEqual(
   BUFF_DEFINITIONS.waveRanged.modifiers.map((modifier) => modifier.stat),
   ['attackRange', 'attackPower'],
@@ -61,6 +78,22 @@ assert.deepEqual(
   ['attackPower', 'knockback'],
   '攻城附魔只增加攻击和击退'
 );
+assert.deepEqual(BUFF_DEFINITIONS.waveRanged.modifiers, [
+  { stat: 'attackRange', type: 'multiply', factor: 1, factorPerLevel: 0.05 },
+  { stat: 'attackPower', type: 'multiply', factor: 1, factorPerLevel: 0.05 }
+], '远射附魔每级只增加 5% 射程和 5% 攻击');
+assert.deepEqual(BUFF_DEFINITIONS.waveSiege.modifiers, [
+  { stat: 'attackPower', type: 'multiply', factor: 1, factorPerLevel: 0.05 },
+  { stat: 'knockback', type: 'multiply', factor: 1, factorPerLevel: 0.05 }
+], '攻城附魔每级只增加 5% 攻击和 5% 击退');
+assert.equal(
+  CARD_DEFINITIONS.find((card) => card.id === 'ranged-enchant')?.summary,
+  '每级：射程 +5%、攻击 +5%'
+);
+assert.equal(
+  CARD_DEFINITIONS.find((card) => card.id === 'siege-enchant')?.summary,
+  '每级：攻击 +5%、击退 +5%'
+);
 assert.equal(UNIT_DEFINITIONS.engineer.support.repairAura.amount, 10);
 assert.equal(UNIT_DEFINITIONS.engineer.support.repairAura.spellPowerFactor, 0.5);
 assert.equal(resolveSupportAmount({
@@ -69,6 +102,25 @@ assert.equal(resolveSupportAmount({
 assert.equal(toRomanNumeral(1), 'I');
 assert.equal(toRomanNumeral(2), 'II');
 assert.equal(toRomanNumeral(11), 'XI');
+const cardSystemSource = readFileSync(new URL('../src/systems/CardSystem.js', import.meta.url), 'utf8');
+const cardStyleSource = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
+assert.match(cardSystemSource, /this\.dragGhostPreviewCache = new WeakMap\(\)/);
+assert.match(
+  cardSystemSource,
+  /this\.dragGhostPreviewCache\.get\(sourceElement\)[\s\S]*?this\.createDragGhostCardPreview\(sourceElement\)/,
+  'ability-card drag should reuse its cached card face instead of cloning it on pointer-down'
+);
+assert.match(
+  cardSystemSource,
+  /host\.className = 'card-hand drag-ghost-card-host'/,
+  'drag preview should opt into the same forged-card style context as the live hand'
+);
+assert.match(cardStyleSource, /\.drag-ghost\.has-card-preview \.drag-ghost-card-host\.card-hand/);
+assert.doesNotMatch(
+  cardStyleSource,
+  /\.drag-ghost\.has-card-preview \.card:hover\s*\{[^}]*scale\(0\.84\)/,
+  'drag preview must not use the old mismatched 84% hover scale'
+);
 assert.equal(
   Math.max(...CARD_DEFINITIONS.filter((card) => !card.retired).map((card) => [...card.name].length)),
   4,
@@ -248,6 +300,9 @@ const holdDrag = {
   mode: 'play',
   valid: true
 };
+let holdHandRenders = 0;
+let holdCardUiUpdates = 0;
+let holdCountdownRestarts = 0;
 const holdCardSystem = {
   game: holdGame,
   playerSlot: 'p1',
@@ -269,9 +324,18 @@ const holdCardSystem = {
     card.remainingUses = Math.max(0, card.remainingUses - 1);
     return 1;
   },
-  renderHand() {},
+  renderHand() {
+    holdHandRenders += 1;
+  },
   updateCardAffordability() {},
-  updateEnchantHoldUi() {},
+  updateEnchantHoldCardUi(card) {
+    holdCardUiUpdates += 1;
+    assert.equal(card, holdCard);
+  },
+  updateEnchantHoldUi() {
+    holdCountdownRestarts += 1;
+  },
+  markNetworkStateDirty() {},
   stopEnchantHold() {
     throw new Error('有效的长按附魔不应提前停止');
   },
@@ -291,6 +355,9 @@ assert.equal(holdCard.remainingUses, 2);
 assert.equal(holdCardSystem.enchantHold.remainingUses, 2);
 assert.equal(holdCardSystem.enchantHold.tickCount, 1);
 assert.equal(holdVisuals.at(-1)?.options?.text, '附魔共鸣x3');
+assert.equal(holdHandRenders, 0, '持续附魔时不能重建手牌 DOM，否则后续倒计时会更新脱离页面的旧节点');
+assert.equal(holdCardUiUpdates, 1, '持续附魔应原位更新卡牌次数');
+assert.equal(holdCountdownRestarts, 1, '每轮持续附魔后都应重新启动倒计时动画');
 
 const abilityGame = createAbilityGame();
 const abilities = new AbilitySystem(abilityGame, { mountUi: false, playerSlot: 'p1' });

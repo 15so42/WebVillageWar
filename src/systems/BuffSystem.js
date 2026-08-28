@@ -57,13 +57,22 @@ export class BuffSystem {
     this.runBuffEffects(context.source, 'afterAttack', context);
   }
 
-  unitDeath(deadUnit) {
+  unitDeath(deadUnit, killer = null) {
     this.getActiveUnits().forEach((unit) => {
       this.runBuffEffects(unit, 'unitDeath', {
         source: unit,
         target: deadUnit,
-        deadUnit
+        deadUnit,
+        killer
       });
+    });
+  }
+
+  durabilityDepleted(unit) {
+    if (!unit?.alive) return;
+    this.runBuffEffects(unit, 'durabilityDepleted', {
+      source: unit,
+      target: unit
     });
   }
 
@@ -484,12 +493,7 @@ export class BuffSystem {
         });
       });
       if (hitCount > 0) {
-        this.game.effects.spawnRing(center, effect.color ?? '#ffb45c', radius, 0.46);
-        this.game.effects.spawnHit({
-          x: center.x,
-          y: (center.y ?? 0) + 0.82,
-          z: center.z
-        }, effect.color ?? '#ffb45c');
+        this.game.effects.spawnExplosion(center, radius);
       }
       return;
     }
@@ -621,6 +625,185 @@ export class BuffSystem {
         color: effect.color ?? '#ff9b9b',
         height: context.source.projectileHitHeight ?? 1.55
       });
+      return;
+    }
+
+    if (effect.op === 'prepareUndyingStrike') {
+      if (!context.source?.alive || !context.isAttack || context.damage <= 0) return;
+      const buff = context.buff;
+      if (!buff?.id) return;
+      const now = this.game.elapsedTime ?? 0;
+      if ((buff.undyingReadyAt ?? -Infinity) > now) return;
+      const percent = Math.max(0, resolveEffectNumber(effect, 'maxHealthPercent', context, 0));
+      const amount = Math.max(0, context.source.maxHealth ?? 0) * percent;
+      if (amount <= 0.001) return;
+      buff.undyingReadyAt = now + Math.max(0, effect.cooldown ?? 6);
+      context.damage += amount;
+      context.undyingStrikeBuffId = buff.id;
+      context.undyingStrikeHealAmount = amount;
+      return;
+    }
+
+    if (effect.op === 'resolveUndyingStrike') {
+      if (
+        !context.source?.alive
+        || !context.isAttack
+        || context.undyingStrikeBuffId !== context.buff?.id
+        || (context.damageDealt ?? 0) <= 0
+      ) return;
+      const amount = Math.max(0, context.undyingStrikeHealAmount ?? 0);
+      if (amount <= 0.001) return;
+      const healed = context.source.restoreHealth?.(amount) ?? 0;
+      this.game.effects?.spawnRing?.(context.source.position, effect.color ?? '#ffd36a', 0.64, 0.4);
+      this.game.effects?.spawnHealNumber?.(context.source.position, healed, {
+        displayAmount: amount,
+        color: effect.color ?? '#ffe6a3',
+        height: context.source.projectileHitHeight ?? 1.55
+      });
+      return;
+    }
+
+    if (effect.op === 'assaultStackDamage') {
+      if (!context.source?.alive || !context.isAttack || context.damage <= 0) return;
+      const buff = context.buff;
+      if (!buff) return;
+      const level = Math.max(1, Math.floor(buff.level ?? 1));
+      const nextStacks = Math.max(0, Math.floor(buff.assaultStacks ?? 0)) + 1;
+      buff.assaultStacks = nextStacks > level ? 0 : nextStacks;
+      const damagePerStack = Math.max(0, effect.damagePerStack ?? 1);
+      context.damage += buff.assaultStacks * damagePerStack;
+      return;
+    }
+
+    if (effect.op === 'triumphOnKill') {
+      const owner = context.source;
+      const deadUnit = context.deadUnit ?? context.target;
+      if (
+        !owner?.alive
+        || context.killer !== owner
+        || !deadUnit
+        || deadUnit === owner
+        || deadUnit.team === owner.team
+        || !owner.attributes
+      ) return;
+      const maxHealthGain = Math.max(0, resolveEffectNumber(effect, 'maxHealth', context, 0));
+      const healAmount = Math.max(0, resolveEffectNumber(effect, 'heal', context, 0));
+      if (maxHealthGain > 0) {
+        context.buff.triumphHealthBonus = Math.max(0, context.buff.triumphHealthBonus ?? 0) + maxHealthGain;
+        const source = `${buffModifierSource(context.buff.id)}:triumph-health`;
+        owner.attributes.removeModifiersBySource(source);
+        owner.attributes.addModifier({
+          stat: 'maxHealth',
+          type: 'add',
+          amount: context.buff.triumphHealthBonus
+        }, source);
+      }
+      const healed = owner.restoreHealth?.(healAmount) ?? 0;
+      owner.clampToAttributeCaps?.();
+      owner.statusUiDirty = true;
+      this.game.effects?.spawnRing?.(owner.position, effect.color ?? '#f7cf62', 0.72, 0.44);
+      this.game.effects?.spawnDamageNumber?.(owner.position, 1, {
+        text: `凯旋 +${formatEffectAmount(maxHealthGain)}上限 +${formatEffectAmount(healed)}生命`,
+        color: effect.color ?? '#f7cf62',
+        stroke: '#49330b',
+        height: owner.projectileHitHeight ?? 1.55,
+        duration: 0.82,
+        fontSize: 72,
+        baseHeight: 0.5
+      });
+      return;
+    }
+
+    if (effect.op === 'durabilityShockwave') {
+      const owner = context.source;
+      if (!owner?.alive || !owner.position) return;
+      const now = this.game.elapsedTime ?? 0;
+      if ((context.buff?.shockwaveReadyAt ?? -Infinity) > now) return;
+      const radius = Math.max(0, resolveEffectNumber(effect, 'radius', context, effect.radius ?? 5));
+      const percent = Math.max(0, resolveEffectNumber(effect, 'maxDurabilityPercent', context, 0));
+      const damage = Math.max(0, owner.weapon?.maxDurability ?? 0) * percent;
+      if (radius <= 0 || damage <= 0) return;
+      context.buff.shockwaveReadyAt = now + Math.max(0, effect.cooldown ?? 4);
+      getEnemiesOf(this.game, owner).forEach((unit) => {
+        if (!unit.position || distance2D(owner.position, unit.position) > radius) return;
+        this.game.combat.applyDamage(unit, damage, owner, 0, {
+          damage,
+          source: owner,
+          target: unit,
+          defenseDamageType: 'physical',
+          damageTypes: new Set(['shockwave']),
+          isAttack: false,
+          damageNumberHeight: unit.projectileHitHeight ?? 1.45
+        });
+      });
+      this.game.effects?.spawnYellowShockwave?.(owner.position, radius);
+      return;
+    }
+
+    if (effect.op === 'solarFlarePulse') {
+      const owner = context.target ?? context.source;
+      if (!owner?.alive || !owner.position) return;
+      const radius = Math.max(0, resolveEffectNumber(effect, 'radius', context, effect.radius ?? 5));
+      const percent = Math.max(0, resolveEffectNumber(effect, 'maxHealthPercent', context, 0));
+      const damage = Math.max(0, owner.maxHealth ?? 0) * percent;
+      if (radius <= 0 || damage <= 0) return;
+      getEnemiesOf(this.game, owner).forEach((unit) => {
+        if (!unit.position || distance2D(owner.position, unit.position) > radius) return;
+        this.game.combat.applyDamage(unit, damage, owner, 0, {
+          damage,
+          source: owner,
+          target: unit,
+          defenseDamageType: 'magic',
+          damageTypes: new Set(['solarFlare']),
+          isAttack: false,
+          damageNumberHeight: unit.projectileHitHeight ?? 1.45
+        });
+      });
+      this.game.effects?.spawnSolarFlarePulse?.(owner.position, radius);
+      return;
+    }
+
+    if (effect.op === 'fireworksOnAttack') {
+      if (
+        !context.source?.alive
+        || !context.target?.position
+        || !context.isAttack
+        || context.damageTypes?.has?.('fireworks')
+      ) return;
+      const source = context.source;
+      const center = context.target.position;
+      const radius = Math.max(0, resolveEffectNumber(effect, 'radius', context, effect.radius ?? 7));
+      const damage = Math.max(0, resolveEffectNumber(effect, 'damage', context, 0));
+      const heal = Math.max(0, resolveEffectNumber(effect, 'heal', context, 0));
+      const burstPosition = {
+        x: center.x,
+        y: (center.y ?? 0) + (context.target.projectileHitHeight ?? 1.45) + 0.75,
+        z: center.z
+      };
+      this.game.effects?.spawnFirework?.(burstPosition, radius);
+      if (damage > 0) {
+        getEnemiesOf(this.game, source).forEach((unit) => {
+          if (!unit.position || distance2D(center, unit.position) > radius) return;
+          this.game.combat.applyAttack(source, unit, {
+            damage,
+            attackDamageType: context.attackDamageType ?? 'physical',
+            knockback: 0,
+            damageTypes: new Set(['fireworks', 'undodgeable']),
+            isExplosionDamage: true
+          });
+        });
+      }
+      if (heal > 0) {
+        getAlliesOf(this.game, source).forEach((unit) => {
+          if (!unit.position || distance2D(center, unit.position) > radius) return;
+          const healed = unit.restoreHealth?.(heal) ?? 0;
+          if (healed <= 0.001) return;
+          this.game.effects?.spawnHealNumber?.(unit.position, healed, {
+            color: effect.color ?? '#ff78c8',
+            height: unit.projectileHitHeight ?? 1.45
+          });
+        });
+      }
       return;
     }
 
@@ -1019,6 +1202,12 @@ function isUnitIdleForFocus(unit) {
 function getEnemiesOf(game, source) {
   return [...(game.friendlyUnits ?? []), ...(game.enemyUnits ?? [])].filter((unit) => (
     unit?.alive && unit.team !== source.team
+  ));
+}
+
+function getAlliesOf(game, source) {
+  return [...(game.friendlyUnits ?? []), ...(game.enemyUnits ?? [])].filter((unit) => (
+    unit?.alive && unit.team === source.team
   ));
 }
 

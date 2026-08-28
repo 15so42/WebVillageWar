@@ -524,6 +524,14 @@ export class GameNetworkBridge {
     });
   }
 
+  notifyUnitHitFlash(unitId, duration = 0.1) {
+    this.host?.emitEvent({
+      name: 'unit_hit_flash',
+      unitId,
+      duration
+    });
+  }
+
   notifyProjectileSpawn(projectile) {
     if (!projectile?.networkId || !projectile.object) return;
     const { position, quaternion, scale } = projectile.object;

@@ -29,6 +29,7 @@ export function normalizeMultiplayerSession(session) {
     order: player.order ?? order,
     factionId: player.factionId ?? `faction:${playerId}`,
     teamId: player.teamId ?? 'players',
+    cardLevels: cardLevelsFromDeck(player.cardLevels, player.deck),
     deck: (Array.isArray(player.deck) ? player.deck : []).filter((entry) => {
       const id = typeof entry === 'string' ? entry : entry?.id;
       return CARD_DEFINITIONS.find((card) => card.id === id)?.kind !== 'summon';
@@ -38,7 +39,7 @@ export function normalizeMultiplayerSession(session) {
     mode: session.matchRules?.mode ?? 'pve',
     maxPlayers: session.matchRules?.maxPlayers ?? Math.max(2, entries.length),
     hostPlayerId,
-    players: Object.values(players).map(({ deck, ...player }) => player),
+    players: Object.values(players).map(({ deck, cardLevels, ...player }) => player),
     factions: session.matchRules?.factions ?? [],
     aiFactions: session.matchRules?.aiFactions ?? [],
     basePolicy: session.matchRules?.basePolicy ?? 'shared_team_base',
@@ -112,6 +113,23 @@ export function mergeMultiplayerDecksAtHighestLevel(decks = []) {
     });
   });
   return cardOrder.map((id) => ({ id, level: highestLevelById.get(id) ?? 1 }));
+}
+
+function cardLevelsFromDeck(sourceLevels, deck = []) {
+  const levels = {};
+  Object.entries(sourceLevels ?? {}).forEach(([id, level]) => {
+    if (!id) return;
+    levels[id] = Math.max(1, Math.floor(Number(level) || 1));
+  });
+  (Array.isArray(deck) ? deck : []).forEach((entry) => {
+    const id = typeof entry === 'string' ? entry : entry?.id;
+    if (!id) return;
+    const level = typeof entry === 'string'
+      ? 1
+      : Math.max(1, Math.floor(Number(entry?.level) || 1));
+    levels[id] = Math.max(levels[id] ?? 1, level);
+  });
+  return levels;
 }
 
 function normalizePlayerEntries(players) {

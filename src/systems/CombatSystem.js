@@ -3,9 +3,8 @@ import { TEAMS } from '../data/gameData.js';
 import { playUnitAnimation, triggerUnitHitFlash } from '../art/visualRegistry.js';
 import { direction2D, distance2D } from '../utils/math.js';
 import {
-  hitStunDuration,
-  isStaticUnit,
-  maxKnockbackVelocity
+  applyKnockbackImpulse,
+  targetCombatRadius
 } from './combatHelpers.js';
 
 const scratch = new THREE.Vector3();
@@ -143,17 +142,15 @@ export class CombatSystem {
       this.game.markEndlessEnemyCombatStarted?.(target, source);
     }
 
-    if (source && finalKnockback > 0 && !isStaticUnit(target)) {
+    if (
+      source
+      && applyKnockbackImpulse(this.game, target, source.position, finalKnockback)
+    ) {
       if (source.team === TEAMS.PLAYER && target.team === TEAMS.ENEMY) {
         target.recentPlayerKnockback = true;
         target.recentPlayerKnockbackOwner = source.controllerPlayerId ?? source.ownerPlayerId ?? null;
         target.knockbackSessionDistance = 0;
       }
-      const dir = direction2D(source.position, target.position);
-      target.knockbackVelocity.addScaledVector(dir, finalKnockback);
-      target.knockbackVelocity.clampLength(0, maxKnockbackVelocity(target));
-      target.hitStunTimer = Math.max(target.hitStunTimer, hitStunDuration(finalKnockback));
-      this.game.pathfinding?.clear?.(target);
     }
     if (!damageContext.skipHitAnimation) {
       playUnitAnimation(target, 'hit');
@@ -162,8 +159,7 @@ export class CombatSystem {
       triggerUnitHitFlash(target, 0.1);
     }
     if (!damageContext.skipHitEffect) {
-      scratch.copy(target.position);
-      scratch.y += 0.9;
+      resolveHitEffectPosition(scratch, target, source, damageContext);
       this.game.effects.spawnHit(
         scratch,
         source?.hasEnchantment?.('fire') ? '#ff9a47' : '#f6e7a0'
@@ -491,6 +487,27 @@ export class CombatSystem {
       baseHeight: 0.46
     });
   }
+}
+
+export function resolveHitEffectPosition(result, target, source = null, context = {}) {
+  const explicitHit = context?.hitPosition;
+  if (
+    explicitHit
+    && Number.isFinite(explicitHit.x)
+    && Number.isFinite(explicitHit.y)
+    && Number.isFinite(explicitHit.z)
+  ) {
+    return result.copy(explicitHit);
+  }
+
+  result.copy(target.position);
+  result.y += Math.max(0.45, (target.projectileHitHeight ?? 1.4) * 0.62);
+  if (source?.position) {
+    const towardSource = direction2D(target.position, source.position);
+    const surfaceOffset = Math.max(0.12, targetCombatRadius(target) * 0.72);
+    result.addScaledVector(towardSource, surfaceOffset);
+  }
+  return result;
 }
 
 function damageNumberType(context, isTrueDamage) {

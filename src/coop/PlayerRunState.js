@@ -1,4 +1,5 @@
-import { BALANCE } from '../data/gameData.js';
+import { BALANCE, CARD_DEFINITIONS } from '../data/gameData.js';
+import { createWaveRewardDeckIds } from '../systems/waveRewardPool.js';
 
 const DEFAULT_SHOP_CATEGORIES = ['unit', 'card', 'attribute', 'trait', 'copy', 'remove', 'upgrade', 'energy', 'temporary'];
 
@@ -18,7 +19,7 @@ export function createPlayerRunState(playerId, deck = [], descriptor = {}) {
     flowState: descriptor.flowState ?? 'playing',
     runCardsPlayedCount: 0,
     deck: Array.isArray(deck) ? deck : [],
-    waveRewardDeck: createRewardDeckIds(deck),
+    waveRewardDeck: createWaveRewardDeckIds(deck, CARD_DEFINITIONS),
     silver: Math.max(0, Number(BALANCE.runCurrency?.starting ?? 0)),
     pendingRewards: new Map(),
     pendingStrategyRewards: [],
@@ -35,20 +36,6 @@ export function createPlayerRunState(playerId, deck = [], descriptor = {}) {
     shopState: null,
     strategyEvent: null
   };
-}
-
-function createRewardDeckIds(deck = []) {
-  const seen = new Set();
-  const result = [];
-  (Array.isArray(deck) ? deck : []).forEach((entry) => {
-    const id = typeof entry === 'string'
-      ? entry
-      : (entry?.cardDefinitionId ?? entry?.id);
-    if (!id || seen.has(id)) return;
-    seen.add(id);
-    result.push(id);
-  });
-  return result;
 }
 
 export function getPlayerRunState(game, playerId) {

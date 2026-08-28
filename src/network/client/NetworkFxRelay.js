@@ -33,6 +33,18 @@ export function applyNetworkFx(game, event) {
     case 'fx_hit':
       effects.spawnHit(vecFrom(event), event.color ?? '#f6e7a0');
       break;
+    case 'fx_explosion':
+      effects.spawnExplosion(vecFrom(event), event.radius ?? 2.4);
+      break;
+    case 'fx_yellow_shockwave':
+      effects.spawnYellowShockwave(vecFrom(event), event.radius ?? 5);
+      break;
+    case 'fx_solar_flare_pulse':
+      effects.spawnSolarFlarePulse(vecFrom(event), event.radius ?? 5);
+      break;
+    case 'fx_firework':
+      effects.spawnFirework(vecFrom(event), event.radius ?? 7);
+      break;
     case 'fx_unit_upgrade':
       effects.spawnUnitUpgrade(vecFrom(event), event.options ?? {});
       break;
@@ -159,6 +171,42 @@ const EFFECT_RELAY_SPECS = [
       name: 'fx_hit',
       ...vec3(position),
       color
+    })
+  },
+  {
+    method: 'spawnExplosion',
+    name: 'fx_explosion',
+    serialize: ([position, radius]) => ({
+      name: 'fx_explosion',
+      ...vec3(position),
+      radius
+    })
+  },
+  {
+    method: 'spawnYellowShockwave',
+    name: 'fx_yellow_shockwave',
+    serialize: ([position, radius]) => ({
+      name: 'fx_yellow_shockwave',
+      ...vec3(position),
+      radius
+    })
+  },
+  {
+    method: 'spawnSolarFlarePulse',
+    name: 'fx_solar_flare_pulse',
+    serialize: ([position, radius]) => ({
+      name: 'fx_solar_flare_pulse',
+      ...vec3(position),
+      radius
+    })
+  },
+  {
+    method: 'spawnFirework',
+    name: 'fx_firework',
+    serialize: ([position, radius]) => ({
+      name: 'fx_firework',
+      ...vec3(position),
+      radius
     })
   },
   {

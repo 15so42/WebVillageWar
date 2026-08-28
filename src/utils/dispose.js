@@ -23,7 +23,7 @@ export function disposeMaterial(material) {
   if (!material) return;
   Object.keys(material).forEach((key) => {
     const value = material[key];
-    if (value?.isTexture) {
+    if (value?.isTexture && !value.userData?.sharedEffectResource) {
       value.dispose?.();
     }
   });

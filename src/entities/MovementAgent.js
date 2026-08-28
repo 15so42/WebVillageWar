@@ -4,13 +4,16 @@ import {
   isImmobileUnit,
   isStationaryCombatUnit,
   isStaticUnit,
+  KNOCKBACK_AIRBORNE_VELOCITY_RETAIN_PER_SECOND,
+  KNOCKBACK_MOTION_TIME_SCALE,
+  KNOCKBACK_STOP_SPEED_SQ,
+  KNOCKBACK_VELOCITY_RETAIN_PER_SECOND,
   maxKnockbackVelocity,
   setReusableVector,
   shortestAngle
 } from '../systems/combatHelpers.js';
 
 const NAVIGATION_TARGET_EPSILON = 0.04;
-const KNOCKBACK_EPSILON_SQ = 0.0004;
 const DIRECT_MOVE_BLOCKED_SECONDS = 0.26;
 
 export class MovementAgent {
@@ -170,16 +173,20 @@ export class MovementAgent {
       this.game.clearUnitRoute?.(unit);
     };
     const knockbackSpeedSq = unit.knockbackVelocity.lengthSq();
-    if (knockbackSpeedSq <= KNOCKBACK_EPSILON_SQ) {
+    if (knockbackSpeedSq <= KNOCKBACK_STOP_SPEED_SQ) {
       if (knockbackSpeedSq > 0) finishKnockback();
       return;
     }
 
     const previousX = unit.position.x;
     const previousZ = unit.position.z;
+    const motionDt = dt * KNOCKBACK_MOTION_TIME_SCALE;
     unit.knockbackVelocity.clampLength(0, maxKnockbackVelocity(unit));
-    unit.position.addScaledVector(unit.knockbackVelocity, dt);
-    unit.knockbackVelocity.multiplyScalar(Math.pow(0.08, dt));
+    unit.position.addScaledVector(unit.knockbackVelocity, motionDt);
+    const velocityRetention = unit.grounded === false
+      ? KNOCKBACK_AIRBORNE_VELOCITY_RETAIN_PER_SECOND
+      : KNOCKBACK_VELOCITY_RETAIN_PER_SECOND;
+    unit.knockbackVelocity.multiplyScalar(Math.pow(velocityRetention, motionDt));
     unit.knockbackSessionDistance = (unit.knockbackSessionDistance ?? 0)
       + Math.hypot(unit.position.x - previousX, unit.position.z - previousZ);
 
@@ -191,7 +198,7 @@ export class MovementAgent {
       return;
     }
 
-    if (unit.knockbackVelocity.lengthSq() <= KNOCKBACK_EPSILON_SQ) {
+    if (unit.knockbackVelocity.lengthSq() <= KNOCKBACK_STOP_SPEED_SQ) {
       finishKnockback();
     }
   }

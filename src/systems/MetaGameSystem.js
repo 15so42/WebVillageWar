@@ -851,6 +851,19 @@ const DEVELOPMENT_CHANGELOG_ARCHIVE = [
 
 const CHANGELOG_ENTRIES = [
   {
+    date: '2026-08-28',
+    title: '战斗成长、附魔与特效全面更新',
+    items: [
+      '新增不灭、凯旋、强攻、震荡、烈阳、烟花六种附魔；震荡在耐久耗尽时造成范围伤害，并拥有独立 4 秒冷却。',
+      '重新整理全模式难度：移除旧威胁度与战役前三波额外适应，难度提供的数值整体降低；无尽模式会根据阵亡单位占当前战斗单位的比例动态回落难度。',
+      '能量改为每秒恢复 0.1且不再设上限，普通击杀不再获得能量；战斗资源栏改为数值显示并加入银币，波次奖励重随固定消耗 4 银币。',
+      '修复开局与联机单位卡等级结算，单位卡会使用实际升级等级，联机按房间内同卡最高等级生效；Boss 奖励恢复为免费军需铺。',
+      '重做基地光束、攻击命中、单位死亡、爆炸、陨石、野火、毒雾、升级环光与雷云等战斗特效，补充软边透明度、粒子消散、落地冲击和联机特效同步。',
+      '调整击退为更明确的快速受力与缓和落地，并优化水法师法袍、水球环流、狂战士体型、雪幕萨满施法和第一关 Boss 体型表现。',
+      '统一手牌、拖拽预览、波次奖励与局外卡牌的信息栏样式，修复自动附魔倒计时、祭坛占领环及单位选中框的遮挡层级。'
+    ]
+  },
+  {
     date: '2026-08-27',
     title: '雪谷光照与相机观感打磨',
     items: [
@@ -2079,7 +2092,7 @@ export class MetaGameSystem {
             <div class="meta-section-title">出战牌组</div>
             <p>已选择 ${selectedCount} 张。牌组数量不再要求固定，但至少选择 1 张，并且必须包含单位卡；波次奖励会从已确认牌组中发放。</p>
             ${deckReady ? '' : `<p class="meta-deck-note">${deckValidationMessage(deckValidation)}</p>`}
-            <p class="meta-deck-note">能量每秒自动恢复 0.2；普通击杀不再充能，“猎魂潮汐”除外。</p>
+            <p class="meta-deck-note">能量每秒自动恢复 0.1；普通击杀不再充能，“猎魂潮汐”除外。</p>
           </div>
           <div class="meta-deck-actions">
             <button class="meta-primary-button" type="button" data-action="start-level" ${deckReady ? '' : 'disabled'}>
@@ -2119,7 +2132,7 @@ export class MetaGameSystem {
         <section class="meta-guide-grid">
           <article class="meta-panel">
             <div class="meta-section-title">能量</div>
-            <p>能量每秒自动恢复 0.2，用于出牌与弃牌。普通击杀不再获得能量，“猎魂潮汐”等能力与能量祭坛仍可额外补充。</p>
+            <p>能量每秒自动恢复 0.1，用于出牌与弃牌。普通击杀不再获得能量，“猎魂潮汐”等能力与能量祭坛仍可额外补充。</p>
           </article>
           <article class="meta-panel">
             <div class="meta-section-title">卡牌</div>
@@ -2409,6 +2422,7 @@ export class MetaGameSystem {
       difficulty,
       challengeMode: normalizeChallengeMode(this.selectedChallengeMode),
       deck,
+      cardLevels: buildOwnedCardLevelMap(this.progress.ownedCards, this.progress.cardLevels),
       startedAt: Date.now()
     };
     this.hide();
@@ -2602,6 +2616,13 @@ function normalizeOwnedCards() {
 export function upgradeCost(id, level) {
   void id;
   return CARD_UPGRADE_INITIAL_COST * 2 ** Math.max(0, level - 1);
+}
+
+export function buildOwnedCardLevelMap(ownedCards = [], cardLevels = {}) {
+  return Object.fromEntries((Array.isArray(ownedCards) ? ownedCards : []).map((id) => [
+    id,
+    Math.max(1, Math.floor(Number(cardLevels?.[id]) || 1))
+  ]));
 }
 
 function clampDifficulty(value) {

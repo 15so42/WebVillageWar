@@ -2895,7 +2895,7 @@
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) 22px;
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
   gap: 2px;
   padding: 2px;
@@ -2998,7 +2998,8 @@ body.is-meta-open .meta-root .med-card-level-roman {
 
 .meta-forged-card-shell .med-card-meta-row .med-card-name {
   min-width: 0;
-  width: auto;
+  width: 100%;
+  max-width: 100%;
   margin: 0;
   padding: 0;
   overflow: hidden;
@@ -3009,9 +3010,14 @@ body.is-meta-open .meta-root .med-card-level-roman {
   font-weight: 900;
   line-height: 1;
   text-align: center;
-  text-overflow: ellipsis;
+  text-overflow: clip;
   white-space: nowrap;
   text-shadow: 0 2px 2px rgba(0, 0, 0, 0.68);
+}
+
+.meta-forged-card-shell .med-card-meta-row.is-title-only {
+  grid-template-columns: minmax(0, 1fr) !important;
+  padding-inline: 6px;
 }
 
 .meta-forged-card-shell .med-card-desc {

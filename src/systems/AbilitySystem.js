@@ -183,12 +183,7 @@ export class AbilitySystem {
         damageNumberDuration: 0.68
       });
     });
-    this.game.effects.spawnRing(unit.position, '#ffb45c', radius, 0.48);
-    this.game.effects.spawnHit({
-      x: unit.position.x,
-      y: (unit.position.y ?? 0) + 0.86,
-      z: unit.position.z
-    }, '#ffb45c');
+    this.game.effects.spawnExplosion(unit.position, radius);
   }
 
   applyNewBuildingDurability(unit) {

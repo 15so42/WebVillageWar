@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { BUFF_DEFINITIONS, ENCHANTMENTS, TEAMS, UNIT_DEFINITIONS } from '../data/gameData.js';
 import { basicMat, mat } from '../art/lowpoly.js';
+import { createSoftParticleSprite } from '../art/vfxMaterials.js';
 import { createUnitModel, updateUnitAnimation } from '../art/visualRegistry.js';
 import { AttributeSet, bindAttributeGetter } from '../systems/AttributeSet.js';
 import { scaleResourceAfterMaximumChange } from '../systems/unitResourceSync.js';
@@ -153,6 +154,7 @@ export class UnitEntity {
     const previousMaxDurability = this.weapon?.maxDurability ?? 0;
     this.attributes.removeModifiersBySource(buffModifierSource(id));
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:body-bonus`);
+    this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:triumph-health`);
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:focus-range`);
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:nearby`);
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:advantage`);
@@ -197,6 +199,7 @@ export class UnitEntity {
     this.attributes.removeModifiersBySource(buffModifierSource(id));
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:soul-bonus`);
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:body-bonus`);
+    this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:triumph-health`);
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:focus-range`);
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:nearby`);
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:advantage`);
@@ -265,12 +268,16 @@ export class UnitEntity {
   }
 
   spendDurability(amount) {
-    if (amount <= 0) return;
+    if (amount <= 0) return 0;
     const previousDurability = this.weapon.durability;
     this.weapon.durability = clamp(this.weapon.durability - amount, 0, this.weapon.maxDurability);
     if (this.weapon.durability !== previousDurability) {
       this.statusUiDirty = true;
     }
+    if (previousDurability > 0.001 && this.weapon.durability <= 0.001) {
+      this.game?.buffs?.durabilityDepleted?.(this);
+    }
+    return previousDurability - this.weapon.durability;
   }
 
   clampToAttributeCaps() {
@@ -290,8 +297,7 @@ export class UnitEntity {
     if (!this.underConstruction) {
       updateUnitAnimation(this, dt);
     }
-    this.enchantHalo.rotation.y += 0.035;
-    this.enchantHalo.visible = this.enchantments.size > 0;
+    updateEnchantHaloVisual(this, dt);
     this.groundShadow.visible = this.alive;
   }
 
@@ -301,8 +307,7 @@ export class UnitEntity {
       // that received pose for rendering and never derives movement or combat state.
       updateUnitAnimation(this, dt);
     }
-    this.enchantHalo.rotation.y += Math.max(0, dt) * 2.1;
-    this.enchantHalo.visible = this.enchantments.size > 0;
+    updateEnchantHaloVisual(this, dt);
     this.groundShadow.visible = this.alive;
   }
 
@@ -460,6 +465,10 @@ function preserveEnchantmentRuntimeState(existing, id, isEnchantment) {
   copyFiniteRuntimeValue(preserved, existing, 'bodyForgingBonus');
   copyFiniteRuntimeValue(preserved, existing, 'focusRangeBonus');
   copyFiniteRuntimeValue(preserved, existing, 'judgmentReadyAt');
+  copyFiniteRuntimeValue(preserved, existing, 'undyingReadyAt');
+  copyFiniteRuntimeValue(preserved, existing, 'triumphHealthBonus');
+  copyFiniteRuntimeValue(preserved, existing, 'assaultStacks');
+  copyFiniteRuntimeValue(preserved, existing, 'shockwaveReadyAt');
   copyFiniteRuntimeValue(preserved, existing, `deathCooldown:${id}`);
   return preserved;
 }
@@ -484,6 +493,16 @@ function restoreEnchantmentRuntimeModifiers(unit, buff, isEnchantment) {
       stat: 'maxHealth',
       type: 'add',
       amount: buff.bodyForgingBonus
+    }, source);
+  }
+
+  if (buff.triumphHealthBonus > 0) {
+    const source = `${buffModifierSource(buff.id)}:triumph-health`;
+    unit.attributes.removeModifiersBySource(source);
+    unit.attributes.addModifier({
+      stat: 'maxHealth',
+      type: 'add',
+      amount: buff.triumphHealthBonus
     }, source);
   }
 
@@ -540,9 +559,56 @@ function createEnchantHalo() {
   thorns.position.y = 0.18;
   fire.userData.enchantment = 'fire';
   thorns.userData.enchantment = 'thorns';
-  group.add(fire, thorns);
+  const solarFlare = new THREE.Group();
+  solarFlare.userData.enchantment = 'solarFlare';
+  solarFlare.userData.isSolarFlameAura = true;
+  solarFlare.userData.age = 0;
+  const solarParticles = [];
+  for (let index = 0; index < 8; index += 1) {
+    const particle = createSoftParticleSprite(index % 2 === 0 ? '#ffd95a' : '#ff9d32', {
+      falloff: 'tight',
+      opacity: 0.7,
+      depthTest: true,
+      toneMapped: false
+    });
+    particle.userData.phase = index / 8;
+    particle.userData.orbitRadius = 0.34 + (index % 3) * 0.09;
+    particle.userData.baseHeight = 0.28 + (index % 4) * 0.18;
+    particle.userData.baseScale = 0.16 + (index % 3) * 0.045;
+    particle.userData.orbitSpeed = 1.1 + (index % 4) * 0.16;
+    solarParticles.push(particle);
+    solarFlare.add(particle);
+  }
+  solarFlare.userData.particles = solarParticles;
+  group.add(fire, thorns, solarFlare);
   group.visible = false;
   return group;
+}
+
+function updateEnchantHaloVisual(unit, dt) {
+  const delta = Math.max(0, Number(dt) || 0);
+  refreshEnchantHalo(unit);
+  unit.enchantHalo.rotation.y += delta * 2.1;
+  unit.enchantHalo.visible = unit.enchantments.size > 0;
+  const solarFlare = unit.enchantHalo.children.find((child) => child.userData.isSolarFlameAura);
+  if (!solarFlare?.visible) return;
+  solarFlare.userData.age = (solarFlare.userData.age ?? 0) + delta;
+  const age = solarFlare.userData.age;
+  solarFlare.userData.particles.forEach((particle) => {
+    const phase = particle.userData.phase;
+    const cycle = (age * 0.68 + phase) % 1;
+    const angle = phase * Math.PI * 2 + age * particle.userData.orbitSpeed;
+    const radius = particle.userData.orbitRadius * (0.9 + Math.sin((cycle + phase) * Math.PI * 2) * 0.1);
+    particle.position.set(
+      Math.cos(angle) * radius,
+      particle.userData.baseHeight + cycle * 0.58,
+      Math.sin(angle) * radius
+    );
+    const envelope = Math.sin(cycle * Math.PI);
+    const scale = particle.userData.baseScale * (0.72 + envelope * 0.7);
+    particle.scale.set(scale, scale * 1.3, 1);
+    particle.material.opacity = 0.18 + envelope * 0.62;
+  });
 }
 
 function createUnitGroundShadow(unit) {

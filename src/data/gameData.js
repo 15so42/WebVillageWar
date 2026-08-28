@@ -2854,6 +2854,111 @@ export const BUFF_DEFINITIONS = {
       }
     ]
   },
+  undying: {
+    name: '不灭',
+    category: 'enchantment',
+    color: '#ffd36a',
+    duration: 999,
+    level: 1,
+    effects: [
+      {
+        event: 'modifyAttack',
+        op: 'prepareUndyingStrike',
+        maxHealthPercentBase: 0.06,
+        maxHealthPercentPerLevel: 0.002,
+        cooldown: 6,
+        color: '#ffd36a'
+      },
+      {
+        event: 'afterDamage',
+        op: 'resolveUndyingStrike',
+        color: '#ffe6a3'
+      }
+    ]
+  },
+  triumph: {
+    name: '凯旋',
+    category: 'enchantment',
+    color: '#f7cf62',
+    duration: 999,
+    level: 1,
+    effects: [
+      {
+        event: 'unitDeath',
+        op: 'triumphOnKill',
+        healPerLevel: 3,
+        maxHealthPerLevel: 1,
+        color: '#f7cf62'
+      }
+    ]
+  },
+  assault: {
+    name: '强攻',
+    category: 'enchantment',
+    color: '#e36c43',
+    duration: 999,
+    level: 1,
+    effects: [
+      {
+        event: 'modifyAttack',
+        op: 'assaultStackDamage',
+        damagePerStack: 1,
+        color: '#e36c43'
+      }
+    ]
+  },
+  shockwave: {
+    name: '震荡',
+    category: 'enchantment',
+    color: '#f3d35a',
+    duration: 999,
+    level: 1,
+    effects: [
+      {
+        event: 'durabilityDepleted',
+        op: 'durabilityShockwave',
+        maxDurabilityPercentPerLevel: 0.02,
+        radius: 5,
+        cooldown: 4,
+        color: '#f3d35a'
+      }
+    ]
+  },
+  solarFlare: {
+    name: '烈阳',
+    category: 'enchantment',
+    color: '#ffba3d',
+    duration: 999,
+    level: 1,
+    tickInterval: 5,
+    effects: [
+      {
+        event: 'tick',
+        op: 'solarFlarePulse',
+        radius: 5,
+        maxHealthPercentBase: 0.07,
+        maxHealthPercentPerLevel: 0.003,
+        color: '#ffba3d'
+      }
+    ]
+  },
+  fireworks: {
+    name: '烟花',
+    category: 'enchantment',
+    color: '#ff78c8',
+    duration: 999,
+    level: 1,
+    effects: [
+      {
+        event: 'afterDamage',
+        op: 'fireworksOnAttack',
+        radius: 7,
+        damagePerLevel: 1,
+        healPerLevel: 1,
+        color: '#ff78c8'
+      }
+    ]
+  },
   drain: {
     name: '汲取',
     category: 'enchantment',
@@ -2949,14 +3054,14 @@ export const BUFF_DEFINITIONS = {
       {
         stat: 'maxHealth',
         type: 'multiply',
-        factor: 1.1,
-        factorPerLevel: 0.025
+        factor: 1,
+        factorPerLevel: 0.05
       },
       {
         stat: 'armor',
         type: 'add',
-        amount: 1.6,
-        amountPerLevel: 0.45
+        amount: 0,
+        amountPerLevel: 1
       }
     ]
   },
@@ -2970,14 +3075,14 @@ export const BUFF_DEFINITIONS = {
       {
         stat: 'moveSpeed',
         type: 'multiply',
-        factor: 1.2,
-        factorPerLevel: 0.04
+        factor: 1,
+        factorPerLevel: 0.05
       },
       {
         stat: 'attackRate',
         type: 'multiply',
-        factor: 1.06,
-        factorPerLevel: 0.025
+        factor: 1,
+        factorPerLevel: 0.05
       }
     ]
   },
@@ -2990,15 +3095,15 @@ export const BUFF_DEFINITIONS = {
     modifiers: [
       {
         stat: 'attackRange',
-        type: 'add',
-        amount: 0.55,
-        amountPerLevel: 0.18
+        type: 'multiply',
+        factor: 1,
+        factorPerLevel: 0.05
       },
       {
         stat: 'attackPower',
         type: 'multiply',
-        factor: 1.03,
-        factorPerLevel: 0.02
+        factor: 1,
+        factorPerLevel: 0.05
       }
     ]
   },
@@ -3012,14 +3117,14 @@ export const BUFF_DEFINITIONS = {
       {
         stat: 'attackPower',
         type: 'multiply',
-        factor: 1.14,
-        factorPerLevel: 0.04
+        factor: 1,
+        factorPerLevel: 0.05
       },
       {
         stat: 'knockback',
         type: 'multiply',
-        factor: 1.06,
-        factorPerLevel: 0.03
+        factor: 1,
+        factorPerLevel: 0.05
       }
     ]
   },
@@ -3478,6 +3583,12 @@ export const ENCHANTMENTS = {
   swordSaint: BUFF_DEFINITIONS.swordSaint,
   soulEater: BUFF_DEFINITIONS.soulEater,
   lifesteal: BUFF_DEFINITIONS.lifesteal,
+  undying: BUFF_DEFINITIONS.undying,
+  triumph: BUFF_DEFINITIONS.triumph,
+  assault: BUFF_DEFINITIONS.assault,
+  shockwave: BUFF_DEFINITIONS.shockwave,
+  solarFlare: BUFF_DEFINITIONS.solarFlare,
+  fireworks: BUFF_DEFINITIONS.fireworks,
   drain: BUFF_DEFINITIONS.drain,
   poison: BUFF_DEFINITIONS.poison,
   bleed: BUFF_DEFINITIONS.bleed,
@@ -5079,6 +5190,114 @@ export const CARD_DEFINITIONS = [
     color: '#b54848'
   },
   {
+    id: 'undying-enchant',
+    name: '不灭',
+    kind: 'enchant',
+    label: '灭',
+    artKey: 'lifesteal',
+    summary: '攻击时附加最大生命值×（6%+等级×0.2%）伤害并恢复等量生命，6 秒冷却',
+    target: 'friendly-unit',
+    radius: 1.1,
+    cooldown: 0,
+    energyCost: 2,
+    enchantmentId: 'undying',
+    effect: {
+      type: 'apply-buff',
+      buffId: 'undying'
+    },
+    color: '#ffd36a'
+  },
+  {
+    id: 'triumph-enchant',
+    name: '凯旋',
+    kind: 'enchant',
+    label: '凯',
+    artKey: 'soulEater',
+    summary: '亲自击杀单位时恢复等级×3生命，并永久增加等级×1最大生命',
+    target: 'friendly-unit',
+    radius: 1.1,
+    cooldown: 0,
+    energyCost: 2,
+    enchantmentId: 'triumph',
+    effect: {
+      type: 'apply-buff',
+      buffId: 'triumph'
+    },
+    color: '#f7cf62'
+  },
+  {
+    id: 'assault-enchant',
+    name: '强攻',
+    kind: 'enchant',
+    label: '强',
+    artKey: 'heavyStrike',
+    summary: '每次攻击强攻层数+1并附加层数点伤害；层数超过附魔等级时归零',
+    target: 'friendly-unit',
+    radius: 1.1,
+    cooldown: 0,
+    energyCost: 2,
+    enchantmentId: 'assault',
+    effect: {
+      type: 'apply-buff',
+      buffId: 'assault'
+    },
+    color: '#e36c43'
+  },
+  {
+    id: 'shockwave-enchant',
+    name: '震荡',
+    kind: 'enchant',
+    label: '震',
+    artKey: 'explosion',
+    summary: '耐久耗尽时释放 5 米黄色震荡波，造成最大耐久×2%×等级的伤害，4 秒冷却',
+    target: 'friendly-unit',
+    radius: 1.1,
+    cooldown: 0,
+    energyCost: 2,
+    enchantmentId: 'shockwave',
+    effect: {
+      type: 'apply-buff',
+      buffId: 'shockwave'
+    },
+    color: '#f3d35a'
+  },
+  {
+    id: 'solar-flare-enchant',
+    name: '烈阳',
+    kind: 'enchant',
+    label: '阳',
+    artKey: 'fire',
+    summary: '每 5 秒对 5 米内敌人造成最大生命值×（7%+等级×0.3%）伤害',
+    target: 'friendly-unit',
+    radius: 1.1,
+    cooldown: 0,
+    energyCost: 2,
+    enchantmentId: 'solarFlare',
+    effect: {
+      type: 'apply-buff',
+      buffId: 'solarFlare'
+    },
+    color: '#ffba3d'
+  },
+  {
+    id: 'fireworks-enchant',
+    name: '烟花',
+    kind: 'enchant',
+    label: '花',
+    artKey: 'explosion',
+    summary: '命中后在目标头顶绽放烟花：7 米内敌人受到等级点伤害并附加攻击特效，友军恢复等级点生命',
+    target: 'friendly-unit',
+    radius: 1.1,
+    cooldown: 0,
+    energyCost: 2,
+    enchantmentId: 'fireworks',
+    effect: {
+      type: 'apply-buff',
+      buffId: 'fireworks'
+    },
+    color: '#ff78c8'
+  },
+  {
     id: 'drain-enchant',
     name: '汲取',
     kind: 'enchant',
@@ -5210,7 +5429,7 @@ export const CARD_DEFINITIONS = [
     kind: 'enchant',
     label: '甲',
     artKey: 'waveArmored',
-    summary: '1级：生命 +12.5%、护甲 +2.05；每级额外生命 +2.5%、护甲 +0.45',
+    summary: '每级：生命 +5%、护甲 +1',
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,
@@ -5228,7 +5447,7 @@ export const CARD_DEFINITIONS = [
     kind: 'enchant',
     label: '冲',
     artKey: 'waveRush',
-    summary: '1级：移速 +24%、攻速 +8.5%；每级额外移速 +4%、攻速 +2.5%',
+    summary: '每级：移速 +5%、攻速 +5%',
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,
@@ -5246,7 +5465,7 @@ export const CARD_DEFINITIONS = [
     kind: 'enchant',
     label: '远',
     artKey: 'waveRanged',
-    summary: '1级：射程 +0.73、攻击 +5%；每级额外射程 +0.18、攻击 +2%',
+    summary: '每级：射程 +5%、攻击 +5%',
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,
@@ -5264,7 +5483,7 @@ export const CARD_DEFINITIONS = [
     kind: 'enchant',
     label: '城',
     artKey: 'waveSiege',
-    summary: '1级：攻击 +18%、击退 +9%；每级额外攻击 +4%、击退 +3%',
+    summary: '每级：攻击 +5%、击退 +5%',
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,
@@ -5686,6 +5905,30 @@ export const CARD_META = {
     buyCost: 140,
     upgradeBaseCost: 40
   },
+  'undying-enchant': {
+    buyCost: 155,
+    upgradeBaseCost: 44
+  },
+  'triumph-enchant': {
+    buyCost: 150,
+    upgradeBaseCost: 42
+  },
+  'assault-enchant': {
+    buyCost: 120,
+    upgradeBaseCost: 34
+  },
+  'shockwave-enchant': {
+    buyCost: 125,
+    upgradeBaseCost: 36
+  },
+  'solar-flare-enchant': {
+    buyCost: 165,
+    upgradeBaseCost: 46
+  },
+  'fireworks-enchant': {
+    buyCost: 150,
+    upgradeBaseCost: 42
+  },
   'drain-enchant': {
     buyCost: 135,
     upgradeBaseCost: 38
@@ -5869,8 +6112,7 @@ export const BALANCE = {
   },
   playerEnergy: {
     initial: 4,
-    max: 12,
-    regenerationPerSecond: 0.2
+    regenerationPerSecond: 0.1
   },
   playerBase: {
     position: { x: 0, y: 0, z: 30 },
@@ -5884,6 +6126,7 @@ export const BALANCE = {
     durabilityPerSecond: 0.8,
     attackRange: 8.5,
     attackDamage: 7,
+    attackKnockback: 1.35,
     attackInterval: 1,
     attackDurabilityCost: 1
   },

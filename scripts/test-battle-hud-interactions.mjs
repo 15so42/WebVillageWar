@@ -113,8 +113,9 @@ const levelMarkup = createForgedCardMarkup({
   energyCost: 3,
   color: '#ffffff'
 });
-assert.match(levelMarkup, /<div class="med-card-level"[^>]*>XI<\/div>/);
-assert.doesNotMatch(levelMarkup, /med-card-level-icon|med-card-level-roman|Lv\.|>11</);
+assert.match(levelMarkup, /<div class="med-card-meta-row is-title-only">/);
+assert.match(levelMarkup, /<div class="med-card-name" title="等级测试 XI">等级测试 XI<\/div>/);
+assert.doesNotMatch(levelMarkup, /med-card-kind|med-card-type-icon|med-card-level|Lv\.|>11</);
 assert.match(levelMarkup, /<div class="med-card-type-label" aria-hidden="true">单位卡<\/div>/);
 for (const [kind, label] of [
   ['spell', '法术卡'],
@@ -158,7 +159,7 @@ const trainingMarkup = createForgedCardMarkup({
 assert.match(trainingMarkup, /<div class="med-card-type-label" aria-hidden="true">训练卡<\/div>/);
 assert.match(
   battleHudStyles,
-  /\.med-card-meta-row \.med-card-level\s*\{[^}]*font-family:\s*var\(--font-title\);[^}]*font-weight:\s*900;/s
+  /:is\(\.card-hand,\s*\.temporary-card-slot,\s*\.wave-reward-card-frame\) \.med-card-meta-row\.is-title-only\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);/s
 );
 assert.doesNotMatch(gameSource, /wave-command-affixes/, '战斗顶部不应显示波次主题或附魔信息');
 assert.doesNotMatch(gameSource, /function waveCommandAffixMarkup/, '顶部附魔令牌生成逻辑应移除');
