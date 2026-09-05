@@ -484,40 +484,39 @@ const RENDER_TONE_MAPPING_LABELS = {
 };
 const SNOW_VALLEY_HEAD_RENDER_TUNING = Object.freeze({
   toneMapping: 'aces',
-  // 雪面保留浅色层次，暖阳、冷岩和土路由光照与材质共同区分。
-  exposure: 1.0,
-  brightness: 1,
-  contrast: 1.10,
-  saturation: 0.96,
+  // 预览页定稿（2026-09-06）：亮冷白雪面 + 低位金色侧光，高环境光保持通透，远景统一冷灰蓝。
+  exposure: 1.04,
+  brightness: 1.05,
+  contrast: 1.18,
+  saturation: 1.02,
   hue: 0,
   warmth: 0,
-  // 金色阳光从远处左上斜入，冷色环境补光托住岩壁背面与松林深处。
-  sunColor: '#ffe0bb',
-  sunIntensity: 4.6,
-  // 与 (-40, 35, -20) 同方向，等比例远移以覆盖远端山体的阴影近裁面。
-  sunX: -60,
-  sunY: 52.5,
-  sunZ: -30,
+  // 金色暖阳从前方偏左低位斜入，照亮近景主路与营地；冷灰蓝环境光整体托底，阴影通透不死黑。
+  sunColor: '#ffcf9e',
+  sunIntensity: 2.47,
+  sunX: -22,
+  sunY: 42,
+  sunZ: 88,
   shadowIntensity: 1,
-  hemiIntensity: 0.65,
-  hemiSky: '#a9bdd6',
-  hemiGround: '#858b95',
-  ambientColor: '#c4ccd5',
-  ambientIntensity: 0.18,
-  background: '#dfd3bd',
-  fogColor: '#dfd3bd',
-  fogNear: 64,
-  fogFar: 214,
+  hemiIntensity: 0.78,
+  hemiSky: '#b7c9e8',
+  hemiGround: '#3b4a68',
+  ambientColor: '#a9b2c6',
+  ambientIntensity: 0.6,
+  background: '#c8cddc',
+  fogColor: '#c8cddc',
+  fogNear: 48,
+  fogFar: 215,
   aoIntensity: 0.012,
   aoScale: 3.2,
   aoKernelRadius: 18,
   aoBias: 0.26,
   // 轻微接触遮蔽与辉光衔接岩脚、积雪和树根，轮廓保持柔和。
-  bloomStrength: 0.09,
-  vignetteStrength: 0.1,
-  snowColor: '#dedfdc',
-  rockColor: '#8f989d',
-  treeColor: '#5f6b50',
+  bloomStrength: 0.12,
+  vignetteStrength: 0.06,
+  snowColor: '#e9eef6',
+  rockColor: '#7c7f85',
+  treeColor: '#46685a',
   outlineThickness: 0.2,
   outlineColor: '#56606d',
   outlineThreshold: 0.48
@@ -680,6 +679,13 @@ const OutlineShader = {
       float highlightMask = 1.0 - smoothstep(0.66, 0.9, luminance);
       edge *= highlightMask;
 
+      // 火焰豁免：半透明火苗（营火/火把）正常混合叠在亮雪面上后亮度达不到
+      // 高亮豁免线，轮廓会被描成一圈黑边；按“暖色高饱和 + 足够亮”补充豁免，
+      // 红旗/暖木等亮度不足不受影响。
+      float warmth = centerTexel.r - centerTexel.b;
+      float fireMask = smoothstep(0.34, 0.5, warmth) * smoothstep(0.42, 0.58, luminance);
+      edge *= 1.0 - fireMask;
+
       // Blend outline with original color
       gl_FragColor = vec4(mix(centerTexel.rgb, outlineColor, edge), centerTexel.a);
     }
@@ -803,6 +809,20 @@ export class Game {
     this.composer.addPass(renderPass);
 
     this.saoPass = new SAOPass(this.scene, this.camera);
+    // The normal/depth override ignores sprite alpha and otherwise turns the
+    // campfire into opaque rectangles. Exclude only its registered soft effects.
+    this.saoPass.renderOverride = function (renderer, material, target, clearColor, clearAlpha) {
+      const exclusions = this.scene.userData.aoExclusions ?? [];
+      for (const entry of exclusions) {
+        entry.visible = entry.object.visible;
+        entry.object.visible = false;
+      }
+      try {
+        SAOPass.prototype.renderOverride.call(this, renderer, material, target, clearColor, clearAlpha);
+      } finally {
+        for (const entry of exclusions) entry.object.visible = entry.visible;
+      }
+    };
     this.saoPass.render = function (renderer, writeBuffer, readBuffer, deltaTime, maskActive) {
       const oldMask = this.camera.layers.mask;
       this.camera.layers.set(0);

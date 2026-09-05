@@ -1,12 +1,13 @@
 import * as THREE from 'three';
-import { createSoftParticleMaterial, getSoftParticleTexture } from './vfxMaterials.js';
+import { createSoftParticleMaterial } from './vfxMaterials.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const BOX = new THREE.BoxGeometry(1, 1, 1);
 const STONE = new THREE.DodecahedronGeometry(1, 0);
 const LOG = new THREE.CylinderGeometry(0.105, 0.135, 1, 6, 1);
 const GROUND_DISC = new THREE.CircleGeometry(1, 20);
-const GLOW_PLANE = new THREE.PlaneGeometry(1, 1);
+// 地面辉光改用顶点 alpha 圆盘：边缘 alpha 精确归零，不依赖纹理采样，
+// 任何管线下都不会露出方形面片边界（亮雪面上加法混合裁剪曾暴露方边）。
 const WOOD = new THREE.MeshStandardMaterial({ color: '#795033', roughness: 0.96, flatShading: true });
 const WOOD_LIGHT = new THREE.MeshStandardMaterial({ color: '#9b7048', roughness: 0.94, flatShading: true });
 const IRON = new THREE.MeshStandardMaterial({ color: '#454849', roughness: 0.82, metalness: 0.15 });
@@ -18,6 +19,23 @@ const STONE_MATERIALS = ['#777e84', '#929397', '#656f78'].map((color) => (
 const CHARRED_WOOD = new THREE.MeshStandardMaterial({ color: '#3d3029', roughness: 1, flatShading: true });
 const ASH = new THREE.MeshStandardMaterial({ color: '#514840', roughness: 1 });
 let groundGlowMaterial = null;
+
+function createGroundGlowDisc() {
+  const geometry = new THREE.CircleGeometry(1, 28);
+  const position = geometry.attributes.position;
+  const colors = new Float32Array(position.count * 4);
+  for (let i = 0; i < position.count; i += 1) {
+    const distance = Math.min(1, Math.hypot(position.getX(i), position.getY(i)));
+    const radial = 1 - distance;
+    colors[i * 4] = 1;
+    colors[i * 4 + 1] = 1;
+    colors[i * 4 + 2] = 1;
+    colors[i * 4 + 3] = radial * radial * (3 - 2 * radial);
+  }
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 4));
+  return geometry;
+}
+const GLOW_DISC = createGroundGlowDisc();
 
 function solid(group, geometry, material, x, y, z, sx = 1, sy = 1, sz = 1) {
   const mesh = new THREE.Mesh(geometry, material);
@@ -125,12 +143,12 @@ function sharedGroundGlow() {
   if (groundGlowMaterial) return groundGlowMaterial;
   groundGlowMaterial = new THREE.MeshBasicMaterial({
     color: '#ffa53a',
-    map: getSoftParticleTexture(),
     transparent: true,
-    opacity: 0.28,
+    opacity: 0.34,
     blending: THREE.AdditiveBlending,
     depthTest: true,
     depthWrite: false,
+    vertexColors: true,
     toneMapped: false
   });
   return groundGlowMaterial;
@@ -160,11 +178,11 @@ export function createSnowCanyonCampfire() {
     log.rotation.z = Math.PI / 2;
     log.rotation.y = index * 0.9 + 0.3;
   }
-  const groundGlow = new THREE.Mesh(GLOW_PLANE, sharedGroundGlow());
+  const groundGlow = new THREE.Mesh(GLOW_DISC, sharedGroundGlow());
   groundGlow.name = 'CampfireGroundGlow';
   groundGlow.rotation.x = -Math.PI / 2;
   groundGlow.position.y = 0.032;
-  groundGlow.scale.set(3, 3, 1);
+  groundGlow.scale.set(2.5, 2.5, 1);
   group.add(groundGlow);
 
   const particles = [];
@@ -176,7 +194,8 @@ export function createSnowCanyonCampfire() {
       // Orange tongues need coverage against bright snow; additive-only flames
       // wash out to white. Only the short-lived sparks use additive blending.
       blending: spark ? THREE.AdditiveBlending : THREE.NormalBlending,
-      falloff: spark ? 'tight' : 'soft',
+      // tight 衰减在面片外圈 34% 处 alpha 已精确归零，亮雪面上不会露出方形裙边。
+      falloff: 'tight',
       toneMapped: false
     });
     const sprite = new THREE.Sprite(material);
@@ -210,16 +229,17 @@ export function createSnowCanyonCampfire() {
       } else {
         sprite.position.set(Math.cos(phase) * 0.13 + drift * (0.035 + progress * 0.065),
           0.38 + rise * (1.05 + index * 0.085), Math.sin(phase) * 0.13 + progress * 0.035);
-        const width = (0.73 + (index % 3) * 0.11) * (1 - progress * 0.62);
-        sprite.scale.set(width, (1.75 + index * 0.13) * (1 - progress * 0.45), 1);
+        // 后半生快速收窄收淡：避免低不透明度薄纱在亮雪面上显出面片轮廓。
+        const width = (0.73 + (index % 3) * 0.11) * (1 - progress * 0.72);
+        sprite.scale.set(width, (1.75 + index * 0.13) * (1 - progress * 0.58), 1);
         particle.material.color.setRGB(1.9 - progress * 0.6,
-          (index === 0 ? 0.95 : 0.43) * (1 - progress * 0.84), 0.045 * (1 - progress));
-        particle.material.opacity = fade * (0.84 + (index % 2) * 0.12);
+          (index === 0 ? 0.95 : 0.43) * (1 - progress * 0.6), 0.045 * (1 - progress));
+        particle.material.opacity = fade * (1 - progress * 0.45) * (0.84 + (index % 2) * 0.12);
       }
       particle.material.rotation = drift * 0.1;
     }
     const pulse = 1 + Math.sin(elapsed * 5.1) * 0.035 + Math.sin(elapsed * 8.7) * 0.02;
-    groundGlow.scale.set(3 * pulse, 3 * pulse, 1);
+    groundGlow.scale.set(2.5 * pulse, 2.5 * pulse, 1);
   }
   update(0);
   return { group, update };

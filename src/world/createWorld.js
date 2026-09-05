@@ -271,6 +271,7 @@ import {
 import { clamp, seededRandom } from '../utils/math.js';
 import { NavigationGrid } from './NavigationGrid.js';
 import { canyonSnowHeight, createSnowCanyonLayer } from './snowCanyonGeometry.js';
+import { createSnowFieldRelief } from './snowFieldRelief.js';
 import { createSnowCanyonPlacement } from './snowCanyonPlacement.js';
 import { createSnowCanyonRoad } from './snowCanyonRoad.js';
 import { createSnowCanyonSurfaceIndex } from './snowCanyonSurface.js';
@@ -952,43 +953,44 @@ const WORLD_PRESETS = {
   'snow-valley': {
     sceneKey: 'snow-valley',
     seed: 42,
-    // 第一关使用调试面板导出的开局机位与观察点，保持 45° 俯角。
+    // 第一关使用调试面板导出的开局机位与观察点（2026-09-06 定稿）。
     camera: {
-      target: { x: 0.654, y: 4, z: 31.636 },
+      target: { x: -0.21, y: 4, z: 30.959 },
       // 降低俯角（约 37°）并后拉一点：更接近“跟在部队后方”的站位，
       // 而不是俯视舞台；缩放距离基本不变，开局帧更立体、少一份“上帝视角”。
-      initialPosition: { x: 2.1, y: 30.5, z: 66.8 },
+      initialPosition: { x: 1.121, y: 28.395, z: 63.329 },
       minDistance: 12,
       maxDistance: 78
     },
     sky: {
       toneMapping: 'aces',
-      // 奶油色雪面与灰蓝阴影：主光保持浅金色，环境补光压低两壁明暗反差。
-      exposure: 1.0,
-      background: '#dfd3bd',
+      // 预览页定稿（2026-09-06）：亮冷白雪面 + 低位金色侧光，高环境光保持通透，远景统一冷灰蓝。
+      exposure: 1.04,
+      background: '#c8cddc',
       skyGradient: {
         top: '#9baac0',
         middle: '#dbd1c0',
         horizon: '#f3d4a0'
       },
-      fog: '#dfd3bd',
-      fogNear: 64,
-      fogFar: 214,
-      sun: '#ffe0bb',
-      sunIntensity: 4.6,
+      fog: '#c8cddc',
+      fogNear: 48,
+      fogFar: 215,
+      sun: '#ffcf9e',
+      sunIntensity: 2.47,
       shadowIntensity: 1,
-      // 降低斜射角延长投影；同方向远移确保远端山体也在阴影近裁面以内。
-      sunPosition: { x: -60, y: 52.5, z: -30 },
+      // 金色暖阳从前方偏左低位斜入；阴影相机需 ±100 覆盖全图（与 world-preview 一致）。
+      sunPosition: { x: -22, y: 42, z: 88 },
       sunTarget: { x: 0, y: 0, z: 0 },
-      hemiSky: '#a9bdd6',
-      hemiGround: '#858b95',
-      hemiIntensity: 0.65,
-      ambientColor: '#c4ccd5',
-      ambientIntensity: 0.18,
+      hemiSky: '#b7c9e8',
+      hemiGround: '#3b4a68',
+      hemiIntensity: 0.78,
+      ambientColor: '#a9b2c6',
+      ambientIntensity: 0.6,
       bounceColor: '#d5dce5',
       bounceIntensity: 0.18,
       bouncePosition: { x: 45, y: 38, z: 30 },
       shadowMapSize: 4096,
+      shadowExtent: 100,
       shadowRadius: 8,
       shadowBias: -0.0005,
       shadowNormalBias: 0.02,
@@ -1010,9 +1012,9 @@ const WORLD_PRESETS = {
       puddle: '#c4d0de'
     },
     materials: {
-      snow: '#dedfdc',
-      rock: '#8f989d',
-      tree: '#5f6b50'
+      snow: '#e9eef6',
+      rock: '#7c7f85',
+      tree: '#46685a'
     },
     // 材质保持低饱和底色，岩石不再预烘方向性冷暖，以免与实时光照叠乘。
     art: {
@@ -1041,8 +1043,8 @@ const WORLD_PRESETS = {
     ground: {
       width: 240,
       depth: 204,
-      // 谷底雪原保持同一水平面，层次完全由两侧整体峡谷山体承担。
-      flatShading: false
+      // 细小雪坡保留低多边形明暗面，与山体雪面一致。
+      flatShading: true
     },
     navigationBounds: {
       minX: -50,
@@ -1188,7 +1190,14 @@ const WORLD_PRESETS = {
     },
     terrain: {
       ...DEFAULT_TERRAIN_PROFILE,
-      // 第一关地表高度在 terrainHeightAt 中固定为 baseHeight；下面的通用字段仅保留预设兼容性。
+      // 谷底采用独立的小幅雪面起伏，通用山丘参数不参与第一关地表。
+      snowUndulation: {
+        amplitude: 0.42,
+        spacing: 9,
+        density: 0.66,
+        roadFeather: 2.2,
+        flatPatches: [{ x: 8.8, z: 11.8, radius: 3.0, feather: 1.4 }]
+      },
       roughnessScale: 0.72,
       northRise: 2.05,
       sideRise: 1.12,
@@ -2118,11 +2127,14 @@ const DEFAULT_WORLD_PALETTE = {
     };
 
 let activeWorldConfig = resolveWorldConfig();
+let activeSnowFieldRelief = null;
 
 export function createWorld(scene, worldOptions = {}) {
   activeWorldConfig = resolveWorldConfig(worldOptions);
   activeSnowSurfaceIndex = null;
   const config = activeWorldConfig;
+  activeSnowFieldRelief = config.sceneKey === 'snow-valley' && config.terrain.snowUndulation
+    ? createSnowFieldRelief({ ...config.ground, ...config.terrain.snowUndulation }) : null;
   const initialMaterialColors = { ...(config.materials ?? {}) };
   const initialSnowPalette = { ...(config.palette ?? {}) };
   const initialLandmassColors = config.landmass
@@ -2138,7 +2150,8 @@ export function createWorld(scene, worldOptions = {}) {
   activeAnimatedDecorations = [];
   activeSnowTreeQueue = config.sceneKey === 'snow-valley' ? [] : null;
   activeSnowPlacement = config.sceneKey === 'snow-valley' ? createSnowCanyonPlacement(
-    (x, z) => snowValleyCanyonSurfaceHeightAt(x, z) ?? terrainHeightAt(x, z),
+    // Keep the established placement plan independent of shallow valley relief.
+    (x, z) => snowValleyCanyonSurfaceHeightAt(x, z) ?? config.terrain.baseHeight,
     SNOW_VALLEY_CANYON_MASSES.flatMap((mass) => mass.layers.map((layer, index) => ({
       edge: layer.innerEdge, top: layer.topY + layer.bevelThickness +
         (0.275 + index * 0.035) * (layer.waveScale ?? 1) + 0.32
@@ -2159,7 +2172,8 @@ export function createWorld(scene, worldOptions = {}) {
     }
     const shadowMapSize = config.sky.shadowMapSize ?? 1024;
     sun.shadow.mapSize.set(shadowMapSize, shadowMapSize);
-    const shadowExtent = config.sceneKey === 'snow-valley' ? 68 : 100;
+    // 雪谷预设显式指定 ±100（预览页定稿需要更宽覆盖），其余场景维持默认。
+    const shadowExtent = config.sky.shadowExtent ?? 100;
     sun.shadow.camera.left = -shadowExtent;
     sun.shadow.camera.right = shadowExtent;
     sun.shadow.camera.top = shadowExtent;
@@ -2514,10 +2528,23 @@ export function terrainHeightAt(x, z) {
     return dungeonTerrainHeightAt(x, z);
   }
   const terrain = config.terrain;
-  // 第一关的雪面必须是完整平地，避免地形网格从左右整体山壁之外鼓出来。
-  // 主路、基地、祭坛与装饰物都继续通过同一个高度查询落在这张水平雪面上。
+  // Shared by terrain vertices, road and object placement; never displace only
+  // the shader, which would separate the visible snow from gameplay heights.
   if (config.sceneKey === 'snow-valley') {
-    return terrain.baseHeight;
+    const relief = terrain.snowUndulation;
+    if (!relief?.amplitude) return terrain.baseHeight;
+    const pathDistance = distanceToPath(x, z, rawPathPoints());
+    const roadEdge = (config.pathWidth ?? 8.4) * 0.5;
+    let keep = smoothstep(roadEdge, roadEdge + relief.roadFeather, pathDistance);
+    keep *= smoothstep(3.3, 5.8, Math.hypot(x - config.playerBasePosition.x, z - config.playerBasePosition.z));
+    keep *= smoothstep(4, 6.5, Math.hypot(x - config.enemyCampPosition.x, z - config.enemyCampPosition.z));
+    for (const altar of config.altars ?? []) {
+      keep *= smoothstep(1.5, 3.1, Math.hypot(x - altar.position.x, z - altar.position.z));
+    }
+    for (const patch of relief.flatPatches ?? []) {
+      keep *= smoothstep(patch.radius, patch.radius + patch.feather, Math.hypot(x - patch.x, z - patch.z));
+    }
+    return terrain.baseHeight + (activeSnowFieldRelief?.(x, z) ?? 0) * keep;
   }
   const pathDistance = distanceToPath(x, z, rawPathPoints());
   const northMask = northMaskAt(z);
@@ -2683,6 +2710,40 @@ export function terrainHeightAt(x, z) {
       );
       height += canyonRise * baseKeep * campKeep;
     }
+
+    // 雪原低频起伏：大尺度雪浪，提供坡向与明暗基底；
+    // 主路路肩内、基地/敌营平台与冰面水洼保持平整（后续平台混合再兜底一次）。
+    const fieldKeep =
+      smoothstep(5.4, 10, pathDistance) *
+      smoothstep(7, 13, Math.hypot(x - config.playerBasePosition.x, z - config.playerBasePosition.z)) *
+      smoothstep(7, 13, Math.hypot(x - config.enemyCampPosition.x, z - config.enemyCampPosition.z));
+    let snowFieldKeep = fieldKeep;
+    (config.puddles ?? []).forEach((puddle) => {
+      const puddleDistance = Math.hypot(
+        (x - puddle.x) / (puddle.rx + 2),
+        (z - puddle.z) / (puddle.rz + 2)
+      );
+      snowFieldKeep *= smoothstep(0.72, 1.3, puddleDistance);
+    });
+    const fieldWave =
+      Math.sin(x * 0.55 + z * 0.38 + Math.sin(z * 0.14) * 1.6) * 0.13 +
+      Math.cos(x * 0.31 - z * 0.52 + Math.sin(x * 0.1) * 2.0) * 0.11 +
+      Math.sin((x + z) * 0.21 + 2.7) * 0.07;
+    // 雪面褶皱：类比两边山体表面的折痕感。平雪面坡度近零且雪色亮白，
+    // 长波起伏在平直着色下色阶被压平；把坡度调制抬到山体量级：
+    // 中高频垄脊 + 窄折痕 + 网格顶点尺度逐面微抖动。
+    const fieldFold =
+      Math.sin(x * 0.94 + z * 0.57 + Math.sin(z * 0.21) * 1.5) * 0.22 +
+      Math.cos(x * 0.66 - z * 0.88 + Math.sin(x * 0.17) * 1.8) * 0.17 +
+      Math.sin((x - z) * 0.52 + 1.9) * 0.11 +
+      Math.sin(x * 1.7 + z * 1.1 + 0.8) * 0.07 +
+      Math.cos(x * 1.3 - z * 1.9 + 2.2) * 0.06;
+    const fieldCrease =
+      Math.pow(1 - Math.abs(Math.sin(x * 0.36 + z * 0.23 + Math.sin(z * 0.08) * 1.1)), 1.5) * 0.2;
+    // 逐面微抖：网格顶点尺度随机高差，让每个三角面法线略有差异，
+    // 类比山体低模面的“揉皱”感；幅度克制，不影响通行与寻路。
+    const fieldJitter = (hash2(Math.floor(x), Math.floor(z)) - 0.5) * 0.07;
+    height += (fieldWave + fieldFold + fieldCrease + fieldJitter) * snowFieldKeep;
   }
 
   const playerBase = config.playerBasePosition;
@@ -2804,9 +2865,30 @@ function createGroundMesh() {
   );
   const position = geometry.attributes.position;
   for (let i = 0; i < position.count; i += 1) {
-    const x = position.getX(i);
-    const z = -position.getY(i);
+    let x = position.getX(i);
+    let z = -position.getY(i);
+    if (config.sceneKey === 'snow-valley') {
+      const column = i % (segmentsX + 1);
+      const row = Math.floor(i / (segmentsX + 1));
+      // Unequal facet widths break the rows of identical triangular snow ripples.
+      if (column > 0 && column < segmentsX && row > 0 && row < segmentsZ) {
+        x += (hash2(column + 17, row + 31) - 0.5) * 0.4 * config.ground.width / segmentsX;
+        z += (hash2(column + 59, row + 83) - 0.5) * 0.4 * config.ground.depth / segmentsZ;
+        position.setXY(i, x, -z);
+      }
+    }
     position.setZ(i, terrainHeightAt(x, z));
+  }
+  if (config.sceneKey === 'snow-valley') {
+    const indices = geometry.index.array;
+    for (let row = 0; row < segmentsZ; row += 1) {
+      for (let column = 0; column < segmentsX; column += 1) {
+        if (hash2(column + 113, row + 167) < 0.5) continue;
+        const a = row * (segmentsX + 1) + column;
+        const b = a + segmentsX + 1;
+        indices.set([a, b, b + 1, a, b + 1, a + 1], (row * segmentsX + column) * 6);
+      }
+    }
   }
   position.needsUpdate = true;
   setGroundUvFromWorldXZ(geometry, config.ground.width, config.ground.depth);
@@ -7556,8 +7638,10 @@ function addStaticCulledObject(scene, object, radiusPadding = STATIC_WORLD_CULL_
     const box = new THREE.Box3().setFromObject(object);
     const width = box.max.x - box.min.x; const depth = box.max.z - box.min.z;
     if (width > 0.3 && depth > 0.3 && width < 14 && depth < 14) {
+      const reliefOffset = snowValleyCanyonSurfaceHeightAt(object.position.x, object.position.z) == null
+        ? terrainHeightAt(object.position.x, object.position.z) - worldConfig().terrain.baseHeight : 0;
       activeSnowPlacement.addObstacle({ x: (box.min.x + box.max.x) / 2, z: (box.min.z + box.max.z) / 2,
-        radius: Math.hypot(width, depth) / 2, bottom: box.min.y, top: box.max.y });
+        radius: Math.hypot(width, depth) / 2, bottom: box.min.y - reliefOffset, top: box.max.y - reliefOffset });
     }
   }
   bakeObjectGroundShadow(object);
@@ -7587,7 +7671,13 @@ function flushSnowCanyonTrees(scene) {
       if (y != null) object.position.set(x, y, z);
     }
     if (y == null) continue;
-    object.position.y = y - 0.025;
+    const surfaceY = snowValleyCanyonSurfaceHeightAt(object.position.x, object.position.z)
+      ?? terrainHeightAt(object.position.x, object.position.z);
+    object.position.y = surfaceY - 0.025;
+    const placedTree = activeSnowPlacement.report.trees.at(-1);
+    placedTree.y = surfaceY;
+    placedTree.canopyBottom += surfaceY - y;
+    placedTree.canopyTop += surfaceY - y;
     addStaticCulledObject(scene, object, radiusPadding);
     registerWorldNavigationBlocker(object.position.x, object.position.z, Math.max(0.35, radius * 0.42), 'snow-tree');
   }
@@ -8248,7 +8338,8 @@ function createTerrainEllipseMesh(zone, material, offset = 0.06, segments = 18) 
 function enableDecorationShadows(root) {
   root.traverse((node) => {
     if (!node.isMesh) return;
-    node.castShadow = true;
+    // 半透明部件（火苗等）不投影：透明体进阴影图会按不透明处理，在雪面留下实心黑影。
+    node.castShadow = node.material?.transparent !== true;
     node.receiveShadow = true;
   });
   return root;
@@ -9976,6 +10067,9 @@ function placeSnowValleyLandmarks(scene) {
   const position = { x: 8.8, z: 11.8 };
   placeOnTerrain(fire.group, position.x, position.z, 0.03);
   scene.add(fire.group);
+  scene.userData.aoExclusions = fire.group.children
+    .filter(object => object.isSprite || object.name === 'CampfireGroundGlow')
+    .map(object => ({ object, visible: object.visible }));
   registerWorldNavigationBlocker(position.x, position.z, 1.32, 'snow-campfire');
   activeSnowPlacement?.addObstacle({ ...position, radius: 1.5, bottom: 0.25, top: 3.0 });
   let previousElapsed = 0;

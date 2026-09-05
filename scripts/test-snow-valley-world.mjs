@@ -19,11 +19,11 @@ assert.equal(config.sceneKey, 'snow-valley');
 assert.equal(config.pathPoints.length, 12, '主路应为 12 个锚点的 S 形路线');
 assert.equal(config.altars.length, 3, '应包含 3 座祭坛');
 assert.deepEqual(config.camera, {
-  target: { x: 0.654, y: 4, z: 31.636 },
-  initialPosition: { x: 2.1, y: 30.5, z: 66.8 },
+  target: { x: -0.21, y: 4, z: 30.959 },
+  initialPosition: { x: 1.121, y: 28.395, z: 63.329 },
   minDistance: 12,
   maxDistance: 78
-}, '第一关视觉重制必须保留开局相机位置、观察点与缩放范围');
+}, '第一关必须保留定稿开局相机位置、观察点与缩放范围');
 const root = fileURLToPath(new URL('../', import.meta.url));
 const gameSource = readFileSync(resolve(root, 'src/systems/Game.js'), 'utf8');
 assert.match(gameSource, /new THREE\.PerspectiveCamera\(35,\s*1,\s*0\.1,\s*240\)/,
@@ -79,9 +79,9 @@ const backdropLayers = scene.children.filter((child) => child.isMesh && child.re
 assert.ok(backdropLayers.length >= 1, '应生成雪山远景环层');
 
 // 5. 渲染预设：暖阳、蓝灰阴影与清晰的作战近景
-assert.ok(scene.fog && scene.fog.near === 64 && scene.fog.far === 214, '雾效应保留清晰近景并柔化远景');
+assert.ok(scene.fog && scene.fog.near === 48 && scene.fog.far === 215, '雾效应保留清晰近景并柔化远景');
 const sun = world.lights.sun;
-assert.equal(`#${sun.color.getHexString()}`, '#ffe0bb', '主光应为参考图的暖金色');
+assert.equal(`#${sun.color.getHexString()}`, '#ffcf9e', '主光应为预览页定稿的低位金色');
 
 // 6. update 循环不抛错（降雪粒子与装饰驱动）
 world.update(0.016, new THREE.Vector3(0, 0, 0), new THREE.Camera(), {});
