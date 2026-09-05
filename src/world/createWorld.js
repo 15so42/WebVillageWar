@@ -136,7 +136,11 @@ function applyGroundShader(material, { storybookSnow = false } = {}) {
       `
       #include <color_fragment>
       float noiseColor = snoise(vWorldPos * 0.08);
-      diffuseColor.rgb *= 1.0;
+      ${storybookSnow ? `
+      float grain = snoise(vWorldPos * 1.1) * 0.5 + 0.5;
+      float exposedSoil = smoothstep(0.015, 0.12, diffuseColor.r - diffuseColor.b);
+      diffuseColor.rgb *= 1.0 + (grain - 0.5) * (0.02 + exposedSoil * 0.11);
+      ` : ''}
       ${warmTintChunk}
       `
     ).replace(
@@ -266,6 +270,12 @@ import {
 } from '../art/lowpoly.js';
 import { clamp, seededRandom } from '../utils/math.js';
 import { NavigationGrid } from './NavigationGrid.js';
+import { canyonSnowHeight, createSnowCanyonLayer } from './snowCanyonGeometry.js';
+import { createSnowCanyonPlacement } from './snowCanyonPlacement.js';
+import { createSnowCanyonRoad } from './snowCanyonRoad.js';
+import { createSnowCanyonSurfaceIndex } from './snowCanyonSurface.js';
+import { createSnowCanyonPine } from '../art/snowCanyonPine.js';
+import { createSnowCanyonWatchtower, createSnowCanyonCampfire } from '../art/snowCanyonProps.js';
 
 const FOREST_ZONES = [
   { x: -31, z: 19, rx: 11, rz: 17, count: 90, tone: 'deep', raggedness: 0.6 },
@@ -384,6 +394,8 @@ let activeBakedShadowBatch = null;
 let activeStaticCullables = null;
 let activeStaticDecorationBatch = null;
 let activeAnimatedDecorations = null;
+let activeSnowTreeQueue = null;
+let activeSnowPlacement = null;
 
 const DEFAULT_TERRAIN_PROFILE = {
   baseHeight: 0.25,
@@ -417,7 +429,7 @@ const SNOW_VALLEY_OUTER_MOUNTAIN_INSET = 9.5;
 const SNOW_VALLEY_TERRACE_DEPTH_RATIO = 0.88;
 // 中高层逐级外扩：把中层/上层/冠峰的内缘往外侧推，崖壁截面从「层层压向谷底」
 // 变成随高度张开的阶梯，轮廓更简单、压迫感更弱
-const SNOW_VALLEY_TERRACE_FLARE = [0, 3.2, 4.2, 3.5];
+const SNOW_VALLEY_TERRACE_FLARE = [0, 1.4, 2.4, 2.8];
 
 // 第一关峡谷只由左右两块连续山体构成。每块山体共享一条纵向峡谷边线，
 // 三层台地由内向外逐级抬高；踏面保留原布局的 88%，并同步调整局部小台阶。
@@ -766,7 +778,30 @@ function narrowSnowValleyCanyonMass(mass) {
   return { ...mass, layers, subTerraces };
 }
 
-const SNOW_VALLEY_CANYON_MASSES = SNOW_VALLEY_CANYON_MASS_LAYOUTS.map(narrowSnowValleyCanyonMass);
+const SNOW_VALLEY_CANYON_MASSES = SNOW_VALLEY_CANYON_MASS_LAYOUTS.map((layout) => {
+  const mass = narrowSnowValleyCanyonMass(layout);
+  // Resample the first-pass outline onto common nodes so the restored tall,
+  // narrow terraces retain a shared rendered boundary and safe placement.
+  const nodes = Array.from({ length: 49 }, (_, i) => mass.zMin + (mass.zMax - mass.zMin) * i / 48);
+  const layers = mass.layers.map(layer => ({ ...layer, innerEdge: [] }));
+  for (const z of nodes) {
+    let previous = null;
+    mass.layers.forEach((layer, index) => {
+      let x = snowValleyCanyonEdgeXAt(layer.innerEdge, z);
+      if (previous != null) {
+        let width = Math.max(1.8, mass.side * (x - previous));
+        if (index === 2) {
+          const towerPocket = Math.exp(-Math.pow((z - (mass.side < 0 ? 17 : 30)) / 7, 4));
+          width += Math.max(0, 8.8 - width) * towerPocket;
+        }
+        x = previous + mass.side * width;
+      }
+      layers[index].innerEdge.push({ x, z });
+      previous = x;
+    });
+  }
+  return { ...mass, layers, decorationLayers: mass.layers, subTerraces: [] };
+});
 
 function snowValleyCanyonLayerPolygon(mass, layer) {
   if (layer.polygon) return layer.polygon;
@@ -810,8 +845,19 @@ function snowValleyCanyonLayerWave(mass, layer, layerIndex, z) {
   ) * waveScale;
 }
 
+let activeSnowSurfaceIndex = null;
+
 function snowValleyCanyonSurfaceHeightAt(x, z, radius = 0) {
   if (worldConfig().sceneKey !== 'snow-valley') return null;
+  if (activeSnowSurfaceIndex) {
+    const y = activeSnowSurfaceIndex.heightAt(x, z);
+    if (y == null) return null;
+    if (radius > 0) {
+      const edgeY = activeSnowSurfaceIndex.heightAt(x - Math.sign(x) * radius, z);
+      if (edgeY == null || Math.abs(edgeY - y) > 0.48) return null;
+    }
+    return y;
+  }
   let surfaceY = null;
   for (const mass of SNOW_VALLEY_CANYON_MASSES) {
     // 用朝谷底方向的测试点保证带半径的装饰物不会悬在悬崖边缘。
@@ -820,7 +866,7 @@ function snowValleyCanyonSurfaceHeightAt(x, z, radius = 0) {
     for (let layerIndex = 0; layerIndex < layers.length; layerIndex += 1) {
       const layer = layers[layerIndex];
       if (!snowValleyPointInPolygon(testX, z, snowValleyCanyonLayerPolygon(mass, layer))) continue;
-      const topY = layer.topY + layer.bevelThickness + snowValleyCanyonLayerWave(mass, layer, layerIndex, z);
+      const topY = canyonSnowHeight(x, z, layer.topY + layer.bevelThickness + snowValleyCanyonLayerWave(mass, layer, layerIndex, z));
       surfaceY = Math.max(surfaceY ?? -Infinity, topY);
     }
   }
@@ -917,28 +963,31 @@ const WORLD_PRESETS = {
     },
     sky: {
       toneMapping: 'aces',
-      // 暖主光 + 冷阴影：太阳是唯一暖色光源，半球光/环境光走冷蓝紫，
-      // 受光面暖橙、背光面冷灰紫，而不是全场均匀染橙
+      // 奶油色雪面与灰蓝阴影：主光保持浅金色，环境补光压低两壁明暗反差。
       exposure: 1.0,
-      background: '#c8a49c',
+      background: '#dfd3bd',
       skyGradient: {
-        top: '#5c4868',
-        middle: '#a88490',
-        horizon: '#f09860'
+        top: '#9baac0',
+        middle: '#dbd1c0',
+        horizon: '#f3d4a0'
       },
-      fog: '#c8b0ac',
-      fogNear: 48,
-      fogFar: 215,
-      sun: '#ffaa66',
-      sunIntensity: 3.6,
+      fog: '#dfd3bd',
+      fogNear: 64,
+      fogFar: 214,
+      sun: '#ffe0bb',
+      sunIntensity: 4.6,
       shadowIntensity: 1,
-      sunPosition: { x: 0, y: 52, z: 88 }, // 太阳 X 归零：接近正顶偏南，左右崖壁受光均匀，不产生整面背光黑墙
+      // 降低斜射角延长投影；同方向远移确保远端山体也在阴影近裁面以内。
+      sunPosition: { x: -60, y: 52.5, z: -30 },
       sunTarget: { x: 0, y: 0, z: 0 },
-      hemiSky: '#a4b0d4',
-      hemiGround: '#605a78',
-      hemiIntensity: 0.78,
-      ambientColor: '#9aa4c4',
-      ambientIntensity: 0.6,
+      hemiSky: '#a9bdd6',
+      hemiGround: '#858b95',
+      hemiIntensity: 0.65,
+      ambientColor: '#c4ccd5',
+      ambientIntensity: 0.18,
+      bounceColor: '#d5dce5',
+      bounceIntensity: 0.18,
+      bouncePosition: { x: 45, y: 38, z: 30 },
       shadowMapSize: 4096,
       shadowRadius: 8,
       shadowBias: -0.0005,
@@ -949,50 +998,44 @@ const WORLD_PRESETS = {
       bakedShadows: false
     },
     palette: {
-      // 雪面基色用中性白：向阳面由暖太阳照亮，背光面由冷半球光染蓝紫，
-      // 基色本身不带橙调，避免全场橙滤镜
-      base: '#e8e6e8',
-      side: '#aab2c6',
-      north: '#b4bcd4',
-      valley: '#e2e0e4',
-      forest: '#d6d2d6',
-      high: '#f0eef0',
-      snow: '#e8e6e8',
-      path: '#b3ab9e',
+      // 略低的雪面反射率给太阳高光留出空间，林缘以克制的冷灰过渡。
+      base: '#dedfdc',
+      side: '#aeb9c6',
+      north: '#b9c5cf',
+      valley: '#dedfdc',
+      forest: '#c4ccd0',
+      high: '#e9e8e2',
+      snow: '#dedfdc',
+      path: '#85878a',
       puddle: '#c4d0de'
     },
     materials: {
-      snow: '#e8e6e8',
-      rock: '#746664',
-      tree: '#c05535'
+      snow: '#dedfdc',
+      rock: '#8f989d',
+      tree: '#5f6b50'
     },
-    // 雪谷单一配色源：暖橙暮色 + 红棕秋树。
-    // 所有场景物体（树/岩石/山体）从 art 取三段光照色阶，
-    // 光照直接烘焙进顶点色，sunDirection 为统一光源方向
+    // 材质保持低饱和底色，岩石不再预烘方向性冷暖，以免与实时光照叠乘。
     art: {
-      // 烘焙光照方向与场景太阳（X 归零）保持一致
-      sunDirection: { x: 0.05, y: 0.5, z: 0.86 },
+      // 与远左方主光方向一致，保留给仍需要该信息的装饰物。
+      sunDirection: { x: -0.7044, y: 0.6163, z: -0.3522 },
       tree: {
         trunk: '#5c3a2c',
-        // 树冠基础色：受光/背光由场景光源（暖太阳 + 冷半球光）自动算出；
-        // 中等饱和橙红：保持秋树叶色辨识度，又不至于过饱和刺眼
-        mid: '#c05535',
-        // 参考图为纯红橙锥形树，树尖不覆白雪
-        snowCap: false
+        mid: '#5f6b50',
+        snowCap: true
       },
       rock: {
         // 与山壁同族的中灰岩面 + 白盖，避免小石块与山体颜色脱节。
-        sunlit: '#94999d',
-        mid: '#6f747a',
-        shadow: '#4c5157',
-        snowCap: '#e9edf0'
+        sunlit: '#989ea0',
+        mid: '#8f989d',
+        shadow: '#858f97',
+        snowCap: '#dedfdc'
       },
       cliff: {
         // 学院灰岩：侧壁中灰（受光浅中灰、背阴深灰），顶盖白色——灰色、不是灰黑。
-        sunlit: '#a2a6aa',
-        mid: '#7d8287',
-        shadow: '#63676e',
-        snow: '#eceff2'
+        sunlit: '#989ea0',
+        mid: '#8f989d',
+        shadow: '#858f97',
+        snow: '#dedfdc'
       }
     },
     ground: {
@@ -1009,7 +1052,7 @@ const WORLD_PRESETS = {
     },
     // 远景只在敌营方向收束成山口；不再用一圈连续山环把谷地围成槽。
     distantMountains: false,
-    pathWidth: 7.2,
+    pathWidth: 8.4,
     pathOrganic: {
       widthJitter: 0.25,
       edgeJitter: 0.42
@@ -1049,6 +1092,11 @@ const WORLD_PRESETS = {
       { x: 3, z: -31, r: 9.4 }
     ],
     forestZones: [
+      // 参考图的坡脚小松与台面主树；先给出候选，再统一做完整树冠避让。
+      { x: -12.2, z: 34, rx: 2.6, rz: 7, count: 16, tone: 'snow', raggedness: 0.15, edgeDrop: 0.2 },
+      { x: 12, z: 27, rx: 2.8, rz: 6, count: 12, tone: 'snow', raggedness: 0.15, edgeDrop: 0.2 },
+      { x: -15, z: 6, rx: 3, rz: 6, count: 13, tone: 'snow', raggedness: 0.2, edgeDrop: 0.2 },
+      { x: 15, z: -17, rx: 3, rz: 7, count: 14, tone: 'snow', raggedness: 0.18, edgeDrop: 0.2 },
       // 树只依附台地和坡脚成簇，入口与战斗中心留下大片雪地。
       { x: -29, z: 25, rx: 7, rz: 5.5, count: 18, tone: 'deep', rot: 0.24, raggedness: 0.36, edgeDrop: 0.54 },
       { x: -32, z: 1, rx: 6.5, rz: 9, count: 25, tone: 'cool', rot: -0.14, raggedness: 0.34, edgeDrop: 0.52 },
@@ -2022,10 +2070,58 @@ const WORLD_PRESETS = {
   }
 };
 
+const DEFAULT_WORLD_SKY = {
+      toneMapping: 'aces',
+      // 暖主光 + 冷阴影：太阳是唯一暖色光源，半球光/环境光走冷蓝紫，
+      // 受光面暖橙、背光面冷灰紫，而不是全场均匀染橙
+      exposure: 1.0,
+      background: '#c8a49c',
+      skyGradient: {
+        top: '#5c4868',
+        middle: '#a88490',
+        horizon: '#f09860'
+      },
+      fog: '#c8b0ac',
+      fogNear: 48,
+      fogFar: 215,
+      sun: '#ffaa66',
+      sunIntensity: 3.6,
+      shadowIntensity: 1,
+      sunPosition: { x: 0, y: 52, z: 88 }, // 太阳 X 归零：接近正顶偏南，左右崖壁受光均匀，不产生整面背光黑墙
+      sunTarget: { x: 0, y: 0, z: 0 },
+      hemiSky: '#a4b0d4',
+      hemiGround: '#605a78',
+      hemiIntensity: 0.78,
+      ambientColor: '#9aa4c4',
+      ambientIntensity: 0.6,
+      shadowMapSize: 4096,
+      shadowRadius: 8,
+      shadowBias: -0.0005,
+      shadowNormalBias: 0.02,
+      // 第一关使用实时阴影：让山体/装饰物/单位都能正确接收、投射与自阴影；
+      // 卡通描边用较高阈值，避免勾到实时阴影边缘。
+      realtimeShadows: true,
+      bakedShadows: false
+    };
+const DEFAULT_WORLD_PALETTE = {
+      // 雪面基色用中性白：向阳面由暖太阳照亮，背光面由冷半球光染蓝紫，
+      // 基色本身不带橙调，避免全场橙滤镜
+      base: '#e8e6e8',
+      side: '#aab2c6',
+      north: '#b4bcd4',
+      valley: '#e2e0e4',
+      forest: '#d6d2d6',
+      high: '#f0eef0',
+      snow: '#e8e6e8',
+      path: '#b3ab9e',
+      puddle: '#c4d0de'
+    };
+
 let activeWorldConfig = resolveWorldConfig();
 
 export function createWorld(scene, worldOptions = {}) {
   activeWorldConfig = resolveWorldConfig(worldOptions);
+  activeSnowSurfaceIndex = null;
   const config = activeWorldConfig;
   const initialMaterialColors = { ...(config.materials ?? {}) };
   const initialSnowPalette = { ...(config.palette ?? {}) };
@@ -2040,6 +2136,14 @@ export function createWorld(scene, worldOptions = {}) {
   activeStaticCullables = [];
   activeStaticDecorationBatch = createStaticDecorationBatch();
   activeAnimatedDecorations = [];
+  activeSnowTreeQueue = config.sceneKey === 'snow-valley' ? [] : null;
+  activeSnowPlacement = config.sceneKey === 'snow-valley' ? createSnowCanyonPlacement(
+    (x, z) => snowValleyCanyonSurfaceHeightAt(x, z) ?? terrainHeightAt(x, z),
+    SNOW_VALLEY_CANYON_MASSES.flatMap((mass) => mass.layers.map((layer, index) => ({
+      edge: layer.innerEdge, top: layer.topY + layer.bevelThickness +
+        (0.275 + index * 0.035) * (layer.waveScale ?? 1) + 0.32
+    })))
+  ) : null;
   scene.background = new THREE.Color(config.sky.skyGradient?.middle ?? config.sky.background);
   scene.fog = new THREE.Fog(config.sky.fog, config.sky.fogNear, config.sky.fogFar);
 
@@ -2055,10 +2159,11 @@ export function createWorld(scene, worldOptions = {}) {
     }
     const shadowMapSize = config.sky.shadowMapSize ?? 1024;
     sun.shadow.mapSize.set(shadowMapSize, shadowMapSize);
-    sun.shadow.camera.left = -100;
-    sun.shadow.camera.right = 100;
-    sun.shadow.camera.top = 100;
-    sun.shadow.camera.bottom = -100;
+    const shadowExtent = config.sceneKey === 'snow-valley' ? 68 : 100;
+    sun.shadow.camera.left = -shadowExtent;
+    sun.shadow.camera.right = shadowExtent;
+    sun.shadow.camera.top = shadowExtent;
+    sun.shadow.camera.bottom = -shadowExtent;
     sun.shadow.camera.near = 1;
     sun.shadow.camera.far = 190;
     sun.shadow.radius = config.sky.shadowRadius ?? 1;
@@ -2072,6 +2177,14 @@ export function createWorld(scene, worldOptions = {}) {
 
   const ambient = new THREE.AmbientLight(config.sky.ambientColor || '#8FAFD0', config.sky.ambientIntensity || 0.4);
   scene.add(ambient);
+  if (config.sceneKey === 'snow-valley') {
+    // Broad cool sky bounce keeps the shaded cliff facets readable without a
+    // second shadow map or raising the exposure of the sunlit snow.
+    const skyBounce = new THREE.DirectionalLight(config.sky.bounceColor, config.sky.bounceIntensity);
+    const bouncePosition = config.sky.bouncePosition;
+    skyBounce.position.set(bouncePosition.x, bouncePosition.y, bouncePosition.z);
+    scene.add(skyBounce);
+  }
 
   const ground = createGroundMesh();
   scene.add(ground);
@@ -2128,6 +2241,7 @@ export function createWorld(scene, worldOptions = {}) {
   if (config.sceneKey !== 'snow-valley') {
     createSnowMonsterCamp(scene);
   }
+  flushSnowCanyonTrees(scene);
   const staticDecorationResult = flushStaticDecorationBatch(scene);
   const bakedShadowResult = flushBakedGroundShadows(ground);
   const staticCullables = activeStaticCullables;
@@ -2245,7 +2359,7 @@ function resolveWorldConfig(worldOptions = {}) {
 
 function mergeWorldPreset(preset, worldOptions) {
   const sky = {
-    ...WORLD_PRESETS['snow-valley'].sky,
+    ...DEFAULT_WORLD_SKY,
     ...(preset.sky ?? {}),
     ...(worldOptions.sky ?? {})
   };
@@ -2265,7 +2379,7 @@ function mergeWorldPreset(preset, worldOptions) {
     },
     sky,
     palette: {
-      ...WORLD_PRESETS['snow-valley'].palette,
+      ...DEFAULT_WORLD_PALETTE,
       ...(preset.palette ?? {}),
       ...(worldOptions.palette ?? {})
     },
@@ -2365,7 +2479,7 @@ function createWorldSnowPine(height) {
   const storybookSnow = worldConfig().sceneKey === 'snow-valley';
   // 树冠光照交给场景光源：只传基础色与雪帽开关，不做顶点色烘焙
   const treeArt = worldConfig().art?.tree;
-  const tree = createSnowPine(height, {
+  const tree = (storybookSnow ? createSnowCanyonPine : createSnowPine)(height, {
     leafColor: treeArt?.mid ?? worldConfig().materials?.tree,
     trunkColor: treeArt?.trunk,
     snowColor: worldConfig().materials?.snow,
@@ -2380,6 +2494,7 @@ function createWorldSnowPine(height) {
     const kind = node.material?.userData?.worldMaterialKind;
     if (kind) markWorldMaterial(node.material, kind);
   });
+  if (storybookSnow) tree.userData.snowCanyonTree = true;
   return tree;
 }
 
@@ -2839,8 +2954,9 @@ function terrainColorAt(x, z, height) {
     color.lerp(new THREE.Color('#f2f6fb'), pathSnowPuff * 0.35);
   }
 
-  // Blend path directly into terrain
-  if (palette.path) {
+  // Other biomes blend their path into the terrain; the first-level dirt road
+  // has its own irregular mesh so its snowy edge remains crisp at game distance.
+  if (palette.path && !storybookSnow) {
     const pathWidthBase = config.pathWidth ?? 3;
     const pathNoise = hash2(x * 0.12, z * 0.12) * 1.5;
     const pathEdge = smoothstep(pathWidthBase * 0.5 + pathNoise, pathWidthBase * 0.5 - 1.0 + pathNoise, pathDistance);
@@ -3556,6 +3672,8 @@ function worldNavigationBlockers() {
 
 function registerWorldNavigationBlocker(x, z, radius, kind = 'decor') {
   const config = worldConfig();
+  // Deferred trees register only after their complete crowns have passed placement.
+  if (kind === 'snow-tree' && activeSnowTreeQueue) return;
   const blockers = config.navigationBlockers;
   if (!Array.isArray(blockers)) return;
   blockers.push({
@@ -3628,6 +3746,13 @@ function isDungeonSafeSegment(a, b) {
 }
 
 function createPath(scene, points) {
+  if (worldConfig().sceneKey === 'snow-valley') {
+    const road = createSnowCanyonRoad({
+      points: [{ x: 0, z: 34 }, ...worldConfig().pathPoints],
+      width: worldConfig().pathWidth, color: worldConfig().palette.path, terrainHeightAt, startCapLength: 4
+    });
+    addStaticCulledObject(scene, road);
+  }
   const material = overlayMat(worldConfig().palette.path, { roughness: 0.94 });
   const curve = new THREE.CatmullRomCurve3(points);
   const samples = curve.getPoints(112);
@@ -3642,7 +3767,7 @@ function createPath(scene, points) {
     ribbonPoints.push(b);
   }
   
-  if (worldConfig().theme !== 'snow') {
+  if (worldConfig().sceneKey !== 'snow-valley' && worldConfig().theme !== 'snow') {
     buildPathRibbon(scene, ribbonPoints, material);
   }
 
@@ -6923,8 +7048,21 @@ function createLowpolySnowRock(size = 1, random, options = {}) {
   
   let rockGeo = new THREE.CylinderGeometry(midR, botR, rockH, numSides, 2);
   rockGeo = deformGeo(rockGeo, false);
-  bakeWarmLighting(rockGeo, rockSunlit, rockMid, rockShadow, worldConfig().art?.sunDirection);
-  const rockMat = markWorldMaterial(mat(0xffffff, { vertexColors: true }), 'rock');
+  const isSnowCanyonRock = worldConfig().sceneKey === 'snow-valley';
+  if (isSnowCanyonRock) {
+    // 只保留少量石面明度差；朝向、遮挡和冷暖全部交给实时灯光。
+    const color = new Float32Array(rockGeo.attributes.position.count * 3);
+    for (let vertex = 0; vertex < rockGeo.attributes.position.count; vertex += 1) {
+      const shade = 0.98 + Math.sin(Math.floor(vertex / 3) * 2.39996) * 0.025;
+      color.fill(shade, vertex * 3, vertex * 3 + 3);
+    }
+    rockGeo.setAttribute('color', new THREE.Float32BufferAttribute(color, 3));
+  } else {
+    bakeWarmLighting(rockGeo, rockSunlit, rockMid, rockShadow, worldConfig().art?.sunDirection);
+  }
+  const rockMat = markWorldMaterial(isSnowCanyonRock
+    ? mat(worldMaterialColor('rock', '#8f989d'), { ...worldMaterialSurfaceOptions('rock'), vertexColors: true })
+    : mat(0xffffff, { vertexColors: true }), 'rock');
   const rockMesh = new THREE.Mesh(rockGeo, rockMat);
   rockMesh.position.y = rockH * 0.5;
   rockMesh.castShadow = true;
@@ -7410,6 +7548,18 @@ function createDungeonEnemyGate(scene) {
 }
 
 function addStaticCulledObject(scene, object, radiusPadding = STATIC_WORLD_CULL_RADIUS_PADDING) {
+  if (activeSnowTreeQueue && object.userData.snowCanyonTree) {
+    activeSnowTreeQueue.push({ object, radiusPadding });
+    return object;
+  }
+  if (activeSnowPlacement && !object.userData.snowCanyonTree) {
+    const box = new THREE.Box3().setFromObject(object);
+    const width = box.max.x - box.min.x; const depth = box.max.z - box.min.z;
+    if (width > 0.3 && depth > 0.3 && width < 14 && depth < 14) {
+      activeSnowPlacement.addObstacle({ x: (box.min.x + box.max.x) / 2, z: (box.min.z + box.max.z) / 2,
+        radius: Math.hypot(width, depth) / 2, bottom: box.min.y, top: box.max.y });
+    }
+  }
   bakeObjectGroundShadow(object);
   if (queueStaticDecoration(object, radiusPadding)) {
     return object;
@@ -7417,6 +7567,32 @@ function addStaticCulledObject(scene, object, radiusPadding = STATIC_WORLD_CULL_
   scene.add(object);
   registerStaticCullable(object, radiusPadding);
   return object;
+}
+
+function flushSnowCanyonTrees(scene) {
+  if (!activeSnowTreeQueue) return;
+  const queue = activeSnowTreeQueue;
+  activeSnowTreeQueue = null;
+  for (const { object, radiusPadding } of queue) {
+    const radius = object.userData.visualFootprintRadius;
+    const originX = object.position.x; const originZ = object.position.z;
+    let y = null;
+    for (let attempt = 0; attempt < 9 && y == null; attempt += 1) {
+      const angle = attempt * 2.39996 + originZ;
+      const distance = attempt === 0 ? 0 : 0.6 + attempt * 0.28;
+      const x = originX + Math.cos(angle) * distance;
+      const z = originZ + Math.sin(angle) * distance;
+      if (distanceToPath(x, z, rawPathPoints()) < 4.7 + radius || isAltarClearing(x, z)) continue;
+      y = activeSnowPlacement.place({ x, z, radius, height: object.userData.visualHeight });
+      if (y != null) object.position.set(x, y, z);
+    }
+    if (y == null) continue;
+    object.position.y = y - 0.025;
+    addStaticCulledObject(scene, object, radiusPadding);
+    registerWorldNavigationBlocker(object.position.x, object.position.z, Math.max(0.35, radius * 0.42), 'snow-tree');
+  }
+  worldConfig().snowCanyonPlacementReport = activeSnowPlacement.report;
+  activeSnowPlacement = null;
 }
 
 function createStaticDecorationBatch() {
@@ -8630,60 +8806,42 @@ function placeSnowValleyTalusRock(scene, random, x, z, size) {
 }
 
 function createSnowValleyCanyonMasses(scene, random, cliffMaterial, paintCliffFaces) {
+  // Build the support index from the very triangles that are rendered. Preparing
+  // both sides first also makes placement independent of mass iteration order.
+  activeSnowSurfaceIndex = createSnowCanyonSurfaceIndex();
+  const canyonGeometry = new Map();
   for (const mass of SNOW_VALLEY_CANYON_MASSES) {
-    const layerGeometries = [];
-    const layers = snowValleyCanyonLayers(mass);
-    for (let layerIndex = 0; layerIndex < layers.length; layerIndex += 1) {
-      const layer = layers[layerIndex];
-      const polygon = snowValleyCanyonLayerPolygon(mass, layer);
-      let shapePoints = polygon.map((point) => new THREE.Vector2(point.x, -point.z));
-      if (!THREE.ShapeUtils.isClockWise(shapePoints)) shapePoints = shapePoints.reverse();
-      const shape = new THREE.Shape(shapePoints);
-      const extruded = new THREE.ExtrudeGeometry(shape, {
-        depth: layer.topY - layer.baseY,
-        steps: 2,
-        bevelEnabled: true,
-        bevelSegments: 1,
-        bevelSize: layer.bevelSize,
-        bevelThickness: layer.bevelThickness,
-        curveSegments: 1
-      });
-      // Shape 的 XY 平面映射到世界 XZ，Extrude 深度映射到世界高度。
-      extruded.rotateX(-Math.PI * 0.5);
-      extruded.translate(0, layer.baseY, 0);
-      const geometry = extruded.index ? extruded.toNonIndexed() : extruded;
-      if (geometry !== extruded) extruded.dispose();
-      const position = geometry.attributes.position;
-      const heightRange = Math.max(0.1, layer.topY - layer.baseY);
-      for (let vertex = 0; vertex < position.count; vertex += 1) {
-        const y = position.getY(vertex);
-        const z = position.getZ(vertex);
-        const heightT = THREE.MathUtils.clamp((y - layer.baseY) / heightRange, 0, 1);
-        const topInfluence = smoothstep(0.52, 0.96, heightT);
-        const wave = snowValleyCanyonLayerWave(mass, layer, layerIndex, z);
-        const faceFold = Math.sin(z * 0.31 + layerIndex * 1.9 + mass.side) * 0.16 * Math.sin(heightT * Math.PI);
-        position.setX(vertex, position.getX(vertex) + mass.side * faceFold);
-        position.setY(vertex, y + wave * topInfluence);
-      }
-      position.needsUpdate = true;
-      geometry.computeVertexNormals();
-      paintCliffFaces(geometry, random);
-      layerGeometries.push(geometry);
+    mass.layers.forEach((layer, layerIndex) => {
+      const geometry = createSnowCanyonLayer({ mass, layer, nextLayer: mass.layers[layerIndex + 1],
+        layerIndex, edgeXAt: snowValleyCanyonEdgeXAt, waveAt: snowValleyCanyonLayerWave });
+      activeSnowSurfaceIndex.add(geometry.snow);
+      canyonGeometry.set(layer, geometry);
+    });
+  }
+  for (const mass of SNOW_VALLEY_CANYON_MASSES) {
+    const rockGeometries = [];
+    const snowGeometries = [];
+    mass.layers.forEach((layer, layerIndex) => {
+      const geometry = canyonGeometry.get(layer);
+      paintCliffFaces(geometry.rock, random);
+      rockGeometries.push(geometry.rock);
+      snowGeometries.push(geometry.snow);
+    });
+    const snowMaterial = markWorldMaterial(mat(worldMaterialColor('snow', '#e8ebed'), {
+      roughness: 0.96, vertexColors: true, flatShading: true
+    }), 'snow');
+    for (const [geometries, material, suffix] of [[rockGeometries, cliffMaterial, 'rock'], [snowGeometries, snowMaterial, 'snow']]) {
+      const merged = mergeGeometries(geometries);
+      geometries.forEach((geometry) => geometry.dispose());
+      const mesh = new THREE.Mesh(merged, material);
+      mesh.name = mass.id + '-' + suffix;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      addStaticCulledObject(scene, mesh, 14);
     }
 
-    const merged = mergeGeometries(layerGeometries);
-    layerGeometries.forEach((geometry) => geometry.dispose());
-    if (!merged) continue;
-
-    const canyonMass = new THREE.Mesh(merged, cliffMaterial);
-    canyonMass.name = mass.id;
-    canyonMass.castShadow = true;
-    canyonMass.receiveShadow = true;
-    canyonMass.userData.canyonMassSide = mass.side;
-    addStaticCulledObject(scene, canyonMass, 14);
-
     // 导航仍按峡谷内缘登记，但只挡住山体，不侵入中央主路与祭坛口袋。
-    const innerEdge = mass.layers[0].innerEdge;
+    const innerEdge = mass.decorationLayers[0].innerEdge;
     innerEdge.forEach((point) => {
       registerWorldNavigationBlocker(
         point.x + mass.side * 9.4,
@@ -8732,8 +8890,8 @@ function createSnowValleyCanyonMasses(scene, random, cliffMaterial, paintCliffFa
     // 落点取两层内缘之间的台面带，直接用峡谷表面高度放置；不注册导航阻挡
     //（台面在走廊阻挡带之外，单位不会走到）。
     for (let layerIndex = 1; layerIndex <= 2; layerIndex += 1) {
-      const bandInner = mass.layers[layerIndex]?.innerEdge;
-      const bandOuter = mass.layers[layerIndex + 1]?.innerEdge;
+      const bandInner = mass.decorationLayers[layerIndex]?.innerEdge;
+      const bandOuter = mass.decorationLayers[layerIndex + 1]?.innerEdge;
       if (!bandInner || !bandOuter) continue;
       for (let index = 0; index < bandInner.length - 1; index += 1) {
         // 三成段落留白，保持台面疏密呼吸
@@ -8745,8 +8903,8 @@ function createSnowValleyCanyonMasses(scene, random, cliffMaterial, paintCliffFa
         const outerX = snowValleyCanyonEdgeXAt(bandOuter, z);
         const x = mix(innerX, outerX, 0.3 + random() * 0.45);
         if (snowValleyCanyonSurfaceHeightAt(x, z) === null) continue;
-        if (random() < 0.65) {
-          const height = 0.7 + random() * 0.85;
+        if (random() < 0.85) {
+          const height = 0.75 + random() * 0.85;
           const tree = createWorldSnowPine(height);
           placeOnTerrainOrWall(tree, { x, z }, -0.1, 0.35);
           tree.rotation.y = random() * Math.PI * 2;
@@ -8778,11 +8936,13 @@ function createIslandCliffs(scene) {
   // share one material. Keeping per-triangle material groups here would turn
   // every triangle into a draw call and also prevent the static world batcher
   // from merging the mountain geometry.
-  const cliffRockMaterial = markWorldMaterial(mat(0xffffff, {
+  const isSnowCanyon = config.sceneKey === 'snow-valley';
+  const cliffRockMaterial = markWorldMaterial(mat(isSnowCanyon ? worldMaterialColor('rock', '#8f989d') : 0xffffff, {
     ...worldMaterialSurfaceOptions('rock'),
     vertexColors: true,
   }), 'rock');
-  applyCliffShader(cliffRockMaterial);
+  // 雪谷用中性石色和实时光照，避免 shader 再把向下表面压暗、染蓝。
+  if (!isSnowCanyon) applyCliffShader(cliffRockMaterial);
   const cliffSnowMaterial = markWorldMaterial(
     mat(worldMaterialColor('snow', '#e4e9ed'), worldMaterialSurfaceOptions('snow')),
     'snow',
@@ -8795,6 +8955,15 @@ function createIslandCliffs(scene) {
     const colors = new Float32Array(pos.count * 3);
     const colorAttr = new THREE.BufferAttribute(colors, 3);
     geo.setAttribute('color', colorAttr);
+
+    if (isSnowCanyon) {
+      for (let vertex = 0; vertex < pos.count; vertex += 3) {
+        const shade = 0.97 + (rGen() - 0.5) * 0.06;
+        rGen(); // 保持既有随机数流，配色调整不改变树石落点。
+        colors.fill(shade, vertex * 3, (vertex + 3) * 3);
+      }
+      return;
+    }
 
     // 山体三段色阶从统一 art.cliff 色板读取，光照方向与全场统一
     const cliffArt = worldConfig().art?.cliff;
@@ -9756,18 +9925,65 @@ function placeSnowValleyLandmark(scene, object, spot, radius, kind) {
 
 // 雪谷地标：左高台瞭望塔与右中景指挥营。
 function placeSnowValleyLandmarks(scene) {
-  const points = rawPathPoints();
-  // 固定在左中层台面的中央：与两侧崖壁内缘各留约 3.5 单位，完整塔身不与墙面相交。
-  const towerSpot = { x: -25.4, z: 19.4, rot: 1.1, scale: 1.48, offset: 0.08 };
-  if (distanceToPath(towerSpot.x, towerSpot.z, points) >= 6.8) {
-    placeSnowValleyLandmark(scene, createSnowWatchtower(), towerSpot, 1.35, 'snow-watchtower');
+  // The near right tower and middle left tower anchor the reference composition.
+  const towers = [
+    { side: 1, z: 30, scale: 1.28, rot: -0.5 },
+    { side: -1, z: 17, scale: 1.1, rot: 0.45 },
+    { side: 1, z: -21, scale: 0.88, rot: -0.3 },
+    { side: -1, z: -28, scale: 0.78, rot: 0.2 }
+  ];
+  worldConfig().snowCanyonTowerPlacements = [];
+  for (const tower of towers) {
+    const mass = SNOW_VALLEY_CANYON_MASSES.find((item) => item.side === tower.side);
+    const radius = 1.8 * tower.scale + 0.5;
+    let spot = null;
+    for (const dz of [0, -3, 3, -6, 6]) {
+      if (spot) break;
+      const z = tower.z + dz;
+      for (const candidate of [1, 0, 2].flatMap(layerIndex => [0.42, 0.5, 0.58].map(fraction => ({ layerIndex, fraction })))) {
+        if (spot) break;
+        const { layerIndex, fraction } = candidate;
+        const layer = mass.layers[layerIndex];
+        const next = mass.layers[layerIndex + 1];
+        const x = mix(snowValleyCanyonEdgeXAt(layer.innerEdge, z), snowValleyCanyonEdgeXAt(next.innerEdge, z), fraction);
+        const y = snowValleyCanyonSurfaceHeightAt(x, z);
+        if (y == null) continue;
+        let safe = true;
+        for (let otherIndex = 0; otherIndex < mass.layers.length; otherIndex += 1) {
+          const other = mass.layers[otherIndex];
+          const highest = other.topY + other.bevelThickness +
+            (0.275 + otherIndex * 0.035) * (other.waveScale ?? 1) + 0.32;
+          if (highest < y) continue;
+          if (distanceToPath(x, z, other.innerEdge) < 1.8 * tower.scale + 1.3) {
+            safe = false; break;
+          }
+        }
+        if (!safe) continue;
+        for (let i = 0; i < 16; i += 1) {
+          const angle = i * Math.PI / 8;
+          const edgeY = snowValleyCanyonSurfaceHeightAt(x + Math.cos(angle) * radius, z + Math.sin(angle) * radius);
+          if (edgeY == null || Math.abs(edgeY - y) > 0.45) { safe = false; break; }
+        }
+        if (safe) spot = { x, z, scale: tower.scale, rot: tower.rot, offset: -0.16 };
+      }
+    }
+    if (!spot) continue;
+    placeSnowValleyLandmark(scene, createSnowCanyonWatchtower(), spot, 1.8, 'snow-watchtower');
+    worldConfig().snowCanyonTowerPlacements.push(spot);
   }
-
-  // 指挥营移到上层台面：中层台面带宽不足容纳营房占地，原位两侧均穿墙
-  const commandCampSpot = { x: 35, z: 8, rot: -0.42, scale: 1.04, offset: 0.06 };
-  if (distanceToPath(commandCampSpot.x, commandCampSpot.z, points) >= 8) {
-    placeSnowValleyLandmark(scene, createSnowValleyCommandLodge(), commandCampSpot, 2.5, 'snow-command-lodge');
-  }
+  const fire = createSnowCanyonCampfire();
+  fire.group.scale.setScalar(1.15);
+  const position = { x: 8.8, z: 11.8 };
+  placeOnTerrain(fire.group, position.x, position.z, 0.03);
+  scene.add(fire.group);
+  registerWorldNavigationBlocker(position.x, position.z, 1.32, 'snow-campfire');
+  activeSnowPlacement?.addObstacle({ ...position, radius: 1.5, bottom: 0.25, top: 3.0 });
+  let previousElapsed = 0;
+  fire.group.userData.updateWorldDecoration = (elapsed) => {
+    fire.update(elapsed - previousElapsed);
+    previousElapsed = elapsed;
+  };
+  activeAnimatedDecorations.push(fire.group);
 
 }
 

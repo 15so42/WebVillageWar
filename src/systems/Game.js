@@ -484,46 +484,43 @@ const RENDER_TONE_MAPPING_LABELS = {
 };
 const SNOW_VALLEY_HEAD_RENDER_TUNING = Object.freeze({
   toneMapping: 'aces',
-  // 曝光略提：暮色下雪地需读作明亮通透的白雪而非灰蒙阴天
-  exposure: 1.04,
-  brightness: 1.02,
-  contrast: 1.13,
-  saturation: 1.04,
+  // 雪面保留浅色层次，暖阳、冷岩和土路由光照与材质共同区分。
+  exposure: 1.0,
+  brightness: 1,
+  contrast: 1.10,
+  saturation: 0.96,
   hue: 0,
   warmth: 0,
-  // 太阳略升高并加暖增强；X 归零（接近正顶偏南）：左右两壁受光均匀，
-  // 都能吃到暖色直射光。恢复暖阳主光的“阳光感”，让受光雪面镀暖橙、
-  // 背光面留冷蓝，而不是全场平白。
-  sunColor: '#ffc98a',
-  sunIntensity: 3.6,
-  sunX: 0,
-  sunY: 52,
-  sunZ: 88,
-  shadowIntensity: 0.9,
-  hemiIntensity: 0.82,
-  hemiSky: '#b0c3e6',
-  hemiGround: '#3b4a68',
-  // 环境光保持中性偏暖，但不盖过太阳直射：只用来抬起背光岩面，
-  // 避免死黑，又不把整片雪面冲成平白。
-  ambientColor: '#a9b6c8',
-  ambientIntensity: 0.62,
-  background: '#c8cddc',
-  fogColor: '#c9ccd6',
-  fogNear: 52,
-  fogFar: 208,
-  aoIntensity: 0.01,
+  // 金色阳光从远处左上斜入，冷色环境补光托住岩壁背面与松林深处。
+  sunColor: '#ffe0bb',
+  sunIntensity: 4.6,
+  // 与 (-40, 35, -20) 同方向，等比例远移以覆盖远端山体的阴影近裁面。
+  sunX: -60,
+  sunY: 52.5,
+  sunZ: -30,
+  shadowIntensity: 1,
+  hemiIntensity: 0.65,
+  hemiSky: '#a9bdd6',
+  hemiGround: '#858b95',
+  ambientColor: '#c4ccd5',
+  ambientIntensity: 0.18,
+  background: '#dfd3bd',
+  fogColor: '#dfd3bd',
+  fogNear: 64,
+  fogFar: 214,
+  aoIntensity: 0.012,
   aoScale: 3.2,
-  aoKernelRadius: 10,
-  aoBias: 0.24,
-  // 风格化：轻微 bloom + 暗角把焦点收在中路，软深蓝描边（非生硬黑）给画面“插画感”。
-  bloomStrength: 0.14,
-  vignetteStrength: 0.12,
-  snowColor: '#e9eef6',
-  rockColor: '#7c7f85',
-  treeColor: '#46685a',
-  outlineThickness: 0.5,
-  outlineColor: '#39434f',
-  outlineThreshold: 0.44
+  aoKernelRadius: 18,
+  aoBias: 0.26,
+  // 轻微接触遮蔽与辉光衔接岩脚、积雪和树根，轮廓保持柔和。
+  bloomStrength: 0.09,
+  vignetteStrength: 0.1,
+  snowColor: '#dedfdc',
+  rockColor: '#8f989d',
+  treeColor: '#5f6b50',
+  outlineThickness: 0.2,
+  outlineColor: '#56606d',
+  outlineThreshold: 0.48
 });
 const DUNGEON_HALLS_HEAD_RENDER_TUNING = Object.freeze({
   toneMapping: 'linear',
