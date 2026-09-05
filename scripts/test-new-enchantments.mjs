@@ -136,12 +136,30 @@ for (const id of ['undying', 'triumph', 'assault', 'shockwave', 'solarFlare', 'f
   const context = attackContext(source, target, 5);
   context.damageDealt = 5;
   game.buffs.afterDamage(context);
-  assert.deepEqual(game.records.attacks.map((entry) => entry.target.id), [15, 16]);
+  // 烟花半径 5：第二个敌人距离 5.5 不在范围内
+  assert.deepEqual(game.records.attacks.map((entry) => entry.target.id), [15]);
   assert(game.records.attacks.every((entry) => entry.override.damage === 2));
   assert(game.records.attacks.every((entry) => entry.override.damageTypes.has('fireworks')));
   assert.equal(ally.health, 32);
   assert.equal(game.records.fireworks.length, 1);
   approximately(game.records.fireworks[0].position.y, 2.2);
+  // 烟花 6 秒冷却：同一持有者紧接着的另一次命中不再触发
+  game.buffs.afterDamage({ ...context, damageDealt: 4 });
+  assert.equal(game.records.fireworks.length, 1, '烟花附魔 6 秒冷却内不能重复触发');
+  assert.deepEqual(
+    game.records.attacks.map((entry) => entry.target.id),
+    [15],
+    '冷却期间不重复结算伤害'
+  );
+  // 冷却结束后再次触发
+  game.elapsedTime = 6;
+  game.buffs.afterDamage({ ...context, damageDealt: 3 });
+  assert.equal(game.records.fireworks.length, 2, '冷却结束应重新触发');
+  assert.deepEqual(
+    game.records.attacks.map((entry) => entry.target.id),
+    [15, 15],
+    '冷却后恢复结算'
+  );
 }
 
 {
@@ -196,7 +214,7 @@ visualUnit.addBuff('solarFlare', BUFF_DEFINITIONS.solarFlare, { level: 1, source
 visualUnit.updateVisual(null, 1 / 60);
 const solarAura = visualUnit.enchantHalo.children.find((child) => child.userData.isSolarFlameAura);
 assert.equal(solarAura?.visible, true);
-assert.equal(solarAura?.userData.particles.length, 8);
+assert.equal(solarAura?.userData.particles.length, 12);
 assert(solarAura.userData.particles.every((particle) => (
   particle.material.map?.userData?.particleFalloff === 'tight'
 )));

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
-const SOFT_PARTICLE_TEXTURE_SIZE = 32;
+// 64px 共享软粒子纹理：比旧 32px 更圆润，避免小尺寸 Sprite 出现方块感
+const SOFT_PARTICLE_TEXTURE_SIZE = 64;
 const softParticleTextures = new Map();
 
 export function getSoftParticleTexture(falloff = 'soft') {

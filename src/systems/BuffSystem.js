@@ -6,6 +6,9 @@ export class BuffSystem {
     this.game = game;
     this.expiredBuffIds = [];
     this.disabledEffectKeys = new Set();
+    // 当前在场、身上带有「审判」附魔的单位集合（惰性维护：仅在施放时登记，
+    // 过期/死亡条目由 afterDamage 时的 alive + buffs.has 过滤兜底）。
+    this.judgmentHolders = new Set();
   }
 
   update(dt, units = this.getActiveUnits()) {
@@ -24,6 +27,9 @@ export class BuffSystem {
     });
     if (buff && buffId === 'swarmPack') {
       this.refreshDynamicAttackBuff(target, buff);
+    }
+    if (buff && buffId === 'judgment') {
+      this.judgmentHolders.add(target);
     }
     return buff;
   }
@@ -49,6 +55,27 @@ export class BuffSystem {
     }
     if (context.target?.alive !== false) {
       this.runBuffEffects(context.target, 'receiveDamage', context);
+    }
+    // 审判附魔：友方单位受到攻击时，所有同队的审判持有者（各按自身 5 秒冷却）
+    // 都会对攻击者降下巨剑，不要求持有者本人被击中。持有者自身被击中时会通过
+    // 本路径统一触发一次，因此不再依赖 receiveDamage 事件。
+    if (context.isAttack && (dealt > 0 || attackConnected) && (this.judgmentHolders?.size ?? 0) > 0) {
+      const victimTeam = context.target?.team;
+      if (victimTeam != null && context.target?.alive !== false) {
+        this.judgmentHolders.forEach((holder) => {
+          if (!holder?.alive || holder.team !== victimTeam) return;
+          if (!holder.buffs?.has('judgment')) return;
+          if (holder === context.target) {
+            this.runBuffEffects(holder, 'allyDamaged', context);
+          } else {
+            this.runBuffEffects(holder, 'allyDamaged', {
+              ...context,
+              target: holder,
+              allyDamagedUnit: context.target
+            });
+          }
+        });
+      }
     }
   }
 
@@ -89,12 +116,26 @@ export class BuffSystem {
         buff.vfxTimer = (buff.vfxTimer ?? 0) - dt;
         let vfxCount = 0;
         while (buff.vfxTimer <= 0 && unit.alive && vfxCount < 8) {
-          this.game.effects.spawnBurningParticles(unit, 2);
-          buff.vfxTimer += 0.07;
+          this.game.effects.spawnBurningParticles(unit, 3);
+          buff.vfxTimer += 0.06;
           vfxCount += 1;
         }
         if (buff.vfxTimer <= 0) {
-          buff.vfxTimer = 0.07;
+          buff.vfxTimer = 0.06;
+        }
+      }
+
+      if (buff.id === 'chilled' || buff.id === 'frostStorm') {
+        // 寒霜/冰风：淡蓝冰晶环绕目标缓缓上升，形成可读的冰霜附着特效
+        buff.vfxTimer = (buff.vfxTimer ?? 0) - dt;
+        let vfxCount = 0;
+        while (buff.vfxTimer <= 0 && unit.alive && vfxCount < 8) {
+          this.game.effects.spawnChilledParticles(unit, 1);
+          buff.vfxTimer += 0.24;
+          vfxCount += 1;
+        }
+        if (buff.vfxTimer <= 0) {
+          buff.vfxTimer = 0.24;
         }
       }
 
@@ -173,6 +214,9 @@ export class BuffSystem {
     }
 
     for (let i = 0; i < expired.length; i += 1) {
+      if (expired[i] === 'judgment') {
+        this.judgmentHolders.delete(unit);
+      }
       unit.removeBuff(expired[i]);
     }
   }
@@ -436,6 +480,23 @@ export class BuffSystem {
       return;
     }
 
+    if (effect.op === 'absorbFrostMirror') {
+      // 冰镜结晶：吸收伤害，吸收量耗尽移除；攻击者被寒锋减速
+      if (!context.buff || (context.buff.frostMirrorRemaining ?? 0) <= 0) return;
+      if (context.damageTypes?.has?.('true') || context.damageTypes?.has?.('directHealth')) return;
+      const absorbed = Math.min(context.damage, context.buff.frostMirrorRemaining);
+      if (absorbed <= 0) return;
+      context.buff.frostMirrorRemaining -= absorbed;
+      context.damage = Math.max(0, context.damage - absorbed);
+      if (context.source?.alive && context.source !== context.target) {
+        this.applyBuff(context.source, 'frostMirrorSlow', context.target, { duration: 1.5 });
+      }
+      if ((context.buff.frostMirrorRemaining ?? 0) <= 0) {
+        context.target?.removeBuff?.('frostMirror');
+      }
+      return;
+    }
+
     if (effect.op === 'applyBuff') {
       const applied = this.applyBuff(context.target, effect.buffId, context.source, {
         duration: resolveEffectNumber(effect, 'duration', context, effect.duration),
@@ -527,12 +588,15 @@ export class BuffSystem {
       context.buff.judgmentReadyAt = now + cooldown;
       const damage = Math.max(0, resolveEffectNumber(effect, 'damage', context, 0));
       if (damage <= 0) return;
+      // 落剑规格随攻击者体型缩放：剑大小与落点高度按目标体积调整
+      const attackerSize = Math.min(2.6, Math.max(0.6, (attacker.collisionRadius ?? 0.45) / 0.45));
+      const liftHeight = (attacker.statusHeight ?? attacker.projectileHitHeight ?? 1.55) * 0.62;
       const impactPoint = {
         x: attacker.position.x,
-        y: attacker.position.y ?? 0,
+        y: (attacker.position.y ?? 0) + liftHeight,
         z: attacker.position.z
       };
-      this.game.effects.spawnJudgmentSword(impactPoint, 0.9, () => {
+      this.game.effects.spawnJudgmentSword(impactPoint, 0.9 * attackerSize, () => {
         if (!attacker.alive) return;
         this.game.combat.applyAttack(defender, attacker, {
           damage,
@@ -540,6 +604,8 @@ export class BuffSystem {
           knockback: 0,
           damageTypes: new Set(['judgment', 'undodgeable'])
         });
+      }, {
+        scale: attackerSize
       });
       return;
     }
@@ -759,7 +825,8 @@ export class BuffSystem {
           damageNumberHeight: unit.projectileHitHeight ?? 1.45
         });
       });
-      this.game.effects?.spawnSolarFlarePulse?.(owner.position, radius);
+      // 烈阳视觉范围比伤害范围 +20%，读起来更有“烈日灼烧”的压迫感
+      this.game.effects?.spawnSolarFlarePulse?.(owner.position, radius * 1.2);
       return;
     }
 
@@ -771,8 +838,13 @@ export class BuffSystem {
         || context.damageTypes?.has?.('fireworks')
       ) return;
       const source = context.source;
+      // 烟花专属 6 秒冷却：存于持有者自身的 fireworks buff 上
+      const now = this.game.elapsedTime ?? 0;
+      const cooldown = Math.max(0, resolveEffectNumber(effect, 'cooldown', context, 0));
+      if (cooldown > 0 && (context.buff?.fireworksReadyAt ?? -Infinity) > now) return;
+      if (cooldown > 0 && context.buff) context.buff.fireworksReadyAt = now + cooldown;
       const center = context.target.position;
-      const radius = Math.max(0, resolveEffectNumber(effect, 'radius', context, effect.radius ?? 7));
+      const radius = Math.max(0, resolveEffectNumber(effect, 'radius', context, effect.radius ?? 5));
       const damage = Math.max(0, resolveEffectNumber(effect, 'damage', context, 0));
       const heal = Math.max(0, resolveEffectNumber(effect, 'heal', context, 0));
       const burstPosition = {
@@ -794,12 +866,13 @@ export class BuffSystem {
         });
       }
       if (heal > 0) {
+        // 烟花附魔者与友军（getAlliesOf 包含持有者自身）恢复生命，
+        // 飘字使用普通回血颜色
         getAlliesOf(this.game, source).forEach((unit) => {
           if (!unit.position || distance2D(center, unit.position) > radius) return;
           const healed = unit.restoreHealth?.(heal) ?? 0;
           if (healed <= 0.001) return;
           this.game.effects?.spawnHealNumber?.(unit.position, healed, {
-            color: effect.color ?? '#ff78c8',
             height: unit.projectileHitHeight ?? 1.45
           });
         });
@@ -873,6 +946,8 @@ export class BuffSystem {
         isDamageOverTime: true,
         skipHitAnimation: true,
         skipHitEffect: true,
+        // DoT 不吃减伤直接扣血，飘字用各自 buff 颜色便于分辨来源
+        damageNumberColor: context.buff?.color ?? effect.color,
         damageNumberHeight: 1.48,
         damageNumberDuration: 0.68
       });
@@ -915,6 +990,7 @@ export class BuffSystem {
         isDamageOverTime: true,
         skipHitAnimation: true,
         skipHitEffect: true,
+        damageNumberColor: context.buff?.color ?? effect.color,
         damageNumberHeight: 1.48,
         damageNumberDuration: 0.68
       });

@@ -110,7 +110,9 @@ export function applyNetworkFx(game, event) {
       effects.spawnFallingStar(vecFrom(event), event.radius ?? 2.1, () => {});
       break;
     case 'fx_judgment_sword':
-      effects.spawnJudgmentSword(vecFrom(event), event.radius ?? 0.9, () => {});
+      effects.spawnJudgmentSword(vecFrom(event), event.radius ?? 0.9, () => {}, {
+        scale: event.scale
+      });
       break;
     case 'fx_crater':
       effects.spawnCrater(vecFrom(event), event.radius ?? 2.4);
@@ -349,11 +351,15 @@ const EFFECT_RELAY_SPECS = [
   {
     method: 'spawnJudgmentSword',
     name: 'fx_judgment_sword',
-    serialize: ([position, radius]) => ({
-      name: 'fx_judgment_sword',
-      ...vec3(position),
-      radius
-    })
+    serialize: ([position, radius, , options]) => {
+      const payload = {
+        name: 'fx_judgment_sword',
+        ...vec3(position),
+        radius
+      };
+      if (options?.scale) payload.scale = options.scale;
+      return payload;
+    }
   },
   {
     method: 'ensureRecoveryAura',

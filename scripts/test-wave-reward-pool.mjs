@@ -183,17 +183,17 @@ assert.equal(rewardPoolGame.recordAcquiredUnitCard(unitRewardCard, 'p1'), true);
 const unlockedSpecializationIds = UNIT_SPECIAL_UPGRADES.lightningMage.map((upgrade) => (
   `team-special-lightningMage-${upgrade.id}`
 ));
-assert.ok(unlockedSpecializationIds.every((id) => rewardPoolGame.waveRewardDeck.includes(id)));
+assert.ok(
+  unlockedSpecializationIds.every((id) => !rewardPoolGame.waveRewardDeck.includes(id)),
+  'wave rewards no longer unlock unit specialization cards into the reward deck'
+);
 const unlockedSpecializationCards = rewardPoolGame.waveRewardCardPool()
   .filter((card) => unlockedSpecializationIds.includes(card.id));
-assert.equal(unlockedSpecializationCards.length, unlockedSpecializationIds.length);
-assert.ok(unlockedSpecializationCards.every((card) => (
-  card.kind === 'ability'
-  && card.unitType === 'lightningMage'
-  && card.exhaust === true
-  && card.energyCost === 0
-  && card.effect?.type === 'apply-team-special-upgrade'
-)));
+assert.equal(
+  unlockedSpecializationCards.length,
+  0,
+  'unit specialization cards are removed from the wave reward pool'
+);
 rewardPoolGame.activeEconomySlot = 'p1';
 rewardPoolGame.friendlyUnits = [];
 rewardPoolGame.teamSupportModifiersApplied = new Set();
@@ -203,14 +203,19 @@ assert.equal(rewardPoolGame.applyTeamSpecialUpgrade('lightningMage', acquiredSpe
 assert.equal(
   rewardPoolGame.waveRewardDeck.includes(`team-special-lightningMage-${acquiredSpecialization.id}`),
   false,
-  'specializations obtained elsewhere are removed from the wave reward pool'
+  'specializations obtained elsewhere must not appear in the wave reward deck'
 );
 assert.equal(rewardPoolGame.recordAcquiredUnitCard(unitRewardCard, 'p1'), false);
 assert.equal(rewardPoolGame.recordAcquiredUnitCard({
   kind: 'ability',
   unitType: 'archer'
-}, 'p1'), false, 'only summon cards unlock unit specialization rewards');
-assert.equal(rewardPoolDirtyMarks, 2);
+}, 'p1'), false, 'only summon cards count as acquired unit cards');
+assert.equal(rewardPoolDirtyMarks, 0);
+assert.equal(
+  Game.prototype.unitSpecializationRewardCards({ acquire() {} }).length,
+  0,
+  'unit specialization reward cards are fully removed from the wave reward pipeline'
+);
 
 assert.equal(normalizeStrategyEventType('unit-upgrade'), 'wave-reward');
 assert.equal(normalizeStrategyEventType('altar-reward'), 'altar-reward');

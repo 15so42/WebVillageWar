@@ -48,21 +48,21 @@ cloudEffects.spawnThunderCloud({
 assert.equal(cloudEffects.effects.length, 1);
 const cloudVisual = cloudEffects.effects[0].object;
 assert.deepEqual(cloudVisual.userData.thunderCloudVisual, {
-  lobeCount: 15,
+  lobeCount: 32,
   boltCount: 4,
   shadowCount: 1,
   polygonal: true,
-  shadowShape: 'ellipse'
+  shadowShape: 'circle'
 });
 const cloudLobes = cloudVisual.children.filter((child) => child.userData.isThunderCloudLobe);
 const cloudBolts = cloudVisual.children.filter((child) => child.userData.isThunderCloudBolt);
 const cloudShadows = cloudVisual.children.filter((child) => child.userData.isThunderCloudShadow);
 assert.equal(cloudVisual.children.filter((child) => child.isLine).length, 0);
-assert.equal(cloudLobes.length, 15);
+assert.equal(cloudLobes.length, 32);
 assert.equal(cloudLobes.every((lobe) => lobe.geometry?.type === 'DodecahedronGeometry'), true);
 assert.equal(cloudBolts.length, 4);
 assert.equal(cloudBolts.every((bolt) => (
-  bolt.children.length === 3
+  bolt.children.length === 5
   && bolt.children.every((segment) => segment.userData?.core?.geometry?.type === 'CylinderGeometry')
   && bolt.userData.coreMaterial?.toneMapped === false
   && Math.max(
@@ -78,13 +78,36 @@ assert.equal(cloudShadows.every((shadow) => (
 )), true);
 const cloudShadowAspect = cloudShadows[0].scale.x / cloudShadows[0].scale.y;
 assert(
-  cloudShadowAspect >= 1.15 && cloudShadowAspect <= 1.5,
-  'thunder-cloud shadow should be a moderately proportioned ellipse, not a flat or overly wide oval'
+  Math.abs(cloudShadowAspect - 1) < 0.001,
+  'thunder-cloud fake shadow should be a perfect circle'
 );
-assert.equal(cloudVisual.children.filter((child) => child.userData.stormFlashCore).length, 1);
+assert.equal(cloudVisual.children.filter((child) => child.userData.stormFlashCore).length, 0);
 cloudEffects.update(0.25);
-assert.deepEqual(cloudVisual.position.toArray(), [2, 0, -3]);
-assert.ok(cloudBolts.some((bolt) => bolt.userData.coreMaterial.opacity > 0.03));
+assert.deepEqual(cloudVisual.position.toArray(), [2, 5.1, -3], 'cloud floats at its ability height');
+// 雷云整体未在闪光时各云块保持半透明黑色材质
+assert.ok(cloudLobes.every((lobe) => (
+  lobe.material.transparent === true
+  && lobe.material.opacity > 0 && lobe.material.opacity < 1
+  && Math.max(
+    lobe.material.color.r,
+    lobe.material.color.g,
+    lobe.material.color.b
+  ) < 0.2
+)), 'cloud lobes must be semi-transparent dark blocks');
+// 闪电随机出现：强制点着第一条，确认闪亮期间实体分段可见且 HDR 材质发光
+const firstBolt = cloudBolts[0];
+firstBolt.userData.flashTimer = 0.001;
+cloudEffects.update(0.002);
+assert.equal(firstBolt.visible, true);
+assert.ok(
+  firstBolt.userData.coreMaterial.opacity > 0.03
+  && Math.max(
+    firstBolt.userData.coreMaterial.color.r,
+    firstBolt.userData.coreMaterial.color.g,
+    firstBolt.userData.coreMaterial.color.b
+  ) > 1,
+  'flashing bolt must be visible with an HDR core'
+);
 
 cloudEffects.spawnLightningChain(
   new THREE.Vector3(-1, 1.5, 0),

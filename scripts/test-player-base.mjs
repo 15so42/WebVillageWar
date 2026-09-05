@@ -35,4 +35,42 @@ const playerBaseAttackSource = gameSource.match(
 )?.[1] ?? '';
 assert.match(playerBaseAttackSource, /applyKnockbackImpulse\(this, target, this\.playerBase\.position, knockback\)/);
 
+{
+  globalThis.window = { innerWidth: 1, innerHeight: 1 };
+  const { Game } = await import('../src/systems/Game.js');
+  const makeTarget = (x, z) => ({
+    alive: true,
+    isWildlife: false,
+    isBoss: false,
+    position: { x, z },
+    collisionRadius: 0.4,
+    health: 10,
+    maxHealth: 20
+  });
+  const stubGame = (stacks) => Object.assign(Object.create(Game.prototype), {
+    playerBase: { alive: true, position: { x: 0, z: 0 }, collisionRadius: 0.4 },
+    enemyUnits: [makeTarget(0, 12)],
+    getAbilityStacks: () => stacks
+  });
+  // 瞭望：每层 +50% 初始攻击距离，加算（8.5 → 1 层 12.75、2 层 17）
+  const twoStacks = stubGame(2);
+  assert.equal(
+    Game.prototype.findPlayerBaseAttackTarget.call(twoStacks),
+    twoStacks.enemyUnits[0],
+    '瞭望 2 层加算射程 17，能命中 12 单位外的敌人'
+  );
+  const oneStack = stubGame(1);
+  assert.equal(
+    Game.prototype.findPlayerBaseAttackTarget.call(oneStack),
+    oneStack.enemyUnits[0],
+    '瞭望 1 层加算射程 12.75，能命中 12 单位外的敌人'
+  );
+  assert.equal(
+    Game.prototype.findPlayerBaseAttackTarget.call(stubGame(0)),
+    null,
+    '无瞭望 8.5 射程不足以命中 12 单位外的敌人'
+  );
+  assert.match(gameSource, /baseRange \* 0\.5 \* lookoutStacks/, '瞭望按初始距离加算而非乘算');
+}
+
 console.log('Player-base damage and energy milestone checks passed.');

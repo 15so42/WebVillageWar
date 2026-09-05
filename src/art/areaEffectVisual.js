@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { basicMat, mat } from './lowpoly.js';
 
 const SMOKE_PARTICLE_COUNT = 22;
-const WILDFIRE_FLAME_COUNT = 34;
+const WILDFIRE_FLAME_COUNT = 68;
 const WILDFIRE_TRACE_COUNT = 14;
 const TOXIC_ATMOSPHERE_COUNT = 10;
 const TOXIC_MOTE_COUNT = 16;
@@ -122,7 +122,9 @@ export function createAreaEffectVisual({ radius, color, accent, kind }) {
       blending: THREE.AdditiveBlending
     }).clone();
     const stainGeometry = new THREE.CircleGeometry(1, 14);
-    const atmosphereGeometry = new THREE.SphereGeometry(1, 12, 8);
+    // 雾团用低多边形体（二十面体），不追求圆滑球面；垂直方向拉开，
+    // 让毒雾/瘟疫有明确的高度与体积感，而不是贴着地面的扁椭圆
+    const atmosphereGeometry = new THREE.IcosahedronGeometry(1, 0);
     const toxicMoteGeometry = new THREE.OctahedronGeometry(0.035, 0);
     const stains = [];
     for (let index = 0; index < 8; index += 1) {
@@ -139,24 +141,24 @@ export function createAreaEffectVisual({ radius, color, accent, kind }) {
       group.add(stain);
     }
     const atmospherePuffs = [];
-    for (let index = 0; index < TOXIC_ATMOSPHERE_COUNT; index += 1) {
+    for (let index = 0; index < 12; index += 1) {
       const angle = Math.random() * Math.PI * 2;
-      const distance = radius * Math.sqrt(Math.random()) * 0.7;
+      const distance = radius * Math.sqrt(Math.random()) * 0.72;
       const puff = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
       puff.position.set(
         Math.cos(angle) * distance,
-        0.24 + Math.random() * 1.12,
+        0.3 + Math.random() * 1.9,
         Math.sin(angle) * distance
       );
       puff.userData.base = puff.position.clone();
       puff.userData.phase = Math.random() * Math.PI * 2;
-      puff.userData.speed = 0.2 + Math.random() * 0.42;
+      puff.userData.speed = 0.24 + Math.random() * 0.46;
       puff.userData.atmosphere = true;
-      puff.userData.baseScale = radius * (0.18 + Math.random() * 0.2);
+      puff.userData.baseScale = radius * (0.2 + Math.random() * 0.22);
       puff.userData.aspect = new THREE.Vector3(
-        1.2 + Math.random() * 0.75,
-        0.48 + Math.random() * 0.36,
-        1.05 + Math.random() * 0.7
+        0.85 + Math.random() * 0.5,
+        0.62 + Math.random() * 0.44,
+        0.8 + Math.random() * 0.48
       );
       puff.renderOrder = 1320;
       puff.layers.set(0);
@@ -192,6 +194,7 @@ export function createAreaEffectVisual({ radius, color, accent, kind }) {
       opacity: 0.9,
       side: THREE.DoubleSide,
       depthWrite: false,
+      depthTest: false,
       blending: THREE.AdditiveBlending
     }).clone()
     : mat(color, {
@@ -206,7 +209,8 @@ export function createAreaEffectVisual({ radius, color, accent, kind }) {
     const angle = Math.random() * Math.PI * 2;
     const distance = radius * Math.sqrt(Math.random()) * 0.88;
     const flameHeight = 0.55 + Math.random() * 0.88;
-    const flameWidth = 0.14 + Math.random() * 0.15;
+    // 火苗更宽（约 1.9 倍）
+    const flameWidth = (0.26 + Math.random() * 0.28);
     const puff = new THREE.Mesh(
       isWildfire
         ? new THREE.ConeGeometry(0.5, 1, 6, 1, true)
@@ -236,7 +240,8 @@ export function createAreaEffectVisual({ radius, color, accent, kind }) {
       );
     }
     puff.renderOrder = 1322;
-    puff.layers.set(0);
+    // 野火火苗走 layer 1 覆盖通道（绕过屏幕描边），普通烟雾留主世界层
+    puff.layers.set(isWildfire ? 1 : 0);
     group.add(puff);
   }
   group.userData.disc = disc;
@@ -282,12 +287,13 @@ export function updateAreaEffectVisual(group, { age, duration, radius, kind }, d
     group.userData.toxicMoteMaterial.opacity = 0.64 * alpha;
     group.userData.atmospherePuffs.forEach((puff, index) => {
       const phase = puff.userData.phase + age * puff.userData.speed;
-      puff.position.x = puff.userData.base.x + Math.cos(phase * 0.72) * radius * 0.055;
-      puff.position.z = puff.userData.base.z + Math.sin(phase * 0.64) * radius * 0.055;
-      puff.position.y = puff.userData.base.y + Math.sin(phase) * 0.16;
-      const breathe = puff.userData.baseScale * (0.86 + Math.sin(phase * 1.3 + index) * 0.12);
+      puff.position.x = puff.userData.base.x + Math.cos(phase * 0.72) * radius * 0.06;
+      puff.position.z = puff.userData.base.z + Math.sin(phase * 0.64) * radius * 0.06;
+      puff.position.y = puff.userData.base.y + Math.sin(phase) * 0.3;
+      const breathe = puff.userData.baseScale * (0.84 + Math.sin(phase * 1.3 + index) * 0.14);
       puff.scale.copy(puff.userData.aspect).multiplyScalar(breathe);
-      puff.rotation.y += dt * (0.08 + index * 0.006);
+      puff.rotation.y += dt * (0.09 + index * 0.006);
+      puff.rotation.x = Math.sin(phase * 0.7 + index) * 0.14;
     });
     group.userData.toxicMotes.forEach((mote, index) => {
       const phase = mote.userData.phase + age * mote.userData.speed;
@@ -307,9 +313,10 @@ export function updateAreaEffectVisual(group, { age, duration, radius, kind }, d
       const heat = 0.84 + Math.sin(t * Math.PI) * 0.18;
       const heightScale = child.userData.flameHeight * Math.max(0.42, lick * heat);
       const widthScale = child.userData.flameWidth * (0.78 + Math.sin(phase * 3.1) * 0.12);
-      child.position.x = child.userData.base.x + Math.cos(phase * 1.2) * child.userData.sway;
-      child.position.z = child.userData.base.z + Math.sin(phase) * child.userData.sway;
-      child.position.y = child.userData.base.y + heightScale * 0.5 + Math.sin(phase * 2.4) * 0.04;
+      // 底部锚定：火苗只上下伸缩，根部与水平位置保持不动
+      child.position.x = child.userData.base.x;
+      child.position.z = child.userData.base.z;
+      child.position.y = child.userData.base.y + heightScale * 0.5;
       child.rotation.x = Math.sin(phase * 0.9) * 0.18;
       child.rotation.y += dt * (1.1 + index * 0.015);
       child.rotation.z = Math.cos(phase * 1.1) * 0.2;

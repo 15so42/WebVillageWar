@@ -194,8 +194,9 @@ const styles = await readFile(new URL('../src/styles.css', import.meta.url), 'ut
 assert.match(styles, /\.world-free-enchantment-charges[\s\S]*background:\s*var\(--hp-color\)/);
 const unitEntitySource = await readFile(new URL('../src/entities/UnitEntity.js', import.meta.url), 'utf8');
 assert.ok(
-  unitEntitySource.indexOf('world-durability-bar') < unitEntitySource.indexOf('world-free-enchantment-charges'),
-  'free enchantment diamonds render below the durability bar'
+  unitEntitySource.indexOf('world-free-enchantment-charges') < unitEntitySource.indexOf('world-player-name')
+    && unitEntitySource.indexOf('world-free-enchantment-charges') < unitEntitySource.indexOf('world-health-bar'),
+  'free enchantment diamonds render above the player name and health bar'
 );
 
 const hintEvents = [];

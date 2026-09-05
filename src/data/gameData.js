@@ -562,7 +562,8 @@ export const UNIT_DEFINITIONS = {
     },
     weapon: {
       name: '铁匠锤',
-      maxDurability: 32,
+      // 初始耐久 +60%（32 → 51）
+      maxDurability: 51,
       durabilityCost: 0.65
     }
   },
@@ -1485,6 +1486,186 @@ export const UNIT_DEFINITIONS = {
       durabilityCost: 0
     }
   },
+  // 凛霜狼王：第一关第二个特色 Boss——高速近战猎杀者，自带狼群附魔并持续召唤冰狼
+  frostWolfBoss: {
+    name: '凛霜狼王',
+    role: 'melee',
+    art: {
+      modelKey: 'unit.frostWolfBoss',
+      rig: 'beast',
+      clips: {
+        idle: 'Idle',
+        walk: 'Skitter',
+        attack: 'Sting_Attack',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.5,
+          events: {
+            impact: 0.5
+          }
+        },
+        hit: {
+          duration: 0.24
+        }
+      }
+    },
+    maxHealth: 252,
+    maxShield: 66,
+    collisionRadius: 0.68,
+    statusHeight: 2.05,
+    projectileHitHeight: 1.52,
+    speed: 3.2,
+    attackRange: 1.5,
+    attackRate: 0.62,
+    damage: 13,
+    armor: 4,
+    magicResistance: 3,
+    dodgeChance: 0.05,
+    knockback: 4.4,
+    knockbackResistance: 0.48,
+    aggroRange: 11.5,
+    monsterAbility: {
+      type: 'frostPounce',
+      key: 'frost-wolf-pounce',
+      cooldown: 8,
+      initialCooldown: 4.5,
+      range: 6,
+      pathRadius: 1.3,
+      impactRadius: 1.9,
+      damageMultiplier: 0.9,
+      slowDuration: 1.5,
+      statusBuffId: 'frostSnared',
+      // 狼群附魔：每隔 summonInterval 秒自动召唤一只冰狼
+      summonInterval: 7,
+      summonCount: 1
+    },
+    weapon: {
+      name: '霜牙',
+      maxDurability: 64,
+      durabilityCost: 0
+    }
+  },
+  // 召唤的冰狼（狼群）
+  frostWolf: {
+    name: '冰狼',
+    role: 'melee',
+    art: {
+      modelKey: 'unit.frostWolf',
+      rig: 'beast',
+      clips: {
+        idle: 'Idle',
+        walk: 'Skitter',
+        attack: 'Sting_Attack',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.46,
+          events: {
+            impact: 0.46
+          }
+        },
+        hit: {
+          duration: 0.24
+        }
+      }
+    },
+    maxHealth: 26,
+    maxShield: 0,
+    collisionRadius: 0.44,
+    statusHeight: 1.15,
+    projectileHitHeight: 0.9,
+    speed: 3.5,
+    attackRange: 1.25,
+    attackRate: 0.85,
+    damage: 5,
+    armor: 1,
+    magicResistance: 1,
+    dodgeChance: 0.04,
+    knockback: 1.9,
+    knockbackResistance: 0.22,
+    aggroRange: 9.5,
+    weapon: {
+      name: '冰爪',
+      maxDurability: 18,
+      durabilityCost: 0
+    }
+  },
+  // 冰川先知：第一关第三个特色 Boss——远程控场施法者，风暴追逐最近敌人，冰镜结晶反射基地激光
+  frostOracleBoss: {
+    name: '冰川先知',
+    role: 'ranged',
+    art: {
+      modelKey: 'unit.frostOracleBoss',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Heavy_Walk',
+        attack: 'Staff_Cast',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.92,
+          events: {
+            release: 0.58
+          }
+        },
+        hit: {
+          duration: 0.28
+        }
+      }
+    },
+    maxHealth: 228,
+    maxShield: 84,
+    collisionRadius: 0.6,
+    statusHeight: 2.6,
+    projectileHitHeight: 2.2,
+    speed: 1.7,
+    attackRange: 9.2,
+    attackRate: 0.52,
+    damage: 9,
+    attackDamageType: 'magic',
+    armor: 2,
+    magicResistance: 8,
+    dodgeChance: 0.03,
+    knockback: 3.4,
+    knockbackResistance: 0.3,
+    aggroRange: 15.5,
+    projectileSpeed: 10.5,
+    projectileType: 'frostArrow',
+    projectileColor: '#bcecff',
+    monsterAbility: {
+      type: 'frostStorm',
+      key: 'frost-oracle-storm',
+      cooldown: 10,
+      initialCooldown: 5,
+      radius: 3.8,
+      duration: 4,
+      tickSeconds: 1,
+      damagePercentOfAttack: 1,
+      statusBuffId: 'frostStorm',
+      slowDuration: 3,
+      // 风暴追逐最近的敌人
+      tracking: 'nearestEnemy',
+      chaseSpeed: 2.6,
+      // 冰镜结晶：被动护盾 + 反弹基地激光
+      iceMirrorInterval: 15,
+      iceMirrorInitialDelay: 7,
+      iceMirrorDuration: 6,
+      iceMirrorAbsorb: 50
+    },
+    weapon: {
+      name: '寒潮法杖',
+      maxDurability: 66,
+      durabilityCost: 0
+    }
+  },
   frostTrollBoss: {
     name: '冰霜巨魔',
     role: 'melee',
@@ -1526,15 +1707,16 @@ export const UNIT_DEFINITIONS = {
     knockbackResistance: 0.76,
     aggroRange: 12,
     monsterAbility: {
-      type: 'frostNova',
-      key: 'frost-troll-nova',
-      cooldown: 11,
-      initialCooldown: 5,
-      range: 6.5,
+      type: 'frostStorm',
+      key: 'frost-troll-storm',
+      cooldown: 6,
+      initialCooldown: 4,
       radius: 4.2,
-      damage: 8,
-      slowDuration: 3,
-      statusBuffId: 'frostSnared'
+      duration: 3.5,
+      tickSeconds: 1,
+      damagePercentOfAttack: 1,
+      statusBuffId: 'frostStorm',
+      slowDuration: 3
     },
     weapon: {
       name: '霜纹巨锤',
@@ -2567,7 +2749,7 @@ Object.values(UNIT_DEFINITIONS).forEach((definition) => {
 
 export const BUFF_DEFINITIONS = {
   fire: {
-    name: '火焰附加',
+    name: '燃烧',
     category: 'enchantment',
     color: '#ff823d',
     duration: 999,
@@ -2607,7 +2789,9 @@ export const BUFF_DEFINITIONS = {
     level: 1,
     effects: [
       {
-        event: 'receiveDamage',
+        // 友方单位受到攻击时触发（含附魔持有者自身）：每个持有者按自身独立的 5 秒冷却
+        // 对攻击者降下巨剑，不要求持有者本人被击中。
+        event: 'allyDamaged',
         op: 'judgmentRetaliation',
         damagePerLevel: 2,
         cooldown: 5,
@@ -2800,7 +2984,7 @@ export const BUFF_DEFINITIONS = {
     ]
   },
   swordSaint: {
-    name: '剑圣附魔',
+    name: '剑圣',
     category: 'enchantment',
     color: '#ffd166',
     duration: 999,
@@ -2952,9 +3136,10 @@ export const BUFF_DEFINITIONS = {
       {
         event: 'afterDamage',
         op: 'fireworksOnAttack',
-        radius: 7,
+        radius: 5,
         damagePerLevel: 1,
         healPerLevel: 1,
+        cooldown: 6,
         color: '#ff78c8'
       }
     ]
@@ -2996,7 +3181,7 @@ export const BUFF_DEFINITIONS = {
     ]
   },
   bleed: {
-    name: '流血附加',
+    name: '出血',
     category: 'enchantment',
     color: '#b54848',
     duration: 999,
@@ -3030,11 +3215,12 @@ export const BUFF_DEFINITIONS = {
     ]
   },
   frost: {
-    name: '寒霜附加',
+    name: '寒霜',
     category: 'enchantment',
     color: '#9bdcff',
     duration: 999,
     level: 1,
+    summary: '命中后使目标寒冷 2.8 秒：移速 -22%、攻速 -10%',
     effects: [
       {
         event: 'afterDamage',
@@ -3061,7 +3247,7 @@ export const BUFF_DEFINITIONS = {
         stat: 'armor',
         type: 'add',
         amount: 0,
-        amountPerLevel: 1
+        amountPerLevel: 0.5
       }
     ]
   },
@@ -3383,6 +3569,55 @@ export const BUFF_DEFINITIONS = {
       }
     ]
   },
+  frostStorm: {
+    name: '冰风',
+    category: 'status',
+    color: '#9bdcff',
+    duration: 3,
+    hidden: false,
+    negative: true,
+    modifiers: [
+      {
+        stat: 'moveSpeed',
+        type: 'multiply',
+        factor: 0.6
+      },
+      {
+        stat: 'attackRate',
+        type: 'multiply',
+        factor: 0.6
+      }
+    ]
+  },
+  frostMirror: {
+    name: '冰镜结晶',
+    category: 'status',
+    color: '#bcecff',
+    duration: 6,
+    hidden: false,
+    negative: false,
+    effects: [
+      {
+        event: 'beforeDamage',
+        op: 'absorbFrostMirror'
+      }
+    ]
+  },
+  frostMirrorSlow: {
+    name: '冰镜寒锋',
+    category: 'status',
+    color: '#cfeaff',
+    duration: 1.5,
+    hidden: true,
+    negative: true,
+    modifiers: [
+      {
+        stat: 'moveSpeed',
+        type: 'multiply',
+        factor: 0.7
+      }
+    ]
+  },
   armorShredded: {
     name: '破甲',
     category: 'status',
@@ -3494,7 +3729,7 @@ export const BUFF_DEFINITIONS = {
     ]
   },
   bleeding: {
-    name: '流血',
+    name: '出血',
     category: 'status',
     color: '#b54848',
     duration: 6,
@@ -3767,6 +4002,13 @@ export const PLAYER_ABILITY_DEFINITIONS = {
     label: '玉',
     color: '#65e0c1',
     summary: '友方单位护盾破碎时，对周围敌人造成其最大护盾 35%/层的魔法伤害（每单位 6 秒冷却）'
+  },
+  lookout: {
+    id: 'lookout',
+    name: '瞭望',
+    label: '望',
+    color: '#9ec7e8',
+    summary: '基地攻击距离每层 +50%（按初始距离加算）'
   }
 };
 
@@ -3792,6 +4034,8 @@ export const WAVE_MONSTER_TYPES = [
 
 export const WAVE_BOSS_TYPES = [
   'frostTrollBoss',
+  'frostWolfBoss',
+  'frostOracleBoss',
   'goblinTroll',
   'ogre',
   'scorpion',
@@ -4065,17 +4309,17 @@ export const CARD_DEFINITIONS = [
     kind: 'building',
     label: '塔',
     artKey: 'arrowTower',
-    summary: '15 秒建成，建成后自动射击周围敌人',
+    summary: '5 秒建成，建成后自动射击周围敌人',
     target: 'ground',
     radius: 1.35,
     cooldown: 16,
-    energyCost: 5,
+    energyCost: 4,
     unitType: 'arrowTower',
-    buildSeconds: 15,
+    buildSeconds: 5,
     effect: {
       type: 'build-structure',
       unitType: 'arrowTower',
-      buildSeconds: 15
+      buildSeconds: 5
     },
     color: '#8f6a3f'
   },
@@ -4085,17 +4329,17 @@ export const CARD_DEFINITIONS = [
     kind: 'building',
     label: '修',
     artKey: 'repairStation',
-    summary: '15 秒建成；消耗自身耐久，缓慢修复周围单位与建筑的血量、耐久；基地在范围内也会受益',
+    summary: '5 秒建成；消耗自身耐久，缓慢修复周围单位与建筑的血量、耐久；基地在范围内也会受益',
     target: 'ground',
     radius: 1.45,
     cooldown: 18,
-    energyCost: 5,
+    energyCost: 4,
     unitType: 'repairStation',
-    buildSeconds: 15,
+    buildSeconds: 5,
     effect: {
       type: 'build-structure',
       unitType: 'repairStation',
-      buildSeconds: 15
+      buildSeconds: 5
     },
     color: '#6b9ab8'
   },
@@ -4105,17 +4349,17 @@ export const CARD_DEFINITIONS = [
     kind: 'building',
     label: '食',
     artKey: 'canteen',
-    summary: '15 秒建成；消耗自身耐久，缓慢治疗周围受伤单位',
+    summary: '5 秒建成；消耗自身耐久，缓慢治疗周围受伤单位',
     target: 'ground',
     radius: 1.55,
     cooldown: 18,
-    energyCost: 5,
+    energyCost: 4,
     unitType: 'canteen',
-    buildSeconds: 15,
+    buildSeconds: 5,
     effect: {
       type: 'build-structure',
       unitType: 'canteen',
-      buildSeconds: 15
+      buildSeconds: 5
     },
     color: '#b98758'
   },
@@ -4125,17 +4369,17 @@ export const CARD_DEFINITIONS = [
     kind: 'building',
     label: '标',
     artKey: 'beacon',
-    summary: '15 秒建成；可建在任意可通行地面，建成后允许在附近派遣单位',
+    summary: '5 秒建成；可建在任意可通行地面，建成后允许在附近派遣单位',
     target: 'ground',
     radius: 1.25,
     cooldown: 14,
-    energyCost: 5,
+    energyCost: 4,
     unitType: 'beacon',
-    buildSeconds: 15,
+    buildSeconds: 5,
     effect: {
       type: 'build-structure',
       unitType: 'beacon',
-      buildSeconds: 15
+      buildSeconds: 5
     },
     color: '#dff8ff'
   },
@@ -4446,6 +4690,25 @@ export const CARD_DEFINITIONS = [
       stacksPerLevel: 1
     },
     color: '#7f8fc7'
+  },
+  {
+    id: 'lookout-ability',
+    name: '瞭望',
+    kind: 'ability',
+    label: '望',
+    artKey: 'abilityArsenal',
+    summary: '基地攻击距离翻倍；再次打出时每层再翻倍',
+    target: 'none',
+    radius: 1,
+    cooldown: 0,
+    energyCost: 2,
+    effect: {
+      type: 'acquire-ability',
+      abilityId: 'lookout',
+      stacksBase: 1,
+      stacksPerLevel: 1
+    },
+    color: '#9ec7e8'
   },
   {
     id: 'enchant-echo-ability',
@@ -4866,9 +5129,9 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'fire-enchant',
-    name: '火焰',
+    name: '燃烧',
     kind: 'enchant',
-    label: '火',
+    label: '燃',
     artKey: 'fire',
     summary: '普通攻击点燃目标',
     target: 'friendly-unit',
@@ -4906,7 +5169,7 @@ export const CARD_DEFINITIONS = [
     kind: 'enchant',
     label: '审',
     artKey: 'judgment',
-    summary: '受到攻击时对攻击者降下巨剑，造成等级×2魔法伤害并触发自身攻击特效；5秒冷却。',
+    summary: '友方单位受到攻击时，对该攻击者降下巨剑，造成等级×2魔法伤害并触发自身攻击特效；每个持有者独立5秒冷却。',
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,
@@ -5145,7 +5408,7 @@ export const CARD_DEFINITIONS = [
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,
-    energyCost: 3,
+    energyCost: 2,
     enchantmentId: 'swordSaint',
     effect: {
       type: 'apply-buff',
@@ -5285,7 +5548,7 @@ export const CARD_DEFINITIONS = [
     kind: 'enchant',
     label: '花',
     artKey: 'explosion',
-    summary: '命中后在目标头顶绽放烟花：7 米内敌人受到等级点伤害并附加攻击特效，友军恢复等级点生命',
+    summary: '命中后在目标头顶绽放半径 5 的烟花（6 秒冷却）：5 米内敌人受到等级点伤害并附加攻击特效，烟花附魔者与友军恢复等级点生命',
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,
@@ -5335,9 +5598,9 @@ export const CARD_DEFINITIONS = [
   },
   {
     id: 'bleed-enchant',
-    name: '流血',
+    name: '出血',
     kind: 'enchant',
-    label: '血',
+    label: '出',
     artKey: 'bleed',
     summary: '命中后造成低额持续伤害',
     target: 'friendly-unit',
@@ -5429,7 +5692,7 @@ export const CARD_DEFINITIONS = [
     kind: 'enchant',
     label: '甲',
     artKey: 'waveArmored',
-    summary: '每级：生命 +5%、护甲 +1',
+    summary: '每级：生命 +5%、护甲 +0.5',
     target: 'friendly-unit',
     radius: 1.1,
     cooldown: 0,
@@ -5957,17 +6220,30 @@ export const LEVEL_DEFINITIONS = [
     baseDifficulty: 1,
     waveDifficultyGrowth: 1,
     enemyPool: [
+      // 教学主力：哥布林三件套 + 蜘蛛，全程存在
       { type: 'goblinSoldier', weight: 5, minWave: 1, minDifficulty: 1 },
       { type: 'spider', weight: 1, minWave: 2, minDifficulty: 1 },
+      // 狼：高速突袭，教玩家用近战拦截/保护远程（第 2 波起）
+      { type: 'wolf', weight: 2, minWave: 2, minDifficulty: 1 },
       { type: 'goblinArcher', weight: 2, minWave: 3, minDifficulty: 1 },
-      { type: 'goblinHunter', weight: 1, minWave: 5, minDifficulty: 2 }
+      // 寒霜学徒：冰法远程，教玩家优先击杀施法者（第 4 波起）
+      { type: 'frostAcolyte', weight: 2, minWave: 4, minDifficulty: 1 },
+      { type: 'goblinHunter', weight: 1, minWave: 5, minDifficulty: 2 },
+      // 盾卫：前排肉盾，教玩家绕开正面/用附魔破甲（第 5 波起）
+      { type: 'shieldBearer', weight: 2, minWave: 5, minDifficulty: 1 },
+      // 熊：慢速重型冲撞，中期压迫感（第 7 波起）
+      { type: 'bear', weight: 1, minWave: 7, minDifficulty: 2 },
+      // 哥布林巨魔：后期普通波里的小 Boss 压迫感（第 9 波起）
+      { type: 'goblinTroll', weight: 1, minWave: 9, minDifficulty: 3 }
     ],
     elitePool: [
       { type: 'frostScout', weight: 1, minWave: 3, minDifficulty: 1 },
       { type: 'snowDuskShaman', weight: 1, minWave: 4, minDifficulty: 1 }
     ],
     bossPool: [
-      { type: 'frostTrollBoss', weight: 1, minWave: 4.8, minDifficulty: 1 }
+      { type: 'frostTrollBoss', weight: 1, minWave: 4.8, minDifficulty: 1 },
+      { type: 'frostWolfBoss', weight: 1, minWave: 6.2, minDifficulty: 1 },
+      { type: 'frostOracleBoss', weight: 1, minWave: 7.4, minDifficulty: 1 }
     ],
     world: {
       sceneKey: 'snow-valley'

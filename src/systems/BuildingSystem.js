@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createAttackRangeDashedRing } from '../art/lowpoly.js';
 import { disposeObject3D } from '../utils/dispose.js';
 import { TEAMS } from '../data/gameData.js';
 import { distance2D } from '../utils/math.js';
@@ -6,6 +7,7 @@ import { distance2D } from '../utils/math.js';
 const SCAFFOLD_COLOR = '#dff8ff';
 const SERVICE_TICK_SECONDS = 1;
 const BUILDING_SET_REFRESH_SECONDS = 1;
+const RANGE_RING_HEIGHT = 0.06;
 
 export class BuildingSystem {
   constructor(game) {
@@ -13,6 +15,8 @@ export class BuildingSystem {
     this.constructing = new Set();
     this.buildings = new Set();
     this.buildingRefreshTimer = 0;
+    // 建筑作用范围的虚线环（食堂治疗/维修站修复/箭塔射击/信标部署）
+    this.buildingRangeVisuals = new Map();
   }
 
   startConstruction(unit, duration = 30) {
@@ -48,10 +52,12 @@ export class BuildingSystem {
     });
     this.buildings.forEach((unit) => {
       if (!unit.alive) {
+        this.removeBuildingRangeVisual(unit);
         this.buildings.delete(unit);
         return;
       }
       if (!unit.underConstruction) {
+        this.updateBuildingRangeVisual(unit);
         this.updateBuildingAura(unit, dt);
       }
     });
@@ -73,7 +79,63 @@ export class BuildingSystem {
   destroy() {
     this.constructing.forEach((unit) => this.finishConstructionVisual(unit, { removeOnly: true }));
     this.constructing.clear();
+    this.buildingRangeVisuals.forEach((visuals, unit) => {
+      this.removeBuildingRangeVisual(unit);
+    });
+    this.buildingRangeVisuals.clear();
     this.buildings.clear();
+  }
+
+  // 建筑的有效作用范围：攻击塔用射程（含运行时修正），
+  // 食堂/维修站用治疗/修复光环半径，信标用部署半径
+  buildingEffectRadius(unit) {
+    const definition = unit?.definition ?? {};
+    if ((definition.attackRange ?? 0) > 0) {
+      const range = this.game.modifiers?.getAttackRange?.(unit);
+      return Math.max(0.1, Number.isFinite(range) ? range : definition.attackRange);
+    }
+    if (Number.isFinite(definition.buildingAura?.radius) && definition.buildingAura.radius > 0) {
+      return definition.buildingAura.radius;
+    }
+    if (Number.isFinite(definition.deploymentRadius) && definition.deploymentRadius > 0) {
+      return definition.deploymentRadius;
+    }
+    return 0;
+  }
+
+  updateBuildingRangeVisual(unit) {
+    if (!unit?.isBuilding || !unit.alive) {
+      this.removeBuildingRangeVisual(unit);
+      return;
+    }
+    const radius = this.buildingEffectRadius(unit);
+    if (radius <= 0) {
+      this.removeBuildingRangeVisual(unit);
+      return;
+    }
+    let visuals = this.buildingRangeVisuals.get(unit);
+    if (!visuals) {
+      visuals = createAttackRangeDashedRing(this.game.playerVisualColor?.(unit) ?? '#62d56f');
+      visuals.traverse((child) => {
+        if (child.isMesh || child.isGroup) child.layers.set(0);
+      });
+      this.buildingRangeVisuals.set(unit, visuals);
+      this.game.scene.add(visuals);
+    }
+    const y = this.game.groundHeightAt(unit.position) + RANGE_RING_HEIGHT;
+    visuals.position.set(unit.position.x, y, unit.position.z);
+    visuals.scale.setScalar(radius);
+    visuals.visible = true;
+    return visuals;
+  }
+
+  removeBuildingRangeVisual(unit) {
+    const visuals = this.buildingRangeVisuals.get(unit);
+    if (!visuals) return false;
+    this.game.scene.remove(visuals);
+    disposeObject3D(visuals);
+    this.buildingRangeVisuals.delete(unit);
+    return true;
   }
 
   completeConstruction(unit) {

@@ -63,6 +63,9 @@ export class UnitLogicSystem {
     this.game.attacks.updateProjectiles(dt, profile);
     mark = recordStep(profile, 'projectilesMs', mark);
     this.game.attacks.updateThunderClouds(dt);
+    this.game.attacks.updateFrostStorms(dt);
+    this.game.attacks.updateWolfPackSummon(dt);
+    this.game.attacks.updateOracleBossPassives(dt);
     if (profile) {
       profile.units = units.length;
       profile.separationChecks = this.game.movement.stats.checks;
@@ -520,6 +523,7 @@ export class UnitLogicSystem {
     unit.supportCooldowns.set(key, cooldown);
     this.queueSupportEffect(unit, pick.target, 'repair', () => {
       if (pick.mode === 'structure') {
+        // 矮人工匠：可维修所有建筑（含基地），每次固定 5% 血量和 5% 耐久
         const restored = this.game.repairStructure(pick.target, {
           healthPercent: ability.baseHealthPercent ?? 0.05,
           durabilityPercent: ability.baseDurabilityPercent ?? 0.05
@@ -527,7 +531,7 @@ export class UnitLogicSystem {
         if (restored.health <= 0.01 && restored.durability <= 0.01) return;
         this.game.effects.spawnRing(pick.target.position, '#9dd8ff', 1.1, 0.42);
         this.game.effects.spawnDamageNumber(unit.position, 1, {
-          text: '基地修缮',
+          text: pick.target.kind === 'structure' ? '基地修缮' : '修缮',
           color: '#dff8ff',
           stroke: '#12303a',
           height: unit.projectileHitHeight ?? 1.55,
@@ -763,6 +767,23 @@ export class UnitLogicSystem {
     for (let i = 0; i < unitCandidates.length; i += 1) {
       const candidate = unitCandidates[i];
       if (!candidate.alive || candidate === unit || candidate.underConstruction) continue;
+      // 矮人工匠：同队所有建筑（含基地之外的箭塔/维修站/食堂/信标）都可维修
+      if (candidate.isBuilding && candidate.kind !== 'structure') {
+        if (distance2D(unit.position, candidate.position) > range) continue;
+        const healthMissing = Math.max(0, candidate.maxHealth - candidate.health);
+        const durabilityMissing = candidate.weapon
+          ? Math.max(0, candidate.weapon.maxDurability - candidate.weapon.durability)
+          : 0;
+        const structureScore = healthMissing + durabilityMissing * 2;
+        if (structureScore > 0.01) {
+          candidates.push({
+            mode: 'structure',
+            target: candidate,
+            score: structureScore
+          });
+        }
+        continue;
+      }
       if (!candidate.weapon || candidate.weapon.durability >= candidate.weapon.maxDurability - 0.01) continue;
       if (distance2D(unit.position, candidate.position) > range) continue;
       insertRepairTarget(

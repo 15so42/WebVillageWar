@@ -564,15 +564,16 @@ function createEnchantHalo() {
   solarFlare.userData.isSolarFlameAura = true;
   solarFlare.userData.age = 0;
   const solarParticles = [];
-  for (let index = 0; index < 8; index += 1) {
+  // 烈阳光晕：范围 +20%、密度 +50%（8 → 12 粒）
+  for (let index = 0; index < 12; index += 1) {
     const particle = createSoftParticleSprite(index % 2 === 0 ? '#ffd95a' : '#ff9d32', {
       falloff: 'tight',
       opacity: 0.7,
       depthTest: true,
       toneMapped: false
     });
-    particle.userData.phase = index / 8;
-    particle.userData.orbitRadius = 0.34 + (index % 3) * 0.09;
+    particle.userData.phase = index / 12;
+    particle.userData.orbitRadius = 0.41 + (index % 3) * 0.11;
     particle.userData.baseHeight = 0.28 + (index % 4) * 0.18;
     particle.userData.baseScale = 0.16 + (index % 3) * 0.045;
     particle.userData.orbitSpeed = 1.1 + (index % 4) * 0.16;
@@ -580,6 +581,26 @@ function createEnchantHalo() {
     solarFlare.add(particle);
   }
   solarFlare.userData.particles = solarParticles;
+  // 热扰动层：半透明橙黄"热浪"细条快速向上蒸腾、横向扭曲，模拟烈日下的空气抖动
+  const heatRibbons = [];
+  for (let index = 0; index < 8; index += 1) {
+    const ribbon = createSoftParticleSprite('#ffd9a0', {
+      falloff: 'tight',
+      opacity: 0,
+      depthTest: true,
+      toneMapped: false
+    });
+    ribbon.userData.phase = index / 8;
+    ribbon.userData.orbitRadius = 0.3 + (index % 3) * 0.16;
+    ribbon.userData.baseHeight = 0.34 + (index % 4) * 0.2;
+    ribbon.userData.baseScale = new THREE.Vector2(
+      0.09 + (index % 3) * 0.035,
+      0.55 + (index % 4) * 0.18
+    );
+    heatRibbons.push(ribbon);
+    solarFlare.add(ribbon);
+  }
+  solarFlare.userData.heatRibbons = heatRibbons;
   group.add(fire, thorns, solarFlare);
   group.visible = false;
   return group;
@@ -608,6 +629,25 @@ function updateEnchantHaloVisual(unit, dt) {
     const scale = particle.userData.baseScale * (0.72 + envelope * 0.7);
     particle.scale.set(scale, scale * 1.3, 1);
     particle.material.opacity = 0.18 + envelope * 0.62;
+  });
+  // 热浪：每条约 0.8 秒一轮上浮，横向正弦扭曲+纵向拉长，透明度随升腾先增后减
+  const heatRibbons = solarFlare.userData.heatRibbons ?? [];
+  heatRibbons.forEach((ribbon) => {
+    const phase = ribbon.userData.phase;
+    const cycle = (age * 0.85 + phase) % 1;
+    const angle = phase * Math.PI * 2 + age * (1.05 + (phase % 3) * 0.24);
+    ribbon.position.set(
+      Math.cos(angle) * ribbon.userData.orbitRadius + Math.sin(age * 3.4 + phase * 7) * 0.16,
+      ribbon.userData.baseHeight + cycle * 1.35,
+      Math.sin(angle) * ribbon.userData.orbitRadius + Math.cos(age * 2.6 + phase * 5) * 0.16
+    );
+    const envelope = Math.sin(cycle * Math.PI) ** 0.85;
+    ribbon.scale.set(
+      ribbon.userData.baseScale.x * (0.8 + envelope * 0.75),
+      ribbon.userData.baseScale.y * (0.7 + envelope * 0.85),
+      1
+    );
+    ribbon.material.opacity = 0.035 + envelope * 0.15;
   });
 }
 
@@ -661,6 +701,9 @@ function createUnitStatusElement(team) {
   const element = document.createElement('div');
   element.className = `world-status unit-status ${team === TEAMS.PLAYER ? 'is-friendly' : 'is-enemy'}`;
   element.innerHTML = `
+    <div class="world-free-enchantment-charges" hidden aria-label="免费附魔次数">
+      <span></span><span></span><span></span><span></span>
+    </div>
     <div class="world-player-name" hidden></div>
     <div class="world-health-bar">
       <span class="world-health-loss-fill"></span>
@@ -670,9 +713,6 @@ function createUnitStatusElement(team) {
     </div>
     <div class="world-durability-bar">
       <span class="world-durability-fill"></span>
-    </div>
-    <div class="world-free-enchantment-charges" hidden aria-label="免费附魔次数">
-      <span></span><span></span><span></span><span></span>
     </div>
     <div class="world-enchantments" hidden></div>
   `;

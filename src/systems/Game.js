@@ -676,7 +676,13 @@ const OutlineShader = {
 
       // Smoothstep the edge detection using the threshold parameter
       float edge = smoothstep(outlineThreshold, outlineThreshold + 0.15, diff);
-      
+
+      // 高亮豁免：加法混合的发光粒子（回血光点、闪电、火花、烟花等）输出接近
+      // 白热的高亮度像素，亮度过高时不再叠加暗色描边，否则小粒子会被整个描成黑色。
+      float luminance = dot(centerTexel.rgb, vec3(0.299, 0.587, 0.114));
+      float highlightMask = 1.0 - smoothstep(0.66, 0.9, luminance);
+      edge *= highlightMask;
+
       // Blend outline with original color
       gl_FragColor = vec4(mix(centerTexel.rgb, outlineColor, edge), centerTexel.a);
     }
@@ -3334,9 +3340,9 @@ export class Game {
       };
       return this.cardSystem?.applyRuntimeCardLevel?.(leveledCard) ?? leveledCard;
     });
-    const specializationCards = this.unitSpecializationRewardCards(slot);
+    // 波次奖励不再发放单位专精卡牌（兵种专精仅经由祭坛三选一获取）。
     const seen = new Set();
-    return [...selectedCards, ...unitCards, ...specializationCards].filter((card) => {
+    return [...selectedCards, ...unitCards].filter((card) => {
       if (!card?.id || seen.has(card.id) || !remainingIds.has(card.id)) return false;
       seen.add(card.id);
       return true;
@@ -3344,29 +3350,16 @@ export class Game {
   }
 
   unitSpecializationRewardCards(slot = this.activeEconomySlot ?? this.localPlayerSlot) {
-    const owned = this.teamSpecialUpgradeMapForSlot(slot);
-    return [...this.acquiredUnitCardTypesFor(slot)].flatMap((unitType) => (
-      (UNIT_SPECIAL_UPGRADES[unitType] ?? [])
-        .filter((upgrade) => !owned?.get(unitType)?.has(upgrade.id))
-        .map((upgrade) => this.createPlayableTrainingCardChoice(
-          this.createTeamSpecialUpgradeChoice(unitType, upgrade)
-        ).card)
-    ));
+    // 已从波次奖励移除：单位专精卡牌不再进入波次奖励牌池。
+    void slot;
+    return [];
   }
 
   unlockUnitSpecializationRewardCards(unitType, slot = this.activeEconomySlot ?? this.localPlayerSlot) {
-    const remaining = this.waveRewardDeckIds(slot);
-    const existing = new Set(remaining);
-    let added = 0;
-    (UNIT_SPECIAL_UPGRADES[unitType] ?? []).forEach((upgrade) => {
-      const cardId = unitSpecializationRewardCardId(unitType, upgrade.id);
-      if (existing.has(cardId)) return;
-      remaining.push(cardId);
-      existing.add(cardId);
-      added += 1;
-    });
-    if (added > 0) this.networkBridge?.markPrivateStateDirty?.(slot);
-    return added;
+    // 已从波次奖励移除：获得单位卡不再解锁单位专精奖励卡。
+    void unitType;
+    void slot;
+    return 0;
   }
 
   consumeWaveRewardCard(card) {
@@ -3578,7 +3571,7 @@ export class Game {
     const before = types.size;
     types.add(unitType);
     const added = types.size !== before;
-    if (added) this.unlockUnitSpecializationRewardCards(unitType, slot);
+    // 单位专精卡已从波次奖励中移除：获得单位卡不再向波次奖励牌组解锁专精卡。
     return added;
   }
 
@@ -5503,7 +5496,12 @@ export class Game {
 
   findPlayerBaseAttackTarget() {
     if (!this.playerBase?.alive) return null;
-    const range = Math.max(0, BALANCE.playerBase.attackRange ?? 8.5);
+    const baseRange = Math.max(0, BALANCE.playerBase.attackRange ?? 8.5);
+    const lookoutStacks = Math.max(0, Math.floor(
+      this.getAbilityStacks?.('lookout') ?? this.abilities?.getStacks?.('lookout') ?? 0
+    ));
+    // 瞭望：每层 +50% 初始攻击距离（加算，不是乘算）
+    const range = baseRange + baseRange * 0.5 * lookoutStacks;
     const baseRadius = targetCombatRadius(this.playerBase);
     let best = null;
     let bestScore = Number.POSITIVE_INFINITY;
@@ -5542,6 +5540,40 @@ export class Game {
     }
     const end = target.position.clone();
     end.y += target.projectileHitHeight ?? 1.45;
+
+    // 冰镜结晶：先知开着冰镜时，基地激光被吸收并原路反弹回基地
+    const mirrorBuff = target.buffs?.get?.('frostMirror');
+    const mirrorRemaining = Number.isFinite(mirrorBuff?.frostMirrorRemaining)
+      ? mirrorBuff.frostMirrorRemaining
+      : 0;
+    if (mirrorRemaining > 0) {
+      const reflected = Math.min(damage, mirrorRemaining);
+      mirrorBuff.frostMirrorRemaining = mirrorRemaining - reflected;
+      if (mirrorBuff.frostMirrorRemaining <= 0) {
+        target.removeBuff?.('frostMirror');
+      }
+      // 反弹光束：与基地激光完全一致的视觉（同款冰蓝光束 + 翠绿热芯）
+      this.effects.spawnEnemyCampBlast(end, start, {
+        color: '#b7e8ff',
+        hotColor: '#6adbb8'
+      });
+      this.effects.spawnRing(target.position, '#bcecff', 1.3, 0.5);
+      this.effects.spawnDamageNumber(target.position, reflected, {
+        text: `冰镜反弹 ${Math.round(reflected)}`,
+        color: '#bcecff',
+        stroke: '#12343e',
+        height: target.projectileHitHeight ?? 1.45,
+        duration: 0.82,
+        fontSize: 76,
+        baseHeight: 0.5,
+        fadeStart: 0.62
+      });
+      if (reflected > 0) {
+        this.damagePlayerBase(reflected, { isAttack: false, source: target });
+      }
+      return;
+    }
+
     this.effects.spawnEnemyCampBlast(start, end, {
       color: '#b7e8ff',
       hotColor: '#6adbb8'
@@ -5763,7 +5795,8 @@ export class Game {
       unit.health = unit.maxHealth;
       unit.shield = unit.maxShield;
       unit.weapon.durability = unit.weapon.maxDurability;
-      const bossVisualScale = unit.type === 'frostTrollBoss' ? 2.5 : 1.32;
+      // Boss 体型缩小 40%：2.5 → 1.5
+      const bossVisualScale = unit.type === 'frostTrollBoss' ? 1.5 : 1.32;
       unit.runtimeVisualScale = bossVisualScale;
       unit.runtimeStatusHeightScale = bossVisualScale;
       setUnitRuntimeVisualScale(unit, bossVisualScale);
@@ -8066,16 +8099,27 @@ export class Game {
     if (!structure?.alive) return { health: 0, durability: 0 };
     const previousHealth = structure.health;
     const healthGain = Math.max(0, health + structure.maxHealth * healthPercent);
-    const durabilityGain = Math.max(0, durability + structure.maxStructureDurability * durabilityPercent);
+    // 基地类结构用 structureDurability，普通建筑用 weapon.durability
+    const durabilityReference = Number.isFinite(structure.maxStructureDurability)
+      ? structure.maxStructureDurability
+      : (structure.weapon?.maxDurability ?? 0);
+    const durabilityGain = Math.max(0, durability + durabilityReference * durabilityPercent);
     if (healthGain > 0) {
       structure.health = Math.min(structure.maxHealth, structure.health + healthGain);
       registerStructureHealthLoss(structure, previousHealth, this.elapsedTime);
     }
     if (durabilityGain > 0) {
-      structure.structureDurability = Math.min(
-        structure.maxStructureDurability,
-        (structure.structureDurability ?? 0) + durabilityGain
-      );
+      if (Number.isFinite(structure.maxStructureDurability)) {
+        structure.structureDurability = Math.min(
+          structure.maxStructureDurability,
+          (structure.structureDurability ?? 0) + durabilityGain
+        );
+      } else if (structure.weapon?.maxDurability) {
+        structure.weapon.durability = Math.min(
+          structure.weapon.maxDurability,
+          (structure.weapon.durability ?? 0) + durabilityGain
+        );
+      }
     }
     structure.alive = structure.health > 0;
     this.updateStructureStatusElement(structure, 0);

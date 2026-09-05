@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import * as THREE from 'three';
 import { BUFF_DEFINITIONS, CARD_DEFINITIONS, UNIT_DEFINITIONS } from '../src/data/gameData.js';
 import { AbilitySystem } from '../src/systems/AbilitySystem.js';
 import { BuffSystem } from '../src/systems/BuffSystem.js';
@@ -54,15 +55,15 @@ assert.deepEqual(
 );
 assert.deepEqual(BUFF_DEFINITIONS.waveArmored.modifiers, [
   { stat: 'maxHealth', type: 'multiply', factor: 1, factorPerLevel: 0.05 },
-  { stat: 'armor', type: 'add', amount: 0, amountPerLevel: 1 }
-], '重甲附魔每级只增加 5% 生命和 1 护甲');
+  { stat: 'armor', type: 'add', amount: 0, amountPerLevel: 0.5 }
+], '重甲附魔每级只增加 5% 生命和 0.5 护甲');
 assert.deepEqual(BUFF_DEFINITIONS.waveRush.modifiers, [
   { stat: 'moveSpeed', type: 'multiply', factor: 1, factorPerLevel: 0.05 },
   { stat: 'attackRate', type: 'multiply', factor: 1, factorPerLevel: 0.05 }
 ], '冲锋附魔每级只增加 5% 移速和 5% 攻速');
 assert.equal(
   CARD_DEFINITIONS.find((card) => card.id === 'armored-enchant')?.summary,
-  '每级：生命 +5%、护甲 +1'
+  '每级：生命 +5%、护甲 +0.5'
 );
 assert.equal(
   CARD_DEFINITIONS.find((card) => card.id === 'rush-enchant')?.summary,
@@ -99,6 +100,156 @@ assert.equal(UNIT_DEFINITIONS.engineer.support.repairAura.spellPowerFactor, 0.5)
 assert.equal(resolveSupportAmount({
   modifiers: { getMagicAttack: () => 8 }
 }, {}, UNIT_DEFINITIONS.engineer.support.repairAura), 14, '工匠修理应获得 50% 魔攻加成');
+
+{
+  // 矮人工匠：可维修所有建筑（含基地），每次固定 5% 血量和耐久
+  globalThis.window = { innerWidth: 1, innerHeight: 1 };
+  const { Game } = await import('../src/systems/Game.js');
+  const { UnitLogicSystem } = await import('../src/systems/UnitLogicSystem.js');
+  const system = Object.create(UnitLogicSystem.prototype);
+  const engineer = { team: 'player', position: { x: 0, z: 0 } };
+  const tower = {
+    alive: true,
+    isBuilding: true,
+    kind: 'building',
+    underConstruction: false,
+    position: { x: 1, z: 1 },
+    maxHealth: 50,
+    health: 40,
+    weapon: { maxDurability: 30, durability: 15 }
+  };
+  const base = {
+    alive: true,
+    kind: 'structure',
+    position: { x: 10, z: 0 },
+    maxHealth: 100,
+    health: 50,
+    maxStructureDurability: 100,
+    structureDurability: 40
+  };
+  system.game = {
+    friendlyUnits: [engineer, tower],
+    enemyUnits: [],
+    playerBase: base,
+    enemyCamp: { alive: false }
+  };
+  const ability = {
+    range: 5.4,
+    baseRange: 8.5,
+    includeBase: true,
+    maxTargets: 1,
+    baseHealthPercent: 0.05,
+    baseDurabilityPercent: 0.05
+  };
+  const pick = UnitLogicSystem.prototype.findBestRepairAuraTarget.call(system, engineer, ability);
+  assert.equal(pick.mode, 'structure');
+  assert.equal(pick.target, tower, '矮人工匠可维修范围内的普通建筑');
+  const engineerNearBase = { ...engineer, position: { x: 7, z: 0 } };
+  const pickBase = UnitLogicSystem.prototype.findBestRepairAuraTarget.call(system, engineerNearBase, ability);
+  assert.equal(pickBase.target.kind, 'structure', '基地同样在维修范围内');
+
+  // repairStructure 对普通建筑：固定 5% 血量 + 5% 耐久（weapon.durability 路径）
+  const repairGame = Object.assign(Object.create(Game.prototype), {
+    elapsedTime: 0,
+    updateStructureStatusElement() {},
+    registerStructureHealthLoss() {}
+  });
+  const result = Game.prototype.repairStructure.call(repairGame, tower, {
+    healthPercent: 0.05,
+    durabilityPercent: 0.05
+  });
+  assert(Math.abs(result.health - 2.5) < 1e-9, '建筑每次修复 5% 血量');
+  assert(Math.abs(tower.weapon.durability - 16.5) < 1e-9, '建筑每次修复 5% 耐久');
+}
+{
+  // 冰霜巨魔：冰霜风暴（每秒攻击力×1 魔法伤害 + 冰风减速，无攻击特效/击退）与近战溅射
+  const { AttackSystem } = await import('../src/systems/AttackSystem.js');
+  const boss = {
+    alive: true,
+    type: 'frostTrollBoss',
+    team: 'enemy',
+    position: new THREE.Vector3(0, 0, 0),
+    definition: {
+      attackDamageType: 'physical',
+      damage: 10,
+      monsterAbility: UNIT_DEFINITIONS.frostTrollBoss.monsterAbility
+    }
+  };
+  const attacks = new AttackSystem();
+  const damageRecords = [];
+  const buffRecords = [];
+  attacks.game = {
+    friendlyUnits: [],
+    enemyUnits: [],
+    elapsedTime: 0,
+    modifiers: {
+      getAttackDamage: () => 12
+    },
+    combat: {
+      applyDamage(target, amount, source, knockback, context) {
+        damageRecords.push({ target, amount, knockback, context });
+        return true;
+      }
+    },
+    buffs: {
+      applyBuff(target, buffId, source, overrides) {
+        buffRecords.push({ target, buffId, overrides });
+        return { id: buffId, ...overrides };
+      }
+    },
+    effects: {
+      spawnFrostStorm() {},
+      spawnMonsterAbilityText() {},
+      spawnHitSplashShockwave() {}
+    }
+  };
+  const meleeUnit = { alive: true, underConstruction: false, position: new THREE.Vector3(1, 0, 0), projectileHitHeight: 1.4 };
+  const farUnit = { alive: true, underConstruction: false, position: new THREE.Vector3(6, 0, 0), projectileHitHeight: 1.4 };
+  attacks.game.friendlyUnits.push(meleeUnit, farUnit);
+  const stormAbility = UNIT_DEFINITIONS.frostTrollBoss.monsterAbility;
+  assert.equal(stormAbility.type, 'frostStorm', '第一关 Boss 技能应为冰霜风暴');
+  attacks.frostStorms.push({
+    source: boss,
+    position: boss.position.clone(),
+    age: 0,
+    tickTimer: 0,
+    radius: stormAbility.radius,
+    duration: stormAbility.duration,
+    tickSeconds: stormAbility.tickSeconds,
+    slowDuration: stormAbility.slowDuration,
+    ability: stormAbility
+  });
+  attacks.updateFrostStorms(0.016);
+  assert.equal(damageRecords.length, 1, '风暴首跳命中范围内单位');
+  assert.equal(damageRecords[0].target, meleeUnit);
+  assert.equal(damageRecords[0].amount, 12, '每秒攻击力×1 伤害');
+  assert.equal(damageRecords[0].knockback, 0, '风暴无击退');
+  assert.equal(damageRecords[0].context.isAttack, false, '风暴不附带攻击特效');
+  assert.equal(damageRecords[0].context.skipHitEffect, true);
+  assert.deepEqual(buffRecords.map((entry) => entry.buffId), ['frostStorm'], '风暴施加冰风减速');
+  assert.equal(BUFF_DEFINITIONS.frostStorm.modifiers.length, 2, '冰风同时降低移速与攻速');
+  assert.ok(BUFF_DEFINITIONS.frostStorm.modifiers.every((modifier) => modifier.factor === 0.6));
+  damageRecords.length = 0;
+  attacks.updateFrostStorms(1.0);
+  assert.equal(damageRecords.length, 1, '风暴按每秒间隔重复跳伤');
+
+  // 近战溅射：命中点周围敌人受 60% 攻击力范围伤，无击退/攻击特效
+  const primary = { alive: true, underConstruction: false, position: new THREE.Vector3(2, 0, 0), projectileHitHeight: 1.4 };
+  const splashVictim = { alive: true, underConstruction: false, position: new THREE.Vector3(2.8, 0, 0.4), projectileHitHeight: 1.4 };
+  const outOfRange = { alive: true, underConstruction: false, position: new THREE.Vector3(6, 0, 0), projectileHitHeight: 1.4 };
+  attacks.game.friendlyUnits.push(primary, splashVictim, outOfRange);
+  damageRecords.length = 0;
+  const splashed = attacks.tryBossSplashAttack(boss, primary);
+  assert.equal(splashed, true);
+  assert.equal(damageRecords.length, 2, '溅射命中范围内的全部旁侧单位');
+  assert.ok(damageRecords.some((record) => record.target === splashVictim));
+  assert.ok(damageRecords.every((record) => (
+    record.target !== primary && record.target !== outOfRange
+  )), '溅射不命中主目标与范围外单位');
+  assert.ok(damageRecords.every((record) => Math.abs(record.amount - 7.2) < 1e-9), '溅射伤害为攻击力 60%');
+  assert.ok(damageRecords.every((record) => record.knockback === 0), '溅射无击退');
+  assert.ok(damageRecords.every((record) => record.context.isAttack === false), '溅射不附带攻击特效');
+}
 assert.equal(toRomanNumeral(1), 'I');
 assert.equal(toRomanNumeral(2), 'II');
 assert.equal(toRomanNumeral(11), 'XI');
@@ -126,6 +277,186 @@ assert.equal(
   4,
   '可用卡牌名称最多四个汉字，手机标题行不应再依赖省略号'
 );
+
+{
+  // 凛霜狼王 / 冰川先知：扑击、狼群召唤、风暴追逐、冰镜吸收
+  globalThis.window = { innerWidth: 1, innerHeight: 1 };
+  globalThis.document = {
+    createElement() {
+      return {
+        className: '',
+        innerHTML: '',
+        style: {},
+        querySelector() { return {}; },
+        querySelectorAll() { return []; },
+        remove() {}
+      };
+    }
+  };
+  const gameData = await import('../src/data/gameData.js');
+  const { AttackSystem } = await import('../src/systems/AttackSystem.js');
+  const snowBosses = gameData.LEVEL_DEFINITIONS.find((level) => level.id === 'snow-valley')?.bossPool ?? [];
+  assert.ok(
+    ['frostTrollBoss', 'frostWolfBoss', 'frostOracleBoss'].every((type) => (
+      snowBosses.some((entry) => entry.type === type)
+    )),
+    '第一关 boss 波应包含冰霜巨魔/凛霜狼王/冰川先知'
+  );
+  assert.ok(gameData.WAVE_BOSS_TYPES.includes('frostWolfBoss'));
+  assert.ok(gameData.WAVE_BOSS_TYPES.includes('frostOracleBoss'));
+
+  const attacks = new AttackSystem();
+  const records = { damage: [], buffs: [], spawnRing: 0, texts: [], units: [] };
+  const wolfBoss = {
+    alive: true,
+    type: 'frostWolfBoss',
+    team: 'enemy',
+    position: new THREE.Vector3(0, 0, 0),
+    definition: {
+      attackDamageType: 'physical',
+      damage: 13,
+      monsterAbility: gameData.UNIT_DEFINITIONS.frostWolfBoss.monsterAbility
+    },
+    enemyForce: null,
+    packSummonTimer: undefined
+  };
+  const enemyUnit = { alive: true, underConstruction: false, position: new THREE.Vector3(2, 0, 0), projectileHitHeight: 1.4 };
+  const pathUnit = { alive: true, underConstruction: false, position: new THREE.Vector3(1.2, 0, 0.2), projectileHitHeight: 1.4 };
+  attacks.game = {
+    friendlyUnits: [enemyUnit, pathUnit],
+    enemyUnits: [],
+    elapsedTime: 0,
+    unitsNear: (team) => (team === 'player' ? [] : [enemyUnit, pathUnit]),
+    modifiers: { getAttackDamage: () => 13 },
+    combat: {
+      applyDamage(target, amount, source, knockback, context) {
+        records.damage.push({ target, amount, knockback, context });
+        return true;
+      }
+    },
+    buffs: {
+      applyBuff(target, buffId, source, overrides) {
+        records.buffs.push({ target, buffId, overrides });
+        return { id: buffId, ...overrides };
+      }
+    },
+    effects: {
+      spawnFrostPounceTrail() {},
+      spawnRing() { records.spawnRing += 1; },
+      spawnMonsterAbilityText() { records.texts.push('pounce'); },
+      spawnIceMirrorAura() {},
+      spawnDamageNumber() {},
+      spawnEnemyCampBlast() {}
+    },
+    resolveWalkablePoint: (point) => point.clone(),
+    groundHeightAt: () => 0,
+    registerUnit(unit) {
+      records.units.push(unit);
+    },
+    applyEnemyDifficulty() {},
+    attachUnitStatus() {},
+    markEndlessEnemySpawn() {},
+    orderEnemyAttack() {}
+  };
+  // 霜牙扑击：路径与落点敌人受击 + 减速，Boss 位移到落点
+  attacks.castFrostPounce(wolfBoss, enemyUnit, gameData.UNIT_DEFINITIONS.frostWolfBoss.monsterAbility);
+  assert.ok(records.damage.length >= 2, '扑击命中路径与落点范围的敌人');
+  assert.ok(records.buffs.every((entry) => entry.buffId === 'frostSnared'), '扑击施加寒咬减速');
+  assert.ok(wolfBoss.position.distanceTo(new THREE.Vector3(2, 0, 0)) < 0.01, '狼王位移到落点');
+
+  // 狼群附魔：自动召唤冰狼
+  attacks.game.enemyUnits.push(wolfBoss);
+  records.units.length = 0;
+  wolfBoss.packSummonTimer = 0.01;
+  attacks.updateWolfPackSummon(0.02);
+  assert.equal(records.units.length, 1, '狼群附魔每 7 秒召唤一只冰狼');
+  assert.equal(records.units[0].type, 'frostWolf');
+  records.units.length = 0;
+  wolfBoss.packSummonTimer = 0.01;
+  attacks.updateWolfPackSummon(0.02);
+  assert.equal(records.units.length, 1, '召唤间隔内不重复召唤');
+
+  // 冰霜风暴追逐最近敌人
+  const oracle = {
+    alive: true,
+    type: 'frostOracleBoss',
+    team: 'enemy',
+    position: new THREE.Vector3(5, 0, 5),
+    definition: { monsterAbility: gameData.UNIT_DEFINITIONS.frostOracleBoss.monsterAbility }
+  };
+  const farFriend = { alive: true, underConstruction: false, position: new THREE.Vector3(0, 0, 0), projectileHitHeight: 1.4 };
+  attacks.game.friendlyUnits.push(farFriend);
+  attacks.frostStorms.push({
+    source: oracle,
+    position: new THREE.Vector3(3, 0, 3),
+    age: 0,
+    tickTimer: 0.4,
+    radius: 3.8,
+    duration: 4,
+    tickSeconds: 1,
+    slowDuration: 3,
+    ability: gameData.UNIT_DEFINITIONS.frostOracleBoss.monsterAbility
+  });
+  attacks.updateFrostStorms(0.5);
+  const storm = attacks.frostStorms[0];
+  assert.ok(
+    storm.position.distanceTo(new THREE.Vector3(0, 0, 0)) < 3,
+    '先知风暴向最近敌人追逐移动'
+  );
+
+  // 冰镜结晶：吸收伤害并减速攻击者
+  const { BuffSystem } = await import('../src/systems/BuffSystem.js');
+  const buffGame = {
+    elapsedTime: 0,
+    effects: { spawnDamageNumber() {}, spawnRing() {} },
+    friendlyUnits: [],
+    enemyUnits: []
+  };
+  const buffs = new BuffSystem(buffGame);
+  const oracleUnit = {
+    alive: true,
+    team: 'enemy',
+    position: { x: 0, y: 0, z: 0 },
+    buffs: new Map(),
+    addBuff(buffId, definition, overrides = {}) {
+      const buff = { ...definition, ...overrides, id: buffId };
+      this.buffs.set(buffId, buff);
+      return buff;
+    },
+    removeBuff(buffId) {
+      this.buffs.delete(buffId);
+    }
+  };
+  const attackerUnit = {
+    alive: true,
+    team: 'player',
+    position: { x: 2, y: 0, z: 0 },
+    buffs: new Map(),
+    addBuff(buffId, definition, overrides = {}) {
+      const buff = { ...definition, ...overrides, id: buffId };
+      this.buffs.set(buffId, buff);
+      return buff;
+    }
+  };
+  const mirror = buffs.applyBuff(oracleUnit, 'frostMirror', oracleUnit, {
+    duration: 6,
+    frostMirrorRemaining: 50
+  });
+  assert.ok(mirror, '冰镜结晶 buff 可施加');
+  const damageContext = {
+    source: attackerUnit,
+    target: oracleUnit,
+    damage: 20,
+    damageTypes: new Set(),
+    buff: mirror
+  };
+  buffs.beforeDamage(damageContext);
+  assert.equal(damageContext.damage, 0, '冰镜吸收全部伤害');
+  assert.equal(mirror.frostMirrorRemaining, 30, '吸收量递减');
+  assert.equal(attackerUnit.buffs.has('frostMirrorSlow'), true, '攻击者被寒锋减速');
+  buffs.beforeDamage({ ...damageContext, damage: 40 });
+  assert.equal(oracleUnit.buffs.has('frostMirror'), false, '吸收耗尽后冰镜破碎');
+}
 
 const touchTarget = { id: 21, alive: true, canReceiveBuffs: true, screen: { x: 100, y: 100 } };
 const closerTarget = { id: 22, alive: true, canReceiveBuffs: true, screen: { x: 160, y: 142 } };
@@ -501,6 +832,85 @@ judgmentBuffs.applyEffect(BUFF_DEFINITIONS.judgment.effects[0], {
   damageTypes: new Set(['judgment'])
 });
 assert.equal(judgmentCalls.length, 6, '审判伤害不能触发另一轮审判');
+
+// —— 审判事件分发：友方单位受击即触发（不要求持有者本人被击中）——
+const allyCalls = [];
+const allyGame = createBuffGame();
+allyGame.elapsedTime = 0;
+allyGame.effects.spawnJudgmentSword = (position, radius, onImpact) => {
+  allyCalls.push({ position, radius });
+  onImpact();
+};
+allyGame.combat = {
+  applyAttack(source, target, override) {
+    allyCalls.push({ source, target, override });
+    return true;
+  }
+};
+const allyBuffs = new BuffSystem(allyGame);
+const judgmentHolder = { id: 11, alive: true, team: 'player', position: { x: 0, y: 0, z: 0 } };
+judgmentHolder.buffs = new Map([['judgment', {
+  id: 'judgment',
+  level: 1,
+  effects: BUFF_DEFINITIONS.judgment.effects
+}]]);
+const friendUnit = { id: 12, alive: true, team: 'player', position: { x: 1, y: 0, z: 0 } };
+friendUnit.buffs = new Map();
+const enemyAttacker = { id: 13, alive: true, team: 'enemy', position: { x: 3, y: 0, z: 0 } };
+allyBuffs.judgmentHolders.add(judgmentHolder);
+// 友方非持有者被攻击 → 持有者反击攻击者
+allyBuffs.afterDamage({
+  source: enemyAttacker,
+  target: friendUnit,
+  damageTypes: new Set(),
+  isAttack: true,
+  damageDealt: 4
+});
+assert.equal(allyCalls.length, 2, '友方单位受击时应触发审判持有者反击');
+assert.equal(allyCalls[1].source, judgmentHolder);
+assert.equal(allyCalls[1].target, enemyAttacker);
+assert.equal(allyCalls[1].override.damage, 2, '审判反击伤害为等级×2 魔法伤害');
+// 持有者本人被攻击 → 仍只触发一次（自身也属于友方单位，且受同一 5 秒冷却约束）
+allyBuffs.afterDamage({
+  source: enemyAttacker,
+  target: judgmentHolder,
+  damageTypes: new Set(),
+  isAttack: true,
+  damageDealt: 3
+});
+assert.equal(allyCalls.length, 2, '持有者本人被击中也不应重复触发（同一冷却）');
+// 非攻击来源（法术/持续伤害）不触发审判
+allyGame.elapsedTime = 6;
+allyBuffs.afterDamage({
+  source: enemyAttacker,
+  target: friendUnit,
+  damageTypes: new Set(),
+  isAttack: false,
+  damageDealt: 4
+});
+assert.equal(allyCalls.length, 2, '非攻击伤害不触发审判');
+// 队伍隔离：敌方受击时只由敌方审判持有者反击
+const enemyHolder = { id: 21, alive: true, team: 'enemy', position: { x: 9, y: 0, z: 9 } };
+enemyHolder.buffs = new Map([['judgment', {
+  id: 'judgment',
+  level: 2,
+  effects: BUFF_DEFINITIONS.judgment.effects
+}]]);
+allyBuffs.judgmentHolders.add(enemyHolder);
+const playerAttacker = { id: 22, alive: true, team: 'player', position: { x: 5, y: 0, z: 5 } };
+const enemyVictim = { id: 23, alive: true, team: 'enemy', position: { x: 8, y: 0, z: 8 } };
+enemyVictim.buffs = new Map();
+allyGame.elapsedTime = 12;
+allyBuffs.afterDamage({
+  source: playerAttacker,
+  target: enemyVictim,
+  damageTypes: new Set(),
+  isAttack: true,
+  damageDealt: 2
+});
+assert.equal(allyCalls.length, 4, '敌方审判持有者同样在友方单位受击时反击');
+assert.equal(allyCalls[3].source, enemyHolder);
+assert.equal(allyCalls[3].override.damage, 4);
 
 console.log('new card effect tests passed');
 

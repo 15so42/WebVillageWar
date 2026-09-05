@@ -95,7 +95,7 @@ export function buildEnchantmentEncyclopediaSections() {
         return {
           id,
           name: definition.name,
-          summary: card?.summary ?? definition.name,
+          summary: card?.summary ?? definition.summary ?? definition.name,
           color: definition.color ?? card?.color ?? '#9eeedb',
           note: entryNote(card)
         };

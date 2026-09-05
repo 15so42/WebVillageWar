@@ -10,6 +10,7 @@ import {
   updateUnitAnimation
 } from '../art/visualRegistry.js';
 import { TEAMS } from '../data/gameData.js';
+import { UnitEntity } from '../entities/UnitEntity.js';
 import { disposeObject3D } from '../utils/dispose.js';
 import { clamp, distance2D } from '../utils/math.js';
 import {
@@ -35,6 +36,8 @@ export class AttackSystem {
     this.activeAttackBySourceId = new Map();
     this.projectilePools = new Map();
     this.thunderClouds = [];
+    // 冰霜巨魔的冰霜风暴区域（Boss 脚下每秒惩罚近战单位）
+    this.frostStorms = [];
     this.nextProjectileNetworkId = 1;
     this.profile = null;
   }
@@ -271,6 +274,8 @@ export class AttackSystem {
       return;
     }
     this.game.combat.applyAttack(source, target);
+    // 冰霜巨魔近战锤击：命中点溅射 + 风冲击波特效
+    this.tryBossSplashAttack(source, target);
   }
 
   resolveChainLightningAttack(source, initialTarget, behavior = {}) {
@@ -433,6 +438,14 @@ export class AttackSystem {
       this.castFrostNova(source, target, ability);
       return;
     }
+    if (ability.type === 'frostStorm') {
+      this.castFrostStorm(source, ability);
+      return;
+    }
+    if (ability.type === 'frostPounce') {
+      this.castFrostPounce(source, target, ability);
+      return;
+    }
     if (ability.type === 'boneWard') {
       this.castBoneWard(source, ability);
       return;
@@ -536,6 +549,262 @@ export class AttackSystem {
       })
     });
     this.spawnMonsterAbilityText(source, '瘴藤贯矛', '#a1d56c');
+  }
+
+  // 冰霜风暴：Boss 脚下持续冰风区域——范围内敌人每秒受到攻击力×1 的魔法伤害，
+  // 并叠加冰风减速（移速/攻速 -40%），不附带攻击特效与击退
+  castFrostStorm(source, ability) {
+    if (!source?.position) return;
+    const storm = {
+      source,
+      position: source.position.clone(),
+      age: 0,
+      tickTimer: 0,
+      radius: Math.max(1, ability.radius ?? 4.2),
+      duration: Math.max(0.5, ability.duration ?? 3.5),
+      tickSeconds: Math.max(0.2, ability.tickSeconds ?? 1),
+      slowDuration: Math.max(0.5, ability.slowDuration ?? 3),
+      ability
+    };
+    this.frostStorms.push(storm);
+    this.game.effects.spawnFrostStorm(storm.position, storm.radius, storm.duration, {
+      color: '#9bdcff',
+      accent: '#d5f4ff'
+    }, storm);
+    this.spawnMonsterAbilityText(source, '冰霜风暴', '#9bdcff');
+  }
+
+  // 霜牙扑击：狼王朝目标方向瞬身前扑，路径与落点范围的敌人受击并寒咬
+  castFrostPounce(source, target, ability) {
+    if (!source?.position || !target?.position) return;
+    const start = source.position.clone();
+    const end = getTargetPosition(target).clone();
+    const horizontal = new THREE.Vector3(end.x - start.x, 0, end.z - start.z);
+    const travelDistance = Math.min(horizontal.length(), Math.max(1, ability.range ?? 6));
+    const direction = horizontal.lengthSq() > 0.0001 ? horizontal.clone().normalize() : new THREE.Vector3(0, 0, -1);
+    const landing = start.clone().addScaledVector(direction, travelDistance);
+    const baseDamage = Math.max(1, ability.damage ?? (
+      this.game.modifiers?.getAttackDamage?.(source, source.definition?.attackDamageType ?? 'physical') ?? 13
+    ));
+    const pathDamage = baseDamage * Math.max(0.1, ability.damageMultiplier ?? 0.9);
+    const dragDistance = Math.max(0.1, Math.min(travelDistance * 0.06, 1.1));
+    const slowDuration = Math.max(0.1, ability.slowDuration ?? 1.5);
+    const pathRadius = Math.max(0.5, ability.pathRadius ?? 1.3);
+    const enemyTeam = source.team === TEAMS.PLAYER ? TEAMS.ENEMY : TEAMS.PLAYER;
+    const victims = this.unitsNear(enemyTeam, landing, Math.max(2.4, ability.impactRadius ?? 1.9) + travelDistance);
+    victims.forEach((unit) => {
+      if (!unit?.alive || !unit.position) return;
+      // 路径上的敌人：到 start→landing 线段距离 <= pathRadius
+      const distance = distanceToSegment2D(unit.position, start, landing);
+      const inPath = distance <= pathRadius || distance2D(unit.position, landing) <= (ability.impactRadius ?? 1.9);
+      if (!inPath) return;
+      this.game.combat.applyDamage(unit, pathDamage, source, 0, {
+        damage: pathDamage,
+        source,
+        target: unit,
+        defenseDamageType: 'physical',
+        isAttack: false,
+        skipHitAnimation: true,
+        damageNumberHeight: unit.projectileHitHeight ?? 1.45,
+        damageNumberDuration: 0.62
+      });
+      this.game.buffs.applyBuff(unit, ability.statusBuffId ?? 'frostSnared', source, {
+        duration: slowDuration
+      });
+      applyKnockbackIfAvailable(this.game, unit, source.position, ability.impactKnockback ?? 2.6, direction, dragDistance);
+    });
+    // 位移到落点（取可走位置）
+    const resolved = this.game.resolveWalkablePoint?.(landing, 0.4) ?? landing;
+    source.position.set(resolved.x, this.game.groundHeightAt?.(resolved) ?? resolved.y, resolved.z);
+    this.game.effects.spawnFrostPounceTrail(start, source.position, 0.42);
+    this.game.effects.spawnRing(source.position, '#bcecff', Math.max(1.4, ability.impactRadius ?? 1.9), 0.52);
+    this.spawnMonsterAbilityText(source, '霜牙扑击', '#bcecff');
+  }
+
+  // 狼群附魔：狼王每隔一段时间自动召唤一只冰狼
+  updateWolfPackSummon(dt) {
+    const pool = this.game.enemyUnits ?? [];
+    for (let index = 0; index < pool.length; index += 1) {
+      const boss = pool[index];
+      if (!boss?.alive || boss.type !== 'frostWolfBoss') continue;
+      const pack = boss.definition?.monsterAbility ?? {};
+      const interval = Math.max(1, pack.summonInterval ?? 7);
+      boss.packSummonTimer = (boss.packSummonTimer ?? interval) - dt;
+      let summons = 0;
+      while (boss.packSummonTimer <= 0 && boss.alive && summons < 3) {
+        boss.packSummonTimer += interval;
+        const count = Math.max(1, Math.floor(pack.summonCount ?? 1));
+        for (let summoned = 0; summoned < count; summoned += 1) {
+          this.summonFrostWolf(boss);
+        }
+        summons += 1;
+      }
+    }
+  }
+
+  summonFrostWolf(boss) {
+    if (!boss?.position || !this.game.registerUnit) return null;
+    const attemptCount = 8;
+    let spawnPosition = null;
+    for (let attempt = 0; attempt < attemptCount; attempt += 1) {
+      const angle = Math.random() * Math.PI * 2;
+      const radius = 1.5 + Math.random() * 1.8;
+      const candidate = boss.position.clone();
+      candidate.x += Math.cos(angle) * radius;
+      candidate.z += Math.sin(angle) * radius;
+      candidate.y = this.game.groundHeightAt?.(candidate) ?? 0;
+      const resolved = this.game.resolveWalkablePoint?.(candidate, 0.25) ?? candidate;
+      if (this.game.isPointWalkable?.(resolved) === false) continue;
+      spawnPosition = resolved;
+      break;
+    }
+    if (!spawnPosition) return null;
+    const wolf = new UnitEntity({
+      type: 'frostWolf',
+      team: TEAMS.ENEMY,
+      position: spawnPosition
+    });
+    const force = boss.enemyForce ?? this.game.currentEnemyForce ?? null;
+    const difficulty = force?.effectiveDifficulty ?? this.game.effectiveDifficultyForWave?.(force?.index ?? this.game.wave ?? 1) ?? 1;
+    this.game.applyEnemyDifficulty?.(wolf, difficulty, force, 0);
+    wolf.enemyForce = force ?? null;
+    this.game.markEndlessEnemySpawn?.(wolf);
+    this.game.attachUnitStatus?.(wolf);
+    this.game.registerUnit(wolf);
+    this.game.orderEnemyAttack?.(wolf, 0, 1);
+    this.game.effects.spawnRing(wolf.position, '#bcecff', 0.7, 0.46);
+    this.game.effects.spawnChilledParticles?.(wolf, 3);
+    return wolf;
+  }
+
+  // 冰川先知：暴风雪由 monsterAbility 调用；这里管理被动冰镜结晶
+  updateOracleBossPassives(dt) {
+    const pool = this.game.enemyUnits ?? [];
+    for (let index = 0; index < pool.length; index += 1) {
+      const oracle = pool[index];
+      if (!oracle?.alive || oracle.type !== 'frostOracleBoss') continue;
+      const ability = oracle.definition?.monsterAbility ?? {};
+      oracle.iceMirrorTimer = (oracle.iceMirrorTimer ?? ability.iceMirrorInitialDelay ?? 7) - dt;
+      if (oracle.iceMirrorTimer > 0) continue;
+      oracle.iceMirrorTimer = Math.max(4, ability.iceMirrorInterval ?? 15);
+      const duration = Math.max(1, ability.iceMirrorDuration ?? 6);
+      const buff = this.game.buffs.applyBuff(oracle, 'frostMirror', oracle, {
+        duration,
+        frostMirrorRemaining: Math.max(1, ability.iceMirrorAbsorb ?? 50)
+      });
+      if (buff) {
+        this.game.effects.spawnIceMirrorAura(oracle, duration);
+        this.spawnMonsterAbilityText(oracle, '冰镜结晶', '#bcecff');
+      }
+    }
+  }
+
+  // 狼王近战攻击（frostPounce 之外的普通锤/爪击）同样复用滚动逻辑，无额外处理
+  updateFrostStorms(dt) {
+    for (let index = this.frostStorms.length - 1; index >= 0; index -= 1) {
+      const storm = this.frostStorms[index];
+      const ability = storm.ability ?? {};
+      storm.age += dt;
+      if (storm.age >= storm.duration) {
+        this.frostStorms.splice(index, 1);
+        continue;
+      }
+      // 追逐模式：风暴朝最近的敌人移动；否则跟随施法者脚下
+      if (ability.tracking === 'nearestEnemy') {
+        const targetPool = storm.source?.team === TEAMS.PLAYER
+          ? this.game.enemyUnits
+          : this.game.friendlyUnits;
+        const chaseSpeed = Math.max(0.5, ability.chaseSpeed ?? 2.6);
+        const candidates = (targetPool ?? []).filter((unit) => (
+          unit?.alive && !unit.underConstruction && unit.position
+        ));
+        let nearest = null;
+        let nearestDistance = Infinity;
+        for (let i = 0; i < candidates.length; i += 1) {
+          const candidate = candidates[i];
+          const distance = distance2D(storm.position, candidate.position);
+          if (distance < nearestDistance) {
+            nearestDistance = distance;
+            nearest = candidate;
+          }
+        }
+        if (nearest?.position) {
+          const targetPoint = nearest.position;
+          storm.position.x += Math.sign(targetPoint.x - storm.position.x)
+            * Math.min(chaseSpeed * dt, Math.abs(targetPoint.x - storm.position.x));
+          storm.position.z += Math.sign(targetPoint.z - storm.position.z)
+            * Math.min(chaseSpeed * dt, Math.abs(targetPoint.z - storm.position.z));
+        }
+      } else {
+        // 风暴跟随 Boss 脚下
+        storm.position.copy(storm.source.position);
+      }
+      storm.tickTimer -= dt;
+      if (storm.tickTimer > 0) continue;
+      storm.tickTimer += storm.tickSeconds;
+      const victims = storm.source.team === TEAMS.PLAYER
+        ? this.game.enemyUnits
+        : this.game.friendlyUnits;
+      victims.forEach((unit) => {
+        if (!unit?.alive || unit.underConstruction || !unit.position) return;
+        if (distance2D(storm.position, unit.position) > storm.radius) return;
+        const attack = this.game.modifiers?.getAttackDamage?.(
+          storm.source,
+          storm.source.definition?.attackDamageType ?? 'physical'
+        );
+        const damagePerTick = Math.max(1, attack ?? storm.source.definition?.damage ?? 1);
+        this.game.combat.applyDamage(unit, damagePerTick, storm.source, 0, {
+          damage: damagePerTick,
+          source: storm.source,
+          target: unit,
+          defenseDamageType: 'magic',
+          isAttack: false,
+          skipHitAnimation: true,
+          skipHitEffect: true,
+          damageNumberHeight: unit.projectileHitHeight ?? 1.45,
+          damageNumberDuration: 0.6
+        });
+        this.game.buffs.applyBuff(unit, ability.statusBuffId ?? 'frostStorm', storm.source, {
+          duration: storm.slowDuration
+        });
+      });
+    }
+  }
+
+  // 冰霜巨魔近战锤击溅射：命中点周围敌人受 60% 攻击力范围伤（魔法批次无击退）
+  tryBossSplashAttack(source, target) {
+    if (!source?.alive || source.type !== 'frostTrollBoss') return false;
+    if (!target?.position) return false;
+    const splashRadius = Math.max(1, source.collisionRadius ?? 0.72) + 1.9;
+    const attack = this.game.modifiers?.getAttackDamage?.(
+      source,
+      source.definition?.attackDamageType ?? 'physical'
+    );
+    const splashDamage = Math.max(0.5, (attack ?? source.definition?.damage ?? 11) * 0.6);
+    const enemies = source.team === TEAMS.PLAYER
+      ? this.game.enemyUnits
+      : this.game.friendlyUnits;
+    let hitCount = 0;
+    enemies.forEach((unit) => {
+      if (!unit?.alive || unit === target || unit.underConstruction || !unit.position) return;
+      if (distance2D(target.position, unit.position) > splashRadius) return;
+      hitCount += 1;
+      this.game.combat.applyDamage(unit, splashDamage, source, 0, {
+        damage: splashDamage,
+        source,
+        target: unit,
+        defenseDamageType: 'physical',
+        isAttack: false,
+        skipHitAnimation: true,
+        skipHitEffect: true,
+        damageNumberHeight: unit.projectileHitHeight ?? 1.45,
+        damageNumberDuration: 0.62
+      });
+    });
+    if (hitCount > 0 || target.alive) {
+      this.game.effects.spawnHitSplashShockwave(target.position, splashRadius);
+    }
+    return hitCount > 0;
   }
 
   castFrostNova(source, target, ability) {
@@ -992,6 +1261,7 @@ export class AttackSystem {
     });
     this.projectilePools.clear();
     this.thunderClouds.length = 0;
+    this.frostStorms.length = 0;
     this.pendingAttacks.length = 0;
     this.activeAttackBySourceId.clear();
   }
@@ -1052,4 +1322,31 @@ function shieldRatio(unit) {
 function recordProjectileProfile(profile, key, mark) {
   if (!profile) return;
   profile[key] += roundProfile(performance.now() - mark);
+}
+
+// 点到线段（2D 俯视）距离
+function distanceToSegment2D(point, start, end) {
+  const sx = start.x;
+  const sz = start.z;
+  const ex = end.x;
+  const ez = end.z;
+  const dx = ex - sx;
+  const dz = ez - sz;
+  const lengthSq = dx * dx + dz * dz;
+  if (lengthSq <= 0.0001) return Math.hypot(point.x - sx, point.z - sz);
+  const t = clamp(
+    ((point.x - sx) * dx + (point.z - sz) * dz) / lengthSq,
+    0,
+    1
+  );
+  return Math.hypot(point.x - (sx + dx * t), point.z - (sz + dz * t));
+}
+
+// 可选的击退施加：沿方向推开并限制拖动距离
+function applyKnockbackIfAvailable(game, unit, fromPosition, strength, direction, dragDistance) {
+  if (!game?.applyKnockbackImpulse || !unit?.position) return;
+  if (strength <= 0) return;
+  if (game.applyKnockbackImpulse(unit, fromPosition, strength)) {
+    unit.knockbackVelocity?.addScaledVector(direction, dragDistance);
+  }
 }

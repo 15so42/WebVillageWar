@@ -124,6 +124,8 @@ export class CombatSystem {
     });
     this.game.effects.spawnDamageNumber(target.position, finalDamage, {
       damageType: damageNumberType(damageContext, isTrueDamage),
+      // 持续伤害（中毒/燃烧/流血/诅咒等）用各自 buff 颜色飘字，便于分辨伤害来源
+      color: damageContext.damageNumberColor,
       height: damageContext.damageNumberHeight,
       duration: damageContext.damageNumberDuration
     });

@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { createAreaEffectVisual } from '../src/art/areaEffectVisual.js';
 import {
   createBaseModel,
+  createAttackRangeDashedRing,
   createBerserkerModel,
   createDuskFrostOrbModel,
   createFrostTrollBossModel,
@@ -58,7 +59,7 @@ for (const kind of ['poisonFog', 'plagueFog']) {
     accent: '#b8d88a',
     kind
   });
-  assert.equal(toxic.userData.atmospherePuffs.length, 10);
+  assert.equal(toxic.userData.atmospherePuffs.length, 12);
   assert.equal(toxic.userData.toxicMotes.length, 16);
   assert.equal(toxic.userData.stains.length, 8);
   assert.equal(toxic.userData.atmosphereMaterial.transparent, true);
@@ -85,8 +86,8 @@ deathEffect.traverse((node) => {
     deathSmokeSizes.push(node.userData.baseScale);
   }
 });
-assert.equal(deathSmokeCount, 18);
-assert.equal(polygonDeathSmokeCount, 18, 'death smoke should use crisp translucent low-poly chunks');
+assert.equal(deathSmokeCount, 26);
+assert.equal(polygonDeathSmokeCount, 26, 'death smoke should use crisp translucent low-poly chunks');
 assert(Math.max(...deathSmokeSizes) - Math.min(...deathSmokeSizes) > 0.35, 'death smoke chunks should have distinct small, medium, and large tiers');
 assert.equal(deathEffect.userData.preserveRenderLayers, true);
 deathEffect.traverse((node) => assert.equal(node.layers.mask, 1, 'death smoke must remain on layer 0'));
@@ -142,7 +143,7 @@ assert(
   'explosion core must use an HDR orange value'
 );
 assert.equal(explosionEffect.userData.explosionRadius, 2.4);
-assert.equal(explosionSmoke.length, 20, 'explosion should burst into a readable white polygon smoke cluster');
+assert.equal(explosionSmoke.length, 26, 'explosion should burst into a readable white polygon smoke cluster');
 assert.equal(explosionSmoke.every((puff) => (
   puff.geometry?.type === 'DodecahedronGeometry'
   && puff.material.isMeshStandardMaterial
@@ -217,7 +218,8 @@ assert(meteorFlameMaterial?.isShaderMaterial, 'meteor flames should use an opaci
 assert.equal(meteorTarget.userData.preserveRenderLayers, true);
 meteorTarget.traverse((node) => assert.equal(node.layers.mask, 1, 'meteor target marker must stay on layer 0'));
 
-effects.update(1.1);
+// 陨石飞行时间已提速到 0.92s（0.828s 落地）；停在警告标记淡出结束前（0.828+0.38=1.208s）检查
+effects.update(0.95);
 const impactEffect = effects.effects.find(({ object }) => {
   let found = false;
   object.traverse((node) => {
@@ -328,7 +330,28 @@ const focusCenter = shamanParts.focus.getWorldPosition(new THREE.Vector3());
 assert(shardCenter.distanceTo(focusCenter) < 0.001, 'staff fragments should orbit the actual focus crystal');
 
 const frostBoss = createFrostTrollBossModel();
-assert.equal(frostBoss.userData.parts.hammerHead.geometry.type, 'SphereGeometry');
+assert.equal(frostBoss.userData.parts.hammerHead.geometry.type, 'DodecahedronGeometry');
+assert.equal(
+  frostBoss.userData.parts.hammerHead.material.color.getHexString(),
+  '262c31',
+  'hammer head should share the boss skin color'
+);
+assert.equal(frostBoss.userData.parts.hammerSpikes.length, 4);
+assert.equal(
+  frostBoss.userData.parts.hammerSpikes[0].material.color.getHexString(),
+  '15191d',
+  'hammer spikes should share the boss dark skin color'
+);
+{
+  // Boss 整体剪影：高明显大于宽（瘦高、宽肩窄腰），而不是矮胖
+  frostBoss.updateMatrixWorld(true);
+  const bossBounds = new THREE.Box3().setFromObject(frostBoss);
+  const bossSize = bossBounds.getSize(new THREE.Vector3());
+  assert(
+    bossSize.y / bossSize.x > 1.02,
+    `Boss 整体应高瘦挺拔（当前高宽比 ${(bossSize.y / bossSize.x).toFixed(2)}）`
+  );
+}
 const animatedBoss = {
   id: 999,
   type: 'frostTrollBoss',
@@ -337,19 +360,175 @@ const animatedBoss = {
   hitFlashTimer: 0,
   visualRoot: createUnitModel('frostTrollBoss', 'enemy')
 };
-setUnitRuntimeVisualScale(animatedBoss, 2.5);
+setUnitRuntimeVisualScale(animatedBoss, 1.5);
 updateUnitAnimation(animatedBoss, 0.016);
 assert.equal(
   animatedBoss.visualRoot.userData.runtimeVisualScaleRoot.scale.x,
-  2.5,
-  'boss 2.5x size must survive animation root scale resets'
+  1.5,
+  'boss 1.5x size must survive animation root scale resets'
 );
 const gameSource = readFileSync(new URL('../src/systems/Game.js', import.meta.url), 'utf8');
-assert.match(gameSource, /unit\.type === 'frostTrollBoss' \? 2\.5 : 1\.32/);
+assert.match(gameSource, /unit\.type === 'frostTrollBoss' \? 1\.5 : 1\.32/);
+
+// 建筑作用范围虚线环：与驻守环同渲染纪律，但由多段弧组成虚线
+const dashedRange = createAttackRangeDashedRing('#62d56f');
+assert.equal(dashedRange.userData.isAttackRangeDashedRing, true);
+assert.equal(dashedRange.userData.dashCount, 24);
+assert.equal(dashedRange.userData.colorMeshes.length, 24, '24 段虚线弧组成范围环');
+assert.ok(dashedRange.userData.colorMeshes.every((arc) => (
+  arc.geometry?.type === 'RingGeometry'
+  && arc.material.side === THREE.DoubleSide
+  && arc.material.depthTest === true
+  && arc.material.depthWrite === false
+  && arc.renderOrder === 0
+)), '虚线弧段保持正常渲染层纪律');
+assert.equal(
+  dashedRange.userData.colorMeshes[0].geometry,
+  dashedRange.userData.colorMeshes[1].geometry,
+  '全部虚线弧共享同一段几何体'
+);
+dashedRange.traverse((node) => assert.equal(node.layers.mask, 1, '虚线范围环位于主世界层'));
+
+const buildingRangeRadiusCandidates = [
+  { unit: { definition: { attackRange: 9.2 } }, modifiers: { getAttackRange: () => 9.2 }, expected: 9.2 },
+  { unit: { definition: { buildingAura: { radius: 8.2 } } }, modifiers: {}, expected: 8.2 },
+  { unit: { definition: { buildingAura: { radius: 4.1 } } }, modifiers: {}, expected: 4.1 },
+  { unit: { definition: { deploymentRadius: 7.5 } }, modifiers: {}, expected: 7.5 },
+  { unit: { definition: {} }, modifiers: {}, expected: 0 }
+];
+{
+  const { BuildingSystem } = await import('../src/systems/BuildingSystem.js');
+  const probe = Object.create(BuildingSystem.prototype);
+  for (const candidate of buildingRangeRadiusCandidates) {
+    probe.game = { modifiers: candidate.modifiers };
+    assert.equal(
+      probe.buildingEffectRadius(candidate.unit),
+      candidate.expected,
+      '建筑有效范围应按 射程→光环半径→部署半径 解析'
+    );
+  }
+}
 
 assert(deathBurstRadius({ projectileHitHeight: 1.4 }, 0.45) < 0.7);
 assert(deathBurstRadius({ isElite: true, projectileHitHeight: 1.8 }, 0.55) >= 0.86);
 assert(deathBurstRadius({ isBoss: true, projectileHitHeight: 3.2 }, 0.9) >= 1.55);
+
+{
+  // buff 粒子：单位体型圆柱内垂直流动，且归入覆盖层（layer 1）绕过描边
+  const buffScene = new THREE.Scene();
+  const buffFx = new EffectsSystem(buffScene);
+  const smallUnit = { position: new THREE.Vector3(0, 0, 0), collisionRadius: 0.4, projectileHitHeight: 1.1 };
+  buffFx.spawnPoisonParticles(smallUnit, 3);
+  const poisonGroup = buffFx.effects.at(-1).object;
+  assert.ok(poisonGroup.children.every((bubble) => {
+    const velocity = bubble.userData.velocity;
+    return Math.abs(velocity.x) < 0.08
+      && Math.abs(velocity.z) < 0.08
+      && velocity.y > 0.2;
+  }), '毒泡应在单位体型圆柱内垂直上升，不向外扩散');
+  assert.equal(poisonGroup.layers.mask, 2, 'buff 粒子应位于 layer 1 覆盖通道以绕过屏幕描边');
+  const bigUnit = { position: new THREE.Vector3(0, 0, 0), collisionRadius: 1.6, projectileHitHeight: 3.0 };
+  buffFx.spawnChilledParticles(bigUnit, 1);
+  const bigChilled = buffFx.effects.at(-1).object;
+  assert.ok(
+    bigChilled.children[0].userData.baseScale > smallUnit.collisionRadius * 0.3,
+    '寒霜冰晶尺寸应随单位体型缩放'
+  );
+  buffFx.spawnDrainParticles(smallUnit, 2);
+  const drainGroup = buffFx.effects.at(-1).object;
+  assert.ok(drainGroup.children.every((mote) => mote.userData.velocity.y < -0.2), '汲取粒子应在圆柱内垂直下沉');
+  buffFx.spawnCurseParticles(bigUnit, 2);
+  const curseGroup = buffFx.effects.at(-1).object;
+  assert.ok(curseGroup.children.every((mote) => (
+    Math.abs(mote.userData.velocity.x) < 0.08 && mote.userData.velocity.y > 0.2
+  )), '诅咒应在圆柱内垂直上浮');
+  buffFx.spawnBleedParticles(bigUnit, 2);
+  const bleedGroup = buffFx.effects.at(-1).object;
+  assert.ok(bleedGroup.children.every((drop) => drop.userData.velocity.y <= 0), '出血粒子应垂直下落');
+  buffFx.destroy();
+}
+
+{
+  // 火焰（MC 粒子流）：HDR 软粒子向上飞升，而不是锥形火苗
+  const flameScene = new THREE.Scene();
+  const flameFx = new EffectsSystem(flameScene);
+  flameFx.spawnFireParticlesAt(new THREE.Vector3(0, 0, 0), 4, 0.8, 0.5, 1.2, {
+    cylinderRadius: 0.5,
+    sizeBoost: 2.2
+  });
+  const flameGroup = flameFx.effects.at(-1).object;
+  assert.ok(flameGroup.children.every((particle) => (
+    particle.isSprite
+    && particle.material.toneMapped === false
+    && particle.material.blending === THREE.AdditiveBlending
+  )), '火焰应为 HDR 加法软粒子');
+  assert.equal(flameGroup.children[0].material.color.r > 1.5, true, '火焰粒子 HDR 颜色');
+  assert.equal(flameGroup.layers.mask, 2, '火焰粒子位于覆盖层，不受描边影响');
+  flameFx.update(0.5);
+  assert.ok(flameGroup.children.some((particle) => particle.position.y > 0.4), '火焰粒子向上飞升');
+  flameFx.destroy();
+}
+
+{
+  // 烟花：瞬发球形爆裂 —— 粒子初速含向下分量、亮度渐隐、速度递减
+  const fireworkScene = new THREE.Scene();
+  const fireworkFx = new EffectsSystem(fireworkScene);
+  fireworkFx.spawnFirework(new THREE.Vector3(0, 5, 0), 5);
+  const firework = fireworkFx.effects.at(-1).object;
+  assert.equal(firework.userData.isEnchantmentFirework, true);
+  const sparks = firework.userData.parts.sparks;
+  assert.ok(sparks.length >= 30, '烟花应至少 30 颗彩色粒子');
+  assert.ok(sparks.some(({ spark }) => spark.userData.velocity.y < 0), '球形爆裂：部分粒子向下飞');
+  assert.ok(sparks.some(({ spark }) => spark.userData.velocity.y > 0), '球形爆裂：部分粒子向上飞');
+  assert.ok(
+    sparks.every(({ spark }) => Math.hypot(spark.userData.velocity.x, spark.userData.velocity.y, spark.userData.velocity.z) > 3),
+    '烟花初速应足够使粒子飞散到作用半径'
+  );
+  assert.ok(sparks.every(({ echoes }) => echoes?.length === 2), '烟花粒子保留两节拖尾');
+  fireworkFx.update(0.1);
+  assert.ok(sparks.every(({ spark }) => spark.material.opacity > 0), '爆炸初期亮度可见');
+  fireworkFx.destroy();
+}
+
+{
+  // 野火：火苗数量翻倍、更宽、覆盖层绕描边、根部锚定
+  const wildfire = createAreaEffectVisual({
+    radius: 5,
+    color: '#ff7a2d',
+    accent: '#ffb347',
+    kind: 'wildfire'
+  });
+  const flames = [];
+  wildfire.traverse((node) => {
+    if (node.userData?.isFlame) flames.push(node);
+  });
+  assert.equal(flames.length, 68, '野火火苗数量翻倍为 68');
+  assert.ok(flames.every((flame) => flame.layers.mask === 2), '野火火苗位于覆盖层，不受描边影响');
+  assert.ok(flames.every((flame) => flame.userData.flameWidth >= 0.26), '野火火苗更宽');
+  assert.equal(wildfire.userData.disc.layers.mask, 2, '野火地面痕迹保留覆盖层');
+}
+
+{
+  // 冲击环：径向渐变（非均匀带宽）+ 轻微圆周扭曲（非规整圆带）
+  const shockFx = new EffectsSystem(new THREE.Scene());
+  const ringMesh = shockFx.createShockRingMesh('#ffb34d', [3.4, 1.4, 0.25]);
+  assert.equal(ringMesh.userData.isGradientShockRing, true);
+  assert(ringMesh.material.map?.userData?.isShockRingGradient, '冲击环应使用径向渐变纹理');
+  assert.equal(ringMesh.material.fog, false);
+  const positions = ringMesh.geometry.attributes.position.array;
+  const outerRing = [];
+  for (let i = 0; i < positions.length; i += 3) {
+    const r = Math.hypot(positions[i], positions[i + 1]);
+    if (r > 0.85) outerRing.push(r);
+  }
+  const meanRadius = outerRing.reduce((sum, r) => sum + r, 0) / outerRing.length;
+  const maxDeviation = Math.max(...outerRing.map((r) => Math.abs(r - meanRadius)));
+  assert(
+    maxDeviation > 0.02 && maxDeviation < 0.25,
+    '冲击环轮廓应有轻微扭曲（径向偏差 2%~25%）'
+  );
+  shockFx.destroy();
+}
 
 effects.destroy();
 console.log('Effects visual quality checks passed.');

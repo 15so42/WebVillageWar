@@ -94,7 +94,7 @@ export class MovementAgent {
       unit.directMoveBlockedTime = 0;
       unit.directMoveBlocked = false;
       unit.visualState = 'walk';
-      this.face(movementTarget, dt);
+      this.faceDirection(movementDirection, dt);
       return true;
     }
 
@@ -102,7 +102,7 @@ export class MovementAgent {
       unit.position.addScaledVector(movementDirection, step);
       this.clampToBattlefield();
       unit.visualState = 'walk';
-      this.face(movementTarget, dt);
+      this.faceDirection(movementDirection, dt);
       return true;
     }
 
@@ -118,7 +118,7 @@ export class MovementAgent {
       return false;
     }
     unit.visualState = 'walk';
-    this.face(movementTarget, dt);
+    this.faceDirection(movementDirection, dt);
     return true;
   }
 
@@ -219,6 +219,18 @@ export class MovementAgent {
     if ((unit.isBuilding || unit.definition?.canMove === false) && !isStationaryCombatUnit(unit)) return;
     const dx = targetPosition.x - unit.position.x;
     const dz = targetPosition.z - unit.position.z;
+    if (dx * dx + dz * dz < 0.0001) return;
+    this.faceDirection({ x: dx, z: dz }, dt);
+  }
+
+  // 按实际移动方向转向：移动朝向与模型朝向严格一致，
+  // 避免寻路转向中间点时模型朝向与脚下移动方向出现偏差
+  faceDirection(direction, dt = 0) {
+    const unit = this.unit;
+    if (unit.definition?.canRotate === false) return;
+    if ((unit.isBuilding || unit.definition?.canMove === false) && !isStationaryCombatUnit(unit)) return;
+    const dx = direction?.x ?? 0;
+    const dz = direction?.z ?? 0;
     if (dx * dx + dz * dz < 0.0001) return;
     const desired = Math.atan2(dx, dz);
     if (dt <= 0) {

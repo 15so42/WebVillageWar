@@ -1454,11 +1454,19 @@ export function createSwordsmanModel(team, {
   const leatherMaterial = mat(beltColor ?? '#60442d');
 
   const body = mesh(
-    humanoidTorsoGeometry(0.52, team),
+    // 玩家剑士/骑士躯干改为接近直筒的肩胯比例（与弓手、弩手同思路），
+    // 修正倒三角身形；敌人保持多面体墩实造型
+    isPrimaryPlayer
+      ? new THREE.CylinderGeometry(0.5, 0.45, 0.76, 6, 1, false, Math.PI / 6)
+      : humanoidTorsoGeometry(0.52, team),
     tunicMaterial,
     new THREE.Vector3(0, 0.92, 0),
     isPrimaryPlayer
-      ? new THREE.Vector3(isPlayerKnight ? 0.76 : 0.7, 1.1, isPlayerKnight ? 0.64 : 0.6)
+      ? new THREE.Vector3(
+        isPlayerKnight ? 0.76 : 0.72,
+        1.12,
+        isPlayerKnight ? 0.62 : 0.58
+      )
       : new THREE.Vector3(0.86, 1.25, 0.64)
   );
   const head = mesh(
@@ -2485,13 +2493,16 @@ export function createArcherModel(team, options = {}) {
   const leather = mat(options.leatherColor ?? '#7b4e2d');
   const hoodMaterial = mat(options.hoodColor ?? '#324c37');
 
+  // 躯干改为接近直筒的肩胯比例，修正"倒三角"身形（与弩手同思路）
   const body = mesh(
-    humanoidTorsoGeometry(options.blockyStyle ? 0.44 : 0.48, geometryTeam),
+    options.blockyStyle
+      ? new THREE.CylinderGeometry(0.48, 0.42, 0.72, 6, 1, false, Math.PI / 6)
+      : new THREE.CylinderGeometry(0.5, 0.44, 0.78, 6, 1, false, Math.PI / 6),
     tunicMaterial,
     new THREE.Vector3(0, 0.9, 0),
     options.blockyStyle
-      ? new THREE.Vector3(0.74, 1.08, 0.58)
-      : new THREE.Vector3(0.76, 1.18, 0.58)
+      ? new THREE.Vector3(0.76, 1.08, 0.6)
+      : new THREE.Vector3(0.78, 1.05, 0.6)
   );
   const head = mesh(
     options.facetedHead
@@ -2711,11 +2722,12 @@ export function createCrossbowmanModel(team) {
   const leather = mat('#5a4030');
   const armorMaterial = mat(team === 'player' ? '#68777a' : trim, { metalness: 0.14, roughness: 0.74 });
 
+  // 躯干改为接近直筒的肩胯比例，修正“倒三角”身形
   const body = mesh(
-    humanoidTorsoGeometry(0.5, team),
+    new THREE.CylinderGeometry(0.52, 0.44, 0.72, 6, 1, false, Math.PI / 6),
     tunicMaterial,
     new THREE.Vector3(0, 0.9, 0),
-    new THREE.Vector3(0.82, 1.18, 0.62)
+    new THREE.Vector3(0.86, 1.15, 0.66)
   );
   const head = mesh(
     humanoidHeadGeometry(0.27, team),
@@ -6810,12 +6822,15 @@ export function createRotrootColossusModel() {
 export function createFrostTrollBossModel() {
   const group = new THREE.Group();
   const bodyRoot = new THREE.Group();
-  bodyRoot.rotation.x = 0.22;
+  bodyRoot.rotation.x = 0.12;
   bodyRoot.position.y = -0.04;
+  // 整体比例：更高、更窄、更薄（壮而不胖）——躯干拉长、四肢随拉伸变修长，
+  // 宽肩窄腰的倒三角轮廓更明显
+  bodyRoot.scale.set(0.88, 1.12, 0.84);
 
-  const skin = mat('#2a3136');
-  const skinDark = mat('#171c20');
-  const skinLight = mat('#4d565d');
+  const skin = mat('#262c31');
+  const skinDark = mat('#15191d');
+  const skinLight = mat('#454e55');
   const rockPlate = mat('#5f666c');
   const grime = mat('#6a7040');
   const grimeDark = mat('#4f5530');
@@ -6825,8 +6840,8 @@ export function createFrostTrollBossModel() {
   const skull = mat('#ece2d4');
   const skullDark = mat('#bfb09c');
   const bone = mat('#e6d5a8');
-  const eye = mat('#ffd33d', { emissive: '#ffb400', emissiveIntensity: 1.05 });
-  const eyeCore = mat('#fff6bf', { emissive: '#ffe066', emissiveIntensity: 1.35 });
+  const eye = mat('#ff5a24', { emissive: '#ff3d00', emissiveIntensity: 1.25 });
+  const eyeCore = mat('#ffd9a8', { emissive: '#ff7a1f', emissiveIntensity: 1.5 });
   const rock = mat('#646a70');
   const rockLight = mat('#8a9096');
   const rockDark = mat('#43494f');
@@ -6836,107 +6851,168 @@ export function createFrostTrollBossModel() {
   const torso = mesh(
     humanoidTorsoGeometry(1.06, 'player'),
     skin,
-    new THREE.Vector3(0, 1.22, 0.04),
-    new THREE.Vector3(0.94, 1.06, 0.8)
+    new THREE.Vector3(0, 1.26, 0.04),
+    // 瘦身：收窄胸口、拉长躯干，突出宽肩窄腰的强壮比例，而不是胖
+    new THREE.Vector3(0.76, 1.2, 0.66)
   );
   const chestRock = mesh(
-    new THREE.BoxGeometry(0.98, 0.58, 0.24),
+    new THREE.BoxGeometry(0.78, 0.62, 0.2),
     rockPlate,
-    new THREE.Vector3(0, 1.48, 0.62),
+    new THREE.Vector3(0, 1.52, 0.58),
     new THREE.Vector3(1, 1, 1)
   );
   chestRock.rotation.x = -0.08;
-  const belly = mesh(
-    new THREE.CylinderGeometry(0.55, 0.65, 0.7, 6, 1, false, Math.PI / 6),
-    grime,
-    new THREE.Vector3(0, 0.92, 0.16),
-    new THREE.Vector3(1.06, 1, 0.82)
+  // —— 石头傀儡化：腹部不是脂肪而是层叠岩板 + 裂纹 ——
+  const rockBelly = mesh(
+    new THREE.BoxGeometry(0.62, 0.32, 0.1),
+    rockPlate,
+    new THREE.Vector3(0, 1.06, 0.34),
+    new THREE.Vector3(1, 1, 1)
   );
-  const bellyPatch = mesh(
-    new THREE.BoxGeometry(0.54, 0.28, 0.1),
-    grimeDark,
-    new THREE.Vector3(0.02, 0.88, 0.4)
-  );
-  const backHump = mesh(
-    new THREE.BoxGeometry(0.78, 0.66, 0.46),
+  rockBelly.rotation.x = -0.08;
+  const bellyCrack = mesh(
+    new THREE.BoxGeometry(0.034, 0.24, 0.018),
     skinDark,
-    new THREE.Vector3(0, 1.42, -0.32),
+    new THREE.Vector3(0, 1.06, 0.41),
+    new THREE.Vector3(0.5, 1, 0.5)
+  );
+  bellyCrack.rotation.x = -0.05;
+  const chestCrackLeft = mesh(
+    new THREE.BoxGeometry(0.17, 0.026, 0.016),
+    skinDark,
+    new THREE.Vector3(-0.2, 1.44, 0.66),
+    new THREE.Vector3(1, 1, 1)
+  );
+  chestCrackLeft.rotation.z = -0.38;
+  const chestCrackRight = mesh(
+    new THREE.BoxGeometry(0.17, 0.026, 0.016),
+    skinDark,
+    new THREE.Vector3(0.2, 1.46, 0.66),
+    new THREE.Vector3(1, 1, 1)
+  );
+  chestCrackRight.rotation.z = 0.34;
+  const kneePlateLeft = mesh(
+    new THREE.DodecahedronGeometry(0.15, 0),
+    rock,
+    new THREE.Vector3(-0.24, 0.62, 0.22),
+    new THREE.Vector3(0.72, 0.6, 0.72)
+  );
+  kneePlateLeft.rotation.z = -0.12;
+  const kneePlateRight = kneePlateLeft.clone();
+  kneePlateRight.position.x = 0.24;
+  kneePlateRight.rotation.z = 0.12;
+  // —— 冰霜属性外观：肩部冰晶刺、胸口冰核、腰带冰晶 ——
+  const frostIce = mat('#92e6ff', { emissive: '#4bbbe9', emissiveIntensity: 0.44 });
+  const shoulderIceLeft = mesh(
+    new THREE.ConeGeometry(0.14, 0.62, 5),
+    frostIce,
+    new THREE.Vector3(1.02, 1.82, 0.12),
+    new THREE.Vector3(1, 1, 1)
+  );
+  shoulderIceLeft.rotation.z = -0.72;
+  shoulderIceLeft.rotation.x = 0.5;
+  const shoulderIceRight = shoulderIceLeft.clone();
+  shoulderIceRight.position.x = -1.02;
+  shoulderIceRight.rotation.z = 0.72;
+  const chestIceCore = mesh(
+    new THREE.OctahedronGeometry(0.16, 0),
+    frostIce,
+    new THREE.Vector3(0, 1.56, 0.68),
+    new THREE.Vector3(0.9, 1.15, 0.9)
+  );
+  const beltIceLeft = mesh(
+    new THREE.OctahedronGeometry(0.07, 0),
+    frostIce,
+    new THREE.Vector3(-0.26, 0.86, 0.28)
+  );
+  const beltIceRight = beltIceLeft.clone();
+  beltIceRight.position.x = 0.26;
+  const backHump = mesh(
+    new THREE.BoxGeometry(0.5, 0.48, 0.32),
+    skinDark,
+    new THREE.Vector3(0, 1.52, -0.28),
     new THREE.Vector3(1, 1, 1)
   );
   backHump.rotation.x = 0.18;
 
   const neck = mesh(
-    new THREE.CylinderGeometry(0.26, 0.34, 0.32, 6),
+    new THREE.CylinderGeometry(0.24, 0.32, 0.36, 6),
     skinDark,
-    new THREE.Vector3(0, 1.88, 0.02),
-    new THREE.Vector3(0.96, 1, 0.88)
+    new THREE.Vector3(0, 2.0, 0.02),
+    new THREE.Vector3(0.9, 1, 0.84)
   );
   const head = mesh(
-    new THREE.DodecahedronGeometry(0.48, 0),
+    new THREE.DodecahedronGeometry(0.42, 0),
     skin,
-    new THREE.Vector3(0, 2.14, 0.12),
-    new THREE.Vector3(0.96, 0.84, 0.82)
+    new THREE.Vector3(0, 2.26, 0.12),
+    // 头略小：避免“大头胖娃”，让宽肩成为视觉主体
+    new THREE.Vector3(0.9, 0.82, 0.78)
   );
   const brow = mesh(
-    new THREE.BoxGeometry(0.68, 0.14, 0.12),
+    new THREE.BoxGeometry(0.6, 0.15, 0.13),
     skinDark,
-    new THREE.Vector3(0, 2.26, 0.44)
+    new THREE.Vector3(0, 2.36, 0.4)
   );
+  brow.rotation.x = 0.12;
   const snout = mesh(
-    new THREE.BoxGeometry(0.3, 0.18, 0.22),
+    new THREE.BoxGeometry(0.28, 0.17, 0.2),
     skinDark,
-    new THREE.Vector3(0, 1.98, 0.54),
-    new THREE.Vector3(1, 0.78, 0.92)
+    new THREE.Vector3(0, 2.1, 0.48),
+    new THREE.Vector3(0.9, 0.72, 0.9)
   );
   const jaw = mesh(
-    new THREE.DodecahedronGeometry(0.35, 0),
+    new THREE.DodecahedronGeometry(0.32, 0),
     skinDark,
-    new THREE.Vector3(0, 1.84, 0.32),
-    new THREE.Vector3(1.05, 0.5, 0.75)
+    new THREE.Vector3(0, 1.96, 0.3),
+    new THREE.Vector3(0.95, 0.46, 0.7)
   );
   const eyeLeft = mesh(
-    new THREE.BoxGeometry(0.12, 0.1, 0.055),
+    new THREE.BoxGeometry(0.08, 0.055, 0.045),
     eye,
-    new THREE.Vector3(-0.16, 2.18, 0.46)
+    new THREE.Vector3(-0.15, 2.3, 0.42)
   );
+  eyeLeft.rotation.z = -0.16;
   const eyeRight = eyeLeft.clone();
-  eyeRight.position.x = 0.16;
+  eyeRight.position.x = 0.15;
+  eyeRight.rotation.z = 0.16;
   const eyeCoreLeft = mesh(
-    new THREE.BoxGeometry(0.045, 0.04, 0.025),
+    new THREE.BoxGeometry(0.03, 0.025, 0.018),
     eyeCore,
-    new THREE.Vector3(-0.16, 2.18, 0.5)
+    new THREE.Vector3(-0.15, 2.3, 0.45)
   );
   const eyeCoreRight = eyeCoreLeft.clone();
-  eyeCoreRight.position.x = 0.16;
+  eyeCoreRight.position.x = 0.15;
   const earLeft = mesh(
-    new THREE.ConeGeometry(0.12, 0.36, 4),
+    new THREE.ConeGeometry(0.09, 0.4, 4),
     skinDark,
-    new THREE.Vector3(-0.39, 2.32, -0.02),
-    new THREE.Vector3(0.88, 1, 0.76)
+    new THREE.Vector3(-0.36, 2.46, -0.06),
+    new THREE.Vector3(0.86, 1, 0.76)
   );
-  earLeft.rotation.z = -0.48;
-  earLeft.rotation.x = -0.22;
+  earLeft.rotation.z = -0.5;
+  earLeft.rotation.x = -0.46;
   const earInnerLeft = mesh(
-    new THREE.ConeGeometry(0.065, 0.23, 4),
+    new THREE.ConeGeometry(0.06, 0.2, 4),
     mat('#9a9084'),
-    new THREE.Vector3(-0.385, 2.32, 0.02),
+    new THREE.Vector3(-0.365, 2.44, 0.02),
     new THREE.Vector3(0.76, 0.88, 0.76)
   );
   earInnerLeft.rotation.copy(earLeft.rotation);
   const earRight = earLeft.clone();
-  earRight.position.x = 0.38;
+  earRight.position.x = 0.36;
   earRight.rotation.z = 0.48;
   const earInnerRight = earInnerLeft.clone();
-  earInnerRight.position.x = 0.37;
+  earInnerRight.position.x = 0.35;
   earInnerRight.rotation.z = 0.48;
   const tuskLeft = mesh(
-    new THREE.ConeGeometry(0.07, 0.36, 5),
+    new THREE.ConeGeometry(0.065, 0.4, 5),
     bone,
-    new THREE.Vector3(-0.24, 1.78, 0.46)
+    new THREE.Vector3(-0.22, 1.86, 0.44)
   );
   tuskLeft.rotation.x = Math.PI / 2;
+  tuskLeft.rotation.z = -0.12;
   const tuskRight = tuskLeft.clone();
-  tuskRight.position.x = 0.24;
+  tuskRight.position.x = 0.22;
+  tuskRight.rotation.z = 0.12;
 
   const necklace = mesh(
     new THREE.TorusGeometry(0.34, 0.028, 5, 12, Math.PI * 1.12),
@@ -6984,8 +7060,8 @@ export function createFrostTrollBossModel() {
   const shoulderLeft = mesh(
     new THREE.DodecahedronGeometry(0.42, 0),
     skinDark,
-    new THREE.Vector3(0.88, 1.58, -0.06),
-    new THREE.Vector3(1.3, 0.72, 0.9)
+    new THREE.Vector3(0.92, 1.58, -0.06),
+    new THREE.Vector3(1.42, 0.78, 0.94)
   );
   shoulderLeft.rotation.z = -0.2;
   const shoulderRight = shoulderLeft.clone();
@@ -6993,9 +7069,9 @@ export function createFrostTrollBossModel() {
   shoulderRight.rotation.z = 0.2;
 
   const legLeft = mesh(
-    new THREE.BoxGeometry(0.38, 0.92, 0.38),
+    new THREE.BoxGeometry(0.4, 1.0, 0.4),
     skinDark,
-    new THREE.Vector3(0.34, 0.4, 0.04)
+    new THREE.Vector3(0.34, 0.44, 0.04)
   );
   const legRight = legLeft.clone();
   legRight.position.x = -0.34;
@@ -7018,7 +7094,7 @@ export function createFrostTrollBossModel() {
 
   const leftShoulderPos = new THREE.Vector3(0.84, 1.56, -0.02);
   const leftHandPos = new THREE.Vector3(1.22, 0.84, 0.5);
-  const leftArm = limb(leftShoulderPos, leftHandPos, humanoidArmRadius(0.2, 'player'), skin);
+  const leftArm = limb(leftShoulderPos, leftHandPos, humanoidArmRadius(0.22, 'player'), skin);
   const leftHand = mesh(
     new THREE.DodecahedronGeometry(0.28, 0),
     skinLight,
@@ -7033,7 +7109,7 @@ export function createFrostTrollBossModel() {
   );
   const rightShoulderPos = new THREE.Vector3(-0.84, 1.56, -0.02);
   const rightHandPos = new THREE.Vector3(-1.16, 1.06, 0.52);
-  const rightArm = limb(rightShoulderPos, rightHandPos, humanoidArmRadius(0.2, 'player'), skin);
+  const rightArm = limb(rightShoulderPos, rightHandPos, humanoidArmRadius(0.22, 'player'), skin);
   const rightHand = mesh(
     new THREE.DodecahedronGeometry(0.27, 0),
     skinLight,
@@ -7049,13 +7125,15 @@ export function createFrostTrollBossModel() {
     0.09,
     wood
   );
+  // 锤头：多面体（不圆滑）+ 身体同色系配色
   const hammerHead = mesh(
-    new THREE.SphereGeometry(0.62, 12, 8),
-    rock,
+    new THREE.DodecahedronGeometry(0.58, 0),
+    skin,
     new THREE.Vector3(-1.14, 2.36, 0.62),
-    new THREE.Vector3(1.06, 1, 1.02)
+    new THREE.Vector3(1.06, 1.02, 1.04)
   );
   hammerHead.rotation.z = -0.08;
+  hammerHead.rotation.x = 0.16;
   const hammerPoreA = mesh(
     new THREE.DodecahedronGeometry(0.22, 0),
     rockLight,
@@ -7074,10 +7152,26 @@ export function createFrostTrollBossModel() {
     new THREE.Vector3(-1.16, 2.42, 0.68),
     new THREE.Vector3(1.12, 1, 0.92)
   );
+  // 锤头尖刺：四根锥刺水平向外，突出凶猛的狼牙棒轮廓（身体暗色系）
+  const hammerSpikes = [];
+  const spikeGeometry = new THREE.ConeGeometry(0.075, 0.34, 5);
+  for (let spikeIndex = 0; spikeIndex < 4; spikeIndex += 1) {
+    const spikeAngle = (spikeIndex / 4) * Math.PI * 2;
+    const spike = new THREE.Mesh(spikeGeometry, skinDark);
+    spike.position.set(
+      -1.14 + Math.cos(spikeAngle) * 0.54,
+      2.36 + (spikeIndex % 2 === 0 ? 0.1 : -0.08),
+      0.62 + Math.sin(spikeAngle) * 0.52
+    );
+    // 尖端从水平向外
+    spike.rotation.z = Math.PI / 2;
+    spike.rotation.y = -spikeAngle + (spikeIndex % 2 === 0 ? 0.14 : -0.1);
+    hammerSpikes.push(spike);
+  }
   const weaponSwingPivot = createPivot(
     'frostTrollHammerSwingPivot',
     hammerGrip,
-    [hammerShaft, hammerHead, hammerPoreA, hammerPoreB, hammerGem]
+    [hammerShaft, hammerHead, hammerPoreA, hammerPoreB, hammerGem, ...hammerSpikes]
   );
   const weaponPivot = createPivot(
     'frostTrollHammerPivot',
@@ -7093,8 +7187,17 @@ export function createFrostTrollBossModel() {
   bodyRoot.add(
     torso,
     chestRock,
-    belly,
-    bellyPatch,
+    rockBelly,
+    bellyCrack,
+    chestCrackLeft,
+    chestCrackRight,
+    chestIceCore,
+    kneePlateLeft,
+    kneePlateRight,
+    shoulderIceLeft,
+    shoulderIceRight,
+    beltIceLeft,
+    beltIceRight,
     backHump,
     neck,
     head,
@@ -7137,6 +7240,7 @@ export function createFrostTrollBossModel() {
     offhandPivot,
     hammerHead,
     hammerGem,
+    hammerSpikes,
     skullCharm
   };
   centerModelFootprint(group);
@@ -8710,11 +8814,19 @@ export function createRock(size = 1, options = {}) {
   return enableShadows(group);
 }
 
-export function createWolfModel() {
+export function createWolfModel(options = {}) {
+  const frost = Boolean(options.frost);
+  const boss = Boolean(options.boss);
   const group = new THREE.Group();
-  const fur = mat('#59656b');
-  const darkFur = mat('#343b40');
-  const eyeMat = mat('#17191a');
+  const fur = mat(frost ? '#8fb4cd' : (boss ? '#4d6379' : '#59656b'));
+  const darkFur = mat(frost ? '#56758c' : (boss ? '#2f4258' : '#343b40'));
+  const furLight = mat(frost ? '#b7d6e8' : (boss ? '#6e87a4' : '#6f7b80'));
+  const eyeMat = mat(
+    boss ? '#ff5a24' : (frost ? '#9be8ff' : '#17191a'),
+    boss
+      ? { emissive: '#ff3d00', emissiveIntensity: 1.2 }
+      : (frost ? { emissive: '#4bc9ff', emissiveIntensity: 0.9 } : {})
+  );
 
   const body = mesh(
     new THREE.DodecahedronGeometry(0.5, 0),
@@ -8724,7 +8836,7 @@ export function createWolfModel() {
   );
   const chest = mesh(
     new THREE.DodecahedronGeometry(0.3, 0),
-    mat('#6f7b80'),
+    furLight,
     new THREE.Vector3(0, 0.7, 0.4),
     new THREE.Vector3(1, 0.96, 0.86)
   );
@@ -8776,7 +8888,7 @@ export function createWolfModel() {
     [neck, head, snout, nose, eyeLeft, eyeRight, earLeft, earRight]
   );
 
-  const legMat = mat('#3f484d');
+  const legMat = mat(frost ? '#44617a' : (boss ? '#24364a' : '#3f484d'));
   const createWolfLeg = (side, z, shoulderY, pawZ) => {
     const leg = new THREE.Group();
     const hip = new THREE.Vector3(side * 0.28, shoulderY, z);
@@ -8836,10 +8948,210 @@ export function createWolfModel() {
   );
 
   group.add(body, chest, headPivot, frontPivot, hindLeft, hindRight, tailPivot);
+  // 冰霜变体：背脊冰晶刺（狼王更大更密）——狼群附魔的外观标志
+  if (frost || boss) {
+    const spineMat = mat('#b5ecff', { emissive: '#6fd8ff', emissiveIntensity: 0.6 });
+    const spineRows = boss ? 5 : 3;
+    for (let index = 0; index < spineRows; index += 1) {
+      const spine = mesh(
+        new THREE.ConeGeometry(boss ? 0.1 : 0.07, boss ? 0.56 : 0.36, 4),
+        spineMat,
+        new THREE.Vector3(0, 0.92 + index * 0.05, 0.05 - index * 0.16),
+        new THREE.Vector3(1, 1, 1)
+      );
+      spine.rotation.x = -0.55 + index * 0.18;
+      group.add(spine);
+      if (boss && index % 2 === 0) {
+        const sideSpine = mesh(
+          new THREE.ConeGeometry(0.06, 0.3, 4),
+          spineMat,
+          new THREE.Vector3(0.22, 1.0 + index * 0.04, 0.02 - index * 0.16),
+          new THREE.Vector3(1, 0.78, 1)
+        );
+        sideSpine.rotation.z = -0.7;
+        group.add(sideSpine);
+        const sideSpineRight = sideSpine.clone();
+        sideSpineRight.position.x = -0.22;
+        sideSpineRight.position.z = sideSpine.position.z;
+        sideSpineRight.rotation.z = 0.7;
+        group.add(sideSpineRight);
+      }
+    }
+  }
+  if (boss) {
+    // 狼王：更大体魄 + 冰晶颈鬃
+    const maneMat = mat('#7fa9c8', { emissive: '#4d8fb8', emissiveIntensity: 0.42 });
+    for (let index = 0; index < 4; index += 1) {
+      const mane = mesh(
+        new THREE.ConeGeometry(0.08, 0.34, 4),
+        maneMat,
+        new THREE.Vector3(-0.06 + index * 0.04, 1.08, 0.5 - index * 0.06),
+        new THREE.Vector3(1, 1, 1)
+      );
+      mane.rotation.x = 0.3;
+      group.add(mane);
+    }
+    group.scale.setScalar(1.65);
+  }
   group.userData.parts = {
     headPivot,
     frontPivot,
     tailPivot
+  };
+  return enableShadows(group);
+}
+
+export function createFrostOracleBossModel() {
+  const group = new THREE.Group();
+  const cloak = mat('#2e4a68');
+  const cloakDark = mat('#1c3048');
+  const frost = mat('#d7f4ff');
+  const ice = mat('#92e6ff', { emissive: '#4bbbe9', emissiveIntensity: 0.52 });
+  const wood = mat('#4d3a36');
+  const skin = mat('#aac7d8');
+
+  // 雪袍（Cylinder 袍身 + 下摆）
+  const robe = mesh(
+    new THREE.CylinderGeometry(0.38, 0.52, 1.45, 6, 1, false, Math.PI / 2),
+    cloak,
+    new THREE.Vector3(0, 0.78, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const hem = mesh(
+    new THREE.CylinderGeometry(0.5, 0.56, 0.22, 6, 1, false, Math.PI / 2),
+    cloakDark,
+    new THREE.Vector3(0, 0.16, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const mantle = mesh(
+    new THREE.CylinderGeometry(0.3, 0.4, 0.2, 6, 1, false, Math.PI / 2),
+    frost,
+    new THREE.Vector3(0, 1.5, 0),
+    new THREE.Vector3(1.1, 1, 0.9)
+  );
+  const head = mesh(
+    new THREE.DodecahedronGeometry(0.23, 0),
+    skin,
+    new THREE.Vector3(0, 1.78, 0.02),
+    new THREE.Vector3(0.92, 1, 0.86)
+  );
+  // 冰晶头冠（尖顶帽 + 侧面冰晶）
+  const crown = mesh(
+    new THREE.ConeGeometry(0.26, 0.5, 6),
+    cloakDark,
+    new THREE.Vector3(0, 2.12, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  crown.rotation.z = -0.08;
+  const crownBand = mesh(
+    new THREE.CylinderGeometry(0.26, 0.28, 0.09, 6),
+    ice,
+    new THREE.Vector3(0, 1.92, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const crownFocus = mesh(
+    new THREE.OctahedronGeometry(0.12, 0),
+    ice,
+    new THREE.Vector3(0, 2.34, 0.02),
+    new THREE.Vector3(1.15, 1, 1)
+  );
+  const eyeLeft = mesh(
+    new THREE.BoxGeometry(0.05, 0.026, 0.018),
+    ice,
+    new THREE.Vector3(-0.09, 1.81, 0.24),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const eyeRight = eyeLeft.clone();
+  eyeRight.position.x = 0.09;
+  const beardMask = mesh(
+    new THREE.BoxGeometry(0.26, 0.3, 0.05),
+    cloakDark,
+    new THREE.Vector3(0, 1.62, 0.2),
+    new THREE.Vector3(1, 1, 1)
+  );
+  // 浮空冰环（头侧环绕）
+  const orbRing = new THREE.Group();
+  orbRing.name = 'frostOracleShardRing';
+  for (let index = 0; index < 5; index += 1) {
+    const angle = (index / 5) * Math.PI * 2;
+    const shard = mesh(
+      new THREE.ConeGeometry(0.05, 0.24, 4),
+      ice,
+      new THREE.Vector3(
+        Math.cos(angle) * 0.34,
+        Math.sin(angle) * 0.34,
+        Math.sin(angle * 2) * 0.06
+      ),
+      new THREE.Vector3(1, 1, 1)
+    );
+    shard.quaternion.setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0),
+      new THREE.Vector3(Math.cos(angle), Math.sin(angle), Math.sin(angle * 2)).normalize()
+    );
+    orbRing.add(shard);
+  }
+  orbRing.position.set(0, 2.08, 0);
+
+  // 法杖：左手持杖 + 顶部冰晶
+  const leftArm = limb(
+    new THREE.Vector3(0.36, 1.5, 0.02),
+    new THREE.Vector3(0.42, 1.1, 0.34),
+    humanoidArmRadius(0.075, 'enemy'),
+    cloak
+  );
+  const offhandPivot = createPivot(
+    'frostOracleOffhandPivot',
+    new THREE.Vector3(0.36, 1.5, 0.02),
+    [leftArm]
+  );
+  const staff = cylinderBetween(
+    new THREE.Vector3(-0.42, 0.5, 0.16),
+    new THREE.Vector3(-0.5, 2.28, 0.4),
+    0.055,
+    0.04,
+    wood
+  );
+  const staffForkL = cylinderBetween(
+    new THREE.Vector3(-0.5, 2.16, 0.4),
+    new THREE.Vector3(-0.68, 2.38, 0.36),
+    0.03,
+    0.02,
+    wood
+  );
+  const staffForkR = cylinderBetween(
+    new THREE.Vector3(-0.5, 2.16, 0.4),
+    new THREE.Vector3(-0.34, 2.36, 0.44),
+    0.03,
+    0.02,
+    wood
+  );
+  const staffFocus = mesh(
+    new THREE.OctahedronGeometry(0.17, 0),
+    ice,
+    new THREE.Vector3(-0.5, 2.4, 0.4),
+    new THREE.Vector3(1, 1.35, 1)
+  );
+  const projectileSocket = new THREE.Group();
+  projectileSocket.name = 'frostOracleSocket';
+  projectileSocket.position.set(-0.5, 2.42, 0.4);
+  const weaponSwingPivot = createPivot(
+    'frostOracleStaffSwingPivot',
+    new THREE.Vector3(-0.42, 1.42, 0.26),
+    [staff, staffForkL, staffForkR, staffFocus, projectileSocket]
+  );
+  const weaponPivot = createPivot(
+    'frostOracleStaffPivot',
+    new THREE.Vector3(-0.42, 1.5, 0.02),
+    [weaponSwingPivot]
+  );
+
+  group.add(robe, hem, mantle, head, crown, crownBand, crownFocus, eyeLeft, eyeRight, beardMask, orbRing, weaponPivot, offhandPivot);
+  group.userData.parts = {
+    weaponPivot,
+    weaponSwingPivot,
+    offhandPivot,
+    projectileSocket,
+    shardRing: orbRing
   };
   return enableShadows(group);
 }
@@ -9597,6 +9909,48 @@ export function createAttackRangeRing(color = '#62d56f') {
   group.userData.glow = glow;
   group.userData.ring = ring;
   group.userData.colorMeshes = [glow, ring];
+  return group;
+}
+
+// 虚线范围环：用于建筑作用范围（食堂/维修站/箭塔/信标）等示意，
+// 与驻守环同渲染纪律：layer 0、深度测试、默认 renderOrder。
+export function createAttackRangeDashedRing(color = '#62d56f', options = {}) {
+  const group = new THREE.Group();
+  const opacity = Number.isFinite(options.opacity) ? options.opacity : 0.8;
+  const dashCount = Math.max(8, Math.floor(options.dashCount ?? 24));
+  const dashArcLength = Number.isFinite(options.dashArcLength)
+    ? options.dashArcLength
+    : (Math.PI * 2) / dashCount * 0.52;
+  const material = basicMat(color, {
+    transparent: true,
+    opacity,
+    side: THREE.DoubleSide,
+    depthTest: true,
+    depthWrite: false
+  }).clone();
+  const arcGeometry = new THREE.RingGeometry(
+    0.965,
+    1,
+    10,
+    1,
+    -dashArcLength / 2,
+    dashArcLength
+  );
+  const arcs = [];
+  for (let index = 0; index < dashCount; index += 1) {
+    const holder = new THREE.Group();
+    holder.rotation.y = (index / dashCount) * Math.PI * 2;
+    const arc = new THREE.Mesh(arcGeometry, material);
+    arc.rotation.x = -Math.PI / 2;
+    arc.renderOrder = 0;
+    holder.add(arc);
+    arcs.push(arc);
+    group.add(holder);
+  }
+  group.visible = false;
+  group.userData.colorMeshes = arcs;
+  group.userData.dashCount = dashCount;
+  group.userData.isAttackRangeDashedRing = true;
   return group;
 }
 

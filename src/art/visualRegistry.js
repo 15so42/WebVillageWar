@@ -22,6 +22,7 @@ import {
   createFrostArrowModel,
   createFrostScoutModel,
   createFrostTrollBossModel,
+  createFrostOracleBossModel,
   createGoblinArcherModel,
   createGoblinBomberModel,
   createGoblinHunterModel,
@@ -123,6 +124,10 @@ const UNIT_FACTORIES = {
   spider: () => createSpiderModel(),
   spiderEgg: () => createSpiderEggModel(),
   wolf: () => createWolfModel(),
+  wolfFrost: () => createWolfModel({ frost: true }),
+  frostWolf: () => createWolfModel({ frost: true }),
+  frostWolfBoss: () => createWolfModel({ boss: true }),
+  frostOracleBoss: () => createFrostOracleBossModel(),
   bear: () => createBearModel(),
   arrowTower: ({ team }) => createArrowTowerModel(team),
   miniTurret: ({ team }) => createMiniTurretModel(team),
@@ -558,7 +563,8 @@ function applyAttackPose(unit, root, t, pulse, variant = null) {
     unit.type === 'goblinShaman' ||
     unit.type === 'wizard' ||
     unit.type === 'waterMage' ||
-    unit.type === 'lightningMage'
+    unit.type === 'lightningMage' ||
+    unit.type === 'frostOracleBoss'
   ) {
     applyCasterAttack(root, t, pulse);
     return;
@@ -567,7 +573,7 @@ function applyAttackPose(unit, root, t, pulse, variant = null) {
     applyWarderAttack(root, t, pulse);
     return;
   }
-  if (unit.type === 'wolf' || unit.type === 'bear' || unit.type === 'scorpion' || unit.type === 'spider') {
+  if (unit.type === 'wolf' || unit.type === 'frostWolf' || unit.type === 'frostWolfBoss' || unit.type === 'bear' || unit.type === 'scorpion' || unit.type === 'spider') {
     applyBeastAttack(root, t, pulse, unit.type);
     return;
   }
