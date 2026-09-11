@@ -200,6 +200,22 @@ export const UNIT_SPECIAL_UPGRADES = {
       trait: 'lightningSiphon'
     }
   ],
+  windMage: [
+    {
+      id: 'wind-mage-hurricane-duration',
+      kind: 'unit-special',
+      name: '飓风续航',
+      summary: '飓风的持续时间增加 40%。',
+      trait: 'hurricaneDuration'
+    },
+    {
+      id: 'wind-mage-cyclone-breath',
+      kind: 'unit-special',
+      name: '风暴回息',
+      summary: '飓风每造成伤害时，有 3% 概率重置风法师的攻击冷却。',
+      trait: 'hurricaneCooldownReset'
+    }
+  ],
   rogue: [
     {
       id: 'rogue-backstab',

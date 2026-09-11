@@ -138,6 +138,19 @@ export function applyNetworkFx(game, event) {
         ability: event.ability ?? {}
       });
       break;
+    case 'fx_hurricane':
+      effects.spawnHurricane({
+        start: vecFrom(event.start ?? event.position),
+        position: vecFrom(event.position ?? event.start),
+        direction: vecFrom(event.direction),
+        speed: event.speed,
+        radius: event.radius,
+        duration: event.duration,
+        tickInterval: event.tickInterval,
+        color: event.color,
+        accent: event.accent
+      });
+      break;
     case 'fx_area_effect':
       effects.spawnNetworkAreaEffect(event);
       break;
@@ -290,6 +303,22 @@ const EFFECT_RELAY_SPECS = [
         height: state.ability?.height,
         visualScale: state.ability?.visualScale
       }
+    })
+  },
+  {
+    method: 'spawnHurricane',
+    name: 'fx_hurricane',
+    serialize: ([state = {}]) => ({
+      name: 'fx_hurricane',
+      start: vec3(state.start ?? state.position),
+      position: vec3(state.position),
+      direction: vec3(state.direction),
+      speed: state.speed,
+      radius: state.radius,
+      duration: state.duration,
+      tickInterval: state.tickInterval,
+      color: state.color,
+      accent: state.accent
     })
   },
   {

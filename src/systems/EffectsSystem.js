@@ -29,7 +29,12 @@ export class EffectsSystem {
     for (let i = this.effects.length - 1; i >= 0; i -= 1) {
       const effect = this.effects[i];
       effect.age += dt;
-      effect.update?.(dt, effect.age / effect.duration);
+      // 单个特效的 update 抛错不能中断整条特效循环，否则其后所有特效（含死亡白烟）都会冻结
+      try {
+        effect.update?.(dt, effect.age / effect.duration);
+      } catch (error) {
+        console.error('[EffectsSystem] effect update failed', error);
+      }
       if (effect.age >= effect.duration) {
         this.removeEffectAt(i);
       }
@@ -58,7 +63,13 @@ export class EffectsSystem {
   removeEffectAt(index) {
     const effect = this.effects[index];
     if (!effect) return;
-    const shouldDispose = effect.dispose?.() !== false;
+    // dispose 抛错也必须保证 scene.remove 与 splice 执行，避免坏特效卡在数组里每帧重复抛错、冻结整个特效系统
+    let shouldDispose = true;
+    try {
+      shouldDispose = effect.dispose?.() !== false;
+    } catch (error) {
+      console.error('[EffectsSystem] effect dispose failed', error);
+    }
     this.scene.remove(effect.object);
     if (shouldDispose) {
       disposeObject3D(effect.object);
@@ -536,6 +547,187 @@ export class EffectsSystem {
         wisp.scale.set(scale * 0.6, scale * 2.6, 1);
         wisp.material.opacity = 0.28 * alpha * envelope;
       });
+    });
+    return true;
+  }
+
+  // 风法师飓风：向前推进的龙卷——地面范围环（交代作用域）+ 螺旋上升的软边粒子漏斗柱
+  // + 低多边形碎石/叶片碎片（有实体体积，靠自旋与明暗差异表现）+ 每 tickInterval 一次先快后慢的命中脉冲。
+  // 主世界 layer 0、开启深度测试、不提高 renderOrder，被单位与场景正常遮挡（遵循特效渲染层级）。
+  // 位置由确定性公式 start + direction × speed × age 自算，保证联机 host 与 client 视觉一致。
+  spawnHurricane(state) {
+    if (!state) return false;
+    const readVec = (value, fallback) => {
+      if (Array.isArray(value)) return new THREE.Vector3(value[0] ?? 0, value[1] ?? 0, value[2] ?? 0);
+      if (value && typeof value === 'object') return new THREE.Vector3(value.x ?? 0, value.y ?? 0, value.z ?? 0);
+      if (fallback) return new THREE.Vector3(fallback.x ?? 0, fallback.y ?? 0, fallback.z ?? 0);
+      return new THREE.Vector3();
+    };
+    const start = readVec(state.start, state.position);
+    const direction = readVec(state.direction, null);
+    if (direction.lengthSq() < 0.0001) direction.set(0, 0, -1);
+    direction.normalize();
+    const speed = Math.max(0.1, Number(state.speed) || 1.5);
+    const radius = Math.max(0.5, Number(state.radius) || 2.5);
+    const duration = Math.max(0.5, Number(state.duration) || 6);
+    const tickInterval = Math.max(0.1, Number(state.tickInterval) || 0.4);
+    const color = state.color ?? '#bfeaf0';
+    const accent = state.accent ?? '#eafcff';
+
+    const group = new THREE.Group();
+    // 主世界特效：保留 layer 0（addEffect 不再强制置顶到覆盖通道）
+    group.userData.preserveRenderLayers = true;
+    group.position.copy(start);
+
+    // —— 层 4：地面范围环，交代飓风作用域，贴合地面并略抬升避免 z-fighting ——
+    const groundRing = this.createShockRingMesh(accent, [1.4, 2.0, 2.2], {
+      innerRadius: 0.72,
+      outerRadius: 1
+    });
+    groundRing.scale.setScalar(radius);
+    groundRing.position.y = 0.07;
+    groundRing.material.opacity = 0.15;
+    group.add(groundRing);
+
+    // —— 层 2：螺旋上升的软边粒子龙卷柱（倒漏斗：底部窄、顶部宽，两端淡出中段实） ——
+    const columnColors = [accent, color, '#ffffff'];
+    const column = [];
+    for (let index = 0; index < 16; index += 1) {
+      const sprite = createSoftParticleSprite(columnColors[index % 3], {
+        falloff: index % 4 === 0 ? 'tight' : 'soft',
+        opacity: 0,
+        depthTest: true,
+        toneMapped: false
+      });
+      // 少量 HDR 高亮核心负责短促辉光，其余为软边主体
+      if (index % 4 === 0) sprite.material.color.multiplyScalar(1.6);
+      sprite.userData.angle = (index / 16) * Math.PI * 2 + Math.random() * 0.4;
+      sprite.userData.orbitSpeed = 2.2 + Math.random() * 1.6;
+      sprite.userData.riseSpeed = 0.5 + Math.random() * 0.5;
+      sprite.userData.cycle = Math.random();
+      sprite.userData.height = 3.2 + Math.random() * 1.6;
+      sprite.userData.swirl = 0.5 + Math.random() * 0.5;
+      group.add(sprite);
+      column.push(sprite);
+    }
+
+    // —— 层 3：低多边形碎石 / 叶片碎片（不透明硬边几何，靠大小/旋转/速度/明暗差异表现材质） ——
+    const debrisGeometry = new THREE.TetrahedronGeometry(0.11, 0);
+    const debrisColors = ['#7c8a6a', '#9a8f6d', '#5f7a72', '#a9c3b6'];
+    const debris = [];
+    for (let index = 0; index < 8; index += 1) {
+      const mesh = new THREE.Mesh(
+        debrisGeometry,
+        basicMat(debrisColors[index % debrisColors.length], {
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+          depthTest: true,
+          fog: false
+        }).clone()
+      );
+      mesh.userData.angle = Math.random() * Math.PI * 2;
+      mesh.userData.orbitSpeed = 2.6 + Math.random() * 2.2;
+      mesh.userData.riseSpeed = 0.42 + Math.random() * 0.5;
+      mesh.userData.cycle = Math.random();
+      mesh.userData.riseHeight = 2.4 + Math.random() * 1.4;
+      mesh.userData.spin = new THREE.Vector3(
+        Math.random() * 6 - 3,
+        Math.random() * 6 - 3,
+        Math.random() * 6 - 3
+      );
+      mesh.userData.baseScale = 0.6 + Math.random() * 0.9;
+      group.add(mesh);
+      debris.push(mesh);
+    }
+
+    // —— 层 1：tick 命中脉冲环（固定 4 个环形缓冲，与伤害节拍对齐，先快后慢外扩 + 淡出） ——
+    const pulseRings = [];
+    for (let index = 0; index < 4; index += 1) {
+      const ring = this.createShockRingMesh(accent, [2.2, 2.8, 3.2], {
+        innerRadius: 0.5,
+        outerRadius: 1
+      });
+      ring.visible = false;
+      ring.position.set(0, 0.12, 0);
+      group.add(ring);
+      pulseRings.push({ mesh: ring, age: 0, life: Math.min(tickInterval * 2, 0.72) });
+    }
+    let nextPulseIndex = 0;
+    const firePulse = () => {
+      const pulse = pulseRings[nextPulseIndex];
+      nextPulseIndex = (nextPulseIndex + 1) % pulseRings.length;
+      pulse.age = 0;
+      pulse.mesh.visible = true;
+      pulse.mesh.scale.setScalar(radius * 0.2);
+      pulse.mesh.material.opacity = 0;
+    };
+
+    let tickAccum = tickInterval;
+    this.addEffect(group, duration, (dt, t) => {
+      const age = t * duration;
+      group.position.set(
+        start.x + direction.x * speed * age,
+        start.y,
+        start.z + direction.z * speed * age
+      );
+      // 出现较快（0.2s 淡入），末段 0.5s 渐隐而非瞬间消失
+      const fadeIn = Math.min(1, t / (0.2 / duration));
+      const fadeOut = Math.min(1, ((1 - t) * duration) / 0.5);
+      const alpha = Math.min(fadeIn, fadeOut);
+
+      column.forEach((sprite) => {
+        const data = sprite.userData;
+        data.angle += dt * data.orbitSpeed;
+        data.cycle += dt * data.riseSpeed;
+        if (data.cycle >= 1) data.cycle -= 1;
+        const heightT = data.cycle;
+        const funnel = radius * (0.16 + Math.pow(heightT, 1.25) * 0.82);
+        const swirl = data.angle + age * data.swirl;
+        sprite.position.set(Math.cos(swirl) * funnel, 0.1 + heightT * data.height, Math.sin(swirl) * funnel);
+        const envelope = Math.sin(heightT * Math.PI);
+        const scale = radius * (0.16 + envelope * 0.26);
+        sprite.scale.set(scale, scale * 1.4, 1);
+        sprite.material.opacity = alpha * (0.16 + envelope * 0.4);
+      });
+
+      debris.forEach((mesh) => {
+        const data = mesh.userData;
+        data.angle += dt * data.orbitSpeed;
+        data.cycle += dt * data.riseSpeed;
+        if (data.cycle >= 1) data.cycle -= 1;
+        const heightT = data.cycle;
+        const funnel = radius * (0.2 + Math.pow(heightT, 1.2) * 0.8);
+        const swirl = data.angle + age * data.orbitSpeed * 0.3;
+        mesh.position.set(Math.cos(swirl) * funnel, 0.15 + heightT * data.riseHeight, Math.sin(swirl) * funnel);
+        mesh.rotation.x += dt * data.spin.x;
+        mesh.rotation.y += dt * data.spin.y;
+        mesh.rotation.z += dt * data.spin.z;
+        mesh.scale.setScalar(data.baseScale);
+        mesh.material.opacity = alpha * Math.sin(heightT * Math.PI) * 0.9;
+      });
+
+      tickAccum += dt;
+      if (tickAccum >= tickInterval) {
+        tickAccum -= tickInterval;
+        firePulse();
+      }
+      pulseRings.forEach((pulse) => {
+        if (!pulse.mesh.visible) return;
+        pulse.age += dt;
+        const pt = pulse.age / pulse.life;
+        if (pt >= 1) {
+          pulse.mesh.visible = false;
+          pulse.mesh.material.opacity = 0;
+          return;
+        }
+        const ease = 1 - Math.pow(1 - pt, 2);
+        pulse.mesh.scale.setScalar(radius * (0.2 + ease * 0.95));
+        pulse.mesh.material.opacity = alpha * 0.5 * (1 - pt);
+      });
+
+      groundRing.rotation.z += dt * 0.6;
+      groundRing.material.opacity = alpha * (0.14 + Math.sin(age * (Math.PI * 2 / tickInterval)) * 0.03);
     });
     return true;
   }
@@ -1103,6 +1295,22 @@ export class EffectsSystem {
       return lobe;
     });
 
+    // —— 中心核团：一块压扁的低多边形暗核，所有云块叠附其上，把分离的砖块感融合成连续整体 ——
+    const cloudCoreMaterial = basicMat('#0a0e17', {
+      transparent: true,
+      opacity: 0.55,
+      depthWrite: false,
+      depthTest: true,
+      fog: false
+    }).clone();
+    cloudCoreMaterial.userData.baseOpacity = 0.55;
+    const cloudCoreGeometry = new THREE.IcosahedronGeometry(1, 1);
+    const cloudCore = new THREE.Mesh(cloudCoreGeometry, cloudCoreMaterial);
+    cloudCore.scale.set(radius * 1.04, thickness * 0.9, radius * 1.04);
+    cloudCore.position.y = thickness * 0.1;
+    cloudCore.renderOrder = 1868;
+    cloudCore.userData.isThunderCloudCore = true;
+
     // —— 圆形假影子 ——
     const shadowMaterial = basicMat('#04060b', {
       transparent: true,
@@ -1121,10 +1329,12 @@ export class EffectsSystem {
 
     // —— 云内随机出现、反复穿梭的闪电：分段圆柱实体 + HDR 亮核 + 外层辉光 ——
     const boltCount = 4;
-    const boltSegmentCount = 5;
+    // 分段更多：闪电路径更曲折细碎，不再是一根笔直粗线
+    const boltSegmentCount = 8;
     const boltGeometry = new THREE.CylinderGeometry(1, 1, 1, 5, 1, true);
-    const haloRadius = 0.05 * visualScale;
-    const coreRadius = 0.018 * visualScale;
+    // 更细的辉光与亮核，配合更低 HDR 让闪电柔和不刺眼
+    const haloRadius = 0.034 * visualScale;
+    const coreRadius = 0.011 * visualScale;
     const scratchDirection = new THREE.Vector3();
     const scratchMidpoint = new THREE.Vector3();
     const randomBoltPath = (points) => {
@@ -1148,7 +1358,7 @@ export class EffectsSystem {
       points[0].copy(start);
       for (let i = 1; i < boltSegmentCount; i += 1) {
         const t = i / boltSegmentCount;
-        const width = Math.sin(Math.PI * t) * Math.min(0.3, length * 0.14);
+        const width = Math.sin(Math.PI * t) * Math.min(0.46, length * 0.24);
         points[i]
           .copy(start)
           .lerp(end, t)
@@ -1185,9 +1395,9 @@ export class EffectsSystem {
         toneMapped: false,
         fog: false
       });
-      haloMaterial.color.setRGB(2.6, 2.3, 5.0);
+      haloMaterial.color.setRGB(2.05, 1.9, 3.9);
       const coreMaterial = haloMaterial.clone();
-      coreMaterial.color.setRGB(6.6, 6.2, 9.0);
+      coreMaterial.color.setRGB(4.8, 4.6, 7.0);
       coreMaterial.opacity = 0;
       const points = new Array(boltSegmentCount + 1).fill(null).map(() => new THREE.Vector3());
       randomBoltPath(points);
@@ -1219,7 +1429,7 @@ export class EffectsSystem {
       polygonal: true,
       shadowShape: 'circle'
     };
-    group.add(groundShadow, ...lobes);
+    group.add(groundShadow, cloudCore, ...lobes);
 
     this.addEffect(group, duration, (dt, progress) => {
       group.position.set(state.position.x, (state.position.y ?? 0) + height, state.position.z);
@@ -1244,9 +1454,15 @@ export class EffectsSystem {
         );
         lobe.scale.copy(data.baseScale).multiplyScalar(swell);
       });
+      // 核团缓慢自转 + 轻微呼吸，带动整团云一起翻涌，强化整体感
+      cloudCore.rotation.y += dt * 0.16;
+      cloudCore.rotation.x += dt * 0.05;
+      const coreSwell = 1 + Math.sin(visualAge * 0.65) * 0.045;
+      cloudCore.scale.set(radius * 1.04 * coreSwell, thickness * 0.9 * coreSwell, radius * 1.04 * coreSwell);
       blockMaterials.forEach((material) => {
         material.opacity = material.userData.baseOpacity * fade;
       });
+      cloudCoreMaterial.opacity = cloudCoreMaterial.userData.baseOpacity * fade;
       shadowMaterial.opacity = 0.28 * fade;
       const shadowPulse = 1 + Math.sin(visualAge * 0.9) * 0.03;
       groundShadow.scale.copy(groundShadow.userData.baseScale).multiplyScalar(shadowPulse);
@@ -1264,8 +1480,8 @@ export class EffectsSystem {
             randomBoltPath(boltPoints[index]);
             applyBoltPath(bolt, boltPoints[index]);
             const intensity = Math.min(1, data.flashTimer / data.flashDuration);
-            data.haloMaterial.opacity = (0.16 + 0.5 * intensity) * fade;
-            data.coreMaterial.opacity = (0.7 + 0.3 * intensity) * fade;
+            data.haloMaterial.opacity = (0.12 + 0.34 * intensity) * fade;
+            data.coreMaterial.opacity = (0.48 + 0.26 * intensity) * fade;
             bolt.rotation.y = Math.sin(visualAge * 3.1 + index) * 0.06;
             bolt.rotation.x = Math.cos(visualAge * 2.4 + index * 0.8) * 0.05;
           }
@@ -1278,12 +1494,21 @@ export class EffectsSystem {
             randomBoltPath(boltPoints[index]);
             applyBoltPath(bolt, boltPoints[index]);
             // 闪现首帧立即点亮 HDR 材质，再逐帧衰减
-            data.haloMaterial.opacity = 0.66 * fade;
-            data.coreMaterial.opacity = fade;
+            data.haloMaterial.opacity = 0.44 * fade;
+            data.coreMaterial.opacity = 0.8 * fade;
           } else {
             bolt.visible = false;
           }
         }
+      });
+    }, () => {
+      // 雷云每次施法创建独立材质，回收时统一释放，避免材质泄漏（几何体由默认 disposeObject3D 处理）
+      blockMaterials.forEach((material) => material.dispose());
+      cloudCoreMaterial.dispose();
+      shadowMaterial.dispose();
+      bolts.forEach((bolt) => {
+        bolt.userData.haloMaterial.dispose();
+        bolt.userData.coreMaterial.dispose();
       });
     });
   }
@@ -1672,27 +1897,13 @@ export class EffectsSystem {
       depthTest: true,
       blending: THREE.NormalBlending
     }).clone();
-    const smokeRingMaterial = basicMat('#f2f6f8', {
-      transparent: true,
-      opacity: 0.32,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-      depthTest: true
-    }).clone();
-
     const flash = new THREE.Mesh(
       new THREE.CircleGeometry(radius * 0.62, 32),
       flashMaterial
     );
     flash.rotation.x = -Math.PI / 2;
     flash.position.y = 0.08;
-    const smokeRing = new THREE.Mesh(
-      new THREE.RingGeometry(radius * 0.28, radius * 0.44, 36),
-      smokeRingMaterial
-    );
-    smokeRing.rotation.x = -Math.PI / 2;
-    smokeRing.position.y = 0.11;
-    group.add(flash, smokeRing);
+    group.add(flash);
 
     const smokePuffs = [];
     const smokeGeometry = new THREE.DodecahedronGeometry(1, 0);
@@ -1749,13 +1960,80 @@ export class EffectsSystem {
       group.add(puff);
     }
 
+    // —— 底部扩散环：改为大小不一、速度不一、带阻尼的低多边形烟块带状环 ——
+    // 替代原先整体缩放的实心 RingGeometry：贴地扁平烟块沿圆周径向爆发，先快后慢（阻尼）外扩并淡出
+    const ringPuffs = [];
+    const ringPuffCount = 18;
+    for (let i = 0; i < ringPuffCount; i += 1) {
+      const angle = (i / ringPuffCount) * Math.PI * 2 + (Math.random() - 0.5) * 0.32;
+      const speed = radius * (1.7 + Math.random() * 2.0);
+      const shaded = i % 4 === 0;
+      const baseScale = radius * (0.2 + Math.random() * 0.24);
+      const puff = new THREE.Mesh(
+        smokeGeometry,
+        mat(shaded ? '#cdd5d9' : '#f2f6f8', {
+          transparent: true,
+          opacity: 0.6,
+          depthTest: true,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+          roughness: 0.9,
+          flatShading: true
+        }).clone()
+      );
+      puff.position.set(Math.cos(angle) * radius * 0.24, 0.1, Math.sin(angle) * radius * 0.24);
+      puff.userData.velocity = new THREE.Vector3(
+        Math.cos(angle) * speed,
+        radius * (0.05 + Math.random() * 0.16),
+        Math.sin(angle) * speed
+      );
+      puff.userData.damping = 2.5 + Math.random() * 1.6;
+      puff.userData.baseScale = baseScale;
+      // 扁平长宽比：让烟块贴地成“带状”而非圆球
+      puff.userData.aspect = new THREE.Vector3(
+        0.95 + Math.random() * 0.4,
+        0.36 + Math.random() * 0.22,
+        0.95 + Math.random() * 0.4
+      );
+      puff.userData.birth = Math.random() * 0.05;
+      puff.userData.baseOpacity = shaded ? 0.5 : 0.62;
+      puff.userData.spin = new THREE.Vector3(
+        (Math.random() - 0.5) * 1.8,
+        (Math.random() - 0.5) * 1.8,
+        (Math.random() - 0.5) * 1.8
+      );
+      puff.userData.isDeathSmoke = true;
+      puff.layers.set(0);
+      puff.scale.setScalar(0.02);
+      ringPuffs.push(puff);
+      group.add(puff);
+    }
+
     group.traverse((child) => child.layers.set(0));
 
     this.addEffect(group, 1.45, (dt, t) => {
       flash.scale.setScalar(1 + t * 4.6);
       flash.material.opacity = 0.24 * (1 - t) ** 2.4;
-      smokeRing.scale.setScalar(0.72 + t * 3.1);
-      smokeRing.material.opacity = 0.32 * (1 - t) ** 1.5;
+      ringPuffs.forEach((puff) => {
+        const localT = clamp((t - puff.userData.birth) / Math.max(0.01, 1 - puff.userData.birth), 0, 1);
+        puff.visible = t >= puff.userData.birth;
+        if (!puff.visible) return;
+        puff.position.addScaledVector(puff.userData.velocity, dt);
+        // 阻尼：先快后慢地径向减速外扩
+        puff.userData.velocity.multiplyScalar(Math.max(0, 1 - dt * puff.userData.damping));
+        puff.rotation.x += puff.userData.spin.x * dt;
+        puff.rotation.y += puff.userData.spin.y * dt;
+        puff.rotation.z += puff.userData.spin.z * dt;
+        const grow = 1 - (1 - Math.min(1, localT * 5.2)) ** 2;
+        const scale = puff.userData.baseScale * (0.3 + grow * 0.7) * (1 - localT * 0.34);
+        puff.scale.set(
+          puff.userData.aspect.x * scale,
+          puff.userData.aspect.y * scale,
+          puff.userData.aspect.z * scale
+        );
+        const fadeIn = Math.min(1, localT * 10);
+        puff.material.opacity = puff.userData.baseOpacity * fadeIn * (1 - localT) ** 1.15;
+      });
       smokePuffs.forEach((puff) => {
         const localT = clamp((t - puff.userData.birth) / Math.max(0.01, 1 - puff.userData.birth), 0, 1);
         puff.visible = t >= puff.userData.birth;
@@ -3016,8 +3294,9 @@ export class EffectsSystem {
       shardMaterial.opacity = (1 - t) * 0.86;
     }, () => {
       flashMaterial.dispose();
-      ringMaterial.dispose();
-      shockwaveMaterial.dispose();
+      // ring/shockwave 由 createShockRingMesh 创建，各自持有独立材质（共享渐变纹理不受 material.dispose 影响）
+      ring.material.dispose();
+      shockwave.material.dispose();
       shardMaterial.dispose();
     });
   }

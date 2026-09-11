@@ -64,6 +64,7 @@ export class UnitLogicSystem {
     mark = recordStep(profile, 'projectilesMs', mark);
     this.game.attacks.updateThunderClouds(dt);
     this.game.attacks.updateFrostStorms(dt);
+    this.game.attacks.updateHurricanes(dt);
     this.game.attacks.updateWolfPackSummon(dt);
     this.game.attacks.updateOracleBossPassives(dt);
     if (profile) {
@@ -924,6 +925,12 @@ function completeMoveGoal(game, unit) {
   unit.navMoveTarget = null;
   unit.navSteeringTarget = null;
   game.clearUnitRoute?.(unit);
+  // 玩家单位到达移动目标后自动转为驻守：中途遇怪打完会继续来这里，
+  // 战斗中强制脱离（force-move）到达后同样驻守。
+  if (unit.autoGuardOnArrival === true && unit.team === TEAMS.PLAYER && unit.alive) {
+    unit.autoGuardOnArrival = false;
+    game.setUnitGuardMode?.(unit);
+  }
 }
 
 function attackRangeHoldPadding(unit) {

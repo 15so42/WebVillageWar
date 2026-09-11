@@ -34,7 +34,8 @@ export function createAreaEffectVisual({ radius, color, accent, kind }) {
   disc.rotation.x = -Math.PI / 2;
   disc.scale.setScalar(radius);
   disc.renderOrder = 1320;
-  disc.layers.set(1);
+  // 野火整组走主世界层（layer 0），被单位/地形正常遮挡；其余区域标记仍走覆盖通道
+  disc.layers.set(isWildfire ? 0 : 1);
   group.add(disc);
 
   const ring = new THREE.Mesh(
@@ -50,7 +51,7 @@ export function createAreaEffectVisual({ radius, color, accent, kind }) {
   ring.scale.setScalar(radius);
   ring.position.y = 0.012;
   ring.renderOrder = 1321;
-  ring.layers.set(1);
+  ring.layers.set(isWildfire ? 0 : 1);
   group.add(ring);
 
   if (isWildfire) {
@@ -81,7 +82,7 @@ export function createAreaEffectVisual({ radius, color, accent, kind }) {
       patch.rotation.z = angle + (Math.random() - 0.5) * 0.8;
       patch.scale.set(width, length, 1);
       patch.renderOrder = 1321;
-      patch.layers.set(1);
+      patch.layers.set(0);
       const emberTrace = new THREE.Mesh(traceGeometry, emberTraceMaterial);
       emberTrace.position.copy(patch.position);
       emberTrace.position.y += 0.006;
@@ -90,7 +91,7 @@ export function createAreaEffectVisual({ radius, color, accent, kind }) {
       emberTrace.scale.set(width * 0.74, length * 0.72, 1);
       emberTrace.userData.phase = Math.random() * Math.PI * 2;
       emberTrace.renderOrder = 1322;
-      emberTrace.layers.set(1);
+      emberTrace.layers.set(0);
       groundTraces.push({ patch, emberTrace });
       group.add(patch, emberTrace);
     }
@@ -194,7 +195,7 @@ export function createAreaEffectVisual({ radius, color, accent, kind }) {
       opacity: 0.9,
       side: THREE.DoubleSide,
       depthWrite: false,
-      depthTest: false,
+      depthTest: true,
       blending: THREE.AdditiveBlending
     }).clone()
     : mat(color, {
@@ -240,8 +241,9 @@ export function createAreaEffectVisual({ radius, color, accent, kind }) {
       );
     }
     puff.renderOrder = 1322;
-    // 野火火苗走 layer 1 覆盖通道（绕过屏幕描边），普通烟雾留主世界层
-    puff.layers.set(isWildfire ? 1 : 0);
+    // 野火火苗改用主世界层（layer 0）并开启深度测试，被单位与地形正常遮挡；
+    // 火苗为暖色加法混合，OutlineShader 的暖色豁免已避免其被描黑边
+    puff.layers.set(0);
     group.add(puff);
   }
   group.userData.disc = disc;

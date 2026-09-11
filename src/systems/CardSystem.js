@@ -113,7 +113,8 @@ export class CardSystem {
       this.hand.hidden = true;
     }
     this.energyPanel = createEnergyPanel(this.hand, this.mountUi);
-    this.temporarySlot = createTemporaryCardSlot(this.energyPanel, this.mountUi);
+    // 临时牌位 UI 已移除：临时牌改为置于抽牌堆顶，走正常抽牌流程
+    this.temporarySlot = null;
     this.energyParts = collectEnergyPanel(this.energyPanel);
     this.abilityIcons = this.energyParts.abilities;
     this.coreIcons = this.energyParts.cores;
@@ -1763,24 +1764,17 @@ export class CardSystem {
     if (!cardDefinition) return { added: false, location: 'none' };
     const card = createCardInstance(this.applyRuntimeCardLevel(cardDefinition), `loot-${Date.now()}`);
     this.game.recordAcquiredUnitCard?.(card, this.playerSlot);
-    if (this.temporaryCards.length < TEMPORARY_CARD_LIMIT) {
-      this.temporaryCards.push(card);
-      this.pendingDrawAnimations.add(card);
-      this.renderTemporaryCards();
-      this.updatePileUi();
-      this.updateCardAffordability();
-      return { added: true, location: 'temporary', card };
-    }
+    // 临时牌位已移除：战利品牌排到抽牌堆顶，手牌有空位则立即抽入
     this.drawPile.unshift(card);
+    this.drawToFullHand({ animate: true });
+    this.renderHand();
     this.updatePileUi();
+    this.updateCardAffordability();
     return { added: true, location: 'draw', card };
   }
 
   addTemporaryCard(cardDefinition, options = {}) {
     if (!cardDefinition) return { added: false, location: 'none' };
-    if (this.temporaryCards.length >= TEMPORARY_CARD_LIMIT) {
-      return { added: false, location: 'none' };
-    }
     const definition = {
       ...cardDefinition,
       energyCost: options.energyCost ?? cardDefinition.energyCost ?? 0
@@ -1790,12 +1784,15 @@ export class CardSystem {
       options.prefix ?? `temporary-${Date.now()}`
     );
     this.game.recordAcquiredUnitCard?.(card, this.playerSlot);
-    this.temporaryCards.push(card);
-    this.pendingDrawAnimations.add(card);
-    this.renderTemporaryCards();
+    // 临时牌位已移除：改为置于抽牌堆顶，手牌有空位则立即抽入
+    this.drawPile.unshift(card);
+    if (options.drawToHand !== false) {
+      this.drawToFullHand({ animate: true });
+      this.renderHand();
+    }
     this.updatePileUi();
     this.updateCardAffordability();
-    return { added: true, location: 'temporary', card };
+    return { added: true, location: 'draw', card };
   }
 
   addCardToDrawPile(cardDefinition, options = {}) {
@@ -1824,15 +1821,7 @@ export class CardSystem {
       this.applyRuntimeCardLevel(cardDefinition, options),
       `debug-${Date.now()}`
     );
-
-    if (options.location !== 'hand' && this.temporaryCards.length < TEMPORARY_CARD_LIMIT) {
-      this.temporaryCards.push(card);
-      this.pendingDrawAnimations.add(card);
-      this.renderTemporaryCards();
-      this.updatePileUi();
-      return { added: true, location: 'temporary', card };
-    }
-
+    // 临时牌位已移除：调试牌排到抽牌堆顶
     this.drawPile.unshift(card);
     this.updatePileUi();
     return { added: true, location: 'draw', card };
@@ -1840,16 +1829,9 @@ export class CardSystem {
 
   drawTemporaryCards(count = 1, options = {}) {
     const targetCount = Math.max(1, Math.floor(count));
-    const overflowToDrawTop = options.overflowToDrawTop === true;
     const preferHandSlots = options.preferHandSlots === true;
-    const defaultLimit = overflowToDrawTop ? TEMPORARY_CARD_EFFECT_LIMIT : TEMPORARY_CARD_LIMIT;
-    const temporaryLimit = Math.max(
-      TEMPORARY_CARD_LIMIT,
-      Math.floor(options.temporaryLimit ?? defaultLimit)
-    );
-    const overflowCards = [];
+    const toDrawTop = [];
     let handDrawn = 0;
-    let temporaryDrawn = 0;
     let resolved = 0;
     while (resolved < targetCount) {
       const card = this.drawCard();
@@ -1859,28 +1841,19 @@ export class CardSystem {
         this.handCards[handSlot] = card;
         this.pendingDrawAnimations.add(card);
         handDrawn += 1;
-      } else if (this.temporaryCards.length < temporaryLimit) {
-        this.temporaryCards.push(card);
-        this.pendingDrawAnimations.add(card);
-        temporaryDrawn += 1;
-      } else if (overflowToDrawTop) {
-        overflowCards.push(card);
       } else {
-        this.drawPile.unshift(card);
-        break;
+        // 手牌已满：调度出的牌排到抽牌堆顶，等待后续抽牌（临时牌位已移除）
+        toDrawTop.push(card);
       }
       resolved += 1;
     }
-    if (overflowCards.length) {
-      this.drawPile.unshift(...overflowCards);
-    }
-    if (temporaryDrawn > 0) {
-      this.renderTemporaryCards();
+    if (toDrawTop.length) {
+      this.drawPile.unshift(...toDrawTop);
     }
     if (handDrawn > 0) {
       this.renderHand();
     }
-    if (handDrawn > 0 || temporaryDrawn > 0 || overflowCards.length) {
+    if (handDrawn > 0 || toDrawTop.length) {
       this.updatePileUi();
     }
     return resolved;
@@ -1889,17 +1862,10 @@ export class CardSystem {
   addTemporaryCardsFromPool(pool, count = 1, options = {}) {
     if (!Array.isArray(pool) || pool.length === 0) return 0;
     const targetCount = Math.max(1, Math.floor(count));
-    const overflowToDrawTop = options.overflowToDrawTop === true;
     const preferHandSlots = options.preferHandSlots === true;
-    const defaultLimit = overflowToDrawTop ? TEMPORARY_CARD_EFFECT_LIMIT : TEMPORARY_CARD_LIMIT;
-    const temporaryLimit = Math.max(
-      TEMPORARY_CARD_LIMIT,
-      Math.floor(options.temporaryLimit ?? defaultLimit)
-    );
     const candidates = shuffleCards(pool.filter((card) => card && !card.lootOnly && !card.retired));
-    const overflowCards = [];
+    const toDrawTop = [];
     let handCreated = 0;
-    let temporaryCreated = 0;
     let created = 0;
     while (created < targetCount && candidates.length > 0) {
       const definition = candidates.shift();
@@ -1916,23 +1882,15 @@ export class CardSystem {
         this.handCards[handSlot] = card;
         this.pendingDrawAnimations.add(card);
         handCreated += 1;
-      } else if (this.temporaryCards.length < temporaryLimit) {
-        this.temporaryCards.push(card);
-        this.pendingDrawAnimations.add(card);
-        temporaryCreated += 1;
-      } else if (overflowToDrawTop) {
-        overflowCards.push(card);
       } else {
-        break;
+        // 手牌已满：排到抽牌堆顶（临时牌位已移除）
+        toDrawTop.push(card);
       }
       options.onCardCreated?.(definition, card);
       created += 1;
     }
-    if (overflowCards.length) {
-      this.drawPile.unshift(...overflowCards);
-    }
-    if (temporaryCreated > 0) {
-      this.renderTemporaryCards();
+    if (toDrawTop.length) {
+      this.drawPile.unshift(...toDrawTop);
     }
     if (handCreated > 0) {
       this.renderHand();
@@ -2630,6 +2588,7 @@ const BITMAP_CARD_ART = {
   crossbowman: 'card-art/crossbowman-imagegen-lowpoly-v1.png',
   waterMage: 'card-art/waterMage-imagegen-lowpoly-v1.png',
   lightningMage: 'card-art/lightningMage-imagegen-lowpoly-v1.png',
+  windMage: 'card-art/windMage-imagegen-lowpoly-v1.png',
   rogue: 'card-art/rogue-imagegen-lowpoly-v1.png',
   engineer: 'card-art/engineer-imagegen-lowpoly-v1.png',
   physician: 'card-art/physician-imagegen-lowpoly-v1.png',
@@ -2782,6 +2741,20 @@ const CARD_ART_RENDERERS = {
     <rect fill="#453927" x="70" y="9" width="5" height="51" rx="2" transform="rotate(8 72.5 34)" />
     <path fill="none" stroke="#e8e2ff" stroke-width="2.5" d="M76 11 L69 26 L79 27 L70 44 L84 29 L76 28 L84 11" />
     <path fill="none" stroke="#bba8ff" stroke-width="2.2" d="M52 39 L63 34 L59 44 L74 40 L68 52" />
+  `),
+  windMage: () => symbolicUnitSvg(`
+    <ellipse fill="#10231f" opacity="0.22" cx="48" cy="56" rx="31" ry="6" />
+    <circle fill="#4fbfa8" opacity="0.16" cx="63" cy="35" r="22" />
+    <path fill="none" stroke="#8ff0d8" stroke-width="2.4" d="M40 47 C52 58 72 54 82 40" />
+    <path fill="none" stroke="#eafcff" stroke-width="2" opacity="0.8" d="M46 40 C57 30 73 31 82 41" />
+    <polygon fill="#1f5a4d" points="30,54 36,29 48,17 62,29 68,54 56,61 40,61" />
+    <polygon fill="#3fae9a" points="38,31 48,21 58,31 57,49 48,57 39,49" />
+    <polygon fill="#d5a878" points="43,30 48,23 54,30 52,37 44,37" />
+    <polygon fill="#194a3f" points="37,30 48,15 60,30 55,33 48,29 42,34" />
+    <rect fill="#6b4b2f" x="72" y="9" width="5" height="50" rx="2" transform="rotate(8 74.5 34)" />
+    <path fill="none" stroke="#8ff0d8" stroke-width="2.2" d="M69 15 C64 20 80 22 75 27 C70 32 82 33 78 38" />
+    <circle fill="#a9f2df" cx="74.5" cy="12" r="6.5" />
+    <circle fill="#eafcff" opacity="0.85" cx="74.5" cy="12" r="2.8" />
   `),
   rogue: () => symbolicUnitSvg(`
     <ellipse fill="#10231f" opacity="0.25" cx="48" cy="56" rx="31" ry="6" />

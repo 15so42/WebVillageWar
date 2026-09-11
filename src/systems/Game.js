@@ -7682,6 +7682,8 @@ export class Game {
       unit.controlMode = 'normal';
       unit.guardPoint = null;
       unit.guardRadius = null;
+      // 到达目标点后自动进入驻守（中途遇怪打完仍会继续前往，到达即驻守）
+      unit.autoGuardOnArrival = true;
       this.applyUnitGuardVisualState(unit, false);
       if (forceMove) forceMoveUnits.push(unit);
     });
@@ -7737,6 +7739,7 @@ export class Game {
       this.clearUnitRoute(unit);
       unit.guardPoint = null;
       unit.guardRadius = null;
+      unit.autoGuardOnArrival = false;
       this.applyUnitGuardVisualState(unit, false);
       unit.knockbackVelocity.set(0, 0, 0);
     });
@@ -7763,6 +7766,7 @@ export class Game {
       return false;
     }
     unit.controlMode = 'guard';
+    unit.autoGuardOnArrival = false;
     unit.guardPoint = unit.position.clone();
     unit.guardPoint.y = this.groundHeightAt(unit.guardPoint);
     unit.guardRadius = this.gameGuardRadiusFor(unit);

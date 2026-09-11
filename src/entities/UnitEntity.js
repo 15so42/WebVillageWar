@@ -74,6 +74,7 @@ export class UnitEntity {
     this.controlMode = 'normal';
     this.guardPoint = null;
     this.guardRadius = null;
+    this.autoGuardOnArrival = false;
     this.selected = false;
     this.selectedByPlayerId = null;
     this.networkSelectionRing = null;

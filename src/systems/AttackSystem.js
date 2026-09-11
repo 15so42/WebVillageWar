@@ -15,6 +15,9 @@ import { disposeObject3D } from '../utils/dispose.js';
 import { clamp, distance2D } from '../utils/math.js';
 import {
   getTargetPosition,
+  isStaticUnit,
+  knockbackImpulseSpeed,
+  maxKnockbackVelocity,
   roundProfile,
   resolveProjectileColor,
   targetCombatRadius
@@ -25,6 +28,7 @@ const projectileTargetPosition = new THREE.Vector3();
 const projectileTrailTargetPosition = new THREE.Vector3();
 const projectileForward = new THREE.Vector3(0, 0, 1);
 const linearProjectileDirection = new THREE.Vector3();
+const vortexDirection = new THREE.Vector3();
 const PROJECTILE_TARGET_QUERY_PADDING = 3.2;
 const CHAIN_LIGHTNING_COLOR = '#bba8ff';
 
@@ -38,6 +42,8 @@ export class AttackSystem {
     this.thunderClouds = [];
     // 冰霜巨魔的冰霜风暴区域（Boss 脚下每秒惩罚近战单位）
     this.frostStorms = [];
+    // 风法师飓风：向前缓慢推进的持续伤害 + 吸引区域
+    this.hurricanes = [];
     this.nextProjectileNetworkId = 1;
     this.profile = null;
   }
@@ -261,6 +267,12 @@ export class AttackSystem {
       if (distance2D(source.position, target.position) > allowedRange) return;
     }
 
+    if (source.definition.attackBehavior?.type === 'hurricane') {
+      this.syncSourcePoseForAttackEvent(attack);
+      this.spawnHurricane(source, target, source.definition.attackBehavior);
+      return;
+    }
+
     if (source.definition.attackBehavior?.type === 'chainLightning') {
       this.syncSourcePoseForAttackEvent(attack);
       this.resolveChainLightningAttack(source, target, source.definition.attackBehavior);
@@ -383,6 +395,104 @@ export class AttackSystem {
         duration: 0.28
       });
     });
+  }
+
+  // 风法师飓风：向前缓慢推进的持续伤害区域，每 tickInterval 对范围内敌人造成魔法伤害并吸引聚拢。
+  spawnHurricane(source, target, behavior = {}) {
+    if (!source?.position) return null;
+    const targetPosition = target?.position ? getTargetPosition(target) : null;
+    const direction = new THREE.Vector3();
+    if (targetPosition) {
+      direction.set(targetPosition.x - source.position.x, 0, targetPosition.z - source.position.z);
+    } else {
+      direction.set(Math.sin(source.mesh?.rotation?.y ?? 0), 0, Math.cos(source.mesh?.rotation?.y ?? 0));
+    }
+    if (direction.lengthSq() < 0.0001) direction.set(0, 0, -1);
+    direction.normalize();
+    const startOffset = Math.max(0, behavior.startOffset ?? 1.2);
+    const groundY = this.game.groundHeightAt?.(source.position) ?? source.position.y ?? 0;
+    const start = new THREE.Vector3(
+      source.position.x + direction.x * startOffset,
+      groundY,
+      source.position.z + direction.z * startOffset
+    );
+    const baseDuration = Math.max(0.5, behavior.duration ?? 6);
+    const hurricane = {
+      source,
+      team: source.team,
+      start,
+      position: start.clone(),
+      direction,
+      speed: Math.max(0.1, behavior.advanceSpeed ?? 1.5),
+      radius: Math.max(0.5, behavior.radius ?? 2.5),
+      duration: hasRuntimeTrait(source, 'hurricaneDuration') ? baseDuration * 1.4 : baseDuration,
+      tickInterval: Math.max(0.1, behavior.tickInterval ?? 0.4),
+      tickDamageMultiplier: Math.max(0, behavior.tickDamageMultiplier ?? 1),
+      pullStrength: Math.max(0, behavior.pullStrength ?? 1.6),
+      color: behavior.color ?? '#bfeaf0',
+      accent: behavior.accent ?? '#eafcff',
+      age: 0,
+      tickTimer: 0
+    };
+    this.hurricanes.push(hurricane);
+    this.game.effects.spawnHurricane(hurricane);
+    return hurricane;
+  }
+
+  updateHurricanes(dt) {
+    for (let index = this.hurricanes.length - 1; index >= 0; index -= 1) {
+      const hurricane = this.hurricanes[index];
+      hurricane.age += dt;
+      if (hurricane.age >= hurricane.duration || !hurricane.source?.alive) {
+        this.hurricanes.splice(index, 1);
+        continue;
+      }
+      // 向前匀速推进，位置只由 start + direction × speed × age 决定，与客户端视觉公式一致
+      const travel = hurricane.speed * hurricane.age;
+      hurricane.position.x = hurricane.start.x + hurricane.direction.x * travel;
+      hurricane.position.z = hurricane.start.z + hurricane.direction.z * travel;
+      hurricane.position.y = this.game.groundHeightAt?.(hurricane.position) ?? hurricane.start.y;
+      hurricane.tickTimer -= dt;
+      if (hurricane.tickTimer > 0) continue;
+      hurricane.tickTimer += hurricane.tickInterval;
+      this.tickHurricane(hurricane);
+    }
+  }
+
+  tickHurricane(hurricane) {
+    const { source } = hurricane;
+    const targetTeam = source.team === TEAMS.PLAYER ? TEAMS.ENEMY : TEAMS.PLAYER;
+    const victims = this.unitsNear(targetTeam, hurricane.position, hurricane.radius);
+    if (!victims.length) return;
+    const damage = Math.max(
+      1,
+      this.game.modifiers.getAttackDamage(source, 'magic') * hurricane.tickDamageMultiplier
+    );
+    let damaged = false;
+    victims.forEach((unit) => {
+      if (!unit?.alive || unit.underConstruction || !unit.position) return;
+      // 默认命中特效（不 skipHitEffect）即“附带攻击特效”；跳过受击动画避免高频抽抽
+      this.game.combat.applyDamage(unit, damage, source, 0, {
+        damage,
+        source,
+        target: unit,
+        defenseDamageType: 'magic',
+        isAttack: false,
+        skipHitAnimation: true,
+        damageNumberHeight: unit.projectileHitHeight ?? 1.45,
+        damageNumberDuration: 0.6
+      });
+      damaged = true;
+      applyVortexPull(this.game, unit, hurricane.position, hurricane.pullStrength);
+    });
+    // 专精：风暴回息——飓风造成伤害时 3% 概率重置风法师攻击冷却
+    if (
+      damaged
+      && hasRuntimeTrait(source, 'hurricaneCooldownReset')
+      && Math.random() < 0.03
+    ) {
+      source.attackTimer = 0;
+    }
   }
 
   tryLightningSiphon(unit) {
@@ -1262,6 +1372,7 @@ export class AttackSystem {
     this.projectilePools.clear();
     this.thunderClouds.length = 0;
     this.frostStorms.length = 0;
+    this.hurricanes.length = 0;
     this.pendingAttacks.length = 0;
     this.activeAttackBySourceId.clear();
   }
@@ -1349,4 +1460,21 @@ function applyKnockbackIfAvailable(game, unit, fromPosition, strength, direction
   if (game.applyKnockbackImpulse(unit, fromPosition, strength)) {
     unit.knockbackVelocity?.addScaledVector(direction, dragDistance);
   }
+}
+
+// 飓风吸引：将范围内敌人朝飓风中心拉拽聚拢（以水平为主，考虑击退抗性），
+// 与飓风向前推进叠加，形成“被卷入漩涡、随风拖行”的手感。
+function applyVortexPull(game, unit, center, pullStrength) {
+  if (!unit?.position || !unit.knockbackVelocity || pullStrength <= 0 || isStaticUnit(unit)) return;
+  const resistance = game?.modifiers?.getKnockbackResistance?.(unit) ?? 0;
+  const strength = pullStrength * (1 - clamp(resistance, 0, 1));
+  if (strength <= 0.001) return;
+  vortexDirection.set(center.x - unit.position.x, 0, center.z - unit.position.z);
+  if (vortexDirection.lengthSq() < 0.0001) return;
+  vortexDirection.normalize();
+  // 与击退一致：先衰减旧速度再叠加向内脉冲，避免多 tick 累积致速度失控
+  unit.knockbackVelocity.multiplyScalar(0.6);
+  unit.knockbackVelocity.addScaledVector(vortexDirection, knockbackImpulseSpeed(strength, unit));
+  unit.knockbackVelocity.clampLength(0, maxKnockbackVelocity(unit));
+  game?.pathfinding?.clear?.(unit);
 }

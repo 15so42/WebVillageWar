@@ -62,6 +62,7 @@ import {
   createWaterMageModel,
   createWaterOrbModel,
   createWardSigilModel,
+  createWindMageModel,
   createWizardModel,
   createWolfModel,
   createYellowSandOgreModel
@@ -90,6 +91,7 @@ const UNIT_FACTORIES = {
   crossbowman: ({ team }) => createCrossbowmanModel(team),
   waterMage: ({ team }) => createWaterMageModel(team),
   lightningMage: ({ team }) => createLightningMageModel(team),
+  windMage: ({ team }) => createWindMageModel(team),
   rogue: ({ team }) => createRogueModel(team),
   engineer: ({ team }) => createEngineerModel(team),
   physician: ({ team }) => createPhysicianModel(team),
@@ -564,6 +566,7 @@ function applyAttackPose(unit, root, t, pulse, variant = null) {
     unit.type === 'wizard' ||
     unit.type === 'waterMage' ||
     unit.type === 'lightningMage' ||
+    unit.type === 'windMage' ||
     unit.type === 'frostOracleBoss'
   ) {
     applyCasterAttack(root, t, pulse);

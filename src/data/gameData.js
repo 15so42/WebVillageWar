@@ -318,7 +318,7 @@ export const UNIT_DEFINITIONS = {
     maxHealth: 19,
     maxShield: 9.5,
     speed: 2.55,
-    attackRange: 8.8,
+    attackRange: 11.0,
     attackRate: 1 / 3,
     damage: 16,
     armor: 1,
@@ -449,6 +449,63 @@ export const UNIT_DEFINITIONS = {
       name: '雷鸣法杖',
       maxDurability: 18,
       durabilityCost: 1.6
+    }
+  },
+  windMage: {
+    name: '风法师',
+    role: 'ranged',
+    art: {
+      modelKey: 'unit.windMage',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Walk',
+        attack: 'Wind_Cast',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 1.24,
+          events: {
+            release: 0.56
+          }
+        },
+        hit: {
+          duration: 0.24
+        }
+      }
+    },
+    maxHealth: 16,
+    maxShield: 8,
+    speed: 2.5,
+    attackRange: 8.4,
+    attackRate: 1 / 7,
+    damage: 4,
+    attackDamageType: 'magic',
+    armor: 0,
+    magicResistance: 5,
+    dodgeChance: 0.03,
+    knockback: 0.5,
+    aggroRange: 14.6,
+    // 普通攻击不再发射投射物，而是向前推进一道飓风：
+    // 每 tickInterval 秒对范围内敌人造成一次魔法伤害并吸引，附带命中特效。
+    attackBehavior: {
+      type: 'hurricane',
+      radius: 2.5,
+      advanceSpeed: 1.5,
+      startOffset: 1.2,
+      duration: 6,
+      tickInterval: 0.4,
+      tickDamageMultiplier: 1,
+      pullStrength: 1.6,
+      color: '#bfeaf0',
+      accent: '#eafcff'
+    },
+    weapon: {
+      name: '飓风杖',
+      maxDurability: 16,
+      durabilityCost: 1.4
     }
   },
   rogue: {
@@ -4244,6 +4301,26 @@ export const CARD_DEFINITIONS = [
     color: '#7566c7'
   },
   {
+    id: 'wind-mages',
+    name: '风法师',
+    kind: 'summon',
+    label: '风',
+    artKey: 'windMage',
+    summary: '每 7 秒唤出一道向前缓慢推进的飓风，每 0.4 秒对区域内敌人造成魔法伤害并将其吸引聚拢',
+    target: 'ground',
+    radius: 1.15,
+    cooldown: 9,
+    energyCost: 4,
+    unitType: 'windMage',
+    count: 1,
+    effect: {
+      type: 'spawn-units',
+      unitType: 'windMage',
+      count: 1
+    },
+    color: '#4fbfa8'
+  },
+  {
     id: 'rogues',
     name: '盗贼',
     kind: 'summon',
@@ -4638,7 +4715,7 @@ export const CARD_DEFINITIONS = [
     kind: 'tactic',
     label: '调',
     artKey: 'tacticUpgrade',
-    summary: '限用 3 次。从抽牌堆顶调度 2 张牌，优先填入手牌空位；牌堆不足时从波次奖励池补足，手牌与临时位满时排到抽牌堆顶',
+    summary: '限用 3 次。从抽牌堆顶调度 2 张牌，优先填入手牌空位；牌堆不足时从波次奖励池补足，手牌满时排到抽牌堆顶',
     target: 'none',
     radius: 1,
     cooldown: 0,

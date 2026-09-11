@@ -3999,6 +3999,67 @@ export function createLightningMageModel(team) {
   return enableShadows(group);
 }
 
+export function createWindMageModel(team) {
+  const isPlayer = team === 'player';
+  const group = createPriestModel(team, {
+    bodyStyle: 'onePieceRobe',
+    shoulderOffset: 0.28,
+    mantleWidthScale: 0.86,
+    robeColor: isPlayer ? '#3fae9a' : '#476563',
+    hoodColor: isPlayer ? '#27836f' : '#33514c',
+    trimColor: '#d8f7ef',
+    legColor: isPlayer ? '#246d5e' : '#2a2f32',
+    bootColor: '#5a4030',
+    focusColor: '#a9f2df',
+    focusEmissive: '#39c9a0'
+  });
+  const { projectileSocket, focusGem } = group.userData.parts ?? {};
+  const windBlade = basicMat('#eafcff', {
+    transparent: true,
+    opacity: 0.82,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    fog: false
+  });
+  const tealGlow = basicMat('#8ff0d8', {
+    transparent: true,
+    opacity: 0.72,
+    depthWrite: false,
+    fog: false
+  });
+  if (focusGem) {
+    focusGem.scale.setScalar(isPlayer ? 0.92 : 1.2);
+  }
+  if (projectileSocket) {
+    // 飓风杖：杖顶悬浮风暴核心 + 三叶风刃环，与水法师光环、雷法师叉齿区别开
+    const core = mesh(
+      new THREE.OctahedronGeometry(0.07, 0),
+      tealGlow,
+      new THREE.Vector3(0, 0.13, 0),
+      new THREE.Vector3(1, 1.45, 1)
+    );
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(0.15, 0.011, 4, 18),
+      tealGlow
+    );
+    ring.rotation.y = Math.PI / 2;
+    ring.position.y = 0.13;
+    const bladeGeometry = new THREE.RingGeometry(0.05, 0.17, 10, 1, 0, Math.PI * 0.66);
+    const blades = [];
+    for (let index = 0; index < 3; index += 1) {
+      const blade = new THREE.Mesh(bladeGeometry, windBlade);
+      blade.rotation.y = (index / 3) * Math.PI * 2;
+      blade.rotation.x = -0.52;
+      blade.position.y = 0.13;
+      projectileSocket.add(blade);
+      blades.push(blade);
+    }
+    projectileSocket.add(core, ring);
+    group.userData.parts.windCrest = { core, ring, blades };
+  }
+  return enableShadows(group);
+}
+
 export function createWizardModel() {
   const group = createPriestModel('enemy', {
     blockyStyle: true,
@@ -6949,39 +7010,52 @@ export function createFrostTrollBossModel() {
     new THREE.Vector3(0.9, 0.82, 0.78)
   );
   const brow = mesh(
-    new THREE.BoxGeometry(0.6, 0.15, 0.13),
+    new THREE.BoxGeometry(0.64, 0.14, 0.17),
     skinDark,
-    new THREE.Vector3(0, 2.36, 0.4)
+    new THREE.Vector3(0, 2.38, 0.4)
   );
-  brow.rotation.x = 0.12;
-  const snout = mesh(
-    new THREE.BoxGeometry(0.28, 0.17, 0.2),
+  brow.rotation.x = 0.18;
+  // 怒目眉脊：两段向内下压的骨脊形成凶狠“V”字皱眉，压住眼神、去掉憨态
+  const browRidgeLeft = mesh(
+    new THREE.BoxGeometry(0.28, 0.11, 0.15),
     skinDark,
-    new THREE.Vector3(0, 2.1, 0.48),
-    new THREE.Vector3(0.9, 0.72, 0.9)
+    new THREE.Vector3(-0.18, 2.37, 0.45)
+  );
+  browRidgeLeft.rotation.z = -0.4;
+  browRidgeLeft.rotation.x = 0.12;
+  const browRidgeRight = browRidgeLeft.clone();
+  browRidgeRight.position.x = 0.18;
+  browRidgeRight.rotation.z = 0.4;
+  const snout = mesh(
+    new THREE.BoxGeometry(0.26, 0.13, 0.22),
+    skinDark,
+    new THREE.Vector3(0, 2.12, 0.47),
+    new THREE.Vector3(0.9, 0.66, 0.9)
   );
   const jaw = mesh(
-    new THREE.DodecahedronGeometry(0.32, 0),
+    new THREE.DodecahedronGeometry(0.34, 0),
     skinDark,
-    new THREE.Vector3(0, 1.96, 0.3),
-    new THREE.Vector3(0.95, 0.46, 0.7)
+    new THREE.Vector3(0, 1.94, 0.33),
+    new THREE.Vector3(1.06, 0.5, 0.78)
   );
   const eyeLeft = mesh(
-    new THREE.BoxGeometry(0.08, 0.055, 0.045),
+    new THREE.BoxGeometry(0.12, 0.032, 0.05),
     eye,
-    new THREE.Vector3(-0.15, 2.3, 0.42)
+    new THREE.Vector3(-0.155, 2.3, 0.43)
   );
-  eyeLeft.rotation.z = -0.16;
+  eyeLeft.rotation.z = -0.3;
   const eyeRight = eyeLeft.clone();
-  eyeRight.position.x = 0.15;
-  eyeRight.rotation.z = 0.16;
+  eyeRight.position.x = 0.155;
+  eyeRight.rotation.z = 0.3;
   const eyeCoreLeft = mesh(
-    new THREE.BoxGeometry(0.03, 0.025, 0.018),
+    new THREE.BoxGeometry(0.055, 0.014, 0.02),
     eyeCore,
-    new THREE.Vector3(-0.15, 2.3, 0.45)
+    new THREE.Vector3(-0.155, 2.3, 0.455)
   );
+  eyeCoreLeft.rotation.z = -0.3;
   const eyeCoreRight = eyeCoreLeft.clone();
-  eyeCoreRight.position.x = 0.15;
+  eyeCoreRight.position.x = 0.155;
+  eyeCoreRight.rotation.z = 0.3;
   const earLeft = mesh(
     new THREE.ConeGeometry(0.09, 0.4, 4),
     skinDark,
@@ -7004,15 +7078,29 @@ export function createFrostTrollBossModel() {
   earInnerRight.position.x = 0.35;
   earInnerRight.rotation.z = 0.48;
   const tuskLeft = mesh(
-    new THREE.ConeGeometry(0.065, 0.4, 5),
+    new THREE.ConeGeometry(0.07, 0.62, 5),
     bone,
-    new THREE.Vector3(-0.22, 1.86, 0.44)
+    new THREE.Vector3(-0.24, 1.9, 0.42)
   );
-  tuskLeft.rotation.x = Math.PI / 2;
-  tuskLeft.rotation.z = -0.12;
+  // 獠牙上翘外撇：从下颌向上向前挑出，凶相毕露（不再是短钝的小齿）
+  tuskLeft.rotation.x = Math.PI / 2 - 0.66;
+  tuskLeft.rotation.z = -0.26;
   const tuskRight = tuskLeft.clone();
-  tuskRight.position.x = 0.22;
-  tuskRight.rotation.z = 0.12;
+  tuskRight.position.x = 0.24;
+  tuskRight.rotation.z = 0.26;
+
+  // 头部冰冠：数根向后上挑的冰晶，强化“冰霜巨魔”Boss 的威慑与属性识别，替代憨厚轮廓
+  const crownGeometry = new THREE.ConeGeometry(0.075, 0.46, 4);
+  const headIceCrown = [
+    [0, 2.6, -0.06, -0.2, 0],
+    [-0.24, 2.52, -0.04, -0.34, 0.5],
+    [0.24, 2.52, -0.04, -0.34, -0.5]
+  ].map(([x, y, z, rx, rz]) => {
+    const shard = new THREE.Mesh(crownGeometry, frostIce);
+    shard.position.set(x, y, z);
+    shard.rotation.set(rx, 0, rz);
+    return shard;
+  });
 
   const necklace = mesh(
     new THREE.TorusGeometry(0.34, 0.028, 5, 12, Math.PI * 1.12),
@@ -7202,6 +7290,8 @@ export function createFrostTrollBossModel() {
     neck,
     head,
     brow,
+    browRidgeLeft,
+    browRidgeRight,
     snout,
     jaw,
     eyeLeft,
@@ -7214,6 +7304,7 @@ export function createFrostTrollBossModel() {
     earInnerRight,
     tuskLeft,
     tuskRight,
+    ...headIceCrown,
     necklace,
     skullCharm,
     skullEyeLeft,
@@ -9882,21 +9973,22 @@ export function createGuardFlag(color = '#62d56f') {
 
 export function createAttackRangeRing(color = '#62d56f') {
   const group = new THREE.Group();
+  // 驻守环：很细的主线 + 紧贴内侧的微弱软晕，避免粗环喧宾夺主
   const glow = new THREE.Mesh(
-    new THREE.RingGeometry(0.96, 1, 80),
+    new THREE.RingGeometry(0.986, 1, 128),
     basicMat(color, {
       transparent: true,
-      opacity: 0.2,
+      opacity: 0.12,
       side: THREE.DoubleSide,
       depthTest: true,
       depthWrite: false
     }).clone()
   );
   const ring = new THREE.Mesh(
-    new THREE.RingGeometry(0.985, 1, 80),
+    new THREE.RingGeometry(0.9955, 1, 128),
     basicMat(color, {
       transparent: true,
-      opacity: 0.74,
+      opacity: 0.72,
       side: THREE.DoubleSide,
       depthTest: true,
       depthWrite: false
@@ -9917,10 +10009,24 @@ export function createAttackRangeRing(color = '#62d56f') {
 export function createAttackRangeDashedRing(color = '#62d56f', options = {}) {
   const group = new THREE.Group();
   const opacity = Number.isFinite(options.opacity) ? options.opacity : 0.8;
+  const fillOpacity = Number.isFinite(options.fillOpacity) ? options.fillOpacity : 0.07;
   const dashCount = Math.max(8, Math.floor(options.dashCount ?? 24));
   const dashArcLength = Number.isFinite(options.dashArcLength)
     ? options.dashArcLength
     : (Math.PI * 2) / dashCount * 0.52;
+  // 高透明度的圆形填充：淡淡铺出建筑作用范围的地面区域，不喧宾夺主
+  const fillMaterial = basicMat(color, {
+    transparent: true,
+    opacity: fillOpacity,
+    side: THREE.DoubleSide,
+    depthTest: true,
+    depthWrite: false
+  }).clone();
+  const fill = new THREE.Mesh(new THREE.CircleGeometry(1, 64), fillMaterial);
+  fill.rotation.x = -Math.PI / 2;
+  fill.renderOrder = 0;
+  group.add(fill);
+  // 很细的虚线：收窄环带厚度，只作为范围边界的清晰标识
   const material = basicMat(color, {
     transparent: true,
     opacity,
@@ -9929,7 +10035,7 @@ export function createAttackRangeDashedRing(color = '#62d56f', options = {}) {
     depthWrite: false
   }).clone();
   const arcGeometry = new THREE.RingGeometry(
-    0.965,
+    0.991,
     1,
     10,
     1,
@@ -9942,13 +10048,14 @@ export function createAttackRangeDashedRing(color = '#62d56f', options = {}) {
     holder.rotation.y = (index / dashCount) * Math.PI * 2;
     const arc = new THREE.Mesh(arcGeometry, material);
     arc.rotation.x = -Math.PI / 2;
-    arc.renderOrder = 0;
+    arc.renderOrder = 1;
     holder.add(arc);
     arcs.push(arc);
     group.add(holder);
   }
   group.visible = false;
-  group.userData.colorMeshes = arcs;
+  group.userData.colorMeshes = [fill, ...arcs];
+  group.userData.fill = fill;
   group.userData.dashCount = dashCount;
   group.userData.isAttackRangeDashedRing = true;
   return group;
