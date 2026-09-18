@@ -14,7 +14,7 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 const L1_TUNING = {
   toneMapping: 'aces', exposure: 1.04,
   brightness: 1.05, contrast: 1.18, saturation: 1.02, hue: 0, warmth: 0,
-  sunColor: '#ffcf9e', sunIntensity: 2.47, sunX: -22, sunY: 42, sunZ: 88, shadowIntensity: 1,
+  sunColor: '#ffcf9e', sunIntensity: 3.5, sunX: -22, sunY: 42, sunZ: 88, shadowIntensity: 1,
   hemiSky: '#b7c9e8', hemiGround: '#3b4a68', hemiIntensity: 0.78,
   ambientColor: '#a9b2c6', ambientIntensity: 0.6,
   background: '#c8cddc', fogColor: '#c8cddc', fogNear: 48, fogFar: 215,

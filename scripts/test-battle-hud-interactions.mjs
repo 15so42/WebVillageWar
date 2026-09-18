@@ -100,8 +100,8 @@ assert.doesNotMatch(
 );
 assert.match(
   cardSystemSource,
-  /\['hand',\s*'temporary'\]\.includes\(element\.dataset\.cardLocation\)/,
-  'hand and temporary cards should share compact mobile text fitting'
+  /element\.dataset\.cardLocation\s*===\s*['"]hand['"]/,
+  'hand cards should drive compact mobile text fitting'
 );
 const levelMarkup = createForgedCardMarkup({
   id: 'roman-level-test',
@@ -143,8 +143,8 @@ assert.match(
 );
 assert.match(
   battleHudStyles,
-  /:is\(\.card-hand,\s*\.temporary-card-slot,\s*\.wave-reward-card-frame\) \.med-card-face/,
-  'hand, temporary and reward cards should share the exact forged face rules'
+  /:is\(\.card-hand,\s*\.wave-reward-card-frame\) \.med-card-face/,
+  'hand and reward cards should share the exact forged face rules'
 );
 const trainingMarkup = createForgedCardMarkup({
   id: 'training-type-label',
@@ -159,7 +159,7 @@ const trainingMarkup = createForgedCardMarkup({
 assert.match(trainingMarkup, /<div class="med-card-type-label" aria-hidden="true">训练卡<\/div>/);
 assert.match(
   battleHudStyles,
-  /:is\(\.card-hand,\s*\.temporary-card-slot,\s*\.wave-reward-card-frame\) \.med-card-meta-row\.is-title-only\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);/s
+  /:is\(\.card-hand,\s*\.wave-reward-card-frame\) \.med-card-meta-row\.is-title-only\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);/s
 );
 assert.doesNotMatch(gameSource, /wave-command-affixes/, '战斗顶部不应显示波次主题或附魔信息');
 assert.doesNotMatch(gameSource, /function waveCommandAffixMarkup/, '顶部附魔令牌生成逻辑应移除');

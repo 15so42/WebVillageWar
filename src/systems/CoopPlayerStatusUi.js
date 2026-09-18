@@ -88,7 +88,6 @@ export class CoopPlayerStatusUi {
           handCount: cards.handCards?.length ?? 0,
           drawCount: cards.drawPile?.length ?? 0,
           discardCount: cards.discardPile?.length ?? 0,
-          tempCount: cards.temporaryCards?.length ?? 0,
           connected: true,
           strategyPending: Boolean(game.strategyEvent || run?.strategyEvent)
             ? 1
@@ -106,7 +105,6 @@ export class CoopPlayerStatusUi {
         handCount: localDetail?.handCount ?? publicRow.handCount ?? 0,
         drawCount: localDetail?.drawCount ?? publicRow.drawCount ?? 0,
         discardCount: localDetail?.discardCount ?? publicRow.discardCount ?? 0,
-        tempCount: localDetail?.tempCount ?? publicRow.tempCount ?? 0,
         connected: localDetail?.connected ?? publicRow.connected !== false,
         strategyPending: localDetail?.strategyPending ?? (publicRow.strategyPending ? 1 : 0)
       };
@@ -147,7 +145,6 @@ export class CoopPlayerStatusUi {
           <div><dt>手牌</dt><dd>${row.handCount}</dd></div>
           <div><dt>抽牌堆</dt><dd>${row.drawCount}</dd></div>
           <div><dt>弃牌堆</dt><dd>${row.discardCount}</dd></div>
-          <div><dt>临时牌</dt><dd>${row.tempCount}</dd></div>
           <div><dt>待选奖励</dt><dd>${row.strategyPending}</dd></div>
           <div><dt>连接</dt><dd>${row.connected ? '在线' : '断线'}</dd></div>
         </dl>

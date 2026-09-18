@@ -216,8 +216,6 @@ export class HostAuthority {
         return this.applyIssueMove(playerId, payload);
       case COMMAND.ISSUE_STOP:
         return this.withCommandUnits(playerId, payload.unitIds, () => this.game.stopSelectedUnits());
-      case COMMAND.ISSUE_GUARD:
-        return this.withCommandUnits(playerId, payload.unitIds, () => this.game.guardSelectedUnits());
       case COMMAND.SELECTION_SET:
         return this.applySelectionSet(playerId, payload);
       case COMMAND.PLAY_CARD:

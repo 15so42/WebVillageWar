@@ -895,9 +895,199 @@ body.is-game-active .card-hand {
   perspective: 900px;
 }
 
-body.is-game-active .card-hand > .card,
-body.is-game-active .card-hand > .card-empty-slot {
+body.is-game-active .card-hand > .card {
   z-index: 1;
+}
+
+/* ============================================================
+   FAN HAND — 类杀戮尖塔的扇形手牌
+   手牌容器收缩为视口底部中线的一个零宽锚点；每张卡牌绝对定位
+   在锚点上，由 layoutHandFan 下发 --fan-tx / --fan-rotate / --fan-ty，
+   绕底部中点旋转、沿弧线左右错位。hover 抬升摆正，拖拽沿用
+   --card-drag-* 变量；抽牌入场用扇形感知关键帧，避免脱离弧形。
+   ============================================================ */
+/* 扇形手牌仅用于桌面（精确指针 + 可 hover）。触屏 / 竖屏移动端沿用下方
+   既有的 flex + 缩放布局：绝对定位的扇形会与移动端 flex:1、pointer:coarse
+   缩放和手势规则冲突，故用媒体查询把扇形隔离在桌面。 */
+@media (hover: hover) and (pointer: fine) {
+body.is-game-active .card-hand {
+  left: 50% !important;
+  right: auto !important;
+  bottom: 26px !important;
+  width: 0 !important;
+  max-width: none !important;
+  height: 0 !important;
+  display: block !important;
+  gap: 0 !important;
+  justify-content: flex-start !important;
+  overflow: visible !important;
+  transform: none !important;
+  pointer-events: none !important;
+}
+
+body.is-game-active .card-hand > .card {
+  position: absolute !important;
+  left: 0 !important;
+  bottom: 0 !important;
+  margin: 0 !important;
+  flex: none !important;
+  transform-origin: 50% 100% !important;
+  transform:
+    translateX(-50%)
+    translateX(var(--fan-tx, 0px))
+    translateY(var(--fan-ty, 0px))
+    rotate(var(--fan-rotate, 0deg));
+  transition:
+    transform 200ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    box-shadow 140ms ease,
+    filter 140ms ease;
+}
+
+/* hover 查看：以底部中心为锚（transform-origin: 50% 100%）原地抬升并放大，
+   保留扇形倾角 fan-rotate；若在此摆正（rotate 0）会让倾斜的牌绕底部支点
+   横向甩动（看起来像向右/左移），故不摆正，只沿弧线原地上提。 */
+body.is-game-active .card-hand > .card:hover {
+  transform:
+    translateX(-50%)
+    translateX(var(--fan-tx, 0px))
+    translateY(calc(var(--fan-ty, 0px) - 46px))
+    rotate(var(--fan-rotate, 0deg))
+    scale(1.1) !important;
+  z-index: 90 !important;
+}
+
+/* 拖拽时源牌会 setPointerCapture，整个拖拽过程始终保持 :hover，因此会命中下方
+   通用旧规则 body.is-game-active .card.is-dragging:hover（特异度同为 0,4,1、源码
+   更靠后而获胜）；该旧规则不含 translateX(-50%)，会让牌左沿贴到视口中心、整体
+   右移半个卡宽（表现为“单张牌上拖不跟随、反而向右跑”）。这里补 :hover 变体把
+   特异度提到 (0,5,1) 压过旧规则；因在桌面扇形媒体查询内，不影响移动端 flex 手牌。 */
+body.is-game-active .card-hand > .card.is-dragging,
+body.is-game-active .card-hand > .card.is-dragging:hover {
+  transform:
+    translateX(-50%)
+    translateX(var(--fan-tx, 0px))
+    translateY(calc(var(--fan-ty, 0px) + var(--card-drag-y, 0px)))
+    rotate(calc(var(--fan-rotate, 0deg) + var(--card-drag-rotate, 0deg))) !important;
+  z-index: 95 !important;
+  transition: box-shadow 100ms ease, filter 100ms ease !important;
+}
+
+body.is-game-active .card-hand > .card.is-dragging.is-discard-ready {
+  transform:
+    translateX(-50%)
+    translateX(var(--fan-tx, 0px))
+    translateY(calc(var(--fan-ty, 0px) + var(--card-drag-y, 0px)))
+    rotate(calc(var(--fan-rotate, 0deg) + var(--card-drag-rotate, 0deg)))
+    scale(1.035) !important;
+}
+
+body.is-game-active .card-hand > .card.is-drawn {
+  animation: card-fan-draw-in 640ms cubic-bezier(0.18, 0.9, 0.2, 1);
+}
+
+@keyframes card-fan-draw-in {
+  0% {
+    opacity: 0;
+    transform:
+      translateX(-50%)
+      translateX(var(--fan-tx, 0px))
+      translateY(calc(var(--fan-ty, 0px) + 88px))
+      rotate(var(--fan-rotate, 0deg))
+      scale(0.86);
+    filter: brightness(1.22);
+  }
+
+  58% {
+    opacity: 1;
+    transform:
+      translateX(-50%)
+      translateX(var(--fan-tx, 0px))
+      translateY(calc(var(--fan-ty, 0px) - 12px))
+      rotate(var(--fan-rotate, 0deg))
+      scale(1.04);
+    filter: brightness(1.08);
+  }
+
+  100% {
+    opacity: 1;
+    transform:
+      translateX(-50%)
+      translateX(var(--fan-tx, 0px))
+      translateY(var(--fan-ty, 0px))
+      rotate(var(--fan-rotate, 0deg))
+      scale(1);
+    filter: brightness(1);
+  }
+}
+}
+
+/* ============================================================
+   RESOURCE SHELF — 能量 / 银币分散到手牌上方左右两端
+   原居中的资源横条拆成一个透明整宽容器：resource-list 用
+   space-between 把“能量”推到左端、“银币”推到右端，各自保留
+   图标 + 数字的独立小牌（隐藏文字标签），中间区域留空给战场视野与
+   手牌。能力图标 toolbar 绝对定位到手牌正上方居中，避免压住扇形手牌。
+   仅在桌面（精确指针）生效，移动端沿用既有布局。避开底部左右角的
+   抽牌/弃牌堆按钮与左下指令坞。
+   ============================================================ */
+@media (hover: hover) and (pointer: fine) {
+  body.is-game-active .energy-panel.resource-panel {
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 210px !important;
+    width: auto !important;
+    max-width: none !important;
+    min-height: 0 !important;
+    padding: 0 18px !important;
+    display: block !important;
+    border: 0 !important;
+    clip-path: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    transform: none !important;
+    pointer-events: none !important;
+  }
+
+  body.is-game-active .energy-panel.resource-panel::before,
+  body.is-game-active .energy-panel.resource-panel::after {
+    display: none !important;
+  }
+
+  body.is-game-active .energy-panel.resource-panel .resource-list {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    width: 100% !important;
+    gap: 0 !important;
+  }
+
+  body.is-game-active .energy-panel.resource-panel .resource-item {
+    grid-template-columns: auto max-content !important;
+    gap: 8px !important;
+    padding: 5px 11px !important;
+    pointer-events: auto !important;
+  }
+
+  body.is-game-active .energy-panel.resource-panel .resource-label {
+    display: none !important;
+  }
+
+  body.is-game-active .energy-panel.resource-panel .resource-value {
+    min-width: 0 !important;
+    font-size: 20px !important;
+  }
+
+  body.is-game-active .energy-panel.resource-panel .energy-panel-toolbar {
+    position: absolute !important;
+    left: 50% !important;
+    bottom: 100% !important;
+    transform: translateX(-50%) !important;
+    margin: 0 0 8px !important;
+    padding-top: 0 !important;
+    border-top: 0 !important;
+    pointer-events: auto !important;
+  }
 }
 
 body.is-game-active .card {
@@ -1277,42 +1467,6 @@ body.is-game-active .card[aria-disabled="true"] .med-card-cost {
   filter: saturate(0.48) brightness(0.82);
 }
 
-body.is-game-active .card-empty-slot {
-  position: relative;
-  overflow: hidden;
-  border: 1px solid #63635e !important;
-  border-radius: 0 !important;
-  clip-path: polygon(9px 0, calc(100% - 9px) 0, 100% 9px, 100% calc(100% - 9px), calc(100% - 9px) 100%, 9px 100%, 0 calc(100% - 9px), 0 9px);
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.045), transparent 42%),
-    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.015) 0 10px, transparent 10px 20px),
-    linear-gradient(180deg, rgba(53, 56, 54, 0.88), rgba(31, 34, 33, 0.92)) !important;
-  box-shadow:
-    inset 0 0 0 2px #1b1e1d,
-    inset 0 0 0 5px rgba(166, 160, 149, 0.08),
-    inset 0 -8px 0 rgba(7, 9, 8, 0.14),
-    0 4px 0 #171919,
-    0 10px 15px rgba(0, 0, 0, 0.36) !important;
-}
-
-body.is-game-active .card-empty-slot::before {
-  width: 45px !important;
-  height: 53px !important;
-  background: rgba(183, 178, 166, 0.5) !important;
-  filter: drop-shadow(0 2px 1px rgba(0, 0, 0, 0.48));
-}
-
-body.is-game-active .card-empty-slot::after {
-  inset: 7px !important;
-  border: 1px solid rgba(187, 181, 169, 0.1) !important;
-  border-radius: 0 !important;
-  clip-path: polygon(5px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 5px), calc(100% - 5px) 100%, 5px 100%, 0 calc(100% - 5px), 0 5px);
-}
-
-body.is-game-active .card.is-temporary-card .med-card-bg {
-  border-color: color-mix(in srgb, var(--card-color) 58%, #b6a477) !important;
-}
-
 body.is-game-active .game-command-dock button,
 body.is-game-active .mobile-action-dock button,
 body.is-game-active .pile-button,
@@ -1484,11 +1638,6 @@ body.is-game-active .pc-medieval-hud .run-shop-toggle {
 
   body.is-game-active .med-card-wrapper::before {
     inset: 4px 2px -4px;
-  }
-
-  body.is-game-active .card-empty-slot::before {
-    width: 34px !important;
-    height: 41px !important;
   }
 }
 
@@ -3163,9 +3312,7 @@ body.is-game-active .strategy-event-action:disabled {
     transform-origin: bottom center !important;
   }
 
-  body.is-game-active .card-hand > .card,
-  body.is-game-active .card-hand > .card-empty-slot,
-  body.is-game-active .card-hand > .temporary-card-empty-slot {
+  body.is-game-active .card-hand > .card {
     flex: 1 1 0 !important;
     width: auto !important;
     min-width: 0 !important;
@@ -3443,9 +3590,7 @@ body.is-game-active .strategy-event-action:disabled {
     transform-origin: bottom center !important;
   }
 
-  body.is-game-active .card-hand > .card,
-  body.is-game-active .card-hand > .card-empty-slot,
-  body.is-game-active .card-hand > .temporary-card-empty-slot {
+  body.is-game-active .card-hand > .card {
     height: auto !important;
     aspect-ratio: 116 / 179;
   }
@@ -3454,13 +3599,6 @@ body.is-game-active .strategy-event-action:disabled {
     z-index: 6 !important;
     bottom: calc(12px + var(--mobile-energy-raise) + env(safe-area-inset-bottom) + var(--mobile-hand-visual-height)) !important;
     width: min(330px, calc(100vw - 28px)) !important;
-    transform: translateX(-50%) scale(var(--mobile-ui-scale)) !important;
-    transform-origin: bottom center !important;
-  }
-
-  body.is-game-active .temporary-card-slot {
-    z-index: 7 !important;
-    bottom: calc(18px + var(--mobile-energy-raise) + env(safe-area-inset-bottom) + var(--mobile-hand-visual-height) + var(--mobile-energy-panel-height)) !important;
     transform: translateX(-50%) scale(var(--mobile-ui-scale)) !important;
     transform-origin: bottom center !important;
   }
@@ -3618,8 +3756,7 @@ body.is-game-active .strategy-event-action:disabled {
   /* The card gesture owns touch input; otherwise mobile browsers promote an
      upward play gesture into page panning and fire pointercancel. */
   body.is-game-active .card-hand,
-  body.is-game-active .card-hand > .card,
-  body.is-game-active .temporary-card-slot .card {
+  body.is-game-active .card-hand > .card {
     touch-action: none !important;
     user-select: none;
     -webkit-user-select: none;
@@ -3997,26 +4134,18 @@ body.is-game-active .run-shop-choice-card.is-compact-shop-picker .run-shop-choic
   }
 }
 
-@media (min-width: 901px) {
-  /* The energy toolbar can add a second row. Keep temporary cards clear of
-     both the compact and expanded panel instead of letting the lower edges overlap. */
-  body.is-game-active .temporary-card-slot {
-    bottom: 330px !important;
-  }
-}
-
 /* Approved forged card treatment: live-hand cards and wave rewards share the
    exact extracted frame, cost housing, metadata row, and in-art use bar. */
-body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-wrapper {
+body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-wrapper {
   filter: drop-shadow(0 8px 6px rgba(5, 8, 7, 0.5));
 }
 
-body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-wrapper::before,
-body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-wrapper::after {
+body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-wrapper::before,
+body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-wrapper::after {
   display: none;
 }
 
-body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-bg {
+body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-bg {
   border: 0 !important;
   border-radius: 0 !important;
   clip-path: none !important;
@@ -4025,7 +4154,7 @@ body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-fram
   filter: brightness(0.82) saturate(0.7) sepia(0.08) hue-rotate(72deg);
 }
 
-body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-face {
+body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-face {
   display: grid !important;
   grid-template-rows: minmax(0, 1fr) 30px 51px;
   gap: 0;
@@ -4035,7 +4164,7 @@ body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-fram
   padding: 19px 17px 31px !important;
 }
 
-body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-wrapper > .med-card-face > .med-card-art-container {
+body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-wrapper > .med-card-face > .med-card-art-container {
   position: relative !important;
   flex: none !important;
   align-self: stretch;
@@ -4051,8 +4180,8 @@ body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-fram
   box-shadow: none !important;
 }
 
-body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-art-container .card-art-image,
-body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-art-container .card-art-svg {
+body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-art-container .card-art-image,
+body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-art-container .card-art-svg {
   transform: scale(1.18) !important;
   transform-origin: center;
   filter: saturate(0.94) contrast(1.04) brightness(0.98) drop-shadow(0 4px 2px rgba(7, 11, 9, 0.38)) !important;
@@ -4085,7 +4214,7 @@ body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-fram
   pointer-events: none;
 }
 
-body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-wrapper > .med-card-face > .med-card-bottom {
+body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-wrapper > .med-card-face > .med-card-bottom {
   min-height: 0;
   height: auto !important;
   margin: 0 !important;
@@ -4100,7 +4229,7 @@ body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-fram
   box-shadow: none;
 }
 
-body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row {
+body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row {
   min-width: 0;
   min-height: 0;
   display: grid;
@@ -4117,8 +4246,8 @@ body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-fram
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
 }
 
-body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row .med-card-kind,
-body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row .med-card-level {
+body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row .med-card-kind,
+body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row .med-card-level {
   position: static !important;
   inset: auto !important;
   min-width: 0 !important;
@@ -4137,11 +4266,11 @@ body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-fram
   filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.72));
 }
 
-body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row .med-card-kind {
+body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row .med-card-kind {
   justify-self: start;
 }
 
-body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row .med-card-level {
+body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row .med-card-level {
   justify-self: end;
   color: #d0d1cb;
   font-family: var(--font-title);
@@ -4153,7 +4282,7 @@ body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-fram
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.86);
 }
 
-body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-type-icon {
+body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-type-icon {
   width: 18px;
   height: 18px;
   overflow: visible;
@@ -4164,7 +4293,7 @@ body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-fram
   stroke-linejoin: round;
 }
 
-body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-level-icon {
+body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-level-icon {
   position: relative;
   width: 20px;
   height: 20px;
@@ -4172,7 +4301,7 @@ body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-fram
   place-items: center;
 }
 
-body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-level-icon > svg {
+body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-level-icon > svg {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -4185,7 +4314,7 @@ body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-fram
   stroke-linejoin: round;
 }
 
-body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-level-icon > span {
+body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-level-icon > span {
   position: relative;
   z-index: 1;
   padding-top: 1px;
@@ -4197,7 +4326,7 @@ body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-fram
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.86);
 }
 
-body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-level-roman {
+body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-level-roman {
   display: none;
 }
 
@@ -4216,7 +4345,7 @@ body.is-game-active .run-shop-panel .med-card-level-roman {
   display: inline !important;
 }
 
-body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row .med-card-name {
+body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row .med-card-name {
   min-width: 0;
   width: 100%;
   max-width: 100%;
@@ -4232,19 +4361,19 @@ body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-fram
   white-space: nowrap;
 }
 
-body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row.is-title-only {
+body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row.is-title-only {
   grid-template-columns: minmax(0, 1fr);
   padding-inline: 6px;
 }
 
-body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row.is-title-only .med-card-name {
+body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row.is-title-only .med-card-name {
   width: 100%;
   max-width: 100%;
   overflow: hidden;
   text-overflow: clip;
 }
 
-body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-desc {
+body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-desc {
   width: 100%;
   color: #aaafa9 !important;
   font-size: 8px;
@@ -4252,7 +4381,7 @@ body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-fram
   text-align: center;
 }
 
-body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-cost {
+body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-cost {
   z-index: 6;
   top: 1.476% !important;
   right: auto !important;
@@ -4271,7 +4400,7 @@ body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-fram
   filter: none;
 }
 
-body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-cost::before {
+body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-cost::before {
   content: "";
   position: absolute;
   z-index: 0;
@@ -4283,7 +4412,7 @@ body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-fram
   filter: brightness(0.82) saturate(0.7) sepia(0.08) hue-rotate(72deg);
 }
 
-body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-cost span {
+body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-cost span {
   position: absolute !important;
   z-index: 1;
   inset: 0 !important;
@@ -4300,7 +4429,7 @@ body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-fram
   transform: translate(0.5px, 1px);
 }
 
-body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-art-container > .card-use-bar {
+body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-art-container > .card-use-bar {
   top: auto !important;
   right: 5px !important;
   bottom: 4px !important;
@@ -4317,13 +4446,13 @@ body.is-game-active .card-hand .card.is-hand-card-target .med-card-bg {
 }
 
 @media (max-width: 900px) {
-  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-face {
+  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-face {
     grid-template-rows: minmax(0, 1fr) 25px 39px;
     gap: 0;
     padding: 15px 12px 24px !important;
   }
 
-  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-cost span {
+  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-cost span {
     font-size: 13px !important;
   }
 
@@ -4335,42 +4464,42 @@ body.is-game-active .card-hand .card.is-hand-card-target .med-card-bg {
     font-size: 7px;
   }
 
-  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-wrapper > .med-card-face > .med-card-bottom {
+  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-wrapper > .med-card-face > .med-card-bottom {
     padding: 4px 1px 1px !important;
   }
 
-  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row {
+  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row {
     grid-template-columns: minmax(0, 1fr);
     gap: 2px;
     padding-inline: 3px;
   }
 
-  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row .med-card-kind,
-  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row .med-card-level,
-  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-level-icon {
+  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row .med-card-kind,
+  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row .med-card-level,
+  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-level-icon {
     width: 17px !important;
     height: 17px !important;
   }
 
-  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-type-icon {
+  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-type-icon {
     width: 16px;
     height: 16px;
   }
 
-  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-level-icon > span {
+  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-level-icon > span {
     font-size: 7px;
   }
 
-  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row .med-card-name {
+  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row .med-card-name {
     font-size: 8px;
   }
 
-  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-desc {
+  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-desc {
     font-size: 7px;
     line-height: 1.16;
   }
 
-  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-art-container > .card-use-bar {
+  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-art-container > .card-use-bar {
     right: 4px !important;
     bottom: 3px !important;
     left: 4px !important;
@@ -4381,22 +4510,22 @@ body.is-game-active .card-hand .card.is-hand-card-target .med-card-bg {
 /* Every compact forged card reserves the complete title row for one continuous
    "card name + Roman level" label. */
 @media (max-width: 900px) {
-  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row {
+  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row {
     grid-template-columns: minmax(0, 1fr) !important;
   }
 
-  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row .med-card-level {
+  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row .med-card-level {
     width: auto !important;
     min-width: 12px !important;
     height: 17px !important;
     padding-inline: 1px !important;
   }
 
-  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-level-icon {
+  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-level-icon {
     display: none !important;
   }
 
-  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-level-roman {
+  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-level-roman {
     display: block;
     color: #eee7da;
     font-family: var(--font-title);
@@ -4410,26 +4539,26 @@ body.is-game-active .card-hand .card.is-hand-card-target .med-card-bg {
 }
 
 @media (max-width: 700px) and (orientation: portrait) {
-  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-face {
+  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-face {
     grid-template-rows: minmax(0, 1fr) 22px 30px;
     gap: 0;
     padding: 12px 9px 20px !important;
   }
 
-  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row {
+  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row {
     grid-template-columns: minmax(0, 1fr);
     gap: 1px;
     padding-inline: 2px;
   }
 
-  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row .med-card-kind,
-  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row .med-card-level,
-  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-level-icon {
+  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row .med-card-kind,
+  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row .med-card-level,
+  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-level-icon {
     width: 15px !important;
     height: 15px !important;
   }
 
-  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-type-icon {
+  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-type-icon {
     width: 14px;
     height: 14px;
   }
@@ -4442,15 +4571,15 @@ body.is-game-active .card-hand .card.is-hand-card-target .med-card-bg {
     font-size: 6px;
   }
 
-  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-level-icon > span {
+  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-level-icon > span {
     font-size: 6px;
   }
 
-  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-meta-row .med-card-name {
+  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-meta-row .med-card-name {
     font-size: 7px !important;
   }
 
-  body.is-game-active :is(.card-hand, .temporary-card-slot, .wave-reward-card-frame) .med-card-desc {
+  body.is-game-active :is(.card-hand, .wave-reward-card-frame) .med-card-desc {
     font-size: 6px !important;
     line-height: 1.1 !important;
   }

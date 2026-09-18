@@ -216,35 +216,40 @@ const dispatchedDrawCards = [
 ];
 const [firstDispatchedCard, secondDispatchedCard, remainingDrawCard] = dispatchedDrawCards;
 const dispatchDrawSystem = {
-  temporaryCards: [],
   drawPile: dispatchedDrawCards,
   drawCard() {
     return this.drawPile.shift() ?? null;
   },
   pendingDrawAnimations: new Set(),
-  renderTemporaryCards() {},
   updatePileUi() {}
 };
+// 手牌无空位时，调度出的牌回到抽牌堆顶（临时牌位已移除）
 assert.equal(CardSystem.prototype.drawTemporaryCards.call(dispatchDrawSystem, 2), 2);
-assert.deepEqual(dispatchDrawSystem.temporaryCards, [firstDispatchedCard, secondDispatchedCard]);
-assert.deepEqual(dispatchDrawSystem.drawPile, [remainingDrawCard]);
+assert.deepEqual(dispatchDrawSystem.drawPile, [
+  firstDispatchedCard,
+  secondDispatchedCard,
+  remainingDrawCard
+]);
 
 const occupiedHandCards = [
   { id: 'occupied-left' },
   null,
   { id: 'occupied-middle' },
   { id: 'occupied-right' },
-  { id: 'occupied-far-right' }
+  { id: 'occupied-far-right' },
+  { id: 'occupied-6' },
+  { id: 'occupied-7' },
+  { id: 'occupied-8' },
+  { id: 'occupied-9' },
+  { id: 'occupied-10' }
 ];
 const handFirstDrawCards = [
   { id: 'hand-first-card', kind: 'summon' },
   { id: 'temporary-second-card', kind: 'spell' }
 ];
 let handFirstRenderCount = 0;
-let handFirstTemporaryRenderCount = 0;
 const handFirstDispatchSystem = {
   handCards: [...occupiedHandCards],
-  temporaryCards: [],
   drawPile: [...handFirstDrawCards],
   pendingDrawAnimations: new Set(),
   findEmptyHandSlotIndex: CardSystem.prototype.findEmptyHandSlotIndex,
@@ -255,9 +260,6 @@ const handFirstDispatchSystem = {
     handFirstRenderCount += 1;
     this.pendingDrawAnimations.clear();
   },
-  renderTemporaryCards() {
-    handFirstTemporaryRenderCount += 1;
-  },
   updatePileUi() {}
 };
 assert.equal(
@@ -267,13 +269,12 @@ assert.equal(
   2
 );
 assert.equal(handFirstDispatchSystem.handCards[1], handFirstDrawCards[0]);
-assert.deepEqual(handFirstDispatchSystem.temporaryCards, [handFirstDrawCards[1]]);
+// 第二张无空位，回到抽牌堆顶
+assert.deepEqual(handFirstDispatchSystem.drawPile, [handFirstDrawCards[1]]);
 assert.equal(handFirstRenderCount, 1);
-assert.equal(handFirstTemporaryRenderCount, 1);
 
 const poolHandFirstSystem = {
   handCards: [...occupiedHandCards],
-  temporaryCards: [],
   drawPile: [],
   pendingDrawAnimations: new Set(),
   playerSlot: 'p1',
@@ -283,7 +284,6 @@ const poolHandFirstSystem = {
   renderHand() {
     this.pendingDrawAnimations.clear();
   },
-  renderTemporaryCards() {},
   updatePileUi() {}
 };
 assert.equal(
@@ -299,25 +299,32 @@ assert.equal(
   2
 );
 assert.ok(poolHandFirstSystem.handCards[1]);
-assert.equal(poolHandFirstSystem.temporaryCards.length, 1);
-assert.notEqual(poolHandFirstSystem.handCards[1], poolHandFirstSystem.temporaryCards[0]);
+// 第一张进手牌空位，第二张无空位回到抽牌堆顶
+assert.equal(poolHandFirstSystem.drawPile.length, 1);
+assert.notEqual(poolHandFirstSystem.handCards[1], poolHandFirstSystem.drawPile[0]);
 
+// 弃牌改为“拖到右上角丢弃区”判定：指针落在 discardZoneRect 内即为弃牌意图，
+// 取代旧的“下拖过阈值且仍在源牌水平范围内”。
+const discardZoneRect = { left: 1000, right: 1180, top: 56, bottom: 140 };
 const discardDrag = {
   startY: 100,
-  discardThreshold: 50,
+  startX: 250,
   sourceLeft: 200,
-  sourceRight: 300
+  sourceRight: 300,
+  sourceHeight: 200,
+  playThreshold: 100,
+  discardZoneRect
 };
-assert.equal(isCardDiscardDragIntent(discardDrag, { clientX: 250, clientY: 150 }), true);
-assert.equal(isCardDiscardDragIntent(discardDrag, { clientX: 199, clientY: 190 }), false);
-assert.equal(isCardDiscardDragIntent(discardDrag, { clientX: 301, clientY: 190 }), false);
-assert.equal(isCardDiscardDragIntent(discardDrag, { clientX: 250, clientY: 149 }), false);
+assert.equal(isCardDiscardDragIntent(discardDrag, { clientX: 1050, clientY: 90 }), true);
+assert.equal(isCardDiscardDragIntent(discardDrag, { clientX: 999, clientY: 90 }), false);
+assert.equal(isCardDiscardDragIntent(discardDrag, { clientX: 1050, clientY: 141 }), false);
+assert.equal(
+  isCardDiscardDragIntent({ ...discardDrag, discardZoneRect: null }, { clientX: 1050, clientY: 90 }),
+  false
+);
 const lateralDragModeSystem = {
   drag: {
     ...discardDrag,
-    startX: 250,
-    sourceHeight: 200,
-    playThreshold: 100,
     card: { target: 'ground' }
   },
   isPointerBlockedByCardUi: () => true
@@ -338,8 +345,8 @@ assert.equal(
 );
 assert.equal(
   CardSystem.prototype.resolveDragMode.call(lateralDragModeSystem, {
-    clientX: 250,
-    clientY: 190
+    clientX: 1050,
+    clientY: 90
   }),
   'discard'
 );
@@ -352,19 +359,21 @@ const dispatchedUnitCard = {
 };
 let dispatchedUnitExhausted = 0;
 const dispatchedCardSystem = {
-  temporaryCards: [dispatchedUnitCard],
+  handCards: [dispatchedUnitCard],
+  drawPile: [],
   discardPile: [],
-  handCards: [],
+  pendingDrawAnimations: new Set(),
   game: { abilitiesFor: () => ({ onCardExhausted: () => { dispatchedUnitExhausted += 1; } }) },
   consumeCardUse: CardSystem.prototype.consumeCardUse,
   isCardSpent: CardSystem.prototype.isCardSpent,
-  moveTemporaryCardToDiscard: CardSystem.prototype.moveTemporaryCardToDiscard,
-  refillDrawPileFromDiscardIfNeeded: () => false,
-  renderTemporaryCards() {},
+  findHandCardIndex: CardSystem.prototype.findHandCardIndex,
+  refillDrawPileFromDiscardIfNeeded: CardSystem.prototype.refillDrawPileFromDiscardIfNeeded,
+  drawCard: CardSystem.prototype.drawCard,
+  refillHandSlot: CardSystem.prototype.refillHandSlot,
+  renderHand() {},
   updatePileUi() {}
 };
 assert.equal(CardSystem.prototype.moveCardToDiscard.call(dispatchedCardSystem, dispatchedUnitCard), true);
-assert.deepEqual(dispatchedCardSystem.temporaryCards, []);
 assert.deepEqual(dispatchedCardSystem.discardPile, []);
 assert.equal(dispatchedUnitCard.remainingUses, 0);
 assert.equal(dispatchedUnitExhausted, 1);
@@ -379,7 +388,6 @@ const middleHandCard = {
 const rightHandCard = { id: 'right-card', kind: 'spell' };
 let middleHandCardExhausted = 0;
 const emptyDeckHandSystem = {
-  temporaryCards: [],
   handCards: [leftHandCard, middleHandCard, rightHandCard],
   drawPile: [],
   discardPile: [],
@@ -401,7 +409,6 @@ assert.equal(middleHandCardExhausted, 1);
 
 const recyclableHandCard = { id: 'recyclable-card', kind: 'tactic' };
 const recyclableHandSystem = {
-  temporaryCards: [],
   handCards: [leftHandCard, recyclableHandCard, rightHandCard],
   drawPile: [],
   discardPile: [],
@@ -420,18 +427,6 @@ assert.equal(CardSystem.prototype.moveCardToDiscard.call(recyclableHandSystem, r
 assert.deepEqual(recyclableHandSystem.handCards, [leftHandCard, recyclableHandCard, rightHandCard]);
 assert.deepEqual(recyclableHandSystem.drawPile, []);
 assert.deepEqual(recyclableHandSystem.discardPile, []);
-
-const manuallyDiscardedTemporaryCard = { id: 'temporary-enchant', kind: 'enchant' };
-const temporaryDiscardSystem = {
-  temporaryCards: [manuallyDiscardedTemporaryCard],
-  discardPile: [],
-  refillDrawPileFromDiscardIfNeeded: () => false
-};
-assert.equal(
-  CardSystem.prototype.moveTemporaryCardToDiscard.call(temporaryDiscardSystem, manuallyDiscardedTemporaryCard),
-  true
-);
-assert.deepEqual(temporaryDiscardSystem.discardPile, [manuallyDiscardedTemporaryCard]);
 
 const buffGame = {
   friendlyUnits: [],

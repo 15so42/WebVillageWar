@@ -976,7 +976,7 @@ const WORLD_PRESETS = {
       fogNear: 48,
       fogFar: 215,
       sun: '#ffcf9e',
-      sunIntensity: 2.47,
+      sunIntensity: 3.5,
       shadowIntensity: 1,
       // 金色暖阳从前方偏左低位斜入；阴影相机需 ±100 覆盖全图（与 world-preview 一致）。
       sunPosition: { x: -22, y: 42, z: 88 },

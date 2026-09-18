@@ -5,7 +5,6 @@ const GAMEPLAY_COMMANDS = new Set([
   COMMAND.PLAY_CARD,
   COMMAND.DISCARD_CARD,
   COMMAND.ISSUE_MOVE,
-  COMMAND.ISSUE_GUARD,
   COMMAND.ISSUE_STOP,
   COMMAND.SELECTION_SET,
   COMMAND.REWARD_CHOOSE,
@@ -44,7 +43,6 @@ export class CommandValidator {
       case COMMAND.ISSUE_MOVE:
         result = this.validateMove(sourcePlayerId, payload);
         break;
-      case COMMAND.ISSUE_GUARD:
       case COMMAND.ISSUE_STOP:
         result = this.validateUnitCommand(sourcePlayerId, payload);
         break;
@@ -144,7 +142,7 @@ export class CommandValidator {
         ok: true,
         payload: {
           cardInstanceId: instanceId,
-          sourceLocation: cards.temporaryCards?.includes(card) ? 'temporary' : 'hand'
+          sourceLocation: 'hand'
         }
       };
     }

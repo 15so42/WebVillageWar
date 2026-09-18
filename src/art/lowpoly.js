@@ -9971,39 +9971,6 @@ export function createGuardFlag(color = '#62d56f') {
   return group;
 }
 
-export function createAttackRangeRing(color = '#62d56f') {
-  const group = new THREE.Group();
-  // 驻守环：很细的主线 + 紧贴内侧的微弱软晕，避免粗环喧宾夺主
-  const glow = new THREE.Mesh(
-    new THREE.RingGeometry(0.986, 1, 128),
-    basicMat(color, {
-      transparent: true,
-      opacity: 0.12,
-      side: THREE.DoubleSide,
-      depthTest: true,
-      depthWrite: false
-    }).clone()
-  );
-  const ring = new THREE.Mesh(
-    new THREE.RingGeometry(0.9955, 1, 128),
-    basicMat(color, {
-      transparent: true,
-      opacity: 0.72,
-      side: THREE.DoubleSide,
-      depthTest: true,
-      depthWrite: false
-    }).clone()
-  );
-  glow.rotation.x = -Math.PI / 2;
-  ring.rotation.x = -Math.PI / 2;
-  group.add(glow, ring);
-  group.visible = false;
-  group.userData.glow = glow;
-  group.userData.ring = ring;
-  group.userData.colorMeshes = [glow, ring];
-  return group;
-}
-
 // 虚线范围环：用于建筑作用范围（食堂/维修站/箭塔/信标）等示意，
 // 与驻守环同渲染纪律：layer 0、深度测试、默认 renderOrder。
 export function createAttackRangeDashedRing(color = '#62d56f', options = {}) {

@@ -50,10 +50,6 @@ export class CommandSender {
     return this.sendCommand(COMMAND.ISSUE_STOP, { unitIds: normalizeUnitIds(unitIds) });
   }
 
-  issueGuard(unitIds) {
-    return this.sendCommand(COMMAND.ISSUE_GUARD, { unitIds: normalizeUnitIds(unitIds) });
-  }
-
   selectionSet(unitIds) {
     const normalized = normalizeUnitIds(unitIds);
     const key = normalized.join(',');

@@ -9,7 +9,16 @@ import {
   hasFreeEnchantmentCharge
 } from './freeEnchantmentCharges.js';
 
-const HAND_SIZE = 5;
+const HAND_SIZE = 10;
+// 扇形手牌（类杀戮尖塔）几何参数：卡牌以手牌容器中心为锚点，绕各自底部中点旋转、
+// 外侧沿弧线下沉；卡牌互相重叠、整体聚拢在底部中心，手牌增减后由 layoutHandFan
+// 重新计算并自动排列。VISIBLE_RATIO 表示每张牌露出的宽度比例（越小越重叠）。
+const FAN_MAX_TOTAL_SPREAD_DEG = 44;
+const FAN_MIN_TOTAL_SPREAD_DEG = 9;
+const FAN_DEG_PER_CARD = 6.2;
+const FAN_ARC_DEPTH_PX = 18;
+const FAN_MIN_VISIBLE_RATIO = 0.3;
+const FAN_MAX_VISIBLE_RATIO = 0.46;
 // 附魔卡长按连续使用：按住超过 ENCHANT_HOLD_START_MS 进入连续模式，
 // 之后每 ENCHANT_HOLD_TICK_MS 倒计时结束自动施放一次并扣除能量。
 const ENCHANT_HOLD_START_MS = 350;
@@ -22,16 +31,13 @@ const ENERGY_REGENERATION_PER_SECOND = Math.max(
   Number.isFinite(configuredEnergyRegeneration) ? configuredEnergyRegeneration : 0.1
 );
 const ENERGY_REGENERATION_TICK_SECONDS = 1;
-const TEMPORARY_CARD_LIMIT = 3;
 const PLAY_DRAG_RATIO = 0.5;
-const DISCARD_DRAG_RATIO = 0.3;
 const PLAY_DRAG_MIN_DISTANCE = 24;
 const FRIENDLY_UNIT_MOUSE_TARGET_RADIUS = 58;
 const FRIENDLY_UNIT_TOUCH_TARGET_RADIUS = 84;
 const FRIENDLY_UNIT_TOUCH_STICKY_RADIUS = 112;
 const FRIENDLY_UNIT_TOUCH_Y_OFFSET = 42;
 const DISCARD_FALL_DELAY_MS = 500;
-const TEMPORARY_CARD_EFFECT_LIMIT = 6;
 const CARD_USAGE_HINT = '拖出卡牌区域使用 / 正下方拖动丢弃';
 const CARD_KIND_COLORS = {
   summon: '#5d8b68',
@@ -77,7 +83,6 @@ export class CardSystem {
     this.drawPile = options.startWithEmptyDrawPile ? [] : shuffledDeck;
     this.discardPile = [];
     this.handCards = [];
-    this.temporaryCards = [];
     this.runtimeCardLevelBonuses = new Map();
     this.runtimeCardUpgrades = new Map();
     this.cardCooldownUntil = new Map();
@@ -86,6 +91,8 @@ export class CardSystem {
     this.pendingDrawAnimations = new Set();
     this.drag = null;
     this.dragGhostPreviewCache = new WeakMap();
+    // 拖拽弃牌区（右上角红色虚线）：拖拽手牌时显示，懒创建
+    this.discardZone = null;
     // 附魔卡长按连续使用状态
     this.enchantHold = null;
     this.enchantHoldInterval = null;
@@ -113,8 +120,6 @@ export class CardSystem {
       this.hand.hidden = true;
     }
     this.energyPanel = createEnergyPanel(this.hand, this.mountUi);
-    // 临时牌位 UI 已移除：临时牌改为置于抽牌堆顶，走正常抽牌流程
-    this.temporarySlot = null;
     this.energyParts = collectEnergyPanel(this.energyPanel);
     this.abilityIcons = this.energyParts.abilities;
     this.coreIcons = this.energyParts.cores;
@@ -132,7 +137,6 @@ export class CardSystem {
     }
     this.updateEnergyUi(true);
     this.renderHand();
-    this.renderTemporaryCards();
     this.updatePileUi();
   }
 
@@ -176,45 +180,62 @@ export class CardSystem {
 
   renderHand() {
     this.hand.innerHTML = '';
+    const fanCards = [];
     for (let index = 0; index < HAND_SIZE; index += 1) {
       const card = this.handCards[index];
-      if (!card) {
-        this.hand.appendChild(this.createEmptySlot());
-        continue;
-      }
-
-      this.hand.appendChild(
-        this.createCardElement(card, index, {
-          isDrawn: this.pendingDrawAnimations.has(card),
-          location: 'hand'
-        })
-      );
+      if (!card) continue; // 扇形手牌只排列实际卡牌，不再渲染空槽
+      const element = this.createCardElement(card, index, {
+        isDrawn: this.pendingDrawAnimations.has(card),
+        location: 'hand'
+      });
+      this.hand.appendChild(element);
+      fanCards.push(element);
     }
     this.pendingDrawAnimations.clear();
+    this.layoutHandFan(fanCards);
     this.updateCardAffordability();
     this.markNetworkStateDirty();
   }
 
-  renderTemporaryCards() {
-    if (!this.temporarySlot) return;
-    this.temporarySlot.innerHTML = '';
-    if (this.temporaryCards.length > 0) {
-      this.temporarySlot.classList.add('has-temporary-card');
-      this.temporaryCards.forEach((card, index) => {
-        this.temporarySlot.appendChild(this.createTemporaryCardElement(card, index));
-        this.pendingDrawAnimations.delete(card);
-      });
-    } else {
-      this.temporarySlot.classList.remove('has-temporary-card');
-    }
-    this.updateCardAffordability();
-    this.markNetworkStateDirty();
+  // 类杀戮尖塔的扇形排列：以手牌容器中心为锚点，按卡牌在手中的次序计算旋转角、
+  // 弧线下沉量和水平错位（数量越多重叠越紧、总展开角越大，均有上下限），
+  // 通过 CSS 变量下发；获得或打出牌后重新调用即可自动重排。
+  layoutHandFan(elements) {
+    const cards = Array.isArray(elements)
+      ? elements
+      : Array.from(this.hand.children).filter((node) => node.classList?.contains('card'));
+    const count = cards.length;
+    if (count === 0) return;
+    const totalSpread = count <= 1
+      ? 0
+      : Math.min(
+          FAN_MAX_TOTAL_SPREAD_DEG,
+          Math.max(FAN_MIN_TOTAL_SPREAD_DEG, (count - 1) * FAN_DEG_PER_CARD)
+        );
+    const cardWidth = cards[0].offsetWidth || 140;
+    const viewportWidth = window.innerWidth || 1280;
+    const maxFanWidth = Math.max(cardWidth, viewportWidth - 48);
+    const packedSpacing = count > 1 ? (maxFanWidth - cardWidth) / (count - 1) : 0;
+    const spacing = count <= 1
+      ? 0
+      : Math.max(
+          cardWidth * FAN_MIN_VISIBLE_RATIO,
+          Math.min(cardWidth * FAN_MAX_VISIBLE_RATIO, packedSpacing)
+        );
+    const center = (count - 1) / 2;
+    cards.forEach((element, index) => {
+      const offset = index - center;
+      const t = count <= 1 ? 0 : offset / center;
+      element.style.setProperty('--fan-tx', `${(offset * spacing).toFixed(1)}px`);
+      element.style.setProperty('--fan-rotate', `${(t * (totalSpread / 2)).toFixed(2)}deg`);
+      element.style.setProperty('--fan-ty', `${(t * t * FAN_ARC_DEPTH_PX).toFixed(1)}px`);
+      element.style.zIndex = String(10 + index);
+    });
   }
 
   createCardElement(card, index, { isDrawn = false, location = 'hand' } = {}) {
     const element = document.createElement('article');
-    const temporaryClass = location === 'temporary' ? ' is-temporary-card' : '';
-    element.className = `card${temporaryClass}${isDrawn ? ' is-drawn' : ''}`;
+    element.className = `card${isDrawn ? ' is-drawn' : ''}`;
     element.dataset.cardId = card.id;
     element.dataset.cardLocation = location;
     if (location === 'hand') {
@@ -237,28 +258,6 @@ export class CardSystem {
       this.dragGhostPreviewCache.set(element, this.createDragGhostCardPreview(element));
     }
     return element;
-  }
-
-  createTemporaryCardElement(card, index) {
-    const element = this.createCardElement(card, -1, {
-      isDrawn: this.pendingDrawAnimations.has(card),
-      location: 'temporary'
-    });
-    element.dataset.temporaryIndex = String(index);
-    return element;
-  }
-
-  createEmptySlot() {
-    const emptySlot = document.createElement('div');
-    emptySlot.className = 'card-empty-slot';
-    return emptySlot;
-  }
-
-  replaceHandSlot(index, element) {
-    const current = this.hand.children[index];
-    if (!current) return false;
-    current.replaceWith(element);
-    return true;
   }
 
   bindPileUi() {
@@ -374,11 +373,11 @@ export class CardSystem {
       sourceElement: event.currentTarget
     };
     this.drag.playThreshold = this.drag.sourceHeight * PLAY_DRAG_RATIO;
-    this.drag.discardThreshold = this.drag.sourceHeight * DISCARD_DRAG_RATIO;
     this.drag.sourceElement?.classList.add('is-dragging');
     this.prepareDragGhost(event.currentTarget, card, event.pointerType);
     this.ghost.classList.toggle('enchant-crosshair', card.target === 'friendly-unit');
     this.ghost.hidden = true;
+    this.showDiscardZone();
     this.updateDraggedCardMotion(event);
     event.currentTarget.setPointerCapture?.(event.pointerId);
     document.addEventListener('pointermove', this.onPointerMove);
@@ -466,6 +465,7 @@ export class CardSystem {
       'is-discard-ready',
       this.drag.mode === 'discard' && this.drag.canPayDiscard
     );
+    this.updateDiscardZoneState(this.drag.mode === 'discard', this.drag.canPayDiscard);
     this.updateDeploymentRangePreview(this.drag.card, this.drag.mode === 'play');
 
     if (this.drag.mode !== 'play') {
@@ -478,8 +478,8 @@ export class CardSystem {
         const discardCost = discardEnergyCost(this.drag.card);
         this.setHint(
           this.drag.canPayDiscard
-            ? `松手丢弃（消耗 ${discardCost} 能量）`
-            : `能量不足：丢弃需要 ${discardCost} 能量`,
+            ? `松手弃牌（消耗 ${discardCost} 能量）`
+            : `能量不足：弃牌需要 ${discardCost} 能量`,
           'card-drag'
         );
       } else {
@@ -805,6 +805,44 @@ export class CardSystem {
     this.ghost.style.top = `${y}px`;
   }
 
+  // 右上角“拖拽弃牌区”：懒创建，拖拽手牌时显示，指针进入即判定为弃牌意图。
+  ensureDiscardZone() {
+    if (this.discardZone) return this.discardZone;
+    if (typeof document === 'undefined' || !this.mountUi) return null;
+    const zone = document.createElement('div');
+    zone.id = 'card-discard-zone';
+    zone.className = 'card-discard-zone';
+    zone.setAttribute('aria-hidden', 'true');
+    zone.innerHTML =
+      '<span class="card-discard-zone-icon" aria-hidden="true">✕</span>'
+      + '<span class="card-discard-zone-label">弃牌</span>';
+    document.body.appendChild(zone);
+    this.discardZone = zone;
+    return zone;
+  }
+
+  showDiscardZone() {
+    const zone = this.ensureDiscardZone();
+    if (!zone || !this.drag) return;
+    zone.classList.remove('is-active', 'is-insufficient');
+    zone.classList.add('is-visible');
+    // fixed 定位，拖拽期间位置稳定，缓存一次用于命中判定
+    this.drag.discardZoneRect = zone.getBoundingClientRect();
+  }
+
+  hideDiscardZone() {
+    const zone = this.discardZone;
+    if (!zone) return;
+    zone.classList.remove('is-visible', 'is-active', 'is-insufficient');
+  }
+
+  updateDiscardZoneState(isDiscardMode, canPay) {
+    const zone = this.discardZone;
+    if (!zone) return;
+    zone.classList.toggle('is-active', Boolean(isDiscardMode && canPay));
+    zone.classList.toggle('is-insufficient', Boolean(isDiscardMode && !canPay));
+  }
+
   cardPlayEnergyCost(card, targetUnit = null) {
     return hasFreeEnchantmentCharge(card, targetUnit) ? 0 : cardEnergyCost(card);
   }
@@ -926,6 +964,7 @@ export class CardSystem {
     this.ghost.hidden = true;
     this.ghost.classList.remove('enchant-crosshair', 'is-valid', 'has-card-preview');
     this.ghost.textContent = '';
+    this.hideDiscardZone();
     this.clearHint('card-drag');
     this.clearHandCardTargetHighlights();
     document.removeEventListener('pointermove', this.onPointerMove);
@@ -1256,40 +1295,11 @@ export class CardSystem {
       this.flashEnergyPanel();
       return false;
     }
-    if (drag.sourceLocation === 'temporary') {
-      const index = this.temporaryCards.indexOf(drag.card);
-      if (index === -1) return false;
-      this.spendEnergy(cost);
-      this.startTemporaryDiscardFall(drag, index);
-      return true;
-    }
     const index = this.findHandCardIndex(drag.card);
     if (index === -1) return false;
     this.spendEnergy(cost);
     this.startDiscardFall(drag, index);
     return true;
-  }
-
-  startTemporaryDiscardFall(drag, index) {
-    const sourceElement = drag.sourceElement;
-    const fallingElement = sourceElement
-      ? this.createDiscardFallingElement(sourceElement)
-      : null;
-    this.moveTemporaryCardToDiscard(drag.card, index);
-    this.renderTemporaryCards();
-
-    let fallingAnimation = null;
-    if (fallingElement) {
-      document.body.appendChild(fallingElement);
-      fallingAnimation = this.animateDiscardFallingElement(fallingElement);
-    }
-
-    window.setTimeout(() => {
-      fallingAnimation?.cancel();
-      fallingElement?.remove();
-      this.updateCardAffordability();
-      this.updatePileUi();
-    }, DISCARD_FALL_DELAY_MS);
   }
 
   startDiscardFall(drag, index) {
@@ -1303,9 +1313,11 @@ export class CardSystem {
       ? this.createDiscardFallingElement(sourceElement)
       : null;
 
+    // 扇形手牌没有空槽：直接移除被弃卡牌，让其余卡牌自动重排
     if (sourceElement?.parentElement === this.hand) {
-      sourceElement.replaceWith(this.createEmptySlot());
-    } else if (!this.replaceHandSlot(index, this.createEmptySlot())) {
+      sourceElement.remove();
+      this.layoutHandFan();
+    } else {
       this.renderHand();
     }
 
@@ -1319,14 +1331,8 @@ export class CardSystem {
       fallingAnimation?.cancel();
       fallingElement?.remove();
       const replacement = this.refillHandSlot(index);
-      let replacementElement = this.createEmptySlot();
-      if (replacement) {
-        replacementElement = this.createCardElement(replacement, index, { isDrawn: true });
-      }
-      if (!this.replaceHandSlot(index, replacementElement)) {
-        if (replacement) this.pendingDrawAnimations.add(replacement);
-        this.renderHand();
-      }
+      if (replacement) this.pendingDrawAnimations.add(replacement);
+      this.renderHand();
       this.updateCardAffordability();
       this.updatePileUi();
     }, DISCARD_FALL_DELAY_MS);
@@ -1469,22 +1475,9 @@ export class CardSystem {
   }
 
   moveCardToDiscard(card) {
-    const temporaryIndex = this.temporaryCards.indexOf(card);
     this.consumeCardUse(card);
     const exhausted = shouldExhaustAfterPlay(card);
     const spent = this.isCardSpent(card);
-    if (temporaryIndex !== -1) {
-      if (exhausted || spent) {
-        this.temporaryCards.splice(temporaryIndex, 1);
-        this.game.abilitiesFor?.(this.playerSlot)?.onCardExhausted?.(card);
-      } else {
-        this.discardPile.push(card);
-        this.temporaryCards.splice(temporaryIndex, 1);
-      }
-      this.renderTemporaryCards();
-      this.updatePileUi();
-      return true;
-    }
     const index = this.findHandCardIndex(card);
     if (index === -1) return false;
     this.handCards[index] = null;
@@ -1496,14 +1489,6 @@ export class CardSystem {
     this.refillHandSlot(index, { animate: true });
     this.renderHand();
     this.updatePileUi();
-    return true;
-  }
-
-  moveTemporaryCardToDiscard(card, index = this.temporaryCards.indexOf(card)) {
-    if (index < 0 || this.temporaryCards[index] !== card) return false;
-    this.temporaryCards.splice(index, 1);
-    this.discardPile.push(card);
-    this.refillDrawPileFromDiscardIfNeeded();
     return true;
   }
 
@@ -1541,7 +1526,6 @@ export class CardSystem {
       upgraded = true;
     });
     this.renderHand();
-    this.renderTemporaryCards();
     this.updatePileUi();
     return upgraded || levels > 0;
   }
@@ -1556,7 +1540,6 @@ export class CardSystem {
     let removed = false;
     const piles = [
       this.handCards,
-      this.temporaryCards,
       this.drawPile,
       this.discardPile,
       this.reservePile
@@ -1570,7 +1553,6 @@ export class CardSystem {
     });
     if (!removed) return false;
     this.renderHand();
-    this.renderTemporaryCards();
     this.updatePileUi();
     this.updateCardAffordability();
     return true;
@@ -1624,7 +1606,6 @@ export class CardSystem {
     });
     if (updated) {
       this.renderHand();
-      this.renderTemporaryCards();
       this.updatePileUi();
     }
     return updated;
@@ -1643,7 +1624,6 @@ export class CardSystem {
     if (!card) return false;
     const locations = [
       this.handCards,
-      this.temporaryCards,
       this.drawPile,
       this.discardPile
     ];
@@ -1652,7 +1632,6 @@ export class CardSystem {
       if (index === -1) continue;
       pile.splice(index, 1);
       this.renderHand();
-      this.renderTemporaryCards();
       this.updatePileUi();
       return true;
     }
@@ -1691,7 +1670,6 @@ export class CardSystem {
     const seen = new Set();
     return [
       ...this.handCards,
-      ...this.temporaryCards,
       ...this.drawPile,
       ...this.discardPile,
       ...this.reservePile
@@ -1710,7 +1688,6 @@ export class CardSystem {
     const seen = new Set();
     return [
       ...this.handCards,
-      ...this.temporaryCards,
       ...this.drawPile,
       ...this.discardPile
     ].filter((card) => {
@@ -1987,9 +1964,7 @@ export class CardSystem {
 
   updateCardAffordability() {
     this.cardUiElements().forEach((element) => {
-      const card = element.dataset.cardLocation === 'temporary'
-        ? this.temporaryCards[Number(element.dataset.temporaryIndex)]
-        : this.handCards[Number(element.dataset.handIndex)];
+      const card = this.handCards[Number(element.dataset.handIndex)];
       if (!card) return;
       const onCooldown = this.isCardOnCooldown(card);
       const canPlay = !onCooldown && (
@@ -2055,18 +2030,13 @@ export class CardSystem {
   }
 
   cardUiElements() {
-    return [
-      ...this.hand.querySelectorAll('.card'),
-      ...this.temporarySlot.querySelectorAll('.card')
-    ];
+    return [...this.hand.querySelectorAll('.card')];
   }
 
   updateCardCooldownUi() {
     let needsRefresh = false;
     this.cardUiElements().forEach((element) => {
-      const card = element.dataset.cardLocation === 'temporary'
-        ? this.temporaryCards[Number(element.dataset.temporaryIndex)]
-        : this.handCards[Number(element.dataset.handIndex)];
+      const card = this.handCards[Number(element.dataset.handIndex)];
       if (!card || !isTerrainCard(card)) return;
       const remaining = this.getCardCooldownRemaining(card);
       const total = Math.max(0.001, Number(card.cooldown ?? TERRAIN_CARD_COOLDOWN_SECONDS));
@@ -2086,7 +2056,6 @@ export class CardSystem {
     });
     if (needsRefresh) {
       this.renderHand();
-      this.renderTemporaryCards();
       this.updateCardAffordability();
       return;
     }
@@ -2293,15 +2262,13 @@ export class CardSystem {
     return this.game.withPlayerContext(this.playerSlot, () => (
       this.discardDraggedCard({
         card,
-        sourceLocation: payload.sourceLocation === 'temporary' ? 'temporary' : 'hand'
+        sourceLocation: 'hand'
       })
     ));
   }
 
   findCardByInstanceId(instanceId) {
-    return this.handCards.find((card) => card?.instanceId === instanceId)
-      ?? this.temporaryCards.find((card) => card?.instanceId === instanceId)
-      ?? null;
+    return this.handCards.find((card) => card?.instanceId === instanceId) ?? null;
   }
 
   buildDragFromNetworkPayload(card, payload) {
@@ -2319,7 +2286,7 @@ export class CardSystem {
       point,
       targetUnit,
       targetCard,
-      sourceLocation: this.temporaryCards.includes(card) ? 'temporary' : 'hand'
+      sourceLocation: 'hand'
     };
   }
 
@@ -2341,7 +2308,6 @@ export class CardSystem {
     this.ghost.hidden = true;
     this.ghost.classList.remove('enchant-crosshair', 'is-valid');
     this.hand.innerHTML = '';
-    this.temporarySlot?.remove();
     this.energyPanel?.remove();
     this.hintPanel?.remove();
     this.pileUi?.root?.remove();
@@ -2364,18 +2330,16 @@ export function collectRunShopCardInstances(cardSystem = {}) {
   });
 }
 
+// 弃牌意图 = 指针进入右上角丢弃区（drag.discardZoneRect 在 showDiscardZone 时缓存）。
+// 取代旧的“向下拖过阈值且仍在源牌水平范围内”判定：下拖弃牌误触多、也不直观。
 export function isCardDiscardDragIntent(drag, event) {
   if (!drag || !event) return false;
-  const deltaY = Number(event.clientY) - Number(drag.startY);
-  if (!Number.isFinite(deltaY) || deltaY < Number(drag.discardThreshold)) return false;
-  const pointerX = Number(event.clientX);
-  const sourceLeft = Number(drag.sourceLeft);
-  const sourceRight = Number(drag.sourceRight);
-  return Number.isFinite(pointerX)
-    && Number.isFinite(sourceLeft)
-    && Number.isFinite(sourceRight)
-    && pointerX >= sourceLeft
-    && pointerX <= sourceRight;
+  const zone = drag.discardZoneRect;
+  if (!zone) return false;
+  const x = Number(event.clientX);
+  const y = Number(event.clientY);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+  return x >= zone.left && x <= zone.right && y >= zone.top && y <= zone.bottom;
 }
 
 function normalizeDeck(cards) {
@@ -3586,17 +3550,6 @@ function createAbilityTooltip(mountUi = true) {
   return tooltip;
 }
 
-function createTemporaryCardSlot(anchor, mountUi = true) {
-  const existing = mountUi ? document.querySelector('#temporary-card-slot') : null;
-  if (existing) return existing;
-  const slot = document.createElement('section');
-  slot.id = 'temporary-card-slot';
-  slot.className = 'temporary-card-slot';
-  slot.setAttribute('aria-label', 'temporary card slot');
-  anchor.before(slot);
-  return slot;
-}
-
 function collectEnergyPanel(panel) {
   if (!panel.querySelector('.resource-list')) {
     panel.innerHTML = `
@@ -3671,7 +3624,7 @@ function fitCardElementText(element) {
     const isCompactShopPicker = element.classList.contains('is-compact-shop-picker');
     const isForgedReward = element.classList.contains('is-forged-reward');
     const usesForgedMarkup = isForgedReward || Boolean(element.querySelector('.med-card-meta-row'));
-    const isMobilePlayableCard = ['hand', 'temporary'].includes(element.dataset.cardLocation)
+    const isMobilePlayableCard = element.dataset.cardLocation === 'hand'
       && window.matchMedia?.('(max-width: 900px)')?.matches;
     const isSpecializationReward = element.classList.contains('is-specialization-reward');
     const isTrainingReward = element.classList.contains('is-training-reward');

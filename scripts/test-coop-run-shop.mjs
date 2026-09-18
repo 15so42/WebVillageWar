@@ -132,11 +132,10 @@ assert.deepEqual(playerNameLabel, { textContent: '沼泽骑士', hidden: false }
     target: 'ground'
   };
   const cards = {
-    handCards: [groundSpell],
-    temporaryCards: [temporarySpell],
+    // 临时牌堆已移除，特殊牌与普通牌一样作为手牌
+    handCards: [groundSpell, temporarySpell],
     findCardByInstanceId(instanceId) {
-      return [...this.handCards, ...this.temporaryCards]
-        .find((card) => card.instanceId === instanceId) ?? null;
+      return this.handCards.find((card) => card.instanceId === instanceId) ?? null;
     }
   };
   const game = {
@@ -174,9 +173,9 @@ assert.deepEqual(playerNameLabel, { textContent: '沼泽骑士', hidden: false }
     }), 'host'),
     {
       ok: true,
-      payload: { cardInstanceId: temporarySpell.instanceId, sourceLocation: 'temporary' }
+      payload: { cardInstanceId: temporarySpell.instanceId, sourceLocation: 'hand' }
     },
-    'Host 应按权威牌区纠正临时法术牌的来源位置'
+    'Host 应将特殊法术牌的来源位置归一为手牌'
   );
 
   assert.deepEqual(

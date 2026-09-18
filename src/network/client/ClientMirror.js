@@ -171,26 +171,19 @@ export class ClientMirror {
         selected ? (state.selectedByPlayerId ?? unit.selectedByPlayerId) : null
       );
     }
-    if ('isGuarding' in state) {
-      unit.controlMode = state.isGuarding ? 'guard' : 'normal';
-      this.game.applyUnitGuardVisualState?.(unit, state.isGuarding);
-    }
-    if ('guardPoint' in state) {
-      if (Array.isArray(state.guardPoint) && state.guardPoint.length >= 2) {
-        const [x, yOrZ, z] = state.guardPoint;
+    if ('homePoint' in state) {
+      if (Array.isArray(state.homePoint) && state.homePoint.length >= 2) {
+        const [x, yOrZ, z] = state.homePoint;
         const pointY = z === undefined ? unit.position.y : yOrZ;
         const pointZ = z ?? yOrZ;
-        if (unit.guardPoint?.set) {
-          unit.guardPoint.set(x, pointY, pointZ);
+        if (unit.homePoint?.set) {
+          unit.homePoint.set(x, pointY, pointZ);
         } else {
-          unit.guardPoint = new THREE.Vector3(x, pointY, pointZ);
+          unit.homePoint = new THREE.Vector3(x, pointY, pointZ);
         }
       } else {
-        unit.guardPoint = null;
+        unit.homePoint = null;
       }
-    }
-    if ('guardRadius' in state) {
-      unit.guardRadius = Number.isFinite(state.guardRadius) ? state.guardRadius : null;
     }
     if (Array.isArray(state.position)) {
       unit.mesh.position.x = state.position[0];
@@ -420,13 +413,11 @@ export class ClientMirror {
       cards.handCards = cloneCards(state.zones.hand);
       cards.drawPile = cloneCards(state.zones.drawPile);
       cards.discardPile = cloneCards(state.zones.discardPile);
-      cards.temporaryCards = cloneCards(state.zones.temporary);
       cards.exilePile = cloneCards(state.zones.exile);
       if (Array.isArray(state.zones.reserve)) {
         cards.reservePile = cloneCards(state.zones.reserve);
       }
       cards.renderHand?.();
-      cards.renderTemporaryCards?.();
       cards.updatePileUi?.();
     }
     if (cards && Array.isArray(state.cooldowns)) {

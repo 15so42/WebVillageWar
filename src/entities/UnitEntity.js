@@ -72,9 +72,9 @@ export class UnitEntity {
     this.directMoveBlockedTime = 0;
     this.attackRangeHoldTargetId = null;
     this.controlMode = 'normal';
-    this.guardPoint = null;
-    this.guardRadius = null;
-    this.autoGuardOnArrival = false;
+    // 返回位置：单位追击/作战结束后会回到这里（出生点或上一个移动目的地）。
+    // 不再有"驻守模式"和追击半径，追击无视距离，结束后统一回到该点。
+    this.homePoint = null;
     this.selected = false;
     this.selectedByPlayerId = null;
     this.networkSelectionRing = null;

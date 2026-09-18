@@ -80,7 +80,7 @@ const turret = {
   ownerUnitId: owner.id,
   definition: structuredClone(UNIT_DEFINITIONS.miniTurret),
   position: new THREE.Vector3(24, 0, 0),
-  guardPoint: new THREE.Vector3(24, 0, 0),
+  homePoint: new THREE.Vector3(24, 0, 0),
   target: { id: 99 },
   moveGoal: new THREE.Vector3(1, 0, 1),
   commandMoveGoal: new THREE.Vector3(2, 0, 2),
@@ -138,7 +138,7 @@ const nearbyTurret = {
     0,
     0
   ),
-  guardPoint: new THREE.Vector3(),
+  homePoint: new THREE.Vector3(),
   ownerRecallCheckTimer: 0
 };
 assert.equal(unitLogic.updateOwnerRecall(nearbyTurret, 0.25), false);

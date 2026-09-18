@@ -109,7 +109,7 @@ export class LootDropSystem {
       </div>
     `;
     this.ui.title.textContent = `${drop.card.name}`;
-    this.ui.summary.textContent = '拿取后优先进入临时卡牌位。临时位已有卡时，会放入抽牌堆顶。';
+    this.ui.summary.textContent = '拿取后放入抽牌堆顶，手牌有空位时立即抽入。';
   }
 
   hideConfirm() {
@@ -120,10 +120,10 @@ export class LootDropSystem {
   takeActiveDrop() {
     const drop = this.activeDrop;
     if (!drop) return;
-    const result = this.game.cardSystem.addLootCard(drop.card);
+    this.game.cardSystem.addLootCard(drop.card);
     this.game.effects.spawnRing(drop.basePosition, '#fff2c7', 0.82, 0.58);
     this.game.effects.spawnDamageNumber(drop.basePosition, 1, {
-      text: result.location === 'temporary' ? '加入临时卡位' : '加入抽牌堆',
+      text: '加入抽牌堆',
       color: '#fff2c7',
       stroke: '#1d1712',
       height: 1.75,

@@ -53,13 +53,11 @@ const temporaryImmortalityCard = {
     buffId: 'immortality'
   }
 };
-
 const hostCards = {
   energy: 6,
   handCards: [card('hand-swordsman', 2)],
   drawPile: [],
   discardPile: [],
-  temporaryCards: [temporaryImmortalityCard],
   exilePile: [],
   reservePile: [card('reserve-swordsman', 2)],
   runtimeCardLevelBonuses: new Map([['swordsman', 1]]),
@@ -91,10 +89,6 @@ const privateState = snapshotBuilder.buildPrivateState('guest');
 
 assert.equal(privateState.zones.hand[0].level, 2);
 assert.equal(privateState.zones.reserve[0].level, 2);
-assert.equal(privateState.zones.temporary[0].target, 'friendly-unit');
-assert.equal(privateState.zones.temporary[0].enchantmentId, 'immortality');
-assert.equal(privateState.zones.temporary[0].effect.buffId, 'immortality');
-assert.equal(privateState.zones.temporary[0].uses, 1);
 assert.deepEqual(privateState.cardRuntime.levelBonuses, [['swordsman', 1]]);
 assert.equal(privateState.cardRuntime.upgrades[0].upgradeIds[0], 'swordsman:runtime-level:test');
 assert.deepEqual(privateState.waveRewardDeck, ['fire-enchant']);
@@ -142,7 +136,6 @@ const clientCards = {
   handCards: [card('old-hand-swordsman', 1)],
   drawPile: [],
   discardPile: [],
-  temporaryCards: [],
   exilePile: [],
   reservePile: [card('old-reserve-swordsman', 1)],
   runtimeCardLevelBonuses: new Map(),
@@ -152,7 +145,6 @@ const clientCards = {
   renderHand() {
     renderedHandLevel = this.handCards[0]?.level ?? null;
   },
-  renderTemporaryCards: () => {},
   updatePileUi: () => {},
   applyCooldownSnapshot: () => {}
 };
@@ -174,10 +166,6 @@ clientMirror.applyPrivateState(transportedPrivateState);
 assert.equal(renderedHandLevel, 2);
 assert.equal(clientCards.handCards[0].level, 2);
 assert.equal(clientCards.reservePile[0].level, 2);
-assert.equal(clientCards.temporaryCards[0].target, 'friendly-unit');
-assert.equal(clientCards.temporaryCards[0].enchantmentId, 'immortality');
-assert.equal(clientCards.temporaryCards[0].effect.buffId, 'immortality');
-assert.equal(clientCards.temporaryCards[0].uses, 1);
 assert.equal(clientCards.runtimeCardLevelBonuses.get('swordsman'), 1);
 assert.deepEqual(
   clientCards.runtimeCardUpgrades.get('swordsman').upgradeIds,
@@ -187,8 +175,8 @@ assert.equal(clientRun.silver, 24);
 assert.equal(clientGame.silver, 24);
 assert.deepEqual(clientRun.waveRewardDeck, ['fire-enchant']);
 
-const guardedHostUnit = {
-  id: 'guarded-unit',
+const returningHostUnit = {
+  id: 'returning-unit',
   team: 'player',
   factionId: 'player',
   type: 'swordsman',
@@ -205,34 +193,27 @@ const guardedHostUnit = {
   underConstruction: false,
   buildProgress: 1,
   selected: false,
-  controlMode: 'guard',
-  guardPoint: { x: 4.26, y: 0.4, z: -7.5 },
-  guardRadius: 8.75,
+  controlMode: 'normal',
+  homePoint: { x: 4.26, y: 0.4, z: -7.5 },
   effects: [],
   enchantments: new Map(),
   position: { x: 9, y: 0.4, z: -1 },
   mesh: { rotation: { y: 0 } }
 };
-const guardedSnapshot = snapshotBuilder.serializeUnitState(guardedHostUnit);
-assert.deepEqual(guardedSnapshot.guardPoint, [4.26, 0.4, -7.5]);
-assert.equal(guardedSnapshot.guardRadius, 8.75);
+const returningSnapshot = snapshotBuilder.serializeUnitState(returningHostUnit);
+assert.deepEqual(returningSnapshot.homePoint, [4.26, 0.4, -7.5]);
 
-const guardedClientUnit = {
+const returningClientUnit = {
   health: 18,
   position: { y: 0 },
   controlMode: 'normal',
-  guardPoint: null,
-  guardRadius: null,
+  homePoint: null,
   statusUiDirty: false
 };
-clientMirror.applyUnitState(guardedClientUnit, {
-  isGuarding: true,
-  guardPoint: guardedSnapshot.guardPoint,
-  guardRadius: guardedSnapshot.guardRadius
+clientMirror.applyUnitState(returningClientUnit, {
+  homePoint: returningSnapshot.homePoint
 });
-assert.equal(guardedClientUnit.controlMode, 'guard');
-assert.deepEqual(guardedClientUnit.guardPoint.toArray(), [4.26, 0.4, -7.5]);
-assert.equal(guardedClientUnit.guardRadius, 8.75);
+assert.deepEqual(returningClientUnit.homePoint.toArray(), [4.26, 0.4, -7.5]);
 
 const completedMatchController = { id: 'disposed-controller' };
 const freshRoomController = { id: 'fresh-controller' };

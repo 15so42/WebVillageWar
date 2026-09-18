@@ -66,7 +66,6 @@ body.is-meta-open .game-hint-panel,
 body.is-meta-open .card-pile-dock,
 body.is-meta-open .pile-viewer,
 body.is-meta-open .game-command-dock,
-body.is-meta-open .temporary-card-slot,
 body.is-meta-open .selection-box,
 body.is-meta-open .mobile-box-select-hint {
   display: none;
@@ -1564,28 +1563,6 @@ body.is-run-shop-open .card-pile-dock {
   box-shadow:
     0 0 0 1px rgba(158, 238, 219, 0.35),
     0 12px 28px rgba(0, 0, 0, 0.28);
-}
-
-.temporary-card-slot {
-  position: fixed;
-  z-index: 6;
-  left: 50%;
-  bottom: 292px;
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: max-content;
-  place-items: center;
-  align-items: end;
-  gap: 8px;
-  pointer-events: none;
-  transform: translateX(-50%);
-  transform-origin: bottom center;
-}
-
-.temporary-card-slot .card {}
-
-.temporary-card-slot:not(.has-temporary-card) {
-  display: none;
 }
 
 .mobile-action-dock {
@@ -3103,71 +3080,6 @@ body.is-run-shop-open .card-pile-dock {
   animation: card-draw-in 680ms cubic-bezier(0.18, 0.9, 0.2, 1);
 }
 
-.card.is-temporary-card {
-  border-color: rgba(255, 242, 199, 0.5);
-  box-shadow:
-    0 18px 34px rgba(0, 0, 0, 0.3),
-    0 0 0 2px rgba(255, 242, 199, 0.18),
-    0 0 28px color-mix(in srgb, var(--card-color) 58%, transparent);
-}
-
-.card.is-temporary-card::after {
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.14),
-    inset 0 -28px 36px rgba(0, 0, 0, 0.18),
-    inset 0 0 32px rgba(255, 242, 199, 0.14);
-}
-
-.card-empty-slot {
-  width: clamp(122px, 15.5vw, 148px);
-  height: 196px;
-  border: 1px dashed rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
-  pointer-events: none;
-  background: rgba(17, 29, 26, 0.12);
-}
-
-.temporary-card-empty-slot {
-  position: relative;
-  width: clamp(122px, 15.5vw, 148px);
-  height: 196px;
-  display: grid;
-  place-items: center;
-  border: 1px dashed rgba(255, 242, 199, 0.42);
-  border-radius: 8px;
-  color: rgba(255, 242, 199, 0.72);
-  pointer-events: none;
-  background:
-    radial-gradient(circle at 50% 18%, rgba(255, 242, 199, 0.12), transparent 34%),
-    rgba(17, 29, 26, 0.18);
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.04),
-    0 0 18px rgba(255, 242, 199, 0.1);
-}
-
-.temporary-card-empty-slot::before {
-  content: "";
-  position: absolute;
-  inset: 10px;
-  border: 1px solid rgba(255, 242, 199, 0.16);
-  border-radius: 7px;
-}
-
-.temporary-card-empty-slot span {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  place-items: center;
-  width: 54px;
-  height: 54px;
-  border: 1px solid rgba(255, 242, 199, 0.24);
-  border-radius: 50%;
-  color: #fff2c7;
-  background: rgba(13, 22, 20, 0.38);
-  font-size: 13px;
-  font-weight: 900;
-}
-
 @keyframes card-draw-in {
   0% {
     opacity: 0;
@@ -3508,6 +3420,65 @@ body:not(.is-game-active) .mobile-action-dock {
   background: rgba(255, 255, 255, 0.25);
 }
 
+/* ------------------------------------------------------------
+   拖拽弃牌区：拖拽手牌时出现在屏幕右上方（避开 top:8px 的设置工具栏），
+   红色虚线框提示“拖到此处松手即弃牌”。z-index 低于拖拽 ghost(9)；
+   指针进入且能量足够时高亮(is-active)，能量不足时置灰(is-insufficient)。
+   ------------------------------------------------------------ */
+.card-discard-zone {
+  position: fixed;
+  top: 56px;
+  right: 16px;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: 2px dashed rgba(226, 92, 76, 0.66);
+  border-radius: 8px;
+  background: rgba(54, 20, 18, 0.4);
+  color: #eda795;
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: 0.06em;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-8px);
+  transition:
+    opacity 130ms ease,
+    transform 130ms ease,
+    background 130ms ease,
+    border-color 130ms ease,
+    color 130ms ease;
+}
+
+.card-discard-zone.is-visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.card-discard-zone-icon {
+  font-size: 17px;
+  line-height: 1;
+}
+
+.card-discard-zone.is-active {
+  border-color: rgba(255, 92, 74, 0.98);
+  background: rgba(126, 30, 26, 0.74);
+  color: #ffe3d8;
+  box-shadow:
+    0 0 0 2px rgba(255, 92, 74, 0.2),
+    0 14px 32px rgba(0, 0, 0, 0.42);
+}
+
+.card-discard-zone.is-insufficient {
+  border-color: rgba(150, 122, 112, 0.55);
+  background: rgba(38, 32, 30, 0.5);
+  color: #ab9a92;
+}
+
 .drag-ghost {
   position: fixed;
   z-index: 9;
@@ -3555,6 +3526,12 @@ body:not(.is-game-active) .mobile-action-dock {
 
 .drag-ghost.has-card-preview .drag-ghost-card-host > .drag-ghost-card,
 .drag-ghost.has-card-preview .drag-ghost-card-host > .drag-ghost-card:hover {
+  /* 拖拽预览卡不入手牌扇形布局：ghost host 复用了 .card-hand 类，扇形规则
+     body.is-game-active .card-hand > .card 会把预览卡设成 absolute + left/bottom:0。
+     这里显式重置为 static / 正常流，让预览卡填满 #drag-ghost 并居中跟随光标。 */
+  position: static !important;
+  inset: auto !important;
+  margin: 0 !important;
   width: 100% !important;
   min-width: 0 !important;
   height: 100% !important;
@@ -3562,6 +3539,7 @@ body:not(.is-game-active) .mobile-action-dock {
   flex: none !important;
   pointer-events: none !important;
   transform: none !important;
+  transform-origin: 50% 50% !important;
   transition: none !important;
 }
 
@@ -4949,7 +4927,6 @@ body:not(.is-game-active) .mobile-action-dock {
   .hud-selected,
   .pile-button,
   .game-command-dock,
-  .temporary-card-slot,
   .perf-panel {
     transform: scale(var(--mobile-ui-scale));
   }
@@ -5389,9 +5366,7 @@ body:not(.is-game-active) .mobile-action-dock {
     gap: 6px;
   }
 
-  .card,
-  .card-empty-slot,
-  .temporary-card-empty-slot {
+  .card {
     width: clamp(96px, 15.2vw, 122px);
     height: 176px;
   }

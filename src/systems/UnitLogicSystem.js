@@ -150,11 +150,6 @@ export class UnitLogicSystem {
       return;
     }
 
-    if (unit.controlMode === 'guard') {
-      this.ensureGuardState(unit);
-    }
-    mark = recordUnitStep(profile, 'guardMs', mark);
-
     this.updateSupportAbilities(unit, dt);
     mark = recordUnitStep(profile, 'supportMs', mark);
     if (unit.visualRoot?.userData.animation?.name === 'support') {
@@ -206,15 +201,6 @@ export class UnitLogicSystem {
     mark = recordUnitStep(profile, 'targetDecisionMs', mark);
 
     if (target) {
-      if (this.shouldBreakGuardChase(unit, target)) {
-        unit.target = null;
-        unit.aiState = 'moving';
-        this.returnToGuardPoint(unit, dt);
-        mark = recordUnitStep(profile, 'attackDecisionMs', mark);
-        unit.movement?.applyMotion(dt);
-        recordUnitStep(profile, 'motionMs', mark);
-        return;
-      }
       const targetPosition = getTargetPosition(target);
       const targetDistance = distance2D(unit.position, targetPosition);
       const targetRadius = targetCombatRadius(target);
@@ -260,10 +246,6 @@ export class UnitLogicSystem {
       unit.aiState = 'moving';
       this.updateWildlifeWander(unit, dt);
       unit.movement?.moveToward(unit.wanderGoal, dt, 0.55);
-    } else if (unit.controlMode === 'guard') {
-      unit.attackRangeHoldTargetId = null;
-      unit.aiState = 'moving';
-      this.returnToGuardPoint(unit, dt);
     } else if (unit.moveGoal) {
       unit.attackRangeHoldTargetId = null;
       if (distance2D(unit.position, unit.moveGoal) <= 0.34) {
@@ -282,6 +264,11 @@ export class UnitLogicSystem {
           unit.aiState = 'idle';
         }
       }
+    } else if (unit.homePoint) {
+      // 没有目标也没有移动指令时，回到之前的位置（出生点或上一个目的地）
+      unit.attackRangeHoldTargetId = null;
+      unit.aiState = 'moving';
+      this.returnToHome(unit, dt);
     } else {
       unit.attackRangeHoldTargetId = null;
       unit.aiState = 'idle';
@@ -642,10 +629,10 @@ export class UnitLogicSystem {
     unit.knockbackVelocity?.set?.(0, 0, 0);
     unit.verticalVelocity = 0;
     unit.grounded = true;
-    if (unit.guardPoint?.copy) {
-      unit.guardPoint.copy(destination);
+    if (unit.homePoint?.copy) {
+      unit.homePoint.copy(destination);
     } else {
-      unit.guardPoint = destination.clone();
+      unit.homePoint = destination.clone();
     }
     this.game.effects.spawnRing?.(previousPosition, '#9dd8ff', 0.52, 0.28);
     this.game.effects.spawnRing?.(destination, '#dff8ff', 0.72, 0.42);
@@ -829,32 +816,10 @@ export class UnitLogicSystem {
     return best;
   }
 
-  ensureGuardState(unit) {
-    if (!unit.guardPoint) {
-      unit.guardPoint = unit.position.clone();
-      unit.guardPoint.y = this.game.groundHeightAt(unit.guardPoint);
-    }
-    if (!Number.isFinite(unit.guardRadius)) {
-      unit.guardRadius = Math.max(
-        this.game.modifiers.getAttackRange(unit) + 0.9,
-        this.game.modifiers.getAggroRange(unit)
-      );
-    }
-  }
-
-  shouldBreakGuardChase(unit, target) {
-    if (unit.controlMode !== 'guard') return false;
-    if (!unit.guardPoint || !Number.isFinite(unit.guardRadius)) return false;
-    const targetPosition = getTargetPosition(target);
-    if (!targetPosition) return false;
-    const targetRadius = targetCombatRadius(target);
-    return distance2D(unit.guardPoint, targetPosition) > unit.guardRadius + targetRadius;
-  }
-
-  returnToGuardPoint(unit, dt) {
-    if (!unit.guardPoint) return;
-    if (distance2D(unit.position, unit.guardPoint) <= 0.42) return;
-    unit.movement?.moveToward(unit.guardPoint, dt, 0.26);
+  returnToHome(unit, dt) {
+    if (!unit.homePoint) return;
+    if (distance2D(unit.position, unit.homePoint) <= 0.42) return;
+    unit.movement?.moveToward(unit.homePoint, dt, 0.26);
   }
 
   updateWildlifeWander(unit, dt) {
@@ -925,11 +890,10 @@ function completeMoveGoal(game, unit) {
   unit.navMoveTarget = null;
   unit.navSteeringTarget = null;
   game.clearUnitRoute?.(unit);
-  // 玩家单位到达移动目标后自动转为驻守：中途遇怪打完会继续来这里，
-  // 战斗中强制脱离（force-move）到达后同样驻守。
-  if (unit.autoGuardOnArrival === true && unit.team === TEAMS.PLAYER && unit.alive) {
-    unit.autoGuardOnArrival = false;
-    game.setUnitGuardMode?.(unit);
+  // 玩家单位到达目的地后，把落点记为新的"返回位置"：之后再遇敌追击、打完会回到这里。
+  if (unit.team === TEAMS.PLAYER && unit.alive) {
+    unit.homePoint = unit.position.clone();
+    unit.homePoint.y = game.groundHeightAt(unit.homePoint);
   }
 }
 

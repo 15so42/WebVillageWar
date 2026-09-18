@@ -5,7 +5,7 @@ import { SAOPass } from 'three/examples/jsm/postprocessing/SAOPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
-import { createAttackRangeRing, createGuardFlag, createSelectionRing } from '../art/lowpoly.js';
+import { createSelectionRing } from '../art/lowpoly.js';
 import {
   BALANCE,
   CARD_DEFINITIONS,
@@ -244,7 +244,7 @@ const TEMPORARY_IMMORTALITY_CARD = {
   kind: 'enchant',
   label: '朽',
   artKey: 'recovery',
-  summary: '特殊临时牌。使目标每秒恢复 4% 最大生命值（消耗）。',
+  summary: '特殊卡牌。使目标每秒恢复 4% 最大生命值（消耗）。',
   target: 'friendly-unit',
   radius: 1.1,
   cooldown: 0,
@@ -264,7 +264,7 @@ const TEMPORARY_MANA_SURGE_CARD = {
   kind: 'enchant',
   label: '涌',
   artKey: 'abilityEnchantEcho',
-  summary: '特殊临时牌。拖拽给单位后，随机进行 5 次 1 级附魔（消耗）。',
+  summary: '特殊卡牌。拖拽给单位后，随机进行 5 次 1 级附魔（消耗）。',
   target: 'friendly-unit',
   radius: 1.1,
   cooldown: 0,
@@ -284,7 +284,7 @@ const TEMPORARY_RUNE_EXPANSION_CARD = {
   kind: 'tactic',
   label: '拓',
   artKey: 'abilityEnchantEcho',
-  summary: '特殊临时牌。使一个友方单位的附魔槽上限永久 +1（消耗）。',
+  summary: '特殊卡牌。使一个友方单位的附魔槽上限永久 +1（消耗）。',
   target: 'friendly-unit',
   radius: 1.1,
   cooldown: 0,
@@ -372,21 +372,21 @@ const STRATEGY_REWARD_OPTION_DEFINITIONS = [
     id: 'temporary-immortality-card',
     action: 'grant-temporary-card',
     title: '获得不朽附魔',
-    description: '获得一张特殊临时牌：每秒恢复目标 4% 最大生命值（消耗）。',
+    description: '获得一张特殊卡牌：每秒恢复目标 4% 最大生命值（消耗）。',
     temporaryCard: TEMPORARY_IMMORTALITY_CARD
   },
   {
     id: 'temporary-mana-surge-card',
     action: 'grant-temporary-card',
     title: '获得魔力涌动',
-    description: '获得一张特殊临时牌：对目标随机进行 5 次 1 级附魔（消耗）。',
+    description: '获得一张特殊卡牌：对目标随机进行 5 次 1 级附魔（消耗）。',
     temporaryCard: TEMPORARY_MANA_SURGE_CARD
   },
   {
     id: 'temporary-rune-expansion-card',
     action: 'grant-temporary-card',
     title: '获得扩容咒印',
-    description: '获得一张特殊临时牌：使一个友方单位的附魔槽上限永久 +1（消耗）。',
+    description: '获得一张特殊卡牌：使一个友方单位的附魔槽上限永久 +1（消耗）。',
     temporaryCard: TEMPORARY_RUNE_EXPANSION_CARD
   }
 ];
@@ -420,7 +420,6 @@ const PERF_LABELS = {
   effects: '特效',
   enemyEnchantment: '敌方附魔',
   frame: '整帧',
-  guardVisuals: '驻守标记',
   hud: 'HUD',
   loot: '掉落',
   mechanics: '关卡机制',
@@ -443,7 +442,6 @@ const COMBAT_PROFILE_LABELS = {
   attackDecisionMs: '攻击/追击决策',
   attackIndexMs: '攻击索引',
   commandMs: '指令移动',
-  guardMs: '驻守状态',
   immobileMs: '静止单位',
   motionMs: '最终位移',
   supportMs: '支援能力',
@@ -493,7 +491,7 @@ const SNOW_VALLEY_HEAD_RENDER_TUNING = Object.freeze({
   warmth: 0,
   // 金色暖阳从前方偏左低位斜入，照亮近景主路与营地；冷灰蓝环境光整体托底，阴影通透不死黑。
   sunColor: '#ffcf9e',
-  sunIntensity: 2.47,
+  sunIntensity: 3.5,
   sunX: -22,
   sunY: 42,
   sunZ: 88,
@@ -956,7 +954,6 @@ export class Game {
     this.selectedUnits = [];
     this.selectedUnitIds = new Set();
     this.selectionMode = 'none';
-    this.guardVisuals = new Map();
     this.selectionDrag = null;
     const playerBasePosition = this.worldConfig.playerBasePosition ?? BALANCE.playerBase.position;
     const enemyCampPosition = this.worldConfig.enemyCampPosition ?? BALANCE.enemyCamp.position;
@@ -1354,12 +1351,6 @@ export class Game {
     this.renderTuningUi?.root?.remove();
     this.renderTuningUi?.button?.remove();
     this.canvas.style.filter = '';
-    this.guardVisuals.forEach((visuals) => {
-      this.scene.remove(visuals.flag, visuals.rangeRing);
-      disposeObject3D(visuals.flag);
-      disposeObject3D(visuals.rangeRing);
-    });
-    this.guardVisuals.clear();
     this.worldUi.innerHTML = '';
     if (window.__VILLAGE_WAR_DEBUG__?.game === this) {
       delete window.__VILLAGE_WAR_DEBUG__;
@@ -1396,7 +1387,6 @@ export class Game {
       this.world.update?.(dt, this.cameraTarget, this.camera);
       this.effects.update(dt);
       this.updateSelection();
-      this.updateGuardVisuals(dt);
       this.updateHud(dt);
       this.renderScene();
       return;
@@ -1432,7 +1422,6 @@ export class Game {
       runPerfStep('camera', () => this.updateCamera(dt));
       runPerfStep('world', () => this.world.update?.(dt, this.cameraTarget, this.camera));
       runPerfStep('selection', () => this.updateSelection());
-      runPerfStep('guardVisuals', () => this.updateGuardVisuals(dt));
       runPerfStep('unitVisuals', () => this.updateUnitVisuals(dt));
       runPerfStep('navDebug', () => this.updateNavDebug(dt));
       runPerfStep('hud', () => this.updateHud(dt));
@@ -1461,7 +1450,6 @@ export class Game {
       runStep('camera', () => this.updateCamera(dt));
       runStep('world', () => this.world.update?.(dt, this.cameraTarget, this.camera));
       runStep('selection', () => this.updateSelection());
-      runStep('guardVisuals', () => this.updateGuardVisuals(dt));
       runStep('unitVisuals', () => this.updateUnitVisuals(dt));
       runStep('navDebug', () => this.updateNavDebug(dt));
       runStep('hud', () => this.updateHud(dt));
@@ -3118,7 +3106,7 @@ export class Game {
       if (!options.length) return [];
       return pickRandomItems(options, Math.min(STRATEGY_CHOICE_COUNT, options.length)).map((option) => ({
         action: 'grant-temporary-card',
-        actionLabel: '获得临时牌',
+        actionLabel: '获得特殊卡牌',
         title: option.title,
         description: option.description,
         card: option.temporaryCard,
@@ -5068,9 +5056,7 @@ export class Game {
       maxEnchantmentSlots: Math.max(unit.enchantments?.size ?? 0, Math.floor(unit.maxEnchantmentSlots ?? 5)),
       freeEnchantmentCharges: normalizeFreeEnchantmentCharges(unit.freeEnchantmentCharges),
       freeEnchantmentProgress: Math.max(0, finiteNumber(unit.freeEnchantmentProgress, 0)),
-      controlMode: unit.controlMode === 'guard' ? 'guard' : 'normal',
-      guardPoint: vectorSnapshot(unit.guardPoint),
-      guardRadius: Number.isFinite(unit.guardRadius) ? unit.guardRadius : null,
+      homePoint: vectorSnapshot(unit.homePoint),
       rebirthLevel: level,
       attributes: captureRebirthAttributeSnapshot(unit),
       enchantments: captureRebirthEnchantments(unit)
@@ -5112,9 +5098,9 @@ export class Game {
     );
     unit.freeEnchantmentCharges = normalizeFreeEnchantmentCharges(snapshot.freeEnchantmentCharges);
     unit.freeEnchantmentProgress = Math.max(0, finiteNumber(snapshot.freeEnchantmentProgress, 0));
-    unit.controlMode = snapshot.controlMode === 'guard' ? 'guard' : 'normal';
-    unit.guardPoint = vectorFromSnapshot(snapshot.guardPoint);
-    unit.guardRadius = Number.isFinite(snapshot.guardRadius) ? snapshot.guardRadius : null;
+    // 重生单位回到之前的返回位置（若无返回位置则以重生点为准）
+    unit.homePoint = vectorFromSnapshot(snapshot.homePoint) ?? position.clone();
+    unit.homePoint.y = this.groundHeightAt(unit.homePoint);
     this.attachUnitStatus(unit);
     this.registerUnit(unit);
     restoreRebirthEnchantments(unit, snapshot.enchantments);
@@ -5388,9 +5374,10 @@ export class Game {
       this.attachUnitStatus(unit);
       this.registerUnit(unit);
       this.abilitiesFor(unit)?.onFriendlyUnitSummoned?.(unit, options.sourceCard);
-      if (shouldAutoGuardSummonedUnit(options.sourceCard)) {
-        this.setUnitGuardMode(unit);
-      }
+      // 玩家单位部署后把出生点记为默认"返回位置"：未下达移动指令时待在原地，
+      // 遇敌会追击作战、打完自动回到这里；下达移动指令后则以目的地作为新的返回位置。
+      unit.homePoint = unit.position.clone();
+      unit.homePoint.y = this.groundHeightAt(unit.homePoint);
       this.effects.spawnRing(unit.position, '#9dd8ff', 0.82, 0.52);
       if (selectSpawned) {
         this.selectUnit(unit);
@@ -5489,8 +5476,7 @@ export class Game {
     turret.ownerPlayerId = owner.ownerPlayerId ?? this.activeEconomySlot ?? this.localPlayerSlot;
     turret.controllerPlayerId = owner.controllerPlayerId ?? turret.ownerPlayerId;
     turret.controlMode = owner.controlMode;
-    turret.guardPoint = owner.guardPoint?.clone?.() ?? owner.position.clone();
-    turret.guardRadius = Math.max(6.5, owner.guardRadius ?? 6.5);
+    turret.homePoint = owner.homePoint?.clone?.() ?? owner.position.clone();
     this.attachUnitStatus(turret);
     this.registerUnit(turret);
     this.effects.spawnRing(turret.position, '#dff8ff', 0.72, 0.48);
@@ -7195,9 +7181,6 @@ export class Game {
     if (key === 'x') {
       event.preventDefault();
       this.stopSelectedUnits();
-    } else if (key === 'z') {
-      event.preventDefault();
-      this.guardSelectedUnits();
     }
   }
 
@@ -7336,8 +7319,6 @@ export class Game {
       this.toggleMobileBoxSelectMode();
     } else if (action === 'stop') {
       this.stopSelectedUnits();
-    } else if (action === 'guard') {
-      if (this.guardSelectedUnits()) this.selectUnit(null);
     }
   }
 
@@ -7680,11 +7661,8 @@ export class Game {
       this.clearUnitRoute(unit);
       unit.target = null;
       unit.controlMode = 'normal';
-      unit.guardPoint = null;
-      unit.guardRadius = null;
-      // 到达目标点后自动进入驻守（中途遇怪打完仍会继续前往，到达即驻守）
-      unit.autoGuardOnArrival = true;
-      this.applyUnitGuardVisualState(unit, false);
+      // 移动途中遇敌会先追击作战、打完继续前往；到达目的地后把落点记为新的返回位置
+      unit.homePoint = null;
       if (forceMove) forceMoveUnits.push(unit);
     });
     if (!commanded) return false;
@@ -7737,55 +7715,10 @@ export class Game {
       unit.attackRangeHoldTargetId = null;
       unit.target = null;
       this.clearUnitRoute(unit);
-      unit.guardPoint = null;
-      unit.guardRadius = null;
-      unit.autoGuardOnArrival = false;
-      this.applyUnitGuardVisualState(unit, false);
+      unit.homePoint = null;
       unit.knockbackVelocity.set(0, 0, 0);
     });
     this.attacks.cancelPendingAttacksFor(units);
-  }
-
-  guardSelectedUnits() {
-    if (this.networkBridge?.shouldRouteLocalCommands?.()) {
-      const unitIds = this.selectedControllableUnitIds();
-      if (!unitIds.length) return false;
-      this.networkBridge.commandSender?.issueGuard?.(unitIds);
-      return true;
-    }
-    const units = this.selectedUnits.filter((unit) => unit.alive && unit.team === TEAMS.PLAYER);
-    if (!units.length) return false;
-    units.forEach((unit) => this.setUnitGuardMode(unit));
-    this.attacks.cancelPendingAttacksFor(units);
-    this.effects.spawnRing(units[0].position, this.playerVisualColor(units[0]), 0.8, 0.52);
-    return true;
-  }
-
-  setUnitGuardMode(unit) {
-    if (!unit?.alive || unit.team !== TEAMS.PLAYER) {
-      return false;
-    }
-    unit.controlMode = 'guard';
-    unit.autoGuardOnArrival = false;
-    unit.guardPoint = unit.position.clone();
-    unit.guardPoint.y = this.groundHeightAt(unit.guardPoint);
-    unit.guardRadius = this.gameGuardRadiusFor(unit);
-    unit.moveGoal = null;
-    unit.commandMoveGoal = null;
-    unit.moveGoalUsesDirectSteering = false;
-    unit.directMoveBlocked = false;
-    unit.directMoveBlockedTime = 0;
-    unit.attackRangeHoldTargetId = null;
-    unit.target = null;
-    this.clearUnitRoute(unit);
-    this.applyUnitGuardVisualState(unit, true);
-    return true;
-  }
-
-  gameGuardRadiusFor(unit) {
-    const attackRange = this.modifiers.getAttackRange(unit);
-    const aggroRange = this.modifiers.getAggroRange(unit);
-    return Math.max(attackRange + 0.9, aggroRange);
   }
 
   setPointerFromClient(clientX, clientY) {
@@ -7824,62 +7757,6 @@ export class Game {
     if (this.cameraFollowEnabled && this.selectedUnits.length === 0) {
       this.setCameraFollowEnabled(false);
     }
-  }
-
-  updateGuardVisuals(dt) {
-    [...this.guardVisuals.entries()].forEach(([unit, visuals]) => {
-      if (!unit.alive || unit.controlMode !== 'guard') {
-        this.applyUnitGuardVisualState(unit, false);
-        return;
-      }
-      const playerColor = this.playerVisualColor(unit);
-      applyPlayerMarkerColor(visuals.flag, playerColor);
-      applyPlayerMarkerColor(visuals.rangeRing, playerColor);
-      const height = unitStatusHeight(unit) + 0.24;
-      visuals.flag.visible = true;
-      visuals.flag.position.set(unit.position.x, unit.position.y + height, unit.position.z);
-      visuals.flag.rotation.y += dt * 2.7;
-
-      const center = unit.guardPoint ?? unit.position;
-      const guardRadius = Number.isFinite(unit.guardRadius)
-        ? unit.guardRadius
-        : this.gameGuardRadiusFor(unit);
-      visuals.rangeRing.visible = true;
-      visuals.rangeRing.position.set(center.x, this.groundHeightAt(center) + 0.085, center.z);
-      visuals.rangeRing.scale.setScalar(guardRadius);
-      visuals.rangeRing.userData.ring.rotation.z += dt * 0.42;
-      visuals.rangeRing.userData.glow.rotation.z -= dt * 0.18;
-    });
-  }
-
-  applyUnitGuardVisualState(unit, isGuarding) {
-    if (!unit) return;
-    const guarding = Boolean(isGuarding);
-    if (!guarding) {
-      const visuals = this.guardVisuals.get(unit);
-      if (visuals) {
-        this.scene.remove(visuals.flag, visuals.rangeRing);
-        disposeObject3D(visuals.flag);
-        disposeObject3D(visuals.rangeRing);
-        this.guardVisuals.delete(unit);
-      }
-      return;
-    }
-    if (!this.guardVisuals.has(unit)) this.createGuardVisuals(unit);
-  }
-
-  createGuardVisuals(unit) {
-    const color = this.playerVisualColor(unit);
-    const visuals = {
-      flag: createGuardFlag(color),
-      rangeRing: createAttackRangeRing(color)
-    };
-    visuals.rangeRing.traverse((child) => {
-      child.layers.set(0);
-    });
-    this.guardVisuals.set(unit, visuals);
-    this.scene.add(visuals.flag, visuals.rangeRing);
-    return visuals;
   }
 
   setNavDebugEnabled(enabled) {
@@ -8888,7 +8765,6 @@ function cardRunLocationLabel(game, card) {
   const cs = game?.cardSystem;
   if (!cs || !card) return '卡牌';
   if (cs.handCards.includes(card)) return '手牌';
-  if (cs.temporaryCards.includes(card)) return '临时';
   if (cs.drawPile.includes(card)) return '抽牌堆';
   if (cs.discardPile.includes(card)) return '弃牌堆';
   return '卡牌';
@@ -9323,8 +9199,8 @@ function strategyRewardVisualMeta(choice) {
     const card = choice.temporaryCard ?? choice.card;
     return {
       kindKey: 'temporary',
-      typeLabel: '临时牌',
-      actionLabel: '获得临时牌',
+      typeLabel: '特殊卡牌',
+      actionLabel: '获得特殊卡牌',
       icon: '⏱',
       accent: cardThemeColor(card)
     };
@@ -9386,7 +9262,7 @@ function strategyRewardKindLabel(choice, card) {
     return choice.upgrade?.kind === 'unit-special' ? '兵种专精' : '全队训练';
   }
   if (choice.action === 'copy-card') return '复制';
-  if (choice.action === 'grant-temporary-card') return '临时牌';
+  if (choice.action === 'grant-temporary-card') return '特殊卡牌';
   return strategyKindLabel(card.kind);
 }
 
@@ -9452,7 +9328,7 @@ function strategyChoiceActionMeta(choice) {
   if (choice.action === 'open-card-kind-choice') return { key: 'select-upgrade', label: '选卡方向' };
   if (choice.action === 'open-card-upgrade-choice') return { key: 'upgrade-card', label: '升级入口' };
   if (choice.action === 'open-card-copy-choice') return { key: 'copy-card', label: '复制入口' };
-  if (choice.action === 'grant-temporary-card') return { key: 'restore-card', label: '临时奖励' };
+  if (choice.action === 'grant-temporary-card') return { key: 'restore-card', label: '特殊卡牌奖励' };
   if (choice.action === 'add-card') return { key: 'add-card', label: '新卡奖励' };
   if (choice.action === 'select-upgrade-card') return { key: 'select-upgrade', label: '选择升级对象' };
   if (choice.action === 'apply-team-upgrade') return { key: 'team-upgrade', label: '全队训练' };
@@ -9495,7 +9371,7 @@ function rewardOptionMetaText(option) {
   if (option.cardKind) return `${strategyKindLabel(option.cardKind)} / 三选一`;
   if (option.action === 'open-card-upgrade-choice') return '已有卡牌 / 升级倾向';
   if (option.action === 'open-card-copy-choice') return '已有卡牌 / 满次数复制';
-  return '特殊临时牌 / 本局限定';
+  return '特殊卡牌 / 本局限定';
 }
 
 function createInitialShopPrices() {
@@ -9509,10 +9385,6 @@ function createInitialShopPrices() {
 
 export function normalizeStrategyEventType(type) {
   return type === 'unit-upgrade' ? 'wave-reward' : type;
-}
-
-export function shouldAutoGuardSummonedUnit(sourceCard) {
-  return sourceCard?.kind === 'summon';
 }
 
 function unitSpecializationRewardCardId(unitType, upgradeId) {

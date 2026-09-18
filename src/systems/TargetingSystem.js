@@ -95,13 +95,8 @@ export class TargetingSystem {
   acquireTarget(unit) {
     const aggroRange = this.game.modifiers.getAggroRange(unit);
     if (unit.team === TEAMS.PLAYER) {
-      const guardAttacker = this.acquireGuardAttacker(unit);
-      if (guardAttacker) return guardAttacker;
-      const guardFilter = unit.controlMode === 'guard'
-        ? (target) => this.isInsideGuardRadius(unit, target)
-        : null;
-      return this.nearestUnit(unit, TEAMS.ENEMY, aggroRange, guardFilter)
-        ?? this.nearestStructure(unit, this.game.enemyCamp, aggroRange, guardFilter);
+      return this.nearestUnit(unit, TEAMS.ENEMY, aggroRange)
+        ?? this.nearestStructure(unit, this.game.enemyCamp, aggroRange);
     }
     if (unit.isWildlife) {
       const friendly = this.nearestUnit(unit, TEAMS.PLAYER, aggroRange);
@@ -113,26 +108,13 @@ export class TargetingSystem {
       }
       return null;
     }
-    const guardFilter = unit.controlMode === 'guard'
-      ? (target) => this.isInsideGuardRadius(unit, target)
-      : null;
-    const friendly = this.nearestUnit(unit, TEAMS.PLAYER, aggroRange, guardFilter);
+    const friendly = this.nearestUnit(unit, TEAMS.PLAYER, aggroRange);
     if (friendly) return friendly;
-    return this.nearestStructure(unit, this.game.playerBase, aggroRange, guardFilter);
+    return this.nearestStructure(unit, this.game.playerBase, aggroRange);
   }
 
   isCurrentTargetValid(unit, target) {
     if (!target?.alive || !unit?.position) return false;
-    if (unit.controlMode === 'guard' && !this.isInsideGuardRadius(unit, target)) {
-      return false;
-    }
-    if (
-      unit.controlMode === 'guard' &&
-      target === unit.lastAttacker &&
-      this.isInsideGuardRadius(unit, target)
-    ) {
-      return true;
-    }
     if (unit.isWildlife && target.position && unit.spawnPoint) {
       const aggroRange = this.game.modifiers.getAggroRange(unit);
       if (distance2D(unit.spawnPoint, target.position) > unit.leashRadius + aggroRange) {
@@ -198,24 +180,6 @@ export class TargetingSystem {
     if (!structure?.alive) return null;
     if (predicate && !predicate(structure)) return null;
     return distance2D(source.position, structure.position) <= range ? structure : null;
-  }
-
-  isInsideGuardRadius(unit, target) {
-    if (!unit.guardPoint || !Number.isFinite(unit.guardRadius)) return true;
-    const targetPosition = getTargetPosition(target);
-    if (!targetPosition) return false;
-    return distance2D(unit.guardPoint, targetPosition) <= unit.guardRadius + targetCombatRadius(target);
-  }
-
-  acquireGuardAttacker(unit) {
-    if (unit.controlMode !== 'guard' || unit.team !== TEAMS.PLAYER) return null;
-    const attacker = unit.lastAttacker;
-    if (!attacker?.alive || attacker.team === unit.team) return null;
-    if (!this.isInsideGuardRadius(unit, attacker)) return null;
-    const elapsed = this.game.elapsedTime ?? 0;
-    const seenAt = unit.lastAttackerTime ?? 0;
-    if (elapsed - seenAt > 6) return null;
-    return attacker;
   }
 
   beginFrame() {

@@ -851,6 +851,24 @@ const DEVELOPMENT_CHANGELOG_ARCHIVE = [
 
 const CHANGELOG_ENTRIES = [
   {
+    date: '2026-09-18',
+    title: '战斗手牌扇形重做与右上角弃牌区',
+    items: [
+      '战斗手牌改为类《杀戮尖塔》的扇形牌堆：以屏幕底部中心为轴互相重叠展开，数量越多重叠越紧、展开角越大；鼠标悬停时单张上抬放大便于查看，获得或打出牌后自动重排。',
+      '移除独立的临时牌堆，所有临时牌直接并入扇形手牌，作为普通卡牌参与出牌与结算。',
+      '弃牌改为把卡牌拖到屏幕右上角的红色虚线丢弃区松手完成，取代原先的向下拖拽；能量足够时丢弃区高亮，不足时置灰。',
+      '修复单张手牌向上拖拽时不跟随光标、反而向右偏移的问题。'
+    ]
+  },
+  {
+    date: '2026-09-15',
+    title: '第一关启动与光照修复',
+    items: [
+      '修复移除临时牌位后进入关卡会启动失败的问题，开局单位卡选择与手牌流程恢复正常。',
+      '第一关阳光强度调整为 3.5，增强雪谷战场的日照表现。'
+    ]
+  },
+  {
     date: '2026-09-11',
     title: '风法师与战斗表现优化',
     items: [
@@ -2173,7 +2191,7 @@ export class MetaGameSystem {
       <main class="meta-page meta-guide-page">
         <section class="meta-panel meta-guide-panel">
           <div class="meta-section-title">核心流程</div>
-          <p>先在选关页面选择关卡和难度，再配置任意数量的出战卡牌，并确保至少包含 1 张单位卡。战斗中通过出牌、移动、驻守和三选一奖励推进基地。</p>
+          <p>先在选关页面选择关卡和难度，再配置任意数量的出战卡牌，并确保至少包含 1 张单位卡。战斗中通过出牌、移动和三选一奖励推进基地。</p>
         </section>
         <section class="meta-guide-grid">
           <article class="meta-panel">

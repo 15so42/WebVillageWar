@@ -376,16 +376,12 @@ export class SnapshotBuilder {
       buildProgress: round(unit.buildProgress ?? (unit.underConstruction ? 0 : 1), 2),
       selected: Boolean(unit.selected),
       selectedByPlayerId: unit.selected ? (unit.selectedByPlayerId ?? null) : null,
-      isGuarding: unit.controlMode === 'guard',
-      // Guard movement is Host-authoritative. A client only mirrors the unit
-      // transform, so it also needs the fixed guard point for the range ring
-      // instead of falling back to the moving unit position.
-      guardPoint: unit.guardPoint ? [
-        quantizePosition(unit.guardPoint.x),
-        quantizePosition(unit.guardPoint.y),
-        quantizePosition(unit.guardPoint.z)
+      // 返回位置由 Host 权威维护，客户端镜像该点用于本地单位的"打完回到原处"行为。
+      homePoint: unit.homePoint ? [
+        quantizePosition(unit.homePoint.x),
+        quantizePosition(unit.homePoint.y),
+        quantizePosition(unit.homePoint.z)
       ] : null,
-      guardRadius: Number.isFinite(unit.guardRadius) ? round(unit.guardRadius, 2) : null,
       effects: serializeEffects(unit),
       enchantments: [...(unit.enchantments?.entries?.() ?? [])]
         .filter(([, enchantment]) => !enchantment?.hidden)
@@ -467,7 +463,6 @@ export class SnapshotBuilder {
         hand: serializeCardZone(cards.handCards),
         drawPile: serializeCardZone(cards.drawPile),
         discardPile: serializeCardZone(cards.discardPile),
-        temporary: serializeCardZone(cards.temporaryCards),
         exile: serializeCardZone(cards.exilePile),
         reserve: serializeCardZone(cards.reservePile)
       },

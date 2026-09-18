@@ -1,7 +1,5 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import * as THREE from 'three';
-import { createAttackRangeRing } from '../src/art/lowpoly.js';
 import { UNIT_SPECIAL_UPGRADES } from '../src/data/cardUpgrades.js';
 import { CARD_DEFINITIONS } from '../src/data/gameData.js';
 import {
@@ -17,8 +15,7 @@ globalThis.window = {
 const {
   createWaveRewardCandidateEntries,
   Game,
-  normalizeStrategyEventType,
-  shouldAutoGuardSummonedUnit
+  normalizeStrategyEventType
 } = await import('../src/systems/Game.js');
 assert.equal(Game.prototype.weightedCardChoices, undefined, 'wave affixes do not weight card rewards');
 
@@ -80,7 +77,7 @@ const unitRewardCard = { id: 'lightning-mages', kind: 'summon', unitType: 'light
 const regularRewardCard = { id: 'fire-enchant', kind: 'enchant' };
 const liveSessionRewardDeck = createWaveRewardDeckIds([regularRewardCard], CARD_DEFINITIONS);
 const availableUnitRewardCards = waveRewardUnitCards(CARD_DEFINITIONS);
-assert.equal(availableUnitRewardCards.length, 15);
+assert.equal(availableUnitRewardCards.length, 16);
 assert.ok(
   availableUnitRewardCards.every((card) => liveSessionRewardDeck.includes(card.id)),
   'real sessions exclude summons from the combat deck, so reward initialization must add every unit card separately'
@@ -110,7 +107,7 @@ const liveSessionPoolGame = Object.assign(Object.create(Game.prototype), {
 });
 const liveUnitRewardPool = liveSessionPoolGame.waveRewardCardPool()
   .filter((card) => card.kind === 'summon');
-assert.equal(liveUnitRewardPool.length, 15, 'normal live-session rewards must actually expose unit cards');
+assert.equal(liveUnitRewardPool.length, 16, 'normal live-session rewards must actually expose unit cards');
 assert.equal(
   liveUnitRewardPool.find((card) => card.id === 'lightning-mages')?.level,
   5,
@@ -219,8 +216,6 @@ assert.equal(
 
 assert.equal(normalizeStrategyEventType('unit-upgrade'), 'wave-reward');
 assert.equal(normalizeStrategyEventType('altar-reward'), 'altar-reward');
-assert.equal(shouldAutoGuardSummonedUnit(unitRewardCard), true);
-assert.equal(shouldAutoGuardSummonedUnit({ kind: 'ability' }), false);
 
 let openedBossShopOptions = null;
 const bossRewardGame = Object.assign(Object.create(Game.prototype), {
@@ -452,44 +447,5 @@ assert.equal(Game.prototype.openingUnitCardLevel.call({
   levelSession: { cardLevels: { swordsmen: 8 } },
   isEndlessMode: () => true
 }, 'swordsmen'), 1, '无尽模式仍应覆盖为 Lv.1');
-
-const guardUnit = {
-  alive: true,
-  team: 'player',
-  isBuilding: false,
-  definition: { canMove: true },
-  position: new THREE.Vector3(3, 1, -4),
-  moveGoal: new THREE.Vector3(1, 0, 1),
-  commandMoveGoal: new THREE.Vector3(2, 0, 2),
-  target: { alive: true }
-};
-let guardVisualEnabled = false;
-const guardGame = {
-  groundHeightAt: () => 0.25,
-  gameGuardRadiusFor: () => 6.5,
-  clearUnitRoute(unit) {
-    unit.routeCleared = true;
-  },
-  applyUnitGuardVisualState(unit, enabled) {
-    guardVisualEnabled = enabled;
-  }
-};
-assert.equal(Game.prototype.setUnitGuardMode.call(guardGame, guardUnit), true);
-assert.equal(guardUnit.controlMode, 'guard');
-assert.deepEqual(guardUnit.guardPoint.toArray(), [3, 0.25, -4]);
-assert.equal(guardUnit.guardRadius, 6.5);
-assert.equal(guardUnit.moveGoal, null);
-assert.equal(guardUnit.commandMoveGoal, null);
-assert.equal(guardUnit.target, null);
-assert.equal(guardUnit.routeCleared, true);
-assert.equal(guardVisualEnabled, true);
-
-const ordinaryGuardRing = createAttackRangeRing('#62d56f');
-ordinaryGuardRing.traverse((child) => {
-  assert.equal(child.layers.mask, 1, 'guard ring uses the normal render layer');
-  if (!child.material) return;
-  assert.equal(child.material.depthTest, true, 'guard ring respects normal scene depth');
-  assert.equal(child.renderOrder, 0, 'guard ring does not force an overlay render order');
-});
 
 console.log('wave reward pool checks passed');
