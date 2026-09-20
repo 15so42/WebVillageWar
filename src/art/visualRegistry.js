@@ -1073,11 +1073,11 @@ function applyFrostTrollBossAttack(root, t, pulse, variant = null) {
     offhandPivot.rotation.z += -0.02 * windup + 0.05 * strike;
   }
   if (hammerHead) {
-    hammerHead.scale.setScalar(1 + strike * 0.12 * abilityBoost);
+    hammerHead.scale.multiplyScalar(1 + strike * 0.12 * abilityBoost);
   }
   if (hammerGem) {
     hammerGem.rotation.y += windup * 0.35 + strike * 0.65 * abilityBoost;
-    hammerGem.scale.setScalar(1 + (windup * 0.08 + strike * 0.16) * abilityBoost);
+    hammerGem.scale.multiplyScalar(1 + (windup * 0.08 + strike * 0.16) * abilityBoost);
   }
   if (skullCharm) {
     skullCharm.rotation.z += Math.sin(t * Math.PI * 2) * 0.015 * abilityBoost + strike * 0.03;

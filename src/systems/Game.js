@@ -156,6 +156,34 @@ const SILVER_GAIN_MULTIPLIER = 0.6;
 const RUN_SHOP_PLAYER_ACCESS_ENABLED = false;
 const FORCED_CARD_CHOICE_UNTIL_WAVE = 3;
 const OPENING_COMBAT_UNIT_CHOICES = 2;
+// 开局固定四次三选一：单位卡 → 法术卡 → 附魔卡 → 能力卡。除第一步在开局时
+// 直接打开外，其余步骤由 pendingStrategyRewards 依次串行推进（联机按全员等待）。
+const OPENING_REWARD_STEPS = [
+  {
+    type: 'opening-unit',
+    kind: 'summon',
+    title: '选择你的起始单位卡',
+    summary: '从所有战斗单位中三选一，获得该单位卡后自行部署。'
+  },
+  {
+    type: 'opening-spell',
+    kind: 'spell',
+    title: '选择起始法术卡',
+    summary: '从法术卡中三选一，加入抽牌堆。'
+  },
+  {
+    type: 'opening-enchant',
+    kind: 'enchant',
+    title: '选择起始附魔卡',
+    summary: '从附魔卡中三选一，加入抽牌堆。'
+  },
+  {
+    type: 'opening-ability',
+    kind: 'ability',
+    title: '选择起始能力卡',
+    summary: '从能力卡中三选一，加入抽牌堆。'
+  }
+];
 const ENEMY_CAMP_IDLE_SCAN_SECONDS = 0.18;
 const RUN_SHOP_BASE_PRICE = 12;
 const RUN_SHOP_PRICE_INCREMENT = 3;
@@ -1255,6 +1283,10 @@ export class Game {
     } else {
       this.updateWavePreview();
       this.awaitingOpeningReward = true;
+      // 开局四次三选一：先排好后续三次（法术 / 附魔 / 能力），
+      // 每次选完由 continueAfterStrategyFlow 取出下一项，全部选完才开第一波。
+      // 联机 Client 走上面的分支、不排本地队列，步骤由 Host 权威推进。
+      this.queueOpeningRewardSteps();
       if (this.coop?.enabled) {
         this.openCoopStrategyEventForAll('opening-unit');
       } else {
@@ -1702,6 +1734,21 @@ export class Game {
     return this.openNextStrategyReward();
   }
 
+  // 开局三选一的其余步骤：排在奖励队列里，由 continueAfterStrategyFlow 依次打开。
+  // 联机时必须带 coop 标记，才能重新走“全员各自三选一”的共享流程。
+  queueOpeningRewardSteps() {
+    const coop = Boolean(this.coop?.enabled);
+    OPENING_REWARD_STEPS
+      .filter((step) => step.type !== 'opening-unit')
+      .forEach((step) => {
+        this.pendingStrategyRewards.push({ type: step.type, options: {}, coop });
+      });
+  }
+
+  hasPendingOpeningReward() {
+    return (this.pendingStrategyRewards ?? []).some((entry) => isOpeningRewardType(entry?.type));
+  }
+
   openNextStrategyReward() {
     if (this.levelFinished || this.strategyEvent) return false;
     const next = this.pendingStrategyRewards.shift();
@@ -2146,7 +2193,9 @@ export class Game {
     this.paused = false;
     this.clock.getDelta();
     const shouldStartFirstWave = this.awaitingOpeningReward;
-    if (shouldStartFirstWave) {
+    // 开局有四次三选一：只有队列里再没有开局步骤时才算选完，否则联机对局
+    // 会在第一次选牌后就被标记为“开局选择完成”。
+    if (shouldStartFirstWave && !this.hasPendingOpeningReward()) {
       this.networkBridge?.notifyOpeningSelectionComplete?.();
     }
     this.continueAfterStrategyFlow(shouldStartFirstWave);
@@ -3163,17 +3212,32 @@ export class Game {
   createStrategyEvent(type, options = {}) {
     type = normalizeStrategyEventType(type);
     this.resetStrategyRewardRerollForEvent(type);
-    if (type === 'opening-unit') {
-      const summonPool = CARD_DEFINITIONS.filter((card) => isOpeningCombatSummon(card));
+    if (isOpeningRewardType(type)) {
+      const step = openingRewardStep(type);
+      if (type === 'opening-unit') {
+        const summonPool = CARD_DEFINITIONS.filter((card) => isOpeningCombatSummon(card));
+        return {
+          type,
+          kicker: '开局准备',
+          title: step?.title ?? '选择你的起始单位卡',
+          summary: step?.summary ?? '从所有战斗单位中三选一，获得该单位卡后自行部署。',
+          choices: this.openingUnitChoices({
+            pool: summonPool,
+            action: 'grant-opening-unit-card',
+            actionLabel: '获得单位卡'
+          })
+        };
+      }
       return {
         type,
         kicker: '开局准备',
-        title: '选择你的起始单位卡',
-        summary: '从所有战斗单位中三选一，获得该单位卡后自行部署。',
-        choices: this.openingUnitChoices({
-          pool: summonPool,
-          action: 'grant-opening-unit-card',
-          actionLabel: '获得单位卡'
+        title: step?.title ?? '开局选牌',
+        summary: step?.summary ?? '从本局可选卡牌中三选一，加入抽牌堆。',
+        choices: this.openingKindChoices({
+          kind: step?.kind ?? null,
+          pool: this.openingKindPool(step?.kind ?? null),
+          action: 'add-card',
+          actionLabel: '加入牌堆'
         })
       };
     }
@@ -3400,10 +3464,38 @@ export class Game {
   openingUnitChoices({ pool, action, actionLabel }) {
     const combatPool = pool.filter((card) => isOpeningCombatSummon(card));
     const sourcePool = combatPool.length >= STRATEGY_CHOICE_COUNT ? combatPool : pool;
-    return pickRandomItems(sourcePool, STRATEGY_CHOICE_COUNT).map((card) => {
+    return this.openingRewardChoices(sourcePool, { action, actionLabel });
+  }
+
+  // 开局指定种类（法术 / 附魔 / 能力）的三选一候选池：优先本局出战牌组里的该类卡；
+  // 牌组里该类不足三张时用全部同名卡补足，保证开局永远是三选一。
+  openingKindPool(kind) {
+    const filterKind = (card) => !kind || card.kind === kind;
+    const deckPool = this.selectedCardPool({ kind, allowAllFallback: false }).filter(filterKind);
+    if (deckPool.length >= STRATEGY_CHOICE_COUNT) return deckPool;
+    const catalogue = CARD_DEFINITIONS
+      .filter((card) => !card.lootOnly && !card.retired)
+      .filter(filterKind)
+      .map((card) => this.cardSystem?.applyRuntimeCardLevel?.(card) ?? card);
+    return catalogue.length > deckPool.length ? catalogue : deckPool;
+  }
+
+  openingKindChoices({ kind, pool, action, actionLabel }) {
+    const sourcePool = (pool ?? []).filter((card) => (kind ? card.kind === kind : true));
+    return this.openingRewardChoices(sourcePool, { action, actionLabel });
+  }
+
+  openingRewardChoices(pool, { action = 'add-card', actionLabel = '加入牌堆' } = {}) {
+    if (!pool?.length) return [];
+    return pickRandomItems(pool, STRATEGY_CHOICE_COUNT).map((card) => {
+      // 开局奖励沿用玩家在该卡上的升级等级（无尽模式统一 Lv.1）。
       const leveledCard = {
         ...card,
-        level: this.openingUnitCardLevel(card.id)
+        level: Math.max(
+          1,
+          Math.floor(Number(card?.level) || 1),
+          this.openingUnitCardLevel(card.id)
+        )
       };
       const resolvedCard = this.cardSystem?.applyRuntimeCardLevel?.(leveledCard) ?? leveledCard;
       return {
@@ -9303,7 +9395,7 @@ function strategyChoiceDedupeKey(choice) {
 }
 
 function strategyEventTypeMeta(type) {
-  if (type === 'opening-unit') {
+  if (isOpeningRewardType(type)) {
     return { key: 'opening', mark: '初', label: '开局选牌' };
   }
   if (type === 'wave-reward') {
@@ -9385,6 +9477,15 @@ function createInitialShopPrices() {
 
 export function normalizeStrategyEventType(type) {
   return type === 'unit-upgrade' ? 'wave-reward' : type;
+}
+
+// 开局三选一系列事件（单位 / 法术 / 附魔 / 能力）。
+export function isOpeningRewardType(type) {
+  return OPENING_REWARD_STEPS.some((step) => step.type === type);
+}
+
+function openingRewardStep(type) {
+  return OPENING_REWARD_STEPS.find((step) => step.type === type) ?? null;
 }
 
 function unitSpecializationRewardCardId(unitType, upgradeId) {

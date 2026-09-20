@@ -416,6 +416,7 @@ const upgradedOpeningGame = {
   },
   isEndlessMode: () => false,
   openingUnitCardLevel: Game.prototype.openingUnitCardLevel,
+  openingRewardChoices: Game.prototype.openingRewardChoices,
   cardSystem: {
     applyRuntimeCardLevel(card) {
       return card;

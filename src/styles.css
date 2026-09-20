@@ -321,6 +321,11 @@ body.is-meta-open .mobile-box-select-hint {
   transform: translate(-50%, -100%);
 }
 
+/* 图标栏位于顶部波次详情面板内时，上方没有空间，改为向下展开。 */
+.energy-ability-tooltip.is-below {
+  transform: translate(-50%, 0);
+}
+
 .unit-status {
   --status-content-width: 132px;
   gap: 0.8px;
@@ -3421,14 +3426,14 @@ body:not(.is-game-active) .mobile-action-dock {
 }
 
 /* ------------------------------------------------------------
-   拖拽弃牌区：拖拽手牌时出现在屏幕右上方（避开 top:8px 的设置工具栏），
+   拖拽弃牌区：拖拽手牌时出现在屏幕右下方（避让右下角的弃牌堆按钮，压在它上方），
    红色虚线框提示“拖到此处松手即弃牌”。z-index 低于拖拽 ghost(9)；
    指针进入且能量足够时高亮(is-active)，能量不足时置灰(is-insufficient)。
    ------------------------------------------------------------ */
 .card-discard-zone {
   position: fixed;
-  top: 56px;
-  right: 16px;
+  right: 18px;
+  bottom: 96px;
   z-index: 8;
   display: flex;
   align-items: center;
@@ -3444,10 +3449,10 @@ body:not(.is-game-active) .mobile-action-dock {
   pointer-events: none;
   opacity: 0;
   visibility: hidden;
-  transform: translateY(-8px);
+  /* 只做淡入淡出，不加位移：拖拽期间要用 getBoundingClientRect 缓存丢弃区矩形做
+     命中判定，任何 transform 都会让缓存到的位置和画出来的虚线框错位。 */
   transition:
     opacity 130ms ease,
-    transform 130ms ease,
     background 130ms ease,
     border-color 130ms ease,
     color 130ms ease;
@@ -3456,7 +3461,6 @@ body:not(.is-game-active) .mobile-action-dock {
 .card-discard-zone.is-visible {
   opacity: 1;
   visibility: visible;
-  transform: translateY(0);
 }
 
 .card-discard-zone-icon {
@@ -3477,6 +3481,15 @@ body:not(.is-game-active) .mobile-action-dock {
   border-color: rgba(150, 122, 112, 0.55);
   background: rgba(38, 32, 30, 0.5);
   color: #ab9a92;
+}
+
+/* 触屏 / 移动端：手牌平铺占满底部宽度，直接放在右下角会压在手牌上，
+   因此改为贴在同一列控制件（能量条、抽/弃牌堆）上方的右下区域。 */
+@media (pointer: coarse) {
+  .card-discard-zone {
+    right: 8px;
+    bottom: calc(84px + env(safe-area-inset-bottom) + var(--mobile-hand-visual-height) + var(--mobile-energy-panel-height));
+  }
 }
 
 .drag-ghost {

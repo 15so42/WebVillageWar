@@ -50,7 +50,9 @@
     "test:altar-specialization": "node scripts/test-altar-specialization-reward.mjs",
     "test:altar-visual": "node scripts/test-altar-visual.mjs",
     "test:unit-camera-controls": "node scripts/test-unit-camera-controls.mjs",
-    "test:building-range-ring": "node scripts/test-building-range-ring.mjs"
+    "test:building-range-ring": "node scripts/test-building-range-ring.mjs",
+    "test:hand-fan": "node scripts/test-hand-fan-geometry.mjs",
+    "test:opening-rewards": "node scripts/test-opening-reward-sequence.mjs"
   },
   "dependencies": {
     "three": "^0.170.0",

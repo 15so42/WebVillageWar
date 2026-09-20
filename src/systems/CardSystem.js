@@ -19,6 +19,28 @@ const FAN_DEG_PER_CARD = 6.2;
 const FAN_ARC_DEPTH_PX = 18;
 const FAN_MIN_VISIBLE_RATIO = 0.3;
 const FAN_MAX_VISIBLE_RATIO = 0.46;
+// 悬停查看：卡牌原地摆正（rotate 0）并放大到 FAN_HOVER_SCALE，上抬 FAN_HOVER_LIFT_PX。
+// 由于 transform-origin 在卡牌底部中点，直接摆正会让卡面绕支点横甩，因此在
+// layoutHandFan 里按卡牌倾角下发 --fan-hover-dx/dy 做位移补偿，使卡牌以自身
+// 中心为轴直立放大；CSS 侧的同类数值由这两个变量下发，保证 JS 与样式一致。
+const FAN_HOVER_LIFT_PX = 46;
+const FAN_HOVER_SCALE = 1.1;
+// 扇形手牌只在精确指针 + 可悬停的桌面端生效（与 battleHud.css 的媒体查询一致）。
+const FAN_LAYOUT_MEDIA_QUERY = '(hover: hover) and (pointer: fine)';
+// 扇形手牌几何契约：layoutHandFan 下发的 CSS 变量、悬停摆正补偿与命中判定共用同一
+// 组常量，battleHud.css 里的 var(...) 兜底值必须与之一致（由
+// scripts/test-hand-fan-geometry.mjs 校验）。
+export const FAN_HAND_GEOMETRY = Object.freeze({
+  MAX_TOTAL_SPREAD_DEG: FAN_MAX_TOTAL_SPREAD_DEG,
+  MIN_TOTAL_SPREAD_DEG: FAN_MIN_TOTAL_SPREAD_DEG,
+  DEG_PER_CARD: FAN_DEG_PER_CARD,
+  ARC_DEPTH_PX: FAN_ARC_DEPTH_PX,
+  MIN_VISIBLE_RATIO: FAN_MIN_VISIBLE_RATIO,
+  MAX_VISIBLE_RATIO: FAN_MAX_VISIBLE_RATIO,
+  HOVER_LIFT_PX: FAN_HOVER_LIFT_PX,
+  HOVER_SCALE: FAN_HOVER_SCALE,
+  LAYOUT_MEDIA_QUERY: FAN_LAYOUT_MEDIA_QUERY
+});
 // 附魔卡长按连续使用：按住超过 ENCHANT_HOLD_START_MS 进入连续模式，
 // 之后每 ENCHANT_HOLD_TICK_MS 倒计时结束自动施放一次并扣除能量。
 const ENCHANT_HOLD_START_MS = 350;
@@ -38,7 +60,6 @@ const FRIENDLY_UNIT_TOUCH_TARGET_RADIUS = 84;
 const FRIENDLY_UNIT_TOUCH_STICKY_RADIUS = 112;
 const FRIENDLY_UNIT_TOUCH_Y_OFFSET = 42;
 const DISCARD_FALL_DELAY_MS = 500;
-const CARD_USAGE_HINT = '拖出卡牌区域使用 / 正下方拖动丢弃';
 const CARD_KIND_COLORS = {
   summon: '#5d8b68',
   building: '#a27444',
@@ -91,8 +112,15 @@ export class CardSystem {
     this.pendingDrawAnimations = new Set();
     this.drag = null;
     this.dragGhostPreviewCache = new WeakMap();
-    // 拖拽弃牌区（右上角红色虚线）：拖拽手牌时显示，懒创建
+    // 拖拽弃牌区（屏幕右下角红色虚线）：拖拽手牌时显示，懒创建
     this.discardZone = null;
+    // 扇形手牌：fanMode 表示桌面扇形布局生效；fanGeometry 缓存每张牌的基准卡位
+    // （未放大、未抬升时的中心/倾角/尺寸），hoveredHandCard 为当前放大查看的牌。
+    this.fanMode = false;
+    this.fanGeometry = new Map();
+    this.hoveredHandCard = null;
+    this.hoverFrame = null;
+    this.pendingHoverPoint = null;
     // 附魔卡长按连续使用状态
     this.enchantHold = null;
     this.enchantHoldInterval = null;
@@ -119,8 +147,16 @@ export class CardSystem {
     if (!this.mountUi) {
       this.hand.hidden = true;
     }
+    this.hand.style.setProperty('--fan-hover-lift', `${FAN_HOVER_LIFT_PX}px`);
+    this.hand.style.setProperty('--fan-hover-scale', String(FAN_HOVER_SCALE));
+    // 悬停判定按基准卡位计算（见 onHandHoverMove）：放大后的顶层牌不再抢占指针，
+    // 因此指针滑到侧边牌的可视区域时能直接选中侧边牌。只有挂真实 UI 的实例需要。
+    if (this.mountUi) {
+      document.addEventListener('pointermove', this.onHandHoverMove, { passive: true });
+      window.addEventListener('blur', this.onWindowBlur);
+    }
     this.energyPanel = createEnergyPanel(this.hand, this.mountUi);
-    this.energyParts = collectEnergyPanel(this.energyPanel);
+    this.energyParts = collectEnergyPanel(this.energyPanel, this.mountUi);
     this.abilityIcons = this.energyParts.abilities;
     this.coreIcons = this.energyParts.cores;
     this.abilityTooltip = createAbilityTooltip(this.mountUi);
@@ -180,6 +216,9 @@ export class CardSystem {
 
   renderHand() {
     this.hand.innerHTML = '';
+    // 手牌重建后旧的悬停引用与基准卡位全部失效，由 layoutHandFan 重新写入。
+    this.hoveredHandCard = null;
+    this.fanGeometry.clear();
     const fanCards = [];
     for (let index = 0; index < HAND_SIZE; index += 1) {
       const card = this.handCards[index];
@@ -213,6 +252,7 @@ export class CardSystem {
           Math.max(FAN_MIN_TOTAL_SPREAD_DEG, (count - 1) * FAN_DEG_PER_CARD)
         );
     const cardWidth = cards[0].offsetWidth || 140;
+    const cardHeight = cards[0].offsetHeight || 220;
     const viewportWidth = window.innerWidth || 1280;
     const maxFanWidth = Math.max(cardWidth, viewportWidth - 48);
     const packedSpacing = count > 1 ? (maxFanWidth - cardWidth) / (count - 1) : 0;
@@ -223,14 +263,178 @@ export class CardSystem {
           Math.min(cardWidth * FAN_MAX_VISIBLE_RATIO, packedSpacing)
         );
     const center = (count - 1) / 2;
+    this.fanMode = typeof window.matchMedia === 'function'
+      && window.matchMedia(FAN_LAYOUT_MEDIA_QUERY).matches;
+    this.fanGeometry.clear();
     cards.forEach((element, index) => {
       const offset = index - center;
       const t = count <= 1 ? 0 : offset / center;
-      element.style.setProperty('--fan-tx', `${(offset * spacing).toFixed(1)}px`);
-      element.style.setProperty('--fan-rotate', `${(t * (totalSpread / 2)).toFixed(2)}deg`);
-      element.style.setProperty('--fan-ty', `${(t * t * FAN_ARC_DEPTH_PX).toFixed(1)}px`);
-      element.style.zIndex = String(10 + index);
+      const tx = offset * spacing;
+      const ty = t * t * FAN_ARC_DEPTH_PX;
+      const rotateDeg = count <= 1 ? 0 : t * (totalSpread / 2);
+      const rotateRad = rotateDeg * (Math.PI / 180);
+      element.style.setProperty('--fan-tx', `${tx.toFixed(1)}px`);
+      element.style.setProperty('--fan-rotate', `${rotateDeg.toFixed(2)}deg`);
+      element.style.setProperty('--fan-ty', `${ty.toFixed(1)}px`);
+      // 摆正补偿：绕底部中点旋转 θ 后卡牌中心偏移 (h/2·sinθ, -h/2·cosθ)，
+      // 直立放大到 s 倍并上抬 lift 后，补回 dx/dy 即可让卡牌以自身中心为轴摆正。
+      element.style.setProperty(
+        '--fan-hover-dx',
+        `${((cardHeight / 2) * Math.sin(rotateRad)).toFixed(1)}px`
+      );
+      element.style.setProperty(
+        '--fan-hover-dy',
+        `${((cardHeight / 2) * (FAN_HOVER_SCALE - Math.cos(rotateRad))).toFixed(1)}px`
+      );
+      const zIndex = 10 + index;
+      element.style.zIndex = String(zIndex);
+      element.style.setProperty('--fan-z', String(zIndex));
+      if (this.fanMode) {
+        const handIndex = Number(element.dataset.handIndex);
+        this.fanGeometry.set(element, {
+          index: Number.isInteger(handIndex) && handIndex >= 0 ? handIndex : index,
+          tx,
+          ty,
+          angleRad: rotateRad,
+          width: cardWidth,
+          height: cardHeight
+        });
+      }
     });
+  }
+
+  // 把当前手牌换算成一组“基准卡位”（屏幕坐标）：锚点取手牌容器（扇形模式下
+  // 是底部中线的一个零宽锚点），再叠加 layoutHandFan 下发的水平错位、弧线下沉
+  // 与绕底部中点的旋转。
+  handCardFrames() {
+    if (!this.fanMode || this.fanGeometry.size === 0) return [];
+    // display:none（局外菜单、军需铺等，都是直接作用在 .card-hand 上）时不参与判定，
+    // 否则手牌容器会退化到 (0, 0) 附近，命中判定会误伤视口角落。
+    if (!this.hand?.isConnected) return [];
+    if (window.getComputedStyle?.(this.hand)?.display === 'none') return [];
+    const anchor = this.hand.getBoundingClientRect();
+    const frames = [];
+    this.fanGeometry.forEach((geometry, element) => {
+      if (!element.isConnected) return;
+      const sin = Math.sin(geometry.angleRad);
+      const cos = Math.cos(geometry.angleRad);
+      frames.push({
+        element,
+        index: geometry.index,
+        card: this.handCards[geometry.index] ?? null,
+        centerX: anchor.left + geometry.tx + (geometry.height / 2) * sin,
+        centerY: anchor.top + geometry.ty - (geometry.height / 2) * cos,
+        sin,
+        cos,
+        width: geometry.width,
+        height: geometry.height
+      });
+    });
+    frames.sort((a, b) => a.index - b.index);
+    return frames;
+  }
+
+  // 命中判定从顶层牌（索引大、画在上面）向下找，只比较未放大、未抬升的基准
+  // 卡位：放大查看的牌虽然覆盖在侧边牌上，但不参与判定，因此指针落在侧边牌的
+  // 可视区域时选中的始终是侧边牌本身，不会被顶层牌挡住。
+  handCardHitAt(x, y, frames = this.handCardFrames()) {
+    for (let i = frames.length - 1; i >= 0; i -= 1) {
+      const frame = frames[i];
+      const dx = x - frame.centerX;
+      const dy = y - frame.centerY;
+      const localX = dx * frame.cos + dy * frame.sin;
+      const localY = -dx * frame.sin + dy * frame.cos;
+      if (Math.abs(localX) <= frame.width / 2 && Math.abs(localY) <= frame.height / 2) {
+        return frame;
+      }
+    }
+    return null;
+  }
+
+  // 摆正放大后的卡面是轴对齐的（见 --fan-hover-dx/dy 补偿），中心为基准卡位中心
+  // 上抬 FAN_HOVER_LIFT_PX；据此判断指针是否仍落在当前放大牌的卡面上——上抬后
+  // 超出基准卡位的那部分要保持放大，否则指针停在卡面上方时会反复收起/展开。
+  isInsideEnlargedHandCard(frame, x, y) {
+    if (!frame) return false;
+    return Math.abs(x - frame.centerX) <= (frame.width * FAN_HOVER_SCALE) / 2
+      && Math.abs(y - (frame.centerY - FAN_HOVER_LIFT_PX)) <= (frame.height * FAN_HOVER_SCALE) / 2;
+  }
+
+  setHandCardHover(element) {
+    if (this.hoveredHandCard === element) return;
+    this.hoveredHandCard?.classList.remove('is-fan-hover');
+    this.hoveredHandCard = element ?? null;
+    this.hoveredHandCard?.classList.add('is-fan-hover');
+  }
+
+  // 悬停判定每帧最多算一次：pointermove 频率远高于渲染，合并到 rAF 里可以避免
+  // 每个 move 事件都读取一次布局（手牌容器位置）。
+  onHandHoverMove = (event) => {
+    if (this.drag || !this.fanMode || event.pointerType === 'touch') {
+      this.cancelHandHoverFrame();
+      this.setHandCardHover(null);
+      return;
+    }
+    const x = Number(event.clientX);
+    const y = Number(event.clientY);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    this.pendingHoverPoint = { x, y };
+    if (this.hoverFrame != null) return;
+    if (typeof window.requestAnimationFrame !== 'function') {
+      this.updateHandCardHoverAt(x, y);
+      return;
+    }
+    this.hoverFrame = window.requestAnimationFrame(() => {
+      this.hoverFrame = null;
+      const point = this.pendingHoverPoint;
+      this.pendingHoverPoint = null;
+      if (!point || this.drag || !this.fanMode) return;
+      this.updateHandCardHoverAt(point.x, point.y);
+    });
+  };
+
+  cancelHandHoverFrame() {
+    this.pendingHoverPoint = null;
+    if (this.hoverFrame == null) return;
+    window.cancelAnimationFrame?.(this.hoverFrame);
+    this.hoverFrame = null;
+  }
+
+  updateHandCardHoverAt(x, y) {
+    const frames = this.handCardFrames();
+    if (frames.length === 0) {
+      this.setHandCardHover(null);
+      return;
+    }
+    const hit = this.handCardHitAt(x, y, frames);
+    if (hit) {
+      this.setHandCardHover(hit.element);
+      return;
+    }
+    const current = this.hoveredHandCard
+      ? frames.find((frame) => frame.element === this.hoveredHandCard)
+      : null;
+    // 指针停在摆正放大后的卡面上（超出基准卡位的那部分）时保持悬停，避免抖动。
+    if (this.isInsideEnlargedHandCard(current, x, y)) return;
+    this.setHandCardHover(null);
+  }
+
+  onWindowBlur = () => {
+    this.cancelHandHoverFrame();
+    this.setHandCardHover(null);
+  };
+
+  onHandCardPointerDown(event, card, sourceElement) {
+    if (event.button === 0 && this.fanMode) {
+      // 放大查看中的顶层牌会盖住侧边牌的实际位置：以基准卡位的命中结果为准，
+      // 保证按在侧边牌上时拖起的是侧边牌。
+      const hit = this.handCardHitAt(event.clientX, event.clientY);
+      if (hit?.card && hit.element && hit.element !== sourceElement) {
+        this.startDrag(event, hit.card, hit.element);
+        return;
+      }
+    }
+    this.startDrag(event, card, sourceElement);
   }
 
   createCardElement(card, index, { isDrawn = false, location = 'hand' } = {}) {
@@ -251,9 +455,9 @@ export class CardSystem {
     if (isDrawn) {
       scheduleDrawnClassCleanup(element);
     }
-    element.addEventListener('pointerenter', () => this.setHint(CARD_USAGE_HINT, 'card-hover'));
-    element.addEventListener('pointerleave', () => this.clearHint('card-hover'));
-    element.addEventListener('pointerdown', (event) => this.startDrag(event, card));
+    element.addEventListener('pointerdown', (event) => (
+      this.onHandCardPointerDown(event, card, element)
+    ));
     if (shouldUseCardFaceGhost(card, 'mouse')) {
       this.dragGhostPreviewCache.set(element, this.createDragGhostCardPreview(element));
     }
@@ -337,7 +541,7 @@ export class CardSystem {
     this.markNetworkStateDirty();
   }
 
-  startDrag(event, card) {
+  startDrag(event, card, sourceElement = event.currentTarget) {
     if (event.button !== 0) return;
     if (this.isCardOnCooldown(card) && !this.canSpend(discardEnergyCost(card))) {
       this.flashEnergyPanel();
@@ -355,10 +559,14 @@ export class CardSystem {
     this.cancelActiveDrag(event);
     event.preventDefault();
     event.stopPropagation();
-    const sourceRect = event.currentTarget.getBoundingClientRect();
+    // 拖拽期间由 .is-dragging 接管变换，先退出放大查看态，避免两种状态叠加。
+    this.cancelHandHoverFrame();
+    this.setHandCardHover(null);
+    const source = sourceElement ?? event.currentTarget;
+    const sourceRect = source.getBoundingClientRect();
     this.drag = {
       card,
-      sourceLocation: event.currentTarget.dataset.cardLocation ?? 'hand',
+      sourceLocation: source.dataset.cardLocation ?? 'hand',
       valid: false,
       point: null,
       targetUnit: null,
@@ -370,16 +578,16 @@ export class CardSystem {
       sourceLeft: sourceRect.left,
       sourceRight: sourceRect.right,
       pointerType: event.pointerType || 'mouse',
-      sourceElement: event.currentTarget
+      sourceElement: source
     };
     this.drag.playThreshold = this.drag.sourceHeight * PLAY_DRAG_RATIO;
     this.drag.sourceElement?.classList.add('is-dragging');
-    this.prepareDragGhost(event.currentTarget, card, event.pointerType);
+    this.prepareDragGhost(source, card, event.pointerType);
     this.ghost.classList.toggle('enchant-crosshair', card.target === 'friendly-unit');
     this.ghost.hidden = true;
     this.showDiscardZone();
     this.updateDraggedCardMotion(event);
-    event.currentTarget.setPointerCapture?.(event.pointerId);
+    source.setPointerCapture?.(event.pointerId);
     document.addEventListener('pointermove', this.onPointerMove);
     document.addEventListener('pointerup', this.onPointerUp);
     document.addEventListener('pointercancel', this.onPointerCancel);
@@ -617,8 +825,18 @@ export class CardSystem {
   }
 
   pickHandCardTarget(x, y) {
+    const sourceElement = this.drag?.sourceElement ?? null;
+    if (this.fanMode) {
+      // 扇形模式下用基准卡位判定：拖拽中的源牌已上抬、且放大牌会盖住侧边牌，
+      // elementFromPoint 会命中错误的牌，无法把卡指向真正的目标手牌。
+      // 判定时跳过源牌本身——它已经离开原位，露出来的下层手牌才是目标。
+      const frames = this.handCardFrames().filter((frame) => frame.element !== sourceElement);
+      const hit = this.handCardHitAt(x, y, frames);
+      if (!hit || !hit.card || hit.card === this.drag?.card) return null;
+      return { card: hit.card, element: hit.element, index: hit.index };
+    }
     const element = document.elementFromPoint(x, y)?.closest?.('.card[data-card-location="hand"]');
-    if (!element || element === this.drag?.sourceElement) return null;
+    if (!element || element === sourceElement) return null;
     const index = Number(element.dataset.handIndex);
     const card = this.handCards[index];
     if (!card || card === this.drag?.card) return null;
@@ -805,7 +1023,7 @@ export class CardSystem {
     this.ghost.style.top = `${y}px`;
   }
 
-  // 右上角“拖拽弃牌区”：懒创建，拖拽手牌时显示，指针进入即判定为弃牌意图。
+  // 屏幕右下角“拖拽弃牌区”：懒创建，拖拽手牌时显示，指针进入即判定为弃牌意图。
   ensureDiscardZone() {
     if (this.discardZone) return this.discardZone;
     if (typeof document === 'undefined' || !this.mountUi) return null;
@@ -826,7 +1044,7 @@ export class CardSystem {
     if (!zone || !this.drag) return;
     zone.classList.remove('is-active', 'is-insufficient');
     zone.classList.add('is-visible');
-    // fixed 定位，拖拽期间位置稳定，缓存一次用于命中判定
+    // fixed 定位、无 transform，拖拽期间位置稳定，缓存一次用于命中判定即可。
     this.drag.discardZoneRect = zone.getBoundingClientRect();
   }
 
@@ -2122,8 +2340,15 @@ export class CardSystem {
     );
     this.abilityTooltip.textContent = text;
     this.abilityTooltip.style.left = `${x}px`;
-    this.abilityTooltip.style.top = `${Math.max(horizontalInset, iconBounds.top - 8)}px`;
     this.abilityTooltip.hidden = false;
+    // 图标栏现位于顶部的波次详情面板内：上方空间不足时改为向下展开，
+    // 否则说明文字会被视口顶部裁掉。
+    const tooltipHeight = this.abilityTooltip.offsetHeight;
+    const opensBelow = iconBounds.top - tooltipHeight - 10 < 8;
+    this.abilityTooltip.style.top = `${opensBelow
+      ? iconBounds.bottom + 10
+      : Math.max(horizontalInset, iconBounds.top - 8)}px`;
+    this.abilityTooltip.classList.toggle('is-below', opensBelow);
   }
 
   hideAbilityTooltip() {
@@ -2295,6 +2520,11 @@ export class CardSystem {
     document.removeEventListener('pointerup', this.onPointerUp);
     document.removeEventListener('pointercancel', this.onPointerCancel);
     document.removeEventListener('keydown', this.onPileViewerKeyDown);
+    document.removeEventListener('pointermove', this.onHandHoverMove);
+    window.removeEventListener('blur', this.onWindowBlur);
+    this.cancelHandHoverFrame();
+    this.hoveredHandCard = null;
+    this.fanGeometry.clear();
     this.releaseAbilityIconScroll?.();
     this.releaseAbilityIconScroll = null;
     this.cancelEnchantHold();
@@ -2308,6 +2538,8 @@ export class CardSystem {
     this.ghost.hidden = true;
     this.ghost.classList.remove('enchant-crosshair', 'is-valid');
     this.hand.innerHTML = '';
+    // 能力/专精图标栏已挂到波次详情面板内部，需单独回收，避免残留旧图标。
+    this.energyParts?.toolbar?.remove();
     this.energyPanel?.remove();
     this.hintPanel?.remove();
     this.pileUi?.root?.remove();
@@ -2330,7 +2562,7 @@ export function collectRunShopCardInstances(cardSystem = {}) {
   });
 }
 
-// 弃牌意图 = 指针进入右上角丢弃区（drag.discardZoneRect 在 showDiscardZone 时缓存）。
+// 弃牌意图 = 指针进入右下角丢弃区（drag.discardZoneRect 在 showDiscardZone 时缓存）。
 // 取代旧的“向下拖过阈值且仍在源牌水平范围内”判定：下拖弃牌误触多、也不直观。
 export function isCardDiscardDragIntent(drag, event) {
   if (!drag || !event) return false;
@@ -3550,7 +3782,7 @@ function createAbilityTooltip(mountUi = true) {
   return tooltip;
 }
 
-function collectEnergyPanel(panel) {
+function collectEnergyPanel(panel, mountUi = true) {
   if (!panel.querySelector('.resource-list')) {
     panel.innerHTML = `
       <div class="resource-list" role="group" aria-label="当前资源">
@@ -3562,43 +3794,60 @@ function collectEnergyPanel(panel) {
           </div>
         `).join('')}
       </div>
-      <div class="energy-panel-toolbar" hidden>
-        <div class="ability-icon-row" hidden></div>
-        <div class="core-icon-row" hidden></div>
-      </div>
     `;
-  } else if (!panel.querySelector('.energy-panel-toolbar')) {
-    const toolbar = document.createElement('div');
-    toolbar.className = 'energy-panel-toolbar';
-    toolbar.hidden = true;
-    toolbar.innerHTML = `
-      <div class="ability-icon-row" hidden></div>
-      <div class="core-icon-row" hidden></div>
-    `;
-    panel.appendChild(toolbar);
-  } else {
-    if (!panel.querySelector('.ability-icon-row')) {
-      const row = document.createElement('div');
-      row.className = 'ability-icon-row';
-      row.hidden = true;
-      panel.querySelector('.energy-panel-toolbar')?.prepend(row);
-    }
-    if (!panel.querySelector('.core-icon-row')) {
-      const row = document.createElement('div');
-      row.className = 'core-icon-row';
-      row.hidden = true;
-      panel.querySelector('.energy-panel-toolbar')?.append(row);
-    }
   }
+  const toolbar = ensureEnergyToolbar(panel, mountUi);
   return {
     values: new Map([...panel.querySelectorAll('[data-resource-value]')].map((element) => [
       element.dataset.resourceValue,
       element
     ])),
-    toolbar: panel.querySelector('.energy-panel-toolbar'),
-    abilities: panel.querySelector('.ability-icon-row'),
-    cores: panel.querySelector('.core-icon-row')
+    toolbar,
+    abilities: toolbar?.querySelector('.ability-icon-row') ?? null,
+    cores: toolbar?.querySelector('.core-icon-row') ?? null
   };
+}
+
+// 能力卡 / 专精卡生效后的图标栏改为挂在顶部波次详情面板内部的下方一行，
+// 不再压在手牌上方；图标栏 DOM 只有一份，移动端与桌面端共用同一位置。
+function energyToolbarHost(mountUi = true) {
+  if (!mountUi || typeof document === 'undefined') return null;
+  return document.querySelector('.pc-medieval-hud .hud-meters.wave-command-panel')
+    ?? document.querySelector('.wave-command-panel');
+}
+
+function ensureEnergyToolbar(panel, mountUi = true) {
+  const host = energyToolbarHost(mountUi);
+  const existingInHost = host
+    ? Array.from(host.children).find((child) => child.classList?.contains('energy-panel-toolbar'))
+    : null;
+  // 图标栏会被搬到波次详情面板里，重建 CardSystem 时要连同宿主里的那份一起复用，
+  // 否则会在面板里堆出第二个空图标栏、并丢掉已有的能力与专精图标。
+  let toolbar = panel.querySelector('.energy-panel-toolbar') ?? existingInHost ?? null;
+  if (!toolbar) {
+    toolbar = document.createElement('div');
+    toolbar.className = 'energy-panel-toolbar';
+    toolbar.hidden = true;
+    panel.appendChild(toolbar);
+  }
+  if (!toolbar.querySelector('.ability-icon-row')) {
+    const row = document.createElement('div');
+    row.className = 'ability-icon-row';
+    row.hidden = true;
+    toolbar.prepend(row);
+  }
+  if (!toolbar.querySelector('.core-icon-row')) {
+    const row = document.createElement('div');
+    row.className = 'core-icon-row';
+    row.hidden = true;
+    toolbar.append(row);
+  }
+  if (!host) return toolbar;
+  Array.from(host.children).forEach((child) => {
+    if (child !== toolbar && child.classList?.contains('energy-panel-toolbar')) child.remove();
+  });
+  if (toolbar.parentElement !== host) host.appendChild(toolbar);
+  return toolbar;
 }
 
 function createGameHintPanel(anchor, mountUi = true) {

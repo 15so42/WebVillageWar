@@ -6883,16 +6883,15 @@ export function createRotrootColossusModel() {
 export function createFrostTrollBossModel() {
   const group = new THREE.Group();
   const bodyRoot = new THREE.Group();
-  bodyRoot.rotation.x = 0.12;
-  bodyRoot.position.y = -0.04;
-  // 整体比例：更高、更窄、更薄（壮而不胖）——躯干拉长、四肢随拉伸变修长，
-  // 宽肩窄腰的倒三角轮廓更明显
-  bodyRoot.scale.set(0.88, 1.12, 0.84);
+  bodyRoot.rotation.x = 0.06;
+  bodyRoot.position.y = 0.08;
+  // 胸腔、收腰和腿部分开，宽肩承担重量感，保留关节与面部的负空间。
+  bodyRoot.scale.set(0.94, 1.04, 0.92);
 
-  const skin = mat('#262c31');
-  const skinDark = mat('#15191d');
-  const skinLight = mat('#454e55');
-  const rockPlate = mat('#5f666c');
+  const skin = mat('#394953');
+  const skinDark = mat('#26343e');
+  const skinLight = mat('#536773');
+  const rockPlate = mat('#647985');
   const grime = mat('#6a7040');
   const grimeDark = mat('#4f5530');
   const hide = mat('#6b4428');
@@ -6901,8 +6900,8 @@ export function createFrostTrollBossModel() {
   const skull = mat('#ece2d4');
   const skullDark = mat('#bfb09c');
   const bone = mat('#e6d5a8');
-  const eye = mat('#ff5a24', { emissive: '#ff3d00', emissiveIntensity: 1.25 });
-  const eyeCore = mat('#ffd9a8', { emissive: '#ff7a1f', emissiveIntensity: 1.5 });
+  const eye = mat('#78dfff', { emissive: '#39bfff', emissiveIntensity: 0.85 });
+  const eyeCore = mat('#d7f6ff', { emissive: '#a2eaff', emissiveIntensity: 1.1 });
   const rock = mat('#646a70');
   const rockLight = mat('#8a9096');
   const rockDark = mat('#43494f');
@@ -6910,17 +6909,17 @@ export function createFrostTrollBossModel() {
   const gem = mat('#f4f8fc', { emissive: '#b8cadc', emissiveIntensity: 0.42 });
 
   const torso = mesh(
-    humanoidTorsoGeometry(1.06, 'player'),
+    new THREE.CylinderGeometry(0.68, 0.43, 0.94, 6, 1, false, Math.PI / 6),
     skin,
-    new THREE.Vector3(0, 1.26, 0.04),
-    // 瘦身：收窄胸口、拉长躯干，突出宽肩窄腰的强壮比例，而不是胖
-    new THREE.Vector3(0.76, 1.2, 0.66)
+    new THREE.Vector3(0, 1.4, 0.02),
+    // 短而宽的胸腔，不再用贯通肩膀到脚踝的单根柱体。
+    new THREE.Vector3(1.26, 1, 0.86)
   );
   const chestRock = mesh(
-    new THREE.BoxGeometry(0.78, 0.62, 0.2),
+    new THREE.DodecahedronGeometry(0.46, 0),
     rockPlate,
-    new THREE.Vector3(0, 1.52, 0.58),
-    new THREE.Vector3(1, 1, 1)
+    new THREE.Vector3(0, 1.55, 0.38),
+    new THREE.Vector3(1.12, 0.78, 0.36)
   );
   chestRock.rotation.x = -0.08;
   // —— 石头傀儡化：腹部不是脂肪而是层叠岩板 + 裂纹 ——
@@ -6941,14 +6940,14 @@ export function createFrostTrollBossModel() {
   const chestCrackLeft = mesh(
     new THREE.BoxGeometry(0.17, 0.026, 0.016),
     skinDark,
-    new THREE.Vector3(-0.2, 1.44, 0.66),
+    new THREE.Vector3(-0.19, 1.52, 0.535),
     new THREE.Vector3(1, 1, 1)
   );
   chestCrackLeft.rotation.z = -0.38;
   const chestCrackRight = mesh(
     new THREE.BoxGeometry(0.17, 0.026, 0.016),
     skinDark,
-    new THREE.Vector3(0.2, 1.46, 0.66),
+    new THREE.Vector3(0.19, 1.55, 0.535),
     new THREE.Vector3(1, 1, 1)
   );
   chestCrackRight.rotation.z = 0.34;
@@ -6965,20 +6964,20 @@ export function createFrostTrollBossModel() {
   // —— 冰霜属性外观：肩部冰晶刺、胸口冰核、腰带冰晶 ——
   const frostIce = mat('#92e6ff', { emissive: '#4bbbe9', emissiveIntensity: 0.44 });
   const shoulderIceLeft = mesh(
-    new THREE.ConeGeometry(0.14, 0.62, 5),
+    new THREE.ConeGeometry(0.12, 0.42, 5),
     frostIce,
-    new THREE.Vector3(1.02, 1.82, 0.12),
+    new THREE.Vector3(0.98, 2.02, 0.07),
     new THREE.Vector3(1, 1, 1)
   );
   shoulderIceLeft.rotation.z = -0.72;
   shoulderIceLeft.rotation.x = 0.5;
   const shoulderIceRight = shoulderIceLeft.clone();
-  shoulderIceRight.position.x = -1.02;
+  shoulderIceRight.position.x = -0.98;
   shoulderIceRight.rotation.z = 0.72;
   const chestIceCore = mesh(
-    new THREE.OctahedronGeometry(0.16, 0),
+    new THREE.OctahedronGeometry(0.105, 0),
     frostIce,
-    new THREE.Vector3(0, 1.56, 0.68),
+    new THREE.Vector3(0, 1.59, 0.54),
     new THREE.Vector3(0.9, 1.15, 0.9)
   );
   const beltIceLeft = mesh(
@@ -7010,38 +7009,38 @@ export function createFrostTrollBossModel() {
     new THREE.Vector3(0.9, 0.82, 0.78)
   );
   const brow = mesh(
-    new THREE.BoxGeometry(0.64, 0.14, 0.17),
+    new THREE.BoxGeometry(0.5, 0.07, 0.12),
     skinDark,
     new THREE.Vector3(0, 2.38, 0.4)
   );
   brow.rotation.x = 0.18;
   // 怒目眉脊：两段向内下压的骨脊形成凶狠“V”字皱眉，压住眼神、去掉憨态
   const browRidgeLeft = mesh(
-    new THREE.BoxGeometry(0.28, 0.11, 0.15),
+    new THREE.BoxGeometry(0.24, 0.07, 0.12),
     skinDark,
-    new THREE.Vector3(-0.18, 2.37, 0.45)
+    new THREE.Vector3(-0.15, 2.365, 0.43)
   );
   browRidgeLeft.rotation.z = -0.4;
   browRidgeLeft.rotation.x = 0.12;
   const browRidgeRight = browRidgeLeft.clone();
-  browRidgeRight.position.x = 0.18;
+  browRidgeRight.position.x = 0.15;
   browRidgeRight.rotation.z = 0.4;
   const snout = mesh(
     new THREE.BoxGeometry(0.26, 0.13, 0.22),
     skinDark,
-    new THREE.Vector3(0, 2.12, 0.47),
+    new THREE.Vector3(0, 2.18, 0.43),
     new THREE.Vector3(0.9, 0.66, 0.9)
   );
   const jaw = mesh(
     new THREE.DodecahedronGeometry(0.34, 0),
     skinDark,
-    new THREE.Vector3(0, 1.94, 0.33),
+    new THREE.Vector3(0, 2.045, 0.27),
     new THREE.Vector3(1.06, 0.5, 0.78)
   );
   const eyeLeft = mesh(
     new THREE.BoxGeometry(0.12, 0.032, 0.05),
     eye,
-    new THREE.Vector3(-0.155, 2.3, 0.43)
+    new THREE.Vector3(-0.155, 2.285, 0.46)
   );
   eyeLeft.rotation.z = -0.3;
   const eyeRight = eyeLeft.clone();
@@ -7050,19 +7049,19 @@ export function createFrostTrollBossModel() {
   const eyeCoreLeft = mesh(
     new THREE.BoxGeometry(0.055, 0.014, 0.02),
     eyeCore,
-    new THREE.Vector3(-0.155, 2.3, 0.455)
+    new THREE.Vector3(-0.155, 2.285, 0.49)
   );
   eyeCoreLeft.rotation.z = -0.3;
   const eyeCoreRight = eyeCoreLeft.clone();
   eyeCoreRight.position.x = 0.155;
   eyeCoreRight.rotation.z = 0.3;
   const earLeft = mesh(
-    new THREE.ConeGeometry(0.09, 0.4, 4),
+    new THREE.ConeGeometry(0.09, 0.28, 4),
     skinDark,
     new THREE.Vector3(-0.36, 2.46, -0.06),
     new THREE.Vector3(0.86, 1, 0.76)
   );
-  earLeft.rotation.z = -0.5;
+  earLeft.rotation.z = 0.85;
   earLeft.rotation.x = -0.46;
   const earInnerLeft = mesh(
     new THREE.ConeGeometry(0.06, 0.2, 4),
@@ -7073,24 +7072,24 @@ export function createFrostTrollBossModel() {
   earInnerLeft.rotation.copy(earLeft.rotation);
   const earRight = earLeft.clone();
   earRight.position.x = 0.36;
-  earRight.rotation.z = 0.48;
+  earRight.rotation.z = -0.85;
   const earInnerRight = earInnerLeft.clone();
   earInnerRight.position.x = 0.35;
-  earInnerRight.rotation.z = 0.48;
+  earInnerRight.rotation.z = -0.85;
   const tuskLeft = mesh(
-    new THREE.ConeGeometry(0.07, 0.62, 5),
+    new THREE.ConeGeometry(0.065, 0.32, 5),
     bone,
-    new THREE.Vector3(-0.24, 1.9, 0.42)
+    new THREE.Vector3(-0.24, 2.095, 0.47)
   );
-  // 獠牙上翘外撇：从下颌向上向前挑出，凶相毕露（不再是短钝的小齿）
-  tuskLeft.rotation.x = Math.PI / 2 - 0.66;
+  // 短獠牙从下颌外侧向上伸出，避免横穿嘴部与胸口。
+  tuskLeft.rotation.x = 0.3;
   tuskLeft.rotation.z = -0.26;
   const tuskRight = tuskLeft.clone();
   tuskRight.position.x = 0.24;
   tuskRight.rotation.z = 0.26;
 
   // 头部冰冠：数根向后上挑的冰晶，强化“冰霜巨魔”Boss 的威慑与属性识别，替代憨厚轮廓
-  const crownGeometry = new THREE.ConeGeometry(0.075, 0.46, 4);
+  const crownGeometry = new THREE.ConeGeometry(0.075, 0.32, 4);
   const headIceCrown = [
     [0, 2.6, -0.06, -0.2, 0],
     [-0.24, 2.52, -0.04, -0.34, 0.5],
@@ -7105,27 +7104,27 @@ export function createFrostTrollBossModel() {
   const necklace = mesh(
     new THREE.TorusGeometry(0.34, 0.028, 5, 12, Math.PI * 1.12),
     chain,
-    new THREE.Vector3(0, 1.68, 0.28)
+    new THREE.Vector3(0, 1.88, 0.04)
   );
   necklace.rotation.x = Math.PI / 2;
   necklace.rotation.z = 0.1;
   const skullCharm = mesh(
     new THREE.DodecahedronGeometry(0.17, 0),
     skull,
-    new THREE.Vector3(0, 1.5, 0.42),
+    new THREE.Vector3(0, 0.96, 0.42),
     new THREE.Vector3(0.92, 1, 0.78)
   );
   const skullEyeLeft = mesh(
     new THREE.BoxGeometry(0.045, 0.04, 0.025),
     skullDark,
-    new THREE.Vector3(-0.05, 1.54, 0.54)
+    new THREE.Vector3(-0.05, 1.0, 0.54)
   );
   const skullEyeRight = skullEyeLeft.clone();
   skullEyeRight.position.x = 0.05;
   const skullJaw = mesh(
     new THREE.BoxGeometry(0.16, 0.06, 0.1),
     skullDark,
-    new THREE.Vector3(0, 1.42, 0.46)
+    new THREE.Vector3(0, 0.88, 0.46)
   );
 
   const loinFront = mesh(
@@ -7148,12 +7147,12 @@ export function createFrostTrollBossModel() {
   const shoulderLeft = mesh(
     new THREE.DodecahedronGeometry(0.42, 0),
     skinDark,
-    new THREE.Vector3(0.92, 1.58, -0.06),
-    new THREE.Vector3(1.42, 0.78, 0.94)
+    new THREE.Vector3(0.81, 1.76, -0.02),
+    new THREE.Vector3(1.1, 0.82, 0.98)
   );
   shoulderLeft.rotation.z = -0.2;
   const shoulderRight = shoulderLeft.clone();
-  shoulderRight.position.x = -0.88;
+  shoulderRight.position.x = -0.81;
   shoulderRight.rotation.z = 0.2;
 
   const legLeft = mesh(
@@ -7180,7 +7179,7 @@ export function createFrostTrollBossModel() {
   const clawRight = clawLeft.clone();
   clawRight.position.x = -0.4;
 
-  const leftShoulderPos = new THREE.Vector3(0.84, 1.56, -0.02);
+  const leftShoulderPos = new THREE.Vector3(0.8, 1.7, -0.02);
   const leftHandPos = new THREE.Vector3(1.22, 0.84, 0.5);
   const leftArm = limb(leftShoulderPos, leftHandPos, humanoidArmRadius(0.22, 'player'), skin);
   const leftHand = mesh(
@@ -7195,7 +7194,7 @@ export function createFrostTrollBossModel() {
     new THREE.Vector3(1.28, 0.88, 0.6),
     new THREE.Vector3(1.1, 0.72, 1.1)
   );
-  const rightShoulderPos = new THREE.Vector3(-0.84, 1.56, -0.02);
+  const rightShoulderPos = new THREE.Vector3(-0.8, 1.7, -0.02);
   const rightHandPos = new THREE.Vector3(-1.16, 1.06, 0.52);
   const rightArm = limb(rightShoulderPos, rightHandPos, humanoidArmRadius(0.22, 'player'), skin);
   const rightHand = mesh(
@@ -7215,51 +7214,58 @@ export function createFrostTrollBossModel() {
   );
   // 锤头：多面体（不圆滑）+ 身体同色系配色
   const hammerHead = mesh(
-    new THREE.DodecahedronGeometry(0.58, 0),
+    new THREE.DodecahedronGeometry(0.48, 0),
     skin,
     new THREE.Vector3(-1.14, 2.36, 0.62),
-    new THREE.Vector3(1.06, 1.02, 1.04)
+    new THREE.Vector3(1.22, 0.76, 0.82)
   );
-  hammerHead.rotation.z = -0.08;
-  hammerHead.rotation.x = 0.16;
+  // 锤头端面沿前后挥击平面；整体朝向由 hammerHeadAssembly 统一设置。
   const hammerPoreA = mesh(
     new THREE.DodecahedronGeometry(0.22, 0),
     rockLight,
-    new THREE.Vector3(-1.46, 2.3, 0.56),
+    new THREE.Vector3(-1.52, 2.34, 0.62),
     new THREE.Vector3(0.78, 0.84, 0.84)
   );
   const hammerPoreB = mesh(
     new THREE.DodecahedronGeometry(0.18, 0),
     rockDark,
-    new THREE.Vector3(-0.82, 2.44, 0.68),
+    new THREE.Vector3(-0.77, 2.38, 0.64),
     new THREE.Vector3(0.72, 0.72, 0.72)
   );
   const hammerGem = mesh(
     new THREE.OctahedronGeometry(0.13, 0),
     gem,
-    new THREE.Vector3(-1.16, 2.42, 0.68),
+    new THREE.Vector3(-1.14, 2.4, 0.98),
     new THREE.Vector3(1.12, 1, 0.92)
   );
   // 锤头尖刺：四根锥刺水平向外，突出凶猛的狼牙棒轮廓（身体暗色系）
   const hammerSpikes = [];
-  const spikeGeometry = new THREE.ConeGeometry(0.075, 0.34, 5);
+  const spikeGeometry = new THREE.ConeGeometry(0.065, 0.22, 5);
   for (let spikeIndex = 0; spikeIndex < 4; spikeIndex += 1) {
     const spikeAngle = (spikeIndex / 4) * Math.PI * 2;
     const spike = new THREE.Mesh(spikeGeometry, skinDark);
     spike.position.set(
       -1.14 + Math.cos(spikeAngle) * 0.54,
       2.36 + (spikeIndex % 2 === 0 ? 0.1 : -0.08),
-      0.62 + Math.sin(spikeAngle) * 0.52
+      0.62 + Math.sin(spikeAngle) * 0.39
     );
     // 尖端从水平向外
-    spike.rotation.z = Math.PI / 2;
-    spike.rotation.y = -spikeAngle + (spikeIndex % 2 === 0 ? 0.14 : -0.1);
+    spike.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0),
+      new THREE.Vector3(Math.cos(spikeAngle), 0, Math.sin(spikeAngle)));
     hammerSpikes.push(spike);
   }
+  const hammerHeadAssembly = createPivot(
+    'frostTrollHammerHeadAssembly',
+    hammerHead.position.clone(),
+    [hammerHead, hammerPoreA, hammerPoreB, hammerGem, ...hammerSpikes]
+  );
+  // 原来的长轴横跨左右，砸击时会用侧面拍下。转为前后端面，
+  // 并随握柄的倾斜保持垂直；岩片、宝石和尖刺随锤头一起转动。
+  hammerHeadAssembly.rotation.set(Math.atan2(0.2, 1.78), -Math.PI / 2, 0);
   const weaponSwingPivot = createPivot(
     'frostTrollHammerSwingPivot',
     hammerGrip,
-    [hammerShaft, hammerHead, hammerPoreA, hammerPoreB, hammerGem, ...hammerSpikes]
+    [hammerShaft, hammerHeadAssembly]
   );
   const weaponPivot = createPivot(
     'frostTrollHammerPivot',
