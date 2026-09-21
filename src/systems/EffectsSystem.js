@@ -20,12 +20,10 @@ export class EffectsSystem {
     this.effectPools = new Map();
     this.damageNumberTextureCache = new Map();
     this.recoveryTimer = 0;
-    this.recoveryAura = null;
   }
 
   update(dt) {
     this.recoveryTimer -= dt;
-    this.updateRecoveryAura(dt);
     for (let i = this.effects.length - 1; i >= 0; i -= 1) {
       const effect = this.effects[i];
       effect.age += dt;
@@ -115,7 +113,10 @@ export class EffectsSystem {
   }
 
   destroy() {
-    this.clearRecoveryAura();
+    if (this.manaBurstMaterials) {
+      Object.values(this.manaBurstMaterials).forEach((material) => material.dispose());
+      this.manaBurstMaterials = null;
+    }
     while (this.effects.length > 0) {
       this.removeEffectAt(this.effects.length - 1);
     }
@@ -2939,128 +2940,127 @@ export class EffectsSystem {
     return true;
   }
 
-  ensureRecoveryAura(center, radius) {
-    const nextRadius = Math.max(0.5, Number(radius) || 1);
-    const nextCenter = new THREE.Vector3(center?.x ?? 0, center?.y ?? 0, center?.z ?? 0);
-    if (this.recoveryAura) {
-      const changed = Math.abs(this.recoveryAura.radius - nextRadius) > 0.02
-        || this.recoveryAura.center.distanceToSquared(nextCenter) > 0.0004;
-      this.recoveryAura.radius = nextRadius;
-      this.recoveryAura.center.copy(nextCenter);
-      return changed;
+  /**
+   * 魔力祭坛共享的软粒子材质：只创建一次并复用，避免每次触发都新建 GPU 资源。
+   * 蓝紫色系，加法混合 + 软边径向衰减，关闭深度写入但保留深度测试。
+   */
+  ensureManaBurstMaterials() {
+    if (!this.manaBurstMaterials) {
+      this.manaBurstMaterials = {
+        core: createSoftParticleMaterial('#f0e2ff', {
+          opacity: 0.96,
+          depthTest: true,
+          toneMapped: false
+        }),
+        body: createSoftParticleMaterial('#8b5cff', {
+          opacity: 0.8,
+          depthTest: true,
+          toneMapped: false
+        }),
+        residue: createSoftParticleMaterial('#5b3bd6', {
+          opacity: 0.44,
+          depthTest: true,
+          toneMapped: false
+        })
+      };
     }
+    return this.manaBurstMaterials;
+  }
 
+  /**
+   * 魔力祭坛触发：从祭坛向上喷发的蓝紫色粒子。
+   * 三层结构：瞬时高亮核心 → 软边主体 → 消散粒子；全部向上运动，先快后慢，
+   * 由缩放包络驱动出现与消失，最后缓慢缩小淡出。地面反馈交给共享的地面环。
+   */
+  spawnManaBurst(position, options = {}) {
+    const materials = this.ensureManaBurstMaterials();
     const group = new THREE.Group();
-    // 治疗区域：明亮翠绿的软边光点持续上升。采用共享软粒子纹理 + 加法混合：
-    // 加法只增不减，任何底色上都不会发黑；透明度渐变由纹理 alpha 承担，
-    // 粒子出现/消失由整体缩放包络驱动（快速淡入-保持-顶部急速收缩消逝）。
-    // 刻意留在 layer 0 主通道：软边径向渐变的相邻像素色差低于屏幕空间描边阈值，
-    // 不会被描边扫出硬边；而 layer 1 覆盖通道在部分浏览器环境下不渲染，不可依赖。
-    const moteMaterial = createSoftParticleMaterial('#3dee8a', {
-      opacity: 0.92,
-      depthTest: true,
-      toneMapped: false
-    });
-    // 拖尾共用两层递减透明度材质，跟随主体形成彗尾
-    const trailMaterials = [0.38, 0.18].map((opacity) => createSoftParticleMaterial('#3dee8a', {
-      opacity,
-      depthTest: true,
-      toneMapped: false
-    }));
+    group.position.set(position?.x ?? 0, position?.y ?? 0, position?.z ?? 0);
+    // 主世界 layer 0 + 深度测试：与祭坛占领环一致，应被地形与单位正常遮挡。
+    // addEffect 默认把所有子节点压到 layer 1，而 layer 1 覆盖通道在部分浏览器不渲染。
+    group.userData.preserveRenderLayers = true;
+    const radius = Math.max(0.4, Number(options.radius) || 1.35);
+    const duration = Math.max(0.35, Number(options.duration) || 0.95);
     const motes = [];
-    const trails = [];
-    const moteCount = 26;
-    for (let index = 0; index < moteCount; index += 1) {
-      const mote = new THREE.Sprite(moteMaterial);
-      mote.userData.angle = Math.random() * Math.PI * 2;
-      mote.userData.distance = Math.sqrt((index + 0.5) / moteCount);
-      mote.userData.cycle = Math.random();
-      // 从地面直线上升；尺寸与速度都有差异，避免完全一致。
-      // 附带随机自旋，抵消 Sprite 方形边缘的呆板感。
-      mote.userData.spin = (Math.random() - 0.5) * 0.9;
-      mote.userData.riseSpeed = 0.5 + Math.random() * 0.38;
-      mote.userData.baseScale = 0.2 + Math.random() * 0.15;
-      group.add(mote);
-      motes.push(mote);
-      // 约三分之一粒子带拖尾：两节回声 Sprite 依次跟随前一节，形成渐隐彗尾
-      if (index % 3 === 0) {
-        const echoes = trailMaterials.map((material) => {
-          const echo = new THREE.Sprite(material);
-          group.add(echo);
-          return echo;
-        });
-        trails.push({ echoes, mote });
+    let elapsed = 0;
+
+    const addMotes = (count, material, config) => {
+      for (let index = 0; index < count; index += 1) {
+        const sprite = new THREE.Sprite(material);
+        const angle = (index / Math.max(1, count)) * Math.PI * 2 + Math.random() * 0.5;
+        const distance = radius * (config.distanceBase + Math.random() * config.distanceJitter);
+        sprite.userData.angle = angle;
+        sprite.userData.distance = distance;
+        sprite.userData.delay = Math.random() * config.delayJitter;
+        sprite.userData.rise = config.rise * (0.75 + Math.random() * 0.5);
+        sprite.userData.baseScale = config.scale * (0.7 + Math.random() * 0.6);
+        sprite.userData.spin = (Math.random() - 0.5) * 1.1;
+        sprite.position.set(Math.cos(angle) * distance, 0.16, Math.sin(angle) * distance);
+        sprite.scale.set(0.001, 0.001, 1);
+        group.add(sprite);
+        motes.push(sprite);
       }
-    }
+    };
+
+    // 核心最快最亮、几乎贴着中心冲出；主体撑起喷发体积；消散粒子留在上方缓慢淡出。
+    addMotes(7, materials.core, {
+      distanceBase: 0,
+      distanceJitter: 0.18,
+      rise: 2.5,
+      scale: 0.5,
+      delayJitter: 0.12
+    });
+    addMotes(14, materials.body, {
+      distanceBase: 0.25,
+      distanceJitter: 0.75,
+      rise: 2,
+      scale: 0.42,
+      delayJitter: 0.3
+    });
+    addMotes(10, materials.residue, {
+      distanceBase: 0.5,
+      distanceJitter: 0.95,
+      rise: 1.5,
+      scale: 0.3,
+      delayJitter: 0.45
+    });
+
     this.scene.add(group);
-    this.recoveryAura = {
+    this.spawnRing(group.position, '#b78cff', radius * 0.9, duration * 0.62);
+
+    this.addEffect(
       group,
-      center: nextCenter,
-      radius: nextRadius,
-      motes,
-      trails,
-      moteMaterial,
-      trailMaterials,
-      phase: 0
-    };
-    return true;
-  }
-
-  updateRecoveryAura(dt) {
-    const aura = this.recoveryAura;
-    if (!aura) return;
-    aura.phase += dt;
-    aura.group.position.copy(aura.center).addScaledVector(METEOR_TRAIL_AXIS, 0.055);
-    const riseHeight = 2.1;
-    aura.motes.forEach((mote) => {
-      mote.userData.cycle = (mote.userData.cycle + dt * mote.userData.riseSpeed / riseHeight) % 1;
-      const cycle = mote.userData.cycle;
-      // 直线上升：水平位置固定，不随时间摆动
-      const angle = mote.userData.angle;
-      mote.position.set(
-        Math.cos(angle) * aura.radius * mote.userData.distance,
-        0.14 + cycle * riseHeight,
-        Math.sin(angle) * aura.radius * mote.userData.distance
-      );
-      // 快速淡入后保持，顶部约 12% 生命周期内急速收缩消逝
-      const fadeIn = Math.min(1, cycle / 0.09);
-      const fadeOut = cycle > 0.88 ? Math.max(0, (1 - cycle) / 0.12) ** 0.75 : 1;
-      const envelope = fadeIn * fadeOut;
-      const moteScale = mote.userData.baseScale * (0.72 + 0.55 * envelope);
-      mote.scale.set(moteScale, moteScale, 1);
-      mote.rotation.z = (mote.userData.spin ?? 0) + Math.sin(aura.phase * 2.1 + angle) * 0.12;
-    });
-
-    // 拖尾回声依次跟随，靠阻尼滞后形成渐隐彗尾
-    aura.trails.forEach(({ echoes, mote }) => {
-      let target = mote.position;
-      echoes.forEach((echo, echoIndex) => {
-        echo.position.lerp(target, 0.4 - echoIndex * 0.12);
-        const echoScale = mote.scale.x * (0.7 - echoIndex * 0.22);
-        echo.scale.set(echoScale, echoScale, 1);
-        target = echo.position;
-      });
-    });
-  }
-
-  clearRecoveryAura() {
-    const aura = this.recoveryAura;
-    if (!aura) return;
-    aura.group.parent?.remove(aura.group);
-    aura.moteMaterial.dispose();
-    aura.trailMaterials.forEach((material) => material.dispose());
-    this.recoveryAura = null;
-  }
-
-  getRecoveryAuraState() {
-    const aura = this.recoveryAura;
-    if (!aura) return null;
-    return {
-      x: aura.center.x,
-      y: aura.center.y,
-      z: aura.center.z,
-      radius: aura.radius
-    };
+      duration,
+      (dt) => {
+        // addEffect 只把 (dt, progress) 传给 update，因此自己累计已播放时长。
+        elapsed += Math.max(0, Number(dt) || 0);
+        motes.forEach((mote) => {
+          const delay = mote.userData.delay;
+          const local = Math.max(0, Math.min(1, elapsed / duration - delay));
+          // 先快后慢：前 22% 建立力度与高度，随后明显减速上升。
+          const eased = local < 0.22
+            ? (local / 0.22) * 0.44
+            : 0.44 + (1 - ((1 - (local - 0.22) / 0.78) ** 2)) * 0.56;
+          const pull = 1 - 0.34 * eased;
+          const angle = mote.userData.angle;
+          mote.position.set(
+            Math.cos(angle) * mote.userData.distance * pull,
+            0.16 + eased * mote.userData.rise,
+            Math.sin(angle) * mote.userData.distance * pull
+          );
+          // 出现与消失都有透明度/尺寸渐变，不能整颗突然出现或消失。
+          const fadeIn = Math.min(1, local / 0.12);
+          const fadeOut = local > 0.68 ? Math.max(0, (1 - local) / 0.32) ** 0.8 : 1;
+          const envelope = fadeIn * fadeOut;
+          const scale = Math.max(0.001, mote.userData.baseScale * (0.62 + 0.52 * envelope) * (1 - 0.3 * local));
+          mote.scale.set(scale, scale, 1);
+          mote.rotation.z = mote.userData.spin * local * 2.2;
+        });
+      },
+      () => {
+        group.parent?.remove(group);
+      }
+    );
   }
 
   spawnJudgmentSword(position, radius = 0.9, onImpact, options = {}) {

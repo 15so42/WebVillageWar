@@ -12,7 +12,6 @@ import { SYNC, VISUAL_STATE_FROM_CODE } from '../protocol/syncConfig.js';
 import { MSG } from '../protocol/messages.js';
 import { applyNetworkFx } from './NetworkFxRelay.js';
 import { ProjectileMirror } from './ProjectileMirror.js';
-import { normalizeFreeEnchantmentCharges } from '../../systems/freeEnchantmentCharges.js';
 
 export class ClientMirror {
   constructor(game) {
@@ -110,7 +109,6 @@ export class ClientMirror {
   }
 
   applyUnitState(unit, state) {
-    let freeEnchantmentChargesChanged = false;
     if ('isBoss' in state) unit.isBoss = Boolean(state.isBoss);
     if ('isElite' in state) unit.isElite = Boolean(state.isElite);
     if ('runtimeVisualScale' in state) {
@@ -132,11 +130,6 @@ export class ClientMirror {
     if ('maxShield' in state) unit.attributes?.setBase?.('maxShield', state.maxShield);
     if ('maxEnchantmentSlots' in state) {
       unit.maxEnchantmentSlots = Math.max(0, Math.floor(state.maxEnchantmentSlots ?? 5));
-    }
-    if ('freeEnchantmentCharges' in state) {
-      const nextCharges = normalizeFreeEnchantmentCharges(state.freeEnchantmentCharges);
-      freeEnchantmentChargesChanged = nextCharges !== unit.freeEnchantmentCharges;
-      unit.freeEnchantmentCharges = nextCharges;
     }
     if ('maxDurability' in state) unit.attributes?.setBase?.('maxDurability', state.maxDurability);
     if ('durability' in state && unit.weapon) {
@@ -201,13 +194,6 @@ export class ClientMirror {
     if (state.animation) this.applyAnimation(unit, state.animation);
     unit.alive = state.alive !== false && unit.health > 0;
     unit.statusUiDirty = true;
-    if (freeEnchantmentChargesChanged) {
-      const localPlayerId = this.game.localPlayerId ?? this.game.localPlayerSlot;
-      const unitPlayerId = unit.controllerPlayerId ?? unit.ownerPlayerId ?? localPlayerId;
-      if (unitPlayerId === localPlayerId) {
-        this.game.cardSystem?.updateCardAffordability?.();
-      }
-    }
   }
 
   applyEnchantLabels(unit, labels) {
@@ -456,6 +442,11 @@ export class ClientMirror {
       this.game.runShopNetworkRevision = shopState.revision ?? null;
     }
     if ('silver' in state) this.game.updateSilverHud?.();
+    if (Array.isArray(state.runeStones)) {
+      // 符文石是权威数据：整体替换本地玩家那一份，客户端不自行推演生成/转移/出售。
+      this.game.runeStones?.applyNetworkSnapshot?.(state.runeStones);
+      this.game.runeBackpack?.refresh?.();
+    }
     if (Array.isArray(state.abilities)) this.applyAbilityState(state.abilities);
     if (Array.isArray(state.teamSpecialUpgrades)) {
       // 专精恢复后刷新能量条图标（专精与能力卡同排展示）
@@ -548,6 +539,13 @@ export class ClientMirror {
       shop_energy_failed: '购买能量失败，请重试',
       shop_back_failed: '返回军需铺失败，请重试',
       shop_skip_failed: '跳过军需奖励失败，请重试',
+      invalid_rune_stone: '符文石操作无效',
+      rune_stone_not_found: '这块符文石已不存在',
+      rune_stone_not_owned: '这不是你的符文石',
+      invalid_rune_stone_target: '符文石落点无效',
+      rune_stone_duplicate_name: '该单位已携带同名符文石',
+      rune_stone_unit_full: '该单位的符文背包已满',
+      rune_stone_base_full: '基地符文背包已满',
       game_rule_rejected: '当前状态不能执行该操作'
     };
     const reason = labels[message.reasonCode] ?? message.reasonCode;

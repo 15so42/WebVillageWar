@@ -3,11 +3,8 @@ import { basicMat, createReticle } from '../art/lowpoly.js';
 import { ACTIVE_DECK_SIZE, BALANCE, CARD_DEFINITIONS, isTerrainCard, TERRAIN_CARD_COOLDOWN_SECONDS } from '../data/gameData.js';
 import { insideBattlefield } from '../utils/math.js';
 import { disposeObject3D } from '../utils/dispose.js';
-import { isEnchantmentCardBlocked } from './enchantmentSlots.js';
-import {
-  consumeFreeEnchantmentCharge,
-  hasFreeEnchantmentCharge
-} from './freeEnchantmentCharges.js';
+import { enchantmentIdForCard } from './enchantmentSlots.js';
+import { RUNE_ERROR_LABELS } from './RuneStoneSystem.js';
 
 const HAND_SIZE = 10;
 // 扇形手牌（类杀戮尖塔）几何参数：卡牌以手牌容器中心为锚点，绕各自底部中点旋转、
@@ -41,10 +38,7 @@ export const FAN_HAND_GEOMETRY = Object.freeze({
   HOVER_SCALE: FAN_HOVER_SCALE,
   LAYOUT_MEDIA_QUERY: FAN_LAYOUT_MEDIA_QUERY
 });
-// 附魔卡长按连续使用：按住超过 ENCHANT_HOLD_START_MS 进入连续模式，
-// 之后每 ENCHANT_HOLD_TICK_MS 倒计时结束自动施放一次并扣除能量。
-const ENCHANT_HOLD_START_MS = 350;
-const ENCHANT_HOLD_TICK_MS = 1000;
+// 附魔卡是一次性符文石来源：一张卡只生成一块石头，不再有长按连施或免费次数。
 const energyBalance = BALANCE.playerEnergy ?? {};
 const INITIAL_ENERGY = Number(energyBalance.initial) || 4;
 const configuredEnergyRegeneration = Number(energyBalance.regenerationPerSecond);
@@ -121,12 +115,6 @@ export class CardSystem {
     this.hoveredHandCard = null;
     this.hoverFrame = null;
     this.pendingHoverPoint = null;
-    // 附魔卡长按连续使用状态
-    this.enchantHold = null;
-    this.enchantHoldInterval = null;
-    this.enchantHoldStartAt = null;
-    this.enchantHoldStartTimer = null;
-    this.enchantHoldStartTarget = null;
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
     this.reticle = createReticle();
@@ -550,7 +538,6 @@ export class CardSystem {
     if (
       !this.isCardOnCooldown(card)
       && !this.canSpend(cardEnergyCost(card))
-      && !this.hasAvailableFreeEnchantmentTarget(card)
       && !this.canSpend(discardEnergyCost(card))
     ) {
       this.flashEnergyPanel();
@@ -612,19 +599,6 @@ export class CardSystem {
   finishDrag(event) {
     if (!this.drag) return;
     this.updateDrag(event);
-    if (this.enchantHold) {
-      const holdApplied = this.enchantHold.tickCount > 0;
-      const holdsValidTarget = this.drag?.mode === 'play'
-        && this.drag?.valid
-        && this.drag?.targetUnit === this.enchantHold.target;
-      if (holdApplied || holdsValidTarget) {
-        // 已经持续附魔，或仍稳稳落在原目标上：完成本次使用。
-        this.stopEnchantHold({ commit: true });
-        return;
-      }
-      // 尚未触发且手指已经离开目标时不消耗卡牌，继续走普通松手判定。
-      this.stopEnchantHold({ commit: false });
-    }
     const drag = this.drag;
     const shouldDiscard = drag.mode === 'discard' && drag.canPayDiscard;
     const releaseDistance = Math.hypot(
@@ -662,10 +636,7 @@ export class CardSystem {
     this.drag.targetUnit = null;
     this.drag.targetCard = null;
     this.drag.canPayPlay = !this.isCardOnCooldown(this.drag.card)
-      && (
-        this.canSpend(cardEnergyCost(this.drag.card))
-        || this.hasAvailableFreeEnchantmentTarget(this.drag.card)
-      );
+      && this.canSpend(cardEnergyCost(this.drag.card));
     this.drag.canPayDiscard = this.canSpend(discardEnergyCost(this.drag.card));
     this.drag.mode = this.resolveDragMode(event);
     this.clearHandCardTargetHighlights();
@@ -731,35 +702,42 @@ export class CardSystem {
       this.ghost.hidden = false;
       const target = this.pickFriendlyUnit(previousTargetUnit);
       this.drag.targetUnit = target;
-      const playCost = this.cardPlayEnergyCost(this.drag.card, target);
-      const usesFreeEnchantment = playCost === 0 && hasFreeEnchantmentCharge(this.drag.card, target);
+      const playCost = this.cardPlayEnergyCost(this.drag.card);
       this.drag.playEnergyCost = playCost;
-      this.drag.usesFreeEnchantment = usesFreeEnchantment;
       this.drag.canPayPlay = !this.isCardOnCooldown(this.drag.card) && this.canSpend(playCost);
-      this.drag.valid = Boolean(target) && target.canReceiveBuffs !== false && this.drag.canPayPlay;
       this.updateDragGhostEnergyCost(playCost);
+      const isEnchantCard = this.drag.card.kind === 'enchant';
+      const enchantmentId = isEnchantCard ? enchantmentIdForCard(this.drag.card) : null;
+
+      // 附魔卡是符文石来源：指针下没有友方单位时，可通行地面就是基地背包落点。
+      // 生成随机附魔（如「魔力涌动」）的牌没有唯一符文 id，只能指定单位。
+      if (!target && isEnchantCard) {
+        this.updateEnchantGroundDrop(point, { requiresUnit: !enchantmentId });
+        return;
+      }
+
+      // 落点校验交给符文背包权威（同名一块 + 容量上限）；出货时还会再校验一次。
+      const runeCheck = isEnchantCard
+        ? this.game.runeStones?.canPlaceInUnit(target, enchantmentId)
+        : null;
+      const runeRejected = Boolean(runeCheck) && runeCheck.ok !== true;
+      this.drag.valid = Boolean(target)
+        && target.canReceiveBuffs !== false
+        && this.drag.canPayPlay
+        && !runeRejected;
       this.ghost.classList.toggle('is-valid', this.drag.valid);
       this.showEnchantPreview(target, this.drag.card);
       this.reticle.visible = false;
       if (this.drag.valid) {
-        if (this.drag.card.kind === 'enchant') {
-          if (usesFreeEnchantment) {
-            this.setHintOnce(
-              '免费附魔：消耗 1 次免费次数，按卡牌等级附魔，本次不消耗能量',
-              'card-drag'
-            );
-          } else if (this.game.networkBridge?.shouldRouteLocalCommands?.()) {
-            this.setHintOnce('松手对目标施放附魔', 'card-drag');
-          } else {
-            this.setHintOnce('按住不放连续附魔 · 松手完成使用', 'card-drag');
-          }
-        } else {
-          this.setHintOnce('松手对目标施放', 'card-drag');
-        }
+        this.setHintOnce(
+          isEnchantCard ? '松手交给该单位' : '松手对目标施放',
+          'card-drag'
+        );
+      } else if (runeRejected) {
+        this.setHint(RUNE_ERROR_LABELS[runeCheck.reason] ?? '无法放入该单位的符文背包', 'card-drag');
       } else {
         this.clearHint('card-drag');
       }
-      this.maybeStartEnchantHold();
       return;
     }
 
@@ -957,6 +935,43 @@ export class CardSystem {
     if (this.deploymentDimPlane) this.deploymentDimPlane.visible = false;
   }
 
+  /**
+   * 附魔卡拖到空处时的落点预览：可通行地面即基地背包落点。
+   * 判定口径与普通地面卡一致（战场范围内 + 可通行 + 卡牌自身的地面规则）。
+   * requiresUnit 用于没有唯一符文 id 的附魔牌（随机附魔），它们不能存进基地背包。
+   */
+  updateEnchantGroundDrop(point, { requiresUnit = false } = {}) {
+    const isPayable = this.drag?.canPayPlay !== false;
+    const validGround = !requiresUnit
+      && Boolean(point)
+      && insideBattlefield(point, BALANCE.battlefield)
+      && this.game.isPointWalkable(point)
+      && this.isValidGroundCardPoint(this.drag.card, point);
+    this.drag.valid = validGround && isPayable;
+    if (point) {
+      this.showGroundPreview(
+        point,
+        this.resolveGroundPreviewRadius(this.drag.card),
+        this.drag.valid,
+        this.drag.card
+      );
+    } else {
+      this.reticle.visible = false;
+    }
+    // 这里不能用附魔目标环：空地上没有单位目标。
+    this.enchantTargetRing.visible = false;
+    this.ghost.classList.toggle('is-valid', this.drag.valid);
+    if (!isPayable) {
+      this.setHint('能量不足，无法使用这张卡。', 'card-drag');
+    } else if (requiresUnit) {
+      this.setHint('这张牌只能对友方单位使用。', 'card-drag');
+    } else if (this.drag.valid) {
+      this.setHint('松手存入基地背包', 'card-drag');
+    } else {
+      this.setHint('只能存放到可通行地面或友方单位上。', 'card-drag');
+    }
+  }
+
   updateGroundDragHint(card, valid, options = {}) {
     if (options.canPay === false) {
       this.setHint('能量不足，无法使用这张卡。', 'card-drag');
@@ -1061,18 +1076,8 @@ export class CardSystem {
     zone.classList.toggle('is-insufficient', Boolean(isDiscardMode && !canPay));
   }
 
-  cardPlayEnergyCost(card, targetUnit = null) {
-    return hasFreeEnchantmentCharge(card, targetUnit) ? 0 : cardEnergyCost(card);
-  }
-
-  hasAvailableFreeEnchantmentTarget(card) {
-    if (card?.kind !== 'enchant') return false;
-    return (this.game.friendlyUnits ?? []).some((unit) => (
-      unit?.alive
-      && unit.canReceiveBuffs !== false
-      && (this.game.unitBelongsToPlayer?.(unit, this.playerSlot) ?? true)
-      && hasFreeEnchantmentCharge(card, unit)
-    ));
+  cardPlayEnergyCost(card) {
+    return cardEnergyCost(card);
   }
 
   updateDragGhostEnergyCost(cost) {
@@ -1165,8 +1170,6 @@ export class CardSystem {
   cleanupDrag(event, { preserveSourceElement = false } = {}) {
     const drag = this.drag;
     if (!drag) return;
-    // 拖拽结束/取消时停止长按附魔（不提交：牌留在手牌，除非由 finishDrag 提交）
-    this.cancelEnchantHold();
     if (event?.pointerId != null) {
       drag.sourceElement?.releasePointerCapture?.(event.pointerId);
     }
@@ -1190,40 +1193,31 @@ export class CardSystem {
     document.removeEventListener('pointercancel', this.onPointerCancel);
   }
 
-  playDraggedCard(drag, options = {}) {
-    if (this.rejectFullEnchantmentTarget(drag?.card, drag?.targetUnit)) {
-      return false;
-    }
+  playDraggedCard(drag) {
     if (this.game.networkBridge?.shouldRouteLocalCommands?.()) {
-      return this.sendPlayCardCommand(drag, options);
+      return this.sendPlayCardCommand(drag);
     }
     if (this.isCardOnCooldown(drag.card)) return false;
-    const usesFreeEnchantment = hasFreeEnchantmentCharge(drag.card, drag.targetUnit);
-    const cost = usesFreeEnchantment ? 0 : cardEnergyCost(drag.card);
+    const cost = cardEnergyCost(drag.card);
     if (!this.canSpend(cost)) {
       this.flashEnergyPanel();
       return false;
     }
+    // 实际支付的能量：附魔卡生成符文石时用它记录后续出售基准。
+    drag.playEnergyCost = cost;
     const abilities = this.game.abilitiesFor?.(this.playerSlot);
     const preparedCard = abilities?.prepareCardForPlay?.(drag.card) ?? drag.card;
     const preparedDrag = preparedCard === drag.card
       ? drag
       : { ...drag, card: preparedCard };
+    // 附魔卡在这里由 RuneStoneSystem 做权威落点校验；失败时卡牌与能量都不消耗。
     if (!this.resolveCard(preparedDrag)) return false;
     abilities?.consumePreparedCardPlay?.(drag.card, preparedCard);
-    if (usesFreeEnchantment) {
-      consumeFreeEnchantmentCharge(drag.card, drag.targetUnit);
-    } else {
-      this.spendEnergy(cost);
-    }
+    this.spendEnergy(cost);
     this.game.runCardsPlayedCount = (this.game.runCardsPlayedCount ?? 0) + 1;
-    const resolvedCard = usesFreeEnchantment
-      ? { ...preparedCard, energyCost: 0 }
-      : preparedCard;
-    abilities?.onCardPlayed(resolvedCard, {
+    abilities?.onCardPlayed(preparedCard, {
       ...preparedDrag,
-      card: resolvedCard,
-      usedFreeEnchantment: usesFreeEnchantment
+      card: preparedCard
     });
     if (isTerrainCard(drag.card) && !cardHasUseLimit(drag.card)) {
       this.startCardCooldown(drag.card);
@@ -1231,277 +1225,8 @@ export class CardSystem {
       this.updateCardAffordability();
       return true;
     }
-    if (options.hold) {
-      // 长按连续附魔：施放但卡保留在手牌，仅按次数规则扣减
-      this.consumeCardUse(drag.card);
-      // 持续拖拽期间不能重绘整张手牌，否则倒计时所在的 sourceElement 会被
-      // 新 DOM 替换，后续循环仍在更新已经脱离页面的旧节点。
-      this.updateEnchantHoldCardUi(drag.card);
-      this.updateCardAffordability();
-      this.markNetworkStateDirty();
-      return true;
-    }
     this.moveCardToDiscard(drag.card);
     return true;
-  }
-
-  // ===== 附魔卡长按连续使用 =====
-
-  maybeStartEnchantHold() {
-    const drag = this.drag;
-    if (!drag || this.enchantHold) return;
-    if (drag.mode !== 'play' || !drag.valid || !drag.targetUnit) {
-      this.clearEnchantHoldStartTimer();
-      return;
-    }
-    // 仅限以友方单位为目标的附魔卡。联机 Client 走 hold 命令由 Host 结算，
-    // 倒计时/次数/能量在本地判断（展示）。其他 friendly-unit 卡（如符文扩容）
-    // 不进入长按模式，避免按住时被误判为连续附魔、松手零施放直接消耗。
-    if (!drag.card || drag.card.target !== 'friendly-unit') {
-      this.clearEnchantHoldStartTimer();
-      return;
-    }
-    if (drag.card.kind !== 'enchant') {
-      this.clearEnchantHoldStartTimer();
-      return;
-    }
-    if (this.enchantHoldStartTimer && this.enchantHoldStartTarget === drag.targetUnit) return;
-    this.clearEnchantHoldStartTimer();
-    this.enchantHoldStartAt = performance.now();
-    this.enchantHoldStartTarget = drag.targetUnit;
-    this.enchantHoldStartTimer = setTimeout(() => {
-      this.enchantHoldStartTimer = null;
-      const activeDrag = this.drag;
-      if (
-        activeDrag?.mode === 'play'
-        && activeDrag.valid
-        && activeDrag.card === drag.card
-        && activeDrag.targetUnit === drag.targetUnit
-      ) {
-        this.startEnchantHold();
-      } else {
-        this.clearEnchantHoldStartTimer();
-      }
-    }, ENCHANT_HOLD_START_MS);
-  }
-
-  startEnchantHold() {
-    const drag = this.drag;
-    if (!drag?.targetUnit || this.enchantHold) return;
-    this.clearEnchantHoldStartTimer();
-    const card = drag.card;
-    if (this.rejectFullEnchantmentTarget(card, drag.targetUnit)) {
-      this.enchantHoldStartAt = null;
-      return;
-    }
-    const maxUses = cardMaxUses(card);
-    const remainingUses = maxUses > 0
-      ? Math.max(0, Number(card.remainingUses ?? maxUses))
-      : null;
-    if (remainingUses === 0) return;
-    this.enchantHold = {
-      drag,
-      target: drag.targetUnit,
-      remainingUses,
-      tickCount: 0
-    };
-    this.enchantHoldInterval = setInterval(() => this.tickEnchantHold(), ENCHANT_HOLD_TICK_MS);
-    this.updateEnchantHoldUi();
-    this.setHint(
-      remainingUses != null
-        ? `长按连续附魔 · 剩余 ${remainingUses} 次 · 松手完成`
-        : '长按连续附魔 · 松手完成',
-      'card-drag'
-    );
-  }
-
-  tickEnchantHold() {
-    const hold = this.enchantHold;
-    if (!hold) return;
-    const drag = this.drag;
-    const targetStillValid = Boolean(drag?.targetUnit && drag.mode === 'play' && drag.valid);
-    if (!targetStillValid) {
-      // 目标失效：停止循环，卡留在手牌等待松手（松手按正常单次施放提交）
-      this.stopEnchantHold({ commit: false });
-      return;
-    }
-    const usesFreeEnchantment = hasFreeEnchantmentCharge(hold.drag.card, hold.target);
-    const playCost = usesFreeEnchantment ? 0 : cardEnergyCost(hold.drag.card);
-    if (!this.canSpend(playCost)) {
-      this.stopEnchantHold({ commit: false });
-      this.setHint('能量不足：长按附魔已停止，松手完成使用', 'card-drag');
-      return;
-    }
-    if (hold.remainingUses === 0) {
-      this.stopEnchantHold({ commit: false });
-      this.setHint('附魔次数已用尽，松手完成使用', 'card-drag');
-      return;
-    }
-    if (this.rejectFullEnchantmentTarget(hold.drag.card, hold.target)) {
-      this.stopEnchantHold({ commit: false });
-      return;
-    }
-    if (this.game.networkBridge?.shouldRouteLocalCommands?.()) {
-      // 联机 Client：先确认命令已经发出，再本地扣能量/次数用于即时展示。
-      // 槽位已满会在上方提前拒绝，不会再出现 Host 拒绝但本地已经扣能量。
-      const sent = this.sendPlayCardCommand({ ...hold.drag, targetUnit: hold.target }, { hold: true });
-      if (!sent) {
-        this.stopEnchantHold({ commit: false });
-        this.setHint('联机命令发送失败：未消耗能量', 'card-drag');
-        return;
-      }
-      if (usesFreeEnchantment) {
-        consumeFreeEnchantmentCharge(hold.drag.card, hold.target);
-      } else {
-        this.energy -= playCost;
-        this.updateEnergyUi(true);
-      }
-      if (hold.remainingUses != null) {
-        hold.remainingUses = Math.max(0, hold.remainingUses - 1);
-        if (cardHasUseLimit(hold.drag.card)) {
-          if (!Number.isFinite(hold.drag.card.maxUses)) hold.drag.card.maxUses = cardMaxUses(hold.drag.card);
-          hold.drag.card.remainingUses = hold.remainingUses;
-        }
-      }
-      hold.tickCount += 1;
-      this.updateEnchantHoldUi();
-      this.updateCardAffordability();
-      if (hold.remainingUses === 0) {
-        this.stopEnchantHold({ commit: false });
-        this.setHint('附魔次数已用尽，松手完成使用', 'card-drag');
-      }
-      return;
-    }
-    // 本地/房主也必须走正式出牌入口。此前直接调用 cardEffects.resolve 会绕过
-    // onCardPlayed，导致附魔共鸣、节能术、生机回流等能力在长按期间全部失效。
-    const applied = this.playDraggedCard({
-      ...hold.drag,
-      targetUnit: hold.target
-    }, { hold: true });
-    if (!applied) {
-      this.stopEnchantHold({ commit: false });
-      this.setHint('附魔结算失败：长按已停止，松手完成使用', 'card-drag');
-      return;
-    }
-    if (hold.remainingUses != null) {
-      hold.remainingUses = Math.max(0, Number(hold.drag.card.remainingUses ?? hold.remainingUses - 1));
-    }
-    hold.tickCount += 1;
-    this.updateEnchantHoldUi();
-    this.updateCardAffordability();
-    if (hold.remainingUses === 0) {
-      this.stopEnchantHold({ commit: false });
-      this.setHint('附魔次数已用尽，松手完成使用', 'card-drag');
-    }
-  }
-
-  rejectFullEnchantmentTarget(card, targetUnit) {
-    if (!isEnchantmentCardBlocked(card, targetUnit)) return false;
-    this.lastNetworkPlayRejectionReason = 'enchantment_slots_full';
-    this.game.cardEffects?.showEnchantmentSlotFailure?.(targetUnit);
-    this.setHint('附魔槽已满：无法添加新的附魔，未消耗能量', 'card-drag');
-    return true;
-  }
-
-  stopEnchantHold({ commit = false } = {}) {
-    if (this.enchantHoldInterval) {
-      clearInterval(this.enchantHoldInterval);
-      this.enchantHoldInterval = null;
-    }
-    const hold = this.enchantHold;
-    const wasActive = Boolean(hold);
-    const holdTarget = hold?.target ?? null;
-    const holdDrag = this.drag ? { ...this.drag, targetUnit: holdTarget } : hold?.drag;
-    const holdApplied = (hold?.tickCount ?? 0) > 0;
-    this.enchantHold = null;
-    this.clearEnchantHoldStartTimer();
-    this.hideEnchantHoldUi();
-    if (commit && wasActive) {
-      const card = holdDrag?.card;
-      this.cleanupDrag();
-      if (card) {
-        if (!holdApplied) {
-          // 手机拖拽常在长按门槛后、第一次持续触发前松手；此时仍应按一次
-          // 正常附魔结算，不能只把卡送进弃牌堆而没有效果。
-          this.playDraggedCard(holdDrag);
-        } else if (this.game.networkBridge?.shouldRouteLocalCommands?.()) {
-          // 联机 Client：通知 Host 消耗卡（进弃牌堆，次数耗尽则按规则消耗）
-          this.sendPlayCardCommand({ card, targetUnit: holdTarget }, { consumeHold: true });
-        } else {
-          // 松手：附魔牌使用完成，进入弃牌堆（次数耗尽则按规则消耗）
-          this.moveCardToDiscard(card);
-        }
-      }
-    } else {
-      this.clearHint('card-drag');
-    }
-  }
-
-  cancelEnchantHold() {
-    if (this.enchantHoldInterval) {
-      clearInterval(this.enchantHoldInterval);
-      this.enchantHoldInterval = null;
-    }
-    this.enchantHold = null;
-    this.clearEnchantHoldStartTimer();
-    this.hideEnchantHoldUi();
-  }
-
-  clearEnchantHoldStartTimer() {
-    if (this.enchantHoldStartTimer) {
-      clearTimeout(this.enchantHoldStartTimer);
-      this.enchantHoldStartTimer = null;
-    }
-    this.enchantHoldStartAt = null;
-    this.enchantHoldStartTarget = null;
-  }
-
-  updateEnchantHoldUi() {
-    const element = this.drag?.sourceElement;
-    if (!element) return;
-    let timer = element.querySelector('.enchant-hold-timer');
-    if (!timer) {
-      timer = document.createElement('div');
-      timer.className = 'enchant-hold-timer';
-      timer.innerHTML = '<span class="enchant-hold-count"></span>';
-      element.appendChild(timer);
-    }
-    const remaining = this.enchantHold?.remainingUses ?? null;
-    const count = timer.querySelector('.enchant-hold-count');
-    if (count) {
-      count.textContent = remaining != null ? String(remaining) : '∞';
-      count.setAttribute('aria-label', remaining != null ? `剩余附魔次数 ${remaining}` : '无限次附魔');
-    }
-    timer.style.setProperty('--hold-duration', `${ENCHANT_HOLD_TICK_MS}ms`);
-    timer.classList.remove('is-ticking');
-    void timer.offsetWidth; // 重启环形倒计时动画
-    timer.classList.add('is-ticking');
-    element.classList.add('is-enchant-holding');
-    this.updateEnchantHoldCardUi(this.enchantHold?.drag?.card);
-  }
-
-  updateEnchantHoldCardUi(card) {
-    const element = this.drag?.sourceElement;
-    if (!element || !card || !cardHasUseLimit(card)) return;
-    ensureCardUses(card);
-    const max = cardMaxUses(card);
-    const remaining = Math.max(0, Math.floor(card.remainingUses ?? max));
-    const useBar = element.querySelector('.card-use-bar');
-    if (!useBar) return;
-    useBar.dataset.remaining = String(remaining);
-    useBar.dataset.max = String(max);
-    useBar.setAttribute('aria-label', `剩余使用次数 ${remaining}/${max}`);
-    useBar.querySelectorAll('span').forEach((segment, index) => {
-      segment.classList.toggle('is-filled', index < remaining);
-    });
-  }
-
-  hideEnchantHoldUi() {
-    const element = this.drag?.sourceElement;
-    if (element) {
-      element.querySelector('.enchant-hold-timer')?.remove();
-      element.classList.remove('is-enchant-holding');
-    }
   }
 
   discardDraggedCard(drag) {
@@ -2185,10 +1910,7 @@ export class CardSystem {
       const card = this.handCards[Number(element.dataset.handIndex)];
       if (!card) return;
       const onCooldown = this.isCardOnCooldown(card);
-      const canPlay = !onCooldown && (
-        this.canSpend(cardEnergyCost(card))
-        || this.hasAvailableFreeEnchantmentTarget(card)
-      );
+      const canPlay = !onCooldown && this.canSpend(cardEnergyCost(card));
       const canDiscard = this.canSpend(discardEnergyCost(card));
       element.setAttribute('aria-disabled', String(!canPlay));
       element.classList.toggle('is-discard-only', !canPlay && canDiscard);
@@ -2426,16 +2148,14 @@ export class CardSystem {
     this.hintPanel.hidden = true;
   }
 
-  sendPlayCardCommand(drag, options = {}) {
+  sendPlayCardCommand(drag) {
     const sender = this.game.networkBridge?.commandSender;
     if (!sender || !drag?.card?.instanceId) return false;
     return sender.playCard({
       cardInstanceId: drag.card.instanceId,
       point: drag.point ? [drag.point.x, drag.point.z] : null,
       targetUnitId: drag.targetUnit?.id ?? null,
-      targetCardInstanceId: drag.targetCard?.instanceId ?? null,
-      ...(options.hold ? { hold: true } : {}),
-      ...(options.consumeHold ? { consumeHold: true } : {})
+      targetCardInstanceId: drag.targetCard?.instanceId ?? null
     });
   }
 
@@ -2455,10 +2175,6 @@ export class CardSystem {
       this.lastNetworkPlayRejectionReason = 'card_not_owned_or_not_available';
       return false;
     }
-    if (payload.consumeHold) {
-      // 长按附魔结束（松手）：只消耗卡（进弃牌堆，次数耗尽则按规则消耗），不再施放
-      return this.game.withPlayerContext(this.playerSlot, () => this.moveCardToDiscard(card));
-    }
     if (this.isCardOnCooldown(card)) {
       this.lastNetworkPlayRejectionReason = 'card_cooldown';
       return false;
@@ -2468,12 +2184,12 @@ export class CardSystem {
       this.lastNetworkPlayRejectionReason = 'invalid_target_point';
       return false;
     }
-    if (!this.canSpend(this.cardPlayEnergyCost(card, drag.targetUnit))) {
+    if (!this.canSpend(this.cardPlayEnergyCost(card))) {
       this.lastNetworkPlayRejectionReason = 'insufficient_energy';
       return false;
     }
     const applied = this.game.withPlayerContext(this.playerSlot, () => (
-      this.playDraggedCard(drag, { hold: payload.hold === true })
+      this.playDraggedCard(drag)
     ));
     if (!applied && !this.lastNetworkPlayRejectionReason) {
       this.lastNetworkPlayRejectionReason = 'card_effect_rejected';
@@ -2527,7 +2243,6 @@ export class CardSystem {
     this.fanGeometry.clear();
     this.releaseAbilityIconScroll?.();
     this.releaseAbilityIconScroll = null;
-    this.cancelEnchantHold();
     this.cancelActiveDrag();
     this.reticle?.parent?.remove(this.reticle);
     this.clearDeploymentRangePreview();
@@ -2600,6 +2315,8 @@ function withoutLegacyUseFields(card) {
 
 export function cardMaxUses(card) {
   if (card?.kind === 'summon') return 1;
+  // 附魔卡是一次性符文石来源：用一次就消耗，不再随弃牌堆循环。
+  if (card?.kind === 'enchant') return 1;
   if (Number.isFinite(card?.uses) && card.uses > 0) return Math.floor(card.uses);
   if (card?.exhaust === true || card?.kind === 'ability') return 1;
   return 0;

@@ -268,27 +268,33 @@ export class AbilitySystem {
   tryEchoEnchant(card, drag) {
     const stacks = this.getStacks('enchantResonance');
     if (stacks <= 0) return;
-    const repeatCount = rollOverflowChance(ENCHANT_RESONANCE_CHANCE_PER_STACK * stacks);
-    let appliedCount = 0;
-    for (let index = 0; index < repeatCount; index += 1) {
-      const repeated = this.game.cardEffects.resolve({
-        ...drag,
-        card,
-        skipAbilityTriggers: true
-      });
-      if (repeated) appliedCount += 1;
-    }
-    if (appliedCount > 0) {
-      this.game.effects.spawnDamageNumber(this.game.playerBase.position, 1, {
-        text: appliedCount > 1 ? `附魔共鸣x${appliedCount}` : '附魔共鸣',
-        color: '#d8b7ff',
-        stroke: '#21132f',
-        height: 3,
-        duration: 0.72,
-        fontSize: 76,
-        baseHeight: 0.48
-      });
-    }
+    const extraEchoes = rollOverflowChance(ENCHANT_RESONANCE_CHANCE_PER_STACK * stacks);
+    if (extraEchoes <= 0) return;
+
+    // 附魔卡改成一次性生成符文石后，同名石头同一单位只能带一块，
+    // 重复施加同名附魔会被拒绝，等级成长统一交给魔力系统。
+    // 这里把额外共鸣折算成魔力喂给该单位携带的符文石，保留「附魔共鸣」的强化定位。
+    const target = drag?.targetUnit ?? drag?.target ?? null;
+    const manaPerEcho = Math.max(
+      0,
+      Number(PLAYER_ABILITY_DEFINITIONS.enchantResonance?.manaPerExtraEcho) || 0
+    );
+    const mana = extraEchoes * manaPerEcho;
+    const result = mana > 0 && target
+      ? this.game.runeStones?.grantManaToUnit?.(target, mana)
+      : null;
+    const granted = Math.max(0, Number(result?.distributed) || 0);
+    if (granted <= 0) return;
+
+    this.game.effects.spawnDamageNumber(target.position, 1, {
+      text: granted > 0 ? `附魔共鸣 · 魔力 +${Math.floor(granted)}` : '附魔共鸣',
+      color: '#d8b7ff',
+      stroke: '#21132f',
+      height: target.projectileHitHeight ?? 1.55,
+      duration: 0.72,
+      fontSize: 76,
+      baseHeight: 0.48
+    });
   }
 
   triggerEnergyRefund(card) {

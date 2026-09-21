@@ -32,6 +32,14 @@ export function createPlayerRunState(playerId, deck = [], descriptor = {}) {
     runShopActiveCategory: null,
     runShopChoices: [],
     runShopFreeReward: false,
+    // Boss 后整备：免费兵种专精 → 明码标价补给 → 继续战斗。
+    // 每个玩家各自持有，断线重连不得重复领取或重置已售罄商品。
+    runShopItems: null,
+    runShopPrepNodeKey: null,
+    runShopSpecializationClaimed: false,
+    runShopSpecializationUnitType: null,
+    runShopPrepCompleted: false,
+    runShopCompletedNodeKey: null,
     shopPrices: createInitialShopPrices(),
     shopState: null,
     strategyEvent: null

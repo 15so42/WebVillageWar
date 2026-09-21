@@ -1082,7 +1082,7 @@ const WORLD_PRESETS = {
     altars: [
       { id: 'energy-altar-west', type: 'energy', position: { x: -8.4, z: 18.5 }, rotation: 0.12, clearingRadius: 6.2 },
       { id: 'shield-altar-east', type: 'shield', position: { x: 10.5, z: -2.5 }, rotation: -0.2, clearingRadius: 6.2 },
-      { id: 'respite-altar-northwest', type: 'respite', position: { x: -6.1, z: -15.5 }, rotation: 0.18, clearingRadius: 6.2 }
+      { id: 'mana-altar-northwest', type: 'mana', position: { x: -6.1, z: -15.5 }, rotation: 0.18, clearingRadius: 6.2 }
     ],
     wildlife: [],
     // 开阔地：基地广场、西岸平台、雪桥隘口、东岸旷地、台地前庭
@@ -1351,7 +1351,7 @@ const WORLD_PRESETS = {
     altars: [
       { id: 'energy-altar-pine-west', type: 'energy', position: { x: -6.8, z: 16.5 }, rotation: -0.4, clearingRadius: 6 },
       { id: 'shield-altar-pine-east', type: 'shield', position: { x: 3.5, z: -10 }, rotation: 0.4, clearingRadius: 6.2 },
-      { id: 'respite-altar-pine-north', type: 'respite', position: { x: -2, z: -23 }, rotation: 0.1, clearingRadius: 5.8 }
+      { id: 'mana-altar-pine-north', type: 'mana', position: { x: -2, z: -23 }, rotation: 0.1, clearingRadius: 5.8 }
     ],
     wildlife: [
       { type: 'wolf', x: 26, z: 12, radius: 5 },
@@ -1455,7 +1455,7 @@ const WORLD_PRESETS = {
     altars: [
       { id: 'energy-altar-ridge-south', type: 'energy', position: { x: -0.5, z: 17 }, rotation: -0.18, clearingRadius: 6 },
       { id: 'shield-altar-ridge-east', type: 'shield', position: { x: 7, z: -9 }, rotation: 0.55, clearingRadius: 6.2 },
-      { id: 'respite-altar-ridge-west', type: 'respite', position: { x: 4, z: -18 }, rotation: -0.15, clearingRadius: 6 }
+      { id: 'mana-altar-ridge-west', type: 'mana', position: { x: 4, z: -18 }, rotation: -0.15, clearingRadius: 6 }
     ],
     wildlife: [
       { type: 'bear', x: -30, z: -12, radius: 6.2 },
@@ -1608,7 +1608,7 @@ const WORLD_PRESETS = {
     altars: [
       { id: 'energy-altar-dungeon-west', type: 'energy', position: { x: -10, z: 15 }, rotation: -0.35, clearingRadius: 6 },
       { id: 'shield-altar-dungeon-east', type: 'shield', position: { x: 10, z: -4 }, rotation: 0.35, clearingRadius: 6 },
-      { id: 'respite-altar-dungeon-north', type: 'respite', position: { x: -1, z: -18 }, rotation: 0.15, clearingRadius: 5.8 }
+      { id: 'mana-altar-dungeon-north', type: 'mana', position: { x: -1, z: -18 }, rotation: 0.15, clearingRadius: 5.8 }
     ],
     wildlife: [],
     forestZones: [],
@@ -1739,7 +1739,7 @@ const WORLD_PRESETS = {
     altars: [
       { id: 'energy-altar-desert-west', type: 'energy', position: { x: 9, z: 20 }, rotation: -0.2, clearingRadius: 6 },
       { id: 'shield-altar-desert-east', type: 'shield', position: { x: -4, z: 6.5 }, rotation: 0.35, clearingRadius: 6.2 },
-      { id: 'respite-altar-desert-south', type: 'respite', position: { x: 2.2, z: -13 }, rotation: 0.1, clearingRadius: 5.8 }
+      { id: 'mana-altar-desert-south', type: 'mana', position: { x: 2.2, z: -13 }, rotation: 0.1, clearingRadius: 5.8 }
     ],
     wildlife: [
       { type: 'scorpion', x: -27, z: 7, radius: 5.4 },
@@ -1951,7 +1951,7 @@ const WORLD_PRESETS = {
     altars: [
       { id: 'energy-altar-marsh-west', type: 'energy', position: { x: -18.5, z: 17 }, rotation: -0.42, clearingRadius: 6.2 },
       { id: 'shield-altar-marsh-east', type: 'shield', position: { x: 15.5, z: -6.5 }, rotation: 0.38, clearingRadius: 6.2 },
-      { id: 'respite-altar-marsh-south', type: 'respite', position: { x: -10.5, z: -25 }, rotation: 0.12, clearingRadius: 6.1 }
+      { id: 'mana-altar-marsh-south', type: 'mana', position: { x: -10.5, z: -25 }, rotation: 0.12, clearingRadius: 6.1 }
     ],
     wildlife: [],
     clearings: [
@@ -2232,7 +2232,6 @@ export function createWorld(scene, worldOptions = {}) {
   const enemyCampPosition = config.enemyCampPosition;
   const base = createBaseModel({ theme });
   placeOnTerrain(base, basePosition.x, basePosition.z);
-  base.userData.aura.scale.setScalar(BALANCE.playerBase.recoveryRadius / 5.75);
   bakeObjectGroundShadow(base);
   scene.add(base);
 
@@ -2325,7 +2324,6 @@ export function createWorld(scene, worldOptions = {}) {
     navGrid,
     playerBaseModel: base,
     enemyCampModel: enemyCamp,
-    recoveryAura: base.userData.aura,
     bakedShadowMeshes: bakedShadowResult.meshes,
     shadowMaskTexture: bakedShadowResult.texture,
     shadowMaskTriangleCount: bakedShadowResult.triangleCount,

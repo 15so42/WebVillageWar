@@ -7,6 +7,7 @@ import { BuffSystem } from '../src/systems/BuffSystem.js';
 import { resolveSupportAmount } from '../src/systems/UnitLogicSystem.js';
 import {
   CardSystem,
+  cardMaxUses,
   findFriendlyUnitScreenTarget,
   toRomanNumeral
 } from '../src/systems/CardSystem.js';
@@ -483,87 +484,85 @@ const fullEnchantTarget = {
 assert.equal(isEnchantmentCardBlocked(judgmentCard, fullEnchantTarget), true);
 assert.equal(isEnchantmentCardBlocked({ ...judgmentCard, enchantmentId: 'fire', effect: { buffId: 'fire' } }, fullEnchantTarget), false);
 
-let blockedNetworkCommands = 0;
-let blockedSlotVisuals = 0;
-let blockedHint = '';
+// 附魔卡的落点合法性现在由 RuneStoneSystem 权威判定（同名一块、单位容量、基地容量），
+// 出牌瞬间必须复核；被拒绝时不得扣能量、不得消耗卡牌、不得生成符文石。
+let runeResolutionAttempts = 0;
+let energyFlashes = 0;
+let discards = 0;
 const blockedCardSystem = Object.assign(Object.create(CardSystem.prototype), {
   playerSlot: 'p2',
   energy: 12,
   game: {
-    networkBridge: {
-      shouldRouteLocalCommands: () => true,
-      commandSender: {
-        playCard() {
-          blockedNetworkCommands += 1;
-          return true;
-        }
-      }
-    },
+    networkBridge: { shouldRouteLocalCommands: () => false },
+    abilitiesFor: () => null,
     cardEffects: {
-      showEnchantmentSlotFailure() {
-        blockedSlotVisuals += 1;
+      resolve() {
+        runeResolutionAttempts += 1;
+        return false;
       }
     }
   },
-  setHint(text) {
-    blockedHint = text;
+  isCardOnCooldown: () => false,
+  canSpend(cost) {
+    return this.energy >= cost;
+  },
+  spendEnergy(cost) {
+    this.energy -= cost;
+    return true;
+  },
+  flashEnergyPanel() {
+    energyFlashes += 1;
+  },
+  moveCardToDiscard() {
+    discards += 1;
   }
 });
 assert.equal(blockedCardSystem.playDraggedCard({
-  card: { ...judgmentCard, instanceId: 'judgment-full-slot' },
+  card: { ...judgmentCard, instanceId: 'judgment-full-backpack' },
   targetUnit: fullEnchantTarget
-}, { hold: true }), false);
-assert.equal(blockedCardSystem.energy, 12, '槽位已满时不得预扣客户端能量');
-assert.equal(blockedNetworkCommands, 0, '槽位已满时不得发送长按附魔命令');
-assert.equal(blockedSlotVisuals, 1);
-assert.match(blockedHint, /附魔槽已满.*未消耗能量/);
+}), false, '符文落点被拒时出牌必须失败');
+assert.equal(runeResolutionAttempts, 1, '即使本地校验通过也要由符文系统权威复核一次');
+assert.equal(discards, 0, '落点被拒时不得消耗卡牌');
+assert.equal(blockedCardSystem.energy, 12, '落点被拒时不得扣除能量');
 
-let blockedHoldStopped = false;
-blockedCardSystem.enchantHold = {
-  drag: { card: { ...judgmentCard, instanceId: 'judgment-full-slot-hold' } },
-  target: fullEnchantTarget,
-  cost: 3,
-  remainingUses: 4,
-  tickCount: 0
-};
-blockedCardSystem.stopEnchantHold = () => {
-  blockedHoldStopped = true;
-  blockedCardSystem.enchantHold = null;
-};
-blockedCardSystem.rejectFullEnchantmentTarget = CardSystem.prototype.rejectFullEnchantmentTarget;
-CardSystem.prototype.tickEnchantHold.call(blockedCardSystem);
-assert.equal(blockedHoldStopped, true);
-assert.equal(blockedCardSystem.energy, 12, '持续附魔检测到满槽时不得消耗能量');
-assert.equal(blockedNetworkCommands, 0);
+// 能量不足时提前返回，不进入符文系统。
+const poorCardSystem = Object.assign(Object.create(CardSystem.prototype), {
+  playerSlot: 'p2',
+  energy: 0,
+  game: {
+    networkBridge: { shouldRouteLocalCommands: () => false },
+    abilitiesFor: () => null,
+    cardEffects: {
+      resolve() {
+        runeResolutionAttempts += 1;
+        return true;
+      }
+    }
+  },
+  isCardOnCooldown: () => false,
+  canSpend(cost) {
+    return this.energy >= cost;
+  },
+  flashEnergyPanel() {
+    energyFlashes += 1;
+  }
+});
+assert.equal(poorCardSystem.playDraggedCard({ card: judgmentCard, targetUnit: fullEnchantTarget }), false);
+assert.equal(poorCardSystem.energy, 0);
+assert.equal(energyFlashes, 1);
+assert.equal(runeResolutionAttempts, 1, '能量不足时不应进入符文系统');
 
-let zeroTickPlayedDrag = null;
-const zeroTickHoldSystem = {
-  drag: {
-    card: { ...judgmentCard, instanceId: 'judgment-mobile-release' },
-    targetUnit: touchTarget,
-    mode: 'play',
-    valid: true
-  },
-  enchantHold: {
-    drag: null,
-    target: touchTarget,
-    tickCount: 0
-  },
-  enchantHoldInterval: null,
-  clearEnchantHoldStartTimer() {},
-  hideEnchantHoldUi() {},
-  cleanupDrag() {
-    this.drag = null;
-  },
-  playDraggedCard(drag) {
-    zeroTickPlayedDrag = drag;
-    return true;
-  },
-  game: { networkBridge: { shouldRouteLocalCommands: () => false } }
-};
-CardSystem.prototype.stopEnchantHold.call(zeroTickHoldSystem, { commit: true });
-assert.equal(zeroTickPlayedDrag?.targetUnit, touchTarget);
-assert.equal(zeroTickPlayedDrag?.card?.id, 'judgment-enchant');
+// 长按连续附魔已整体移除：一张附魔卡只会生成一块石头，不会再产生第二块。
+assert.equal(typeof CardSystem.prototype.maybeStartEnchantHold, 'undefined');
+assert.equal(typeof CardSystem.prototype.startEnchantHold, 'undefined');
+assert.equal(typeof CardSystem.prototype.tickEnchantHold, 'undefined');
+assert.equal(typeof CardSystem.prototype.stopEnchantHold, 'undefined');
+assert.equal(typeof CardSystem.prototype.rejectFullEnchantmentTarget, 'undefined');
+assert.equal(typeof CardSystem.prototype.hasAvailableFreeEnchantmentTarget, 'undefined');
+// 附魔卡是一次性消耗品：用过一次即永久离场，不再洗回弃牌堆。
+assert.equal(cardMaxUses({ kind: 'enchant' }), 1);
+assert.equal(cardMaxUses({ kind: 'spell' }), 0);
+assert.equal(cardMaxUses({ kind: 'summon' }), 1);
 
 assert.equal(rollOverflowChance(0, () => 0), 0);
 assert.equal(rollOverflowChance(0.3, () => 0.29), 1);
@@ -572,13 +571,15 @@ assert.equal(rollOverflowChance(1.3, () => 0.29), 2);
 assert.equal(rollOverflowChance(1.3, () => 0.31), 1);
 assert.equal(rollOverflowChance(2, () => { throw new Error('整数概率不应再随机判定'); }), 2);
 
-const resonanceCalls = [];
+// 附魔共鸣不再重复施加同名附魔（同名石头同一单位只能带一块），
+// 改为把额外共鸣折算成魔力喂给该单位携带的符文石，等级成长统一交给魔力系统。
+const resonanceMana = [];
 const resonanceVisuals = [];
 const resonanceGame = createAbilityGame();
-resonanceGame.cardEffects = {
-  resolve(drag) {
-    resonanceCalls.push(drag);
-    return true;
+resonanceGame.runeStones = {
+  grantManaToUnit(unit, amount) {
+    resonanceMana.push({ unit, amount });
+    return { distributed: amount, wasted: 0, perStone: amount, levelsGained: 1, upgrades: [] };
   }
 };
 resonanceGame.effects.spawnDamageNumber = (position, amount, options) => {
@@ -586,109 +587,36 @@ resonanceGame.effects.spawnDamageNumber = (position, amount, options) => {
 };
 const resonanceAbilities = new AbilitySystem(resonanceGame, { mountUi: false, playerSlot: 'p1' });
 resonanceAbilities.acquire('enchantResonance', 30, { silent: true });
+const resonanceTarget = { id: 7, position: { x: 0, y: 0, z: 0 }, projectileHitHeight: 1.5 };
 const resonanceRandom = Math.random;
 Math.random = () => 0.59;
 try {
   resonanceAbilities.onCardPlayed(
     { id: 'fire-enchant', kind: 'enchant', level: 1 },
-    { targetUnit: { id: 7 } }
+    { targetUnit: resonanceTarget }
   );
 } finally {
   Math.random = resonanceRandom;
 }
-assert.equal(resonanceCalls.length, 4, '30 层附魔共鸣应保证 3 次，并以 60% 概率追加第 4 次');
-assert.ok(resonanceCalls.every((drag) => drag.skipAbilityTriggers === true));
-assert.equal(resonanceVisuals.at(-1)?.options?.text, '附魔共鸣x4');
+// 30 层 × 12% = 3.6：先保证 3 次，再按 60% 判定追加第 4 次，随机值 0.59 落在追加区间内。
+assert.equal(resonanceMana.length, 1, '额外共鸣应折算成一次魔力发放');
+assert.equal(resonanceMana[0].unit, resonanceTarget);
+assert.ok(resonanceMana[0].amount > 0, '共鸣次数必须换算成正数魔力');
+assert.match(resonanceVisuals.at(-1)?.options?.text ?? '', /附魔共鸣 · 魔力 \+\d+/);
 
-const holdResolveCalls = [];
-const holdVisuals = [];
-const holdGame = createAbilityGame();
-holdGame.cardEffects = {
-  resolve(drag) {
-    holdResolveCalls.push(drag);
-    return true;
-  }
-};
-holdGame.effects.spawnDamageNumber = (position, amount, options) => {
-  holdVisuals.push({ position, amount, options });
-};
-const holdAbilities = new AbilitySystem(holdGame, { mountUi: false, playerSlot: 'p1' });
-holdGame.abilitiesFor = () => holdAbilities;
-holdAbilities.acquire('enchantResonance', 30, { silent: true });
-const holdCard = {
-  id: 'fire-enchant',
-  kind: 'enchant',
-  target: 'friendly-unit',
-  level: 1,
-  energyCost: 0,
-  maxUses: 3,
-  remainingUses: 3
-};
-const holdTarget = { id: 9 };
-const holdDrag = {
-  card: holdCard,
-  targetUnit: holdTarget,
-  mode: 'play',
-  valid: true
-};
-let holdHandRenders = 0;
-let holdCardUiUpdates = 0;
-let holdCountdownRestarts = 0;
-const holdCardSystem = {
-  game: holdGame,
-  playerSlot: 'p1',
-  drag: holdDrag,
-  enchantHold: {
-    drag: holdDrag,
-    target: holdTarget,
-    cost: 0,
-    remainingUses: 3,
-    tickCount: 0
-  },
-  isCardOnCooldown: () => false,
-  canSpend: () => true,
-  resolveCard(drag) {
-    return this.game.cardEffects.resolve(drag);
-  },
-  spendEnergy() {},
-  consumeCardUse(card) {
-    card.remainingUses = Math.max(0, card.remainingUses - 1);
-    return 1;
-  },
-  renderHand() {
-    holdHandRenders += 1;
-  },
-  updateCardAffordability() {},
-  updateEnchantHoldCardUi(card) {
-    holdCardUiUpdates += 1;
-    assert.equal(card, holdCard);
-  },
-  updateEnchantHoldUi() {
-    holdCountdownRestarts += 1;
-  },
-  markNetworkStateDirty() {},
-  stopEnchantHold() {
-    throw new Error('有效的长按附魔不应提前停止');
-  },
-  setHint() {},
-  rejectFullEnchantmentTarget: CardSystem.prototype.rejectFullEnchantmentTarget,
-  playDraggedCard: CardSystem.prototype.playDraggedCard
-};
-const holdRandom = Math.random;
-Math.random = () => 0.61;
-try {
-  CardSystem.prototype.tickEnchantHold.call(holdCardSystem);
-} finally {
-  Math.random = holdRandom;
-}
-assert.equal(holdResolveCalls.length, 4, '长按每跳应结算原附魔，并触发 30 层共鸣的 3 次保证追加');
-assert.equal(holdCard.remainingUses, 2);
-assert.equal(holdCardSystem.enchantHold.remainingUses, 2);
-assert.equal(holdCardSystem.enchantHold.tickCount, 1);
-assert.equal(holdVisuals.at(-1)?.options?.text, '附魔共鸣x3');
-assert.equal(holdHandRenders, 0, '持续附魔时不能重建手牌 DOM，否则后续倒计时会更新脱离页面的旧节点');
-assert.equal(holdCardUiUpdates, 1, '持续附魔应原位更新卡牌次数');
-assert.equal(holdCountdownRestarts, 1, '每轮持续附魔后都应重新启动倒计时动画');
+// 未携带符文石时不应产生发放，也不应产生提示。
+const visualsBeforeEmpty = resonanceVisuals.length;
+resonanceGame.runeStones.grantManaToUnit = () => ({
+  distributed: 0,
+  wasted: 0,
+  levelsGained: 0,
+  upgrades: []
+});
+resonanceAbilities.onCardPlayed(
+  { id: 'fire-enchant', kind: 'enchant', level: 1 },
+  { targetUnit: resonanceTarget }
+);
+assert.equal(resonanceVisuals.length, visualsBeforeEmpty, '没有携带符文石时不应产生共鸣提示');
 
 const abilityGame = createAbilityGame();
 const abilities = new AbilitySystem(abilityGame, { mountUi: false, playerSlot: 'p1' });
@@ -714,7 +642,6 @@ const cardPlayGame = {
 const cardSystem = {
   game: cardPlayGame,
   playerSlot: 'p1',
-  rejectFullEnchantmentTarget: CardSystem.prototype.rejectFullEnchantmentTarget,
   isCardOnCooldown: () => false,
   canSpend: () => true,
   resolveCard(drag) {

@@ -67,7 +67,7 @@ assert.equal(shouldConsumeWaveRewardCard({
 assert.equal(shouldConsumeWaveRewardCard({
   action: 'add-card',
   card: { id: 'fire-enchant', kind: 'enchant' }
-}, 'wave-reward', ['fire-enchant']), true, 'a synchronized wave reward still consumes without a source marker');
+}, 'wave-reward', ['fire-enchant']), false, '附魔卡改为可重复获得，不再消耗奖励牌组');
 assert.equal(shouldConsumeWaveRewardCard({
   action: 'add-card',
   card: { id: 'team-upgrade-unit-attack', kind: 'tactic' }
@@ -132,7 +132,7 @@ assert.equal(rewardPoolGame.consumeWaveRewardCard(unitRewardCard), true);
 assert.equal(rewardPoolGame.waveRewardDeck.includes(unitRewardCard.id), false);
 assert.equal(rewardPoolGame.consumeWaveRewardCard(regularRewardCard), true);
 assert.equal(rewardPoolGame.waveRewardDeck.includes(regularRewardCard.id), false);
-assert.equal(rewardPoolGame.consumeWaveRewardCard(regularRewardCard), false, 'a claimed fire enchant cannot be consumed or offered twice');
+assert.equal(rewardPoolGame.consumeWaveRewardCard(regularRewardCard), false, 'a claimed fire enchant cannot be consumed twice');
 
 const sharedWaveChoices = [{ action: 'add-card', card: regularRewardCard }];
 const waveEventGame = {
@@ -167,7 +167,7 @@ assert.equal(Game.prototype.applyStrategyChoice.call(synchronizedChoiceGame, {
   action: 'add-card',
   card: regularRewardCard
 }), true);
-assert.equal(synchronizedChoiceConsumed, 'fire-enchant', 'restored wave choices must still consume the selected definition');
+assert.equal(synchronizedChoiceConsumed, null, '附魔奖励不再消耗奖励牌组，因此可以再次获得');
 
 let rewardPoolDirtyMarks = 0;
 rewardPoolGame.networkBridge = {

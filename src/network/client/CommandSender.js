@@ -135,6 +135,19 @@ export class CommandSender {
   shopRewardSkip() {
     return this.sendCommand(COMMAND.SHOP_REWARD_SKIP);
   }
+
+  // 符文石转移/出售：只发送标识，落点与合法性全部由 Host 复核。
+  runeStoneMove(stoneId, target = {}) {
+    return this.sendCommand(COMMAND.RUNE_STONE_MOVE, {
+      stoneId: String(stoneId),
+      targetKind: target.kind === 'unit' ? 'unit' : 'base',
+      targetUnitId: target.kind === 'unit' && target.unitId != null ? String(target.unitId) : null
+    });
+  }
+
+  runeStoneSell(stoneId) {
+    return this.sendCommand(COMMAND.RUNE_STONE_SELL, { stoneId: String(stoneId) });
+  }
 }
 
 function normalizeUnitIds(unitIds) {

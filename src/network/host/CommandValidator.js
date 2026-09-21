@@ -14,7 +14,9 @@ const GAMEPLAY_COMMANDS = new Set([
   COMMAND.SHOP_CHOOSE,
   COMMAND.SHOP_ENERGY,
   COMMAND.SHOP_BACK,
-  COMMAND.SHOP_REWARD_SKIP
+  COMMAND.SHOP_REWARD_SKIP,
+  COMMAND.RUNE_STONE_MOVE,
+  COMMAND.RUNE_STONE_SELL
 ]);
 
 export class CommandValidator {
@@ -77,6 +79,12 @@ export class CommandValidator {
       case COMMAND.SHOP_REWARD_SKIP:
         result = this.validateShopReward(sourcePlayerId);
         break;
+      case COMMAND.RUNE_STONE_MOVE:
+        result = this.validateRuneStoneMove(sourcePlayerId, payload);
+        break;
+      case COMMAND.RUNE_STONE_SELL:
+        result = this.validateRuneStoneSell(sourcePlayerId, payload);
+        break;
       default:
         break;
     }
@@ -84,10 +92,50 @@ export class CommandValidator {
     return result;
   }
 
+  /**
+   * 符文石转移：石头必须是该玩家的，目标只能是自己基地背包或自己的存活单位。
+   * 容量与同名限制属于玩法规则，由 RuneStoneSystem 在执行时再次判定。
+   */
+  validateRuneStoneMove(playerId, payload) {
+    const stoneId = payload?.stoneId;
+    if (typeof stoneId !== 'string' || !stoneId) return reject('invalid_rune_stone');
+    const stone = this.game.runeStones?.stoneById?.(stoneId);
+    if (!stone) return reject('rune_stone_not_found');
+    if (stone.playerId !== playerId) return reject('rune_stone_not_owned');
+
+    const targetKind = payload?.targetKind === 'unit'
+      ? 'unit'
+      : (payload?.targetKind === 'base' ? 'base' : null);
+    if (!targetKind) return reject('invalid_rune_stone_target');
+
+    if (targetKind === 'base') {
+      return { ok: true, payload: { stoneId, targetKind, targetUnitId: null } };
+    }
+
+    const targetUnitId = payload?.targetUnitId;
+    if (targetUnitId == null || targetUnitId === '') return reject('invalid_rune_stone_target');
+    const target = (this.game.friendlyUnits ?? []).find(
+      (unit) => String(unit.id) === String(targetUnitId) && unit.alive
+    );
+    if (!target) return reject('target_not_found');
+    if ((target.controllerPlayerId ?? target.ownerPlayerId) !== playerId) {
+      return reject('target_not_owned');
+    }
+    return { ok: true, payload: { stoneId, targetKind, targetUnitId: String(target.id) } };
+  }
+
+  validateRuneStoneSell(playerId, payload) {
+    const stoneId = payload?.stoneId;
+    if (typeof stoneId !== 'string' || !stoneId) return reject('invalid_rune_stone');
+    const stone = this.game.runeStones?.stoneById?.(stoneId);
+    if (!stone) return reject('rune_stone_not_found');
+    if (stone.playerId !== playerId) return reject('rune_stone_not_owned');
+    return { ok: true, payload: { stoneId } };
+  }
+
   validateUnitCommand(playerId, payload) {
     if (!Array.isArray(payload.unitIds) || payload.unitIds.length < 1 || payload.unitIds.length > 200) {
-      return reject('invalid_command_units');
-    }
+      return reject('invalid_command_units');    }
     const requested = new Set(payload.unitIds);
     if (requested.size !== payload.unitIds.length) return reject('invalid_command_units');
     const allowed = this.game.friendlyUnits.filter((unit) => (

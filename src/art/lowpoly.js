@@ -8078,10 +8078,7 @@ export function createBaseModel({ theme = 'snow' } = {}) {
   attackEmitter.name = 'PlayerBaseAttackEmitter';
   group.add(attackEmitter);
 
-  const aura = new THREE.Group();
-  aura.userData.isAura = true;
-  group.add(aura);
-  group.userData.aura = aura;
+  // 基地不再提供恢复，也不再有恢复光环：只保留攻击发射点与能量核心表现。
   group.userData.attackEmitter = attackEmitter;
   group.userData.energyMeshes = [focusCrystal, focusGlow, focusRingA, focusRingB];
   return enableShadows(group);
@@ -8279,10 +8276,7 @@ function createFriendlyCampBaseModel(palette, theme) {
   attackEmitter.position.set(1.18, 2.48, 0.82);
   attackEmitter.name = 'PlayerBaseAttackEmitter';
   group.add(attackEmitter);
-  const aura = new THREE.Group();
-  aura.userData.isAura = true;
-  group.add(aura);
-  group.userData.aura = aura;
+  // 基地不再提供恢复，也不再有恢复光环。
   group.userData.attackEmitter = attackEmitter;
   group.userData.energyMeshes = [focusCrystal, focusGlow, focusRing];
   return enableShadows(group);

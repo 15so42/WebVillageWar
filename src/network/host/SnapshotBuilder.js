@@ -6,7 +6,6 @@ import {
 } from '../protocol/syncConfig.js';
 import { MSG } from '../protocol/messages.js';
 import { ensureInteractionIdentity } from './interactionIdentity.js';
-import { normalizeFreeEnchantmentCharges } from '../../systems/freeEnchantmentCharges.js';
 import { KNOCKBACK_STOP_SPEED_SQ } from '../../systems/combatHelpers.js';
 
 export class SnapshotBuilder {
@@ -369,7 +368,6 @@ export class SnapshotBuilder {
       shield: round(unit.shield ?? 0, 1),
       maxShield: round(unit.maxShield ?? 0, 1),
       maxEnchantmentSlots: Math.max(0, Math.floor(unit.maxEnchantmentSlots ?? 5)),
-      freeEnchantmentCharges: normalizeFreeEnchantmentCharges(unit.freeEnchantmentCharges),
       durability: round(unit.weapon?.durability ?? 0),
       maxDurability: round(unit.weapon?.maxDurability ?? 0),
       underConstruction: Boolean(unit.underConstruction),
@@ -486,7 +484,9 @@ export class SnapshotBuilder {
         && !run.runShopFreeReward
       ),
       abilities: serializeAbilities(this.game.abilitySystems?.[playerId] ?? (isLocal ? this.game.abilities : null)),
-      teamSpecialUpgrades: serializeTeamSpecialUpgrades(run?.teamSpecialUpgrades)
+      teamSpecialUpgrades: serializeTeamSpecialUpgrades(run?.teamSpecialUpgrades),
+      // 符文石是每名玩家自己的资产：客户端只镜像自己那一份，生成/转移/出售都由 Host 校验。
+      runeStones: this.game.runeStones?.serializeForSlot?.(playerId)?.stones ?? []
     };
   }
 

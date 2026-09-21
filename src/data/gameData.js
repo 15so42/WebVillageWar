@@ -3932,7 +3932,11 @@ export const PLAYER_ABILITY_DEFINITIONS = {
     name: '附魔共鸣',
     label: '响',
     color: '#b68cff',
-    summary: '使用附魔牌时，每层提供 12% 额外生效次数；超过 100% 时先保证整次，再判定余数'
+    // 附魔卡改为一次性生成符文石后，同名石头同一单位只能带一块，
+    // 无法再用「重复施加同名附魔」叠加等级。共鸣改为把额外次数折算成魔力，
+    // 直接喂给该单位携带的符文石——等级成长统一由魔力系统负责。
+    manaPerExtraEcho: 6,
+    summary: '使用附魔牌时，每层提供 12% 额外共鸣；额外共鸣折算成魔力，均分给该单位携带的符文石'
   },
   martyrdomLine: {
     id: 'martyrdomLine',
@@ -6322,6 +6326,8 @@ export const LEVEL_DEFINITIONS = [
       { type: 'frostWolfBoss', weight: 1, minWave: 6.2, minDifficulty: 1 },
       { type: 'frostOracleBoss', weight: 1, minWave: 7.4, minDifficulty: 1 }
     ],
+    // 单方向关卡：开局单位卡选择次数与开局能量按此数值计算。
+    routeCount: 1,
     world: {
       sceneKey: 'snow-valley'
     }
@@ -6348,6 +6354,7 @@ export const LEVEL_DEFINITIONS = [
     bossPool: [
       { type: 'boneVoicePriest', weight: 1, minWave: 5.6, minDifficulty: 2 }
     ],
+    routeCount: 1,
     world: {
       sceneKey: 'dungeon-halls'
     }
@@ -6376,6 +6383,7 @@ export const LEVEL_DEFINITIONS = [
     bossPool: [
       { type: 'yellowSandOgre', weight: 1, minWave: 6.2, minDifficulty: 3 }
     ],
+    routeCount: 1,
     world: {
       sceneKey: 'red-desert'
     }
@@ -6402,9 +6410,25 @@ export const LEVEL_DEFINITIONS = [
     bossPool: [
       { type: 'rotrootColossus', weight: 1, minWave: 6.8, minDifficulty: 4 }
     ],
+    routeCount: 1,
     world: {
       sceneKey: 'emerald-marsh'
     }
+  }
+];
+
+// 所有祭坛共享的恢复效果：占领后持续治疗范围内己方单位的生命与武器耐久。
+// 基地不再提供恢复，前线恢复完全依赖祭坛，因此每个祭坛都必须带上这组效果。
+const ALTAR_SHARED_RECOVERY_EFFECTS = [
+  {
+    op: 'restoreHealthPercent',
+    percent: 0.04,
+    intervalSeconds: 4
+  },
+  {
+    op: 'restoreDurabilityPercent',
+    percent: 0.04,
+    intervalSeconds: 4
   }
 ];
 
@@ -6414,13 +6438,15 @@ export const ALTAR_DEFINITIONS = {
     color: '#35c7ff',
     captureSeconds: 6,
     captureRadius: 4.4,
-    effectRadius: 0,
+    // 需要非零作用半径，共享恢复才能覆盖祭坛周围单位。
+    effectRadius: 6.6,
     effects: [
       {
         op: 'restoreEnergy',
         amount: 0.5,
         intervalSeconds: 5
-      }
+      },
+      ...ALTAR_SHARED_RECOVERY_EFFECTS
     ]
   },
   shield: {
@@ -6433,26 +6459,25 @@ export const ALTAR_DEFINITIONS = {
       {
         op: 'restoreShield',
         amountPerSecond: 0.2
-      }
+      },
+      ...ALTAR_SHARED_RECOVERY_EFFECTS
     ]
   },
-  respite: {
-    name: '修养祭坛',
+  // 原修养祭坛改为魔力祭坛：特色是持续向范围内单位给予魔力（符文石成长资源），
+  // 同时保留所有祭坛共有的生命/耐久恢复。
+  mana: {
+    name: '魔力祭坛',
     color: '#b78cff',
     captureSeconds: 6,
     captureRadius: 4.4,
     effectRadius: 6.6,
     effects: [
       {
-        op: 'restoreHealthPercent',
-        percent: 0.05,
-        intervalSeconds: 5
+        op: 'grantMana',
+        amount: 6,
+        intervalSeconds: 6
       },
-      {
-        op: 'restoreDurabilityPercent',
-        percent: 0.05,
-        intervalSeconds: 5
-      }
+      ...ALTAR_SHARED_RECOVERY_EFFECTS
     ]
   }
 };
@@ -6467,6 +6492,48 @@ export const BALANCE = {
     initial: 4,
     regenerationPerSecond: 0.1
   },
+  // 开局配置：路线数取自关卡 LEVEL_DEFINITIONS[].routeCount。
+  // 每多一条路线，除增加一次单位卡三选一外还额外增加开局能量。
+  opening: {
+    unitCardsPerRoute: 1,
+    abilityCards: 1,
+    terrainCards: 1,
+    energyPerExtraRoute: 2
+  },
+  // 符文石：附魔卡一次性生成、可随时转移的培养资产。
+  runes: {
+    // 单位符文背包容量，沿用原附魔槽位上限语义。
+    unitCapacity: 5,
+    // 基地存储背包容量。
+    baseCapacity: 24,
+    // 出售返还生成时实际支付能量的比例。
+    sellRefundRatio: 0.8,
+    // 售价随等级增长：每提升一级额外加价（练出来的石头更值钱）。
+    sellPricePerLevel: 2,
+    maxLevel: 10,
+    // 新石头的初始等级是否取附魔卡等级。
+    initialLevelFromCard: true,
+    // 第 n 级升到 n+1 级所需魔力，索引 0 对应 1→2 级。
+    manaPerLevel: [30, 70, 130, 210, 320, 460, 640, 860, 1120],
+    // 未携带符文时获得的魔力是否暂存（第 6.2 节未定，默认不暂存）。
+    storeManaWhenNoStones: false
+  },
+  // 魔力：敌人生成时确定携带值，只有单位击杀才结算，与卡牌能量是两种资源。
+  // 基础值对应难度 1 的口径，实际携带量再乘上与生命/攻击同源的难度系数。
+  mana: {
+    base: {
+      normal: 5,
+      elite: 20,
+      boss: 75
+    },
+    // 难度系数取生命系数与攻击系数的加权平均，两者一起决定成长幅度。
+    healthWeight: 0.5,
+    damageWeight: 0.5
+  },
+  // 祭坛通用规则：占领后可作为单位卡部署点。
+  altarRules: {
+    deploymentRadius: 7.5
+  },
   playerBase: {
     position: { x: 0, y: 0, z: 30 },
     maxHealth: 50,
@@ -6474,9 +6541,6 @@ export const BALANCE = {
     damagePerAttack: 1,
     energyRewardHealthLoss: 10,
     energyRewardAmount: 2,
-    recoveryRadius: 4.8,
-    healthPerSecond: 0.55,
-    durabilityPerSecond: 0.8,
     attackRange: 8.5,
     attackDamage: 7,
     attackKnockback: 1.35,
@@ -6497,6 +6561,33 @@ export const BALANCE = {
     shop: {
       basePrice: 12,
       priceIncrement: 3
+    },
+    // Boss 后军需补给铺：直接展示 4～6 件明码标价的商品，买断即售罄。
+    // 配额与补位顺序决定商品组合；价格按商品类别计。全部可配置，供后续实战调整。
+    supply: {
+      itemCount: 5,
+      minItemCount: 4,
+      maxItemCount: 6,
+      itemCountPerRoute: 0,
+      quotas: {
+        unitCard: 1,
+        enchant: 1,
+        abilityTerrain: 1,
+        attribute: 1,
+        energy: 1
+      },
+      fillOrder: ['unitCard', 'enchant', 'abilityTerrain', 'attribute'],
+      prices: {
+        unitCard: 14,
+        enchant: 16,
+        abilityTerrain: 14,
+        attribute: 18,
+        energy: 8
+      },
+      energyAmount: 2,
+      allowDuplicateEnchant: true,
+      // 本局已获得兵种的全部专精都解锁后，专精步骤改领的银币补偿。
+      specializationFallbackSilver: 6
     }
   },
   world: {
@@ -6540,8 +6631,8 @@ export const BALANCE = {
         clearingRadius: 6.2
       },
       {
-        id: 'respite-altar-south',
-        type: 'respite',
+        id: 'mana-altar-south',
+        type: 'mana',
         position: { x: -10.8, z: -20.2 },
         rotation: 0.2,
         clearingRadius: 6.2
@@ -6557,6 +6648,52 @@ export const BALANCE = {
     ]
   }
 };
+
+// 开局派生规则：关卡数据只存路线数，开局单位卡选择次数与开局能量都由这里集中换算。
+export function levelRouteCount(level) {
+  return Math.max(1, Math.floor(Number(level?.routeCount) || 1));
+}
+
+export function openingUnitCardCount(level, opening = BALANCE.opening) {
+  const perRoute = Math.max(0, Math.floor(Number(opening?.unitCardsPerRoute) || 0));
+  return Math.max(1, levelRouteCount(level) * perRoute);
+}
+
+export function openingEnergyForLevel(level, opening = BALANCE.opening) {
+  const extra = Math.max(0, Math.floor(Number(opening?.energyPerExtraRoute) || 0))
+    * (levelRouteCount(level) - 1);
+  return Math.max(0, Number(BALANCE.playerEnergy?.initial) || 0) + extra;
+}
+
+// 敌人携带的魔力基础值（难度 1 口径）：精英与 Boss 用更高档位的基础值。
+export function manaBaseForEnemy({ isBoss = false, isElite = false } = {}) {
+  const base = BALANCE.mana?.base ?? {};
+  const value = isBoss
+    ? Number(base.boss ?? 0)
+    : (isElite ? Number(base.elite ?? 0) : Number(base.normal ?? 0));
+  return Math.max(0, value);
+}
+
+/**
+ * 魔力难度系数：与 applyEnemyDifficulty 给生命、攻击用的系数同源，
+ * 让敌人携带的魔力像生命值和攻击力一样随难度成长，而不是按档位取固定值。
+ */
+export function enemyManaFactor(healthFactor, damageFactor, mana = BALANCE.mana) {
+  const healthWeight = Math.max(0, Number(mana?.healthWeight ?? 0.5));
+  const damageWeight = Math.max(0, Number(mana?.damageWeight ?? 0.5));
+  const total = healthWeight + damageWeight;
+  if (total <= 0) return 1;
+  const health = Number.isFinite(Number(healthFactor)) ? Number(healthFactor) : 1;
+  const damage = Number.isFinite(Number(damageFactor)) ? Number(damageFactor) : health;
+  return Math.max(0, (health * healthWeight + damage * damageWeight) / total);
+}
+
+/** 敌人生成时最终携带的魔力：档位基础值 × 与生命/攻击同源的难度系数。 */
+export function manaValueForEnemy({ isBoss = false, isElite = false, factor = 1 } = {}) {
+  const base = manaBaseForEnemy({ isBoss, isElite });
+  const scale = Number.isFinite(Number(factor)) ? Math.max(0, Number(factor)) : 1;
+  return Math.max(0, Math.round(base * scale));
+}
 
 export const PVE_ENEMY_SCALING_BY_PLAYER_COUNT = {
   2: { healthMult: 2, damageMult: 1.1 },

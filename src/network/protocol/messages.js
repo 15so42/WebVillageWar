@@ -1,5 +1,5 @@
 export const RELAY_VERSION = 3;
-export const GAME_PROTOCOL_VERSION = 'multiplayer-v6';
+export const GAME_PROTOCOL_VERSION = 'multiplayer-v7';
 export const CATALOG_VERSION = 'cards-v1';
 
 export const MATCH_PHASE = Object.freeze({
@@ -75,7 +75,9 @@ export const COMMAND = Object.freeze({
   SHOP_CHOOSE: 'shop_choose',
   SHOP_ENERGY: 'shop_energy',
   SHOP_BACK: 'shop_back',
-  SHOP_REWARD_SKIP: 'shop_reward_skip'
+  SHOP_REWARD_SKIP: 'shop_reward_skip',
+  RUNE_STONE_MOVE: 'rune_stone_move',
+  RUNE_STONE_SELL: 'rune_stone_sell'
 });
 
 export function relayEnvelope(roomId, to, payload) {

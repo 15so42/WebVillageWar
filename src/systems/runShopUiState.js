@@ -28,3 +28,11 @@ export function shouldRestoreFreeRunShopUi({
 export function shouldPauseRunShop({ coopEnabled = false, alreadyPaused = false } = {}) {
   return !coopEnabled && !alreadyPaused;
 }
+
+/**
+ * Boss 整备（免费兵种专精 → 明码标价的军需补给铺 → 继续战斗）是阻塞流程：
+ * 只要整备还开着，就不能开始下一波。无尽模式的自动跳过会先结束整备再放行。
+ */
+export function isRunShopPrepBlockingWaveAdvance({ freeReward = false } = {}) {
+  return freeReward === true;
+}

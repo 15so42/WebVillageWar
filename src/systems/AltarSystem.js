@@ -226,6 +226,7 @@ export class AltarSystem {
     }
 
     const units = this.unitsForTeam(altar.owner, { includeWildlife: false });
+    let manaGranted = 0;
     units.forEach((unit) => {
       if (!unit.alive) return;
       if (distance2D(unit.position, altar.position) > altar.effectRadius) return;
@@ -241,8 +242,20 @@ export class AltarSystem {
       } else if (effect.op === 'restoreDurabilityPercent') {
         const percent = effect.percent ?? (effect.percentPerSecond ?? 0) * dt;
         unit.restoreDurability(unit.weapon.maxDurability * percent);
+      } else if (effect.op === 'grantMana') {
+        // 魔力祭坛：向范围内单位持续给予魔力，由符文石系统均分给其携带的石头。
+        if (unit.isBuilding) return;
+        const result = this.game.runeStones?.grantManaToUnit?.(unit, effect.amount ?? 0);
+        manaGranted += Math.max(0, Number(result?.distributed) || 0);
       }
     });
+
+    if (manaGranted > 0) {
+      // 只在真正给出魔力时喷发一次，交代本次触发；遵守 VFX 硬性准则的向上软粒子构成。
+      this.game.effects.spawnManaBurst(altar.position, {
+        radius: Math.max(1, altar.effectRadius * 0.55)
+      });
+    }
   }
 
   applyNetworkSnapshot(rows = []) {

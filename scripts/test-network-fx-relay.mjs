@@ -30,16 +30,22 @@ assert.equal(emittedGame.effects.spawnRecoveryPulse({ x: 1, y: 0, z: 2 }, 5), tr
 assert.deepEqual(emittedEvents, [{ name: 'fx_recovery', x: 1, y: 0, z: 2, radius: 5 }]);
 restoreEmitted();
 
-const auraEvents = [];
-const auraGame = {
+const manaBurstEvents = [];
+const manaBurstGame = {
   effects: {
-    ensureRecoveryAura: () => true
+    spawnManaBurst: () => true
   }
 };
-const restoreAura = installHostEffectsRelay(auraGame, (event) => auraEvents.push(event));
-assert.equal(auraGame.effects.ensureRecoveryAura({ x: 3, y: 0, z: 4 }, 6), true);
-assert.deepEqual(auraEvents, [{ name: 'fx_recovery_aura', x: 3, y: 0, z: 4, radius: 6 }]);
-restoreAura();
+const restoreManaBurst = installHostEffectsRelay(manaBurstGame, (event) => manaBurstEvents.push(event));
+assert.equal(manaBurstGame.effects.spawnManaBurst({ x: 3, y: 0, z: 4 }, { radius: 6 }), true);
+assert.deepEqual(manaBurstEvents, [{
+  name: 'fx_mana_burst',
+  x: 3,
+  y: 0,
+  z: 4,
+  options: { radius: 6 }
+}]);
+restoreManaBurst();
 
 const judgmentEvents = [];
 const judgmentGame = {

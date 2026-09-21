@@ -1,6 +1,6 @@
 import { BUFF_DEFINITIONS, TEAMS } from '../data/gameData.js';
 import { distance2D } from '../utils/math.js';
-import { isEnchantmentSlotFull } from './enchantmentSlots.js';
+import { RUNE_ERROR_LABELS } from './RuneStoneSystem.js';
 import { shouldConsumeWaveRewardCard } from './waveRewardPool.js';
 
 export class CardEffectSystem {
@@ -27,6 +27,17 @@ export class CardEffectSystem {
     };
   }
 
+  /**
+   * 当前操作的玩家槽位。resolve 会把槽位注入处理函数，但直接调用某个
+   * 处理函数（例如随机附魔）时没有该参数，因此统一在这里兜底解析，
+   * 保证符文石归属永远落在正确的玩家经济上。
+   */
+  currentPlayerId() {
+    return this.game.activeEconomySlot
+      ?? this.game.cardSystem?.playerSlot
+      ?? this.game.localPlayerSlot;
+  }
+
   resolve(drag) {
     const card = drag.card;
     const effect = card.effect ?? legacyEffectFor(card);
@@ -39,12 +50,12 @@ export class CardEffectSystem {
     const resolved = handler({
       card,
       effect,
-      playerId: this.game.activeEconomySlot
-        ?? this.game.cardSystem?.playerSlot
-        ?? this.game.localPlayerSlot,
+      playerId: this.currentPlayerId(),
       point: drag.point?.clone(),
       targetUnit: drag.targetUnit,
-      targetCard: drag.targetCard
+      targetCard: drag.targetCard,
+      // 本次出牌实际支付的能量：符文石用它作为后续出售基准。
+      playEnergyCost: drag.playEnergyCost
     });
     if (resolved === false) return false;
     this.game.lastCardPlayed = card.id;
@@ -114,25 +125,27 @@ export class CardEffectSystem {
     });
   }
 
-  applyBuff({ card, effect, targetUnit }) {
-    if (!targetUnit) return false;
+  applyBuff({ card, effect, targetUnit, playerId = null, playEnergyCost }) {
     const buffId = effect.buffId ?? card.enchantmentId;
     const cardLevel = Math.max(1, Math.floor(card.level ?? 1));
     const definition = BUFF_DEFINITIONS[buffId];
     const isEnchantment = definition?.category === 'enchantment';
-    if (isEnchantment && isEnchantmentSlotFull(targetUnit, buffId)) {
-      this.showEnchantmentSlotFailure(targetUnit);
-      return false;
+    // 附魔卡不再直接挂 Buff：消耗一次，生成一块符文石。
+    // 有目标单位 → 进该单位符文背包并生效；没有目标 → 进基地背包（拖到空处）。
+    if (isEnchantment) {
+      return this.createRuneStoneFromCard({
+        card,
+        enchantmentDefinition: definition,
+        targetUnit,
+        playerId: playerId ?? this.currentPlayerId(),
+        playEnergyCost
+      });
     }
-    const applyCount = isEnchantment ? cardLevel : 1;
-    const applyLevel = isEnchantment ? 1 : cardLevel;
-    let buff = null;
-    for (let index = 0; index < applyCount; index += 1) {
-      buff = this.game.buffs.applyBuff(targetUnit, buffId, null, {
-        sourceCard: card.id,
-        level: applyLevel
-      }) ?? buff;
-    }
+    if (!targetUnit) return false;
+    const buff = this.game.buffs.applyBuff(targetUnit, buffId, null, {
+      sourceCard: card.id,
+      level: cardLevel
+    });
     if (!buff) return false;
     const visualDefinition = buff ?? definition;
     this.game.effects.spawnRing(targetUnit.position, visualDefinition?.color ?? card.color, 0.85, 0.6);
@@ -140,22 +153,71 @@ export class CardEffectSystem {
     return true;
   }
 
-  applyRandomEnchantments({ card, effect, targetUnit }) {
+  /** 附魔卡的唯一出口：交给 RuneStoneSystem 权威生成符文石。 */
+  createRuneStoneFromCard({ card, enchantmentDefinition, targetUnit, playerId, playEnergyCost }) {
+    const runeStones = this.game.runeStones;
+    if (!runeStones?.createFromCard) {
+      this.showRuneFailure(targetUnit, '无法生成符文石');
+      return false;
+    }
+    const paidEnergy = Number.isFinite(playEnergyCost)
+      ? playEnergyCost
+      : Math.max(0, Number(card.energyCost ?? 1));
+    const result = runeStones.createFromCard(card, {
+      playerId,
+      targetUnit: targetUnit ?? null,
+      paidEnergy
+    });
+    if (!result?.ok) {
+      this.showRuneFailure(targetUnit, RUNE_ERROR_LABELS[result?.reason] ?? '无法生成符文石');
+      return false;
+    }
+    const color = enchantmentDefinition?.color ?? card.color ?? '#b68cff';
+    const ringPosition = targetUnit?.position ?? this.game.playerBase?.position ?? null;
+    if (ringPosition) {
+      this.game.effects.spawnRing(ringPosition, color, 0.85, 0.6);
+    }
+    if (targetUnit) this.game.selectUnit(targetUnit);
+    return true;
+  }
+
+  /** 符文石生成失败（背包已满 / 同名已携带 / 目标无效）时的浮动提示。 */
+  showRuneFailure(targetUnit, text) {
+    const position = targetUnit?.position
+      ?? this.game.playerBase?.position
+      ?? null;
+    if (!position) return;
+    this.game.effects.spawnDamageNumber(position, 1, {
+      text,
+      color: '#ffb0a4',
+      stroke: '#421b18',
+      height: targetUnit?.projectileHitHeight ?? 1.55,
+      duration: 0.9,
+      fontSize: 74,
+      baseHeight: 0.5
+    });
+  }
+
+  applyRandomEnchantments({ card, effect, targetUnit, playerId = null }) {
     if (!targetUnit) return false;
+    const ownerId = playerId ?? this.currentPlayerId();
     const count = Math.max(1, Math.floor(resolveCardEffectNumber(card, effect, 'count', 1)));
     const enchantmentIds = Object.entries(BUFF_DEFINITIONS)
       .filter(([, definition]) => definition.category === 'enchantment' && !definition.retired)
       .map(([id]) => id);
     if (!enchantmentIds.length) return false;
-    const applyLevel = Math.max(1, Math.floor(resolveCardEffectNumber(card, effect, 'level', 1)));
+    const runeStones = this.game.runeStones;
+    if (!runeStones?.createFromCard) return false;
+    const stoneLevel = Math.max(1, Math.floor(resolveCardEffectNumber(card, effect, 'level', 1)));
     let applied = 0;
     for (let index = 0; index < count; index += 1) {
-      const buffId = enchantmentIds[Math.floor(Math.random() * enchantmentIds.length)];
-      const buff = this.game.buffs.applyBuff(targetUnit, buffId, null, {
-        sourceCard: card.id,
-        level: applyLevel
-      });
-      if (buff) applied += 1;
+      const enchantmentId = enchantmentIds[Math.floor(Math.random() * enchantmentIds.length)];
+      // 随机结果允许重复；同名/容量冲突由 createFromCard 拒绝，直接跳过该次。
+      const result = runeStones.createFromCard(
+        { id: card.id, level: stoneLevel, enchantmentId },
+        { playerId: ownerId, targetUnit, paidEnergy: 0 }
+      );
+      if (result?.ok) applied += 1;
     }
     if (applied <= 0) return false;
     this.game.effects.spawnRing(targetUnit.position, card.color ?? '#b68cff', 1.1, 0.75);

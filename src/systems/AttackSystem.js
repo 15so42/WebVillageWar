@@ -778,6 +778,8 @@ export class AttackSystem {
     const difficulty = force?.effectiveDifficulty ?? this.game.effectiveDifficultyForWave?.(force?.index ?? this.game.wave ?? 1) ?? 1;
     this.game.applyEnemyDifficulty?.(wolf, difficulty, force, 0);
     wolf.enemyForce = force ?? null;
+    // 召唤出来的敌人同样是敌人：生成时确定携带魔力。
+    this.game.assignEnemyManaValue?.(wolf);
     this.game.markEndlessEnemySpawn?.(wolf);
     this.game.attachUnitStatus?.(wolf);
     this.game.registerUnit(wolf);

@@ -1,0 +1,529 @@
+/* 符文背包界面：与战斗 HUD 同风格的中世纪暗色面板。
+   单位视图（E）靠左下角，单位与基地背包左右并排；
+   基地视图（B）居中，只显示基地背包。两种形态右下方都吸附一个垃圾桶。 */
+
+.rune-backpack {
+  position: fixed;
+  left: 14px;
+  bottom: 168px;
+  z-index: 9;
+  width: min(486px, calc(100vw - 28px));
+  color: #e8e0cf;
+  font-size: 13px;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(6px);
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease,
+    visibility 140ms ease;
+}
+
+.rune-backpack.is-open {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+/* 基地视图：居中显示，避免和左下角的战斗 HUD 挤在一起。 */
+.rune-backpack.is-base-view {
+  left: 50%;
+  bottom: auto;
+  top: 50%;
+  width: min(420px, calc(100vw - 32px));
+  transform: translate(-50%, calc(-50% + 6px));
+}
+
+.rune-backpack.is-base-view.is-open {
+  transform: translate(-50%, -50%);
+}
+
+.rune-backpack-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border: 2px solid rgba(150, 116, 208, 0.5);
+  border-radius: 10px;
+  background:
+    linear-gradient(180deg, rgba(38, 30, 56, 0.96), rgba(22, 18, 32, 0.96));
+  box-shadow:
+    inset 0 0 0 1px rgba(196, 166, 255, 0.12),
+    0 18px 40px rgba(0, 0, 0, 0.46);
+  backdrop-filter: blur(3px);
+}
+
+.rune-backpack-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.rune-backpack-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.rune-backpack-title {
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  color: #d9c6ff;
+}
+
+.rune-backpack-unit {
+  overflow: hidden;
+  color: #9fd6bd;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rune-backpack-close {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid rgba(196, 166, 255, 0.35);
+  border-radius: 6px;
+  background: rgba(58, 46, 84, 0.7);
+  color: #e8e0cf;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.rune-backpack-close:hover {
+  border-color: rgba(226, 200, 255, 0.8);
+  background: rgba(84, 66, 122, 0.9);
+}
+
+.rune-backpack-hint {
+  margin: 0;
+  color: #a99cc4;
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+.rune-backpack-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.rune-backpack.is-base-view .rune-backpack-columns {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.rune-backpack.is-base-view .rune-backpack-column.is-unit {
+  display: none;
+}
+
+.rune-backpack-column {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 7px 8px 8px;
+  border: 1px solid rgba(120, 104, 158, 0.34);
+  border-radius: 8px;
+  background: rgba(16, 13, 24, 0.5);
+  transition:
+    border-color 120ms ease,
+    background 120ms ease;
+}
+
+/* 背包名称固定在各自背包上方，左右并排排列。 */
+.rune-backpack-column-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  margin: 0;
+  color: #cbbde8;
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.rune-backpack-count {
+  color: #8f83ad;
+  font-weight: 700;
+}
+
+.rune-backpack-column.is-unit.is-drop-target {
+  border-color: rgba(122, 232, 186, 0.9);
+  background: rgba(26, 66, 54, 0.6);
+}
+
+.rune-backpack-column.is-base.is-drop-target {
+  border-color: rgba(196, 166, 255, 0.9);
+  background: rgba(50, 38, 84, 0.6);
+}
+
+/* 一个格子只放一块石头，不做堆叠。 */
+.rune-backpack-slots {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 68px);
+  gap: 6px;
+  align-content: start;
+  min-height: 68px;
+}
+
+.rune-backpack-empty {
+  grid-column: 1 / -1;
+  align-self: center;
+  color: #7d7392;
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.rune-backpack-slot {
+  width: 68px;
+  height: 68px;
+  border: 1px dashed rgba(120, 104, 158, 0.32);
+  border-radius: 7px;
+}
+
+/* 石头本体就是对应附魔的图片；等级压在图片内部左上角。 */
+.rune-stone {
+  position: relative;
+  width: 68px;
+  height: 68px;
+  border: 1px solid color-mix(in srgb, var(--rune-color, #b78cff) 70%, #2a2138);
+  border-radius: 7px;
+  background: rgba(24, 19, 36, 0.94);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  overflow: hidden;
+}
+
+.rune-stone:hover {
+  border-color: color-mix(in srgb, var(--rune-color, #b78cff) 95%, #ffffff);
+}
+
+.rune-stone.is-dragging {
+  opacity: 0.35;
+  cursor: grabbing;
+}
+
+/* 同名备用石：留在背包里不生效，但仍照常吃魔力升级。 */
+.rune-stone.is-inactive {
+  filter: grayscale(0.92) brightness(0.8);
+  border-style: dashed;
+}
+
+.rune-stone-art {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rune-stone-art .card-art {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  filter: saturate(1.15) brightness(1.05);
+}
+
+.rune-stone-art .card-art-svg,
+.rune-stone-art .card-art-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+/* 等级徽章：固定在图片内部左上角，永远是最后绘制的一层。 */
+.rune-stone-level {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  z-index: 2;
+  min-width: 15px;
+  padding: 0 4px;
+  border-radius: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(14, 11, 22, 0.86);
+  color: #ffe9a8;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 15px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.rune-stone-mana {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  height: 4px;
+  background: rgba(10, 8, 16, 0.7);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.rune-stone-mana i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #7a5cff, #c9a8ff);
+}
+
+.rune-stone-inactive {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 4px;
+  z-index: 2;
+  background: rgba(14, 11, 22, 0.78);
+  color: #d8c9a8;
+  font-size: 9px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 12px;
+  pointer-events: none;
+}
+
+/* 拖拽中的跟随物：贴着光标居中，类似《我的世界》手里拿着的那一格。 */
+.rune-drag-ghost {
+  position: fixed;
+  z-index: 40;
+  width: 56px;
+  height: 56px;
+  border: 2px solid color-mix(in srgb, var(--rune-color, #b78cff) 85%, #ffffff);
+  border-radius: 7px;
+  background: rgba(24, 19, 36, 0.92);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.55);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  opacity: 0.96;
+}
+
+.rune-drag-ghost .rune-stone-art {
+  position: absolute;
+  inset: 0;
+}
+
+.rune-drag-ghost .rune-stone-art .card-art {
+  width: 100%;
+  height: 100%;
+}
+
+.rune-drag-ghost .rune-stone-art .card-art-svg,
+.rune-drag-ghost .rune-stone-art .card-art-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.rune-drag-ghost .rune-stone-level {
+  top: 1px;
+  left: 1px;
+}
+
+.rune-backpack-stranded {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 7px 8px 8px;
+  border: 1px solid rgba(158, 120, 96, 0.4);
+  border-radius: 8px;
+  background: rgba(30, 22, 20, 0.5);
+}
+
+.rune-backpack-stranded[hidden] {
+  display: none;
+}
+
+.rune-backpack-stranded .rune-backpack-column-title {
+  color: #d9b79c;
+}
+
+.rune-backpack-note {
+  color: #9c8778;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.rune-backpack-stranded-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rune-backpack-stranded-label {
+  color: #b39a86;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* 垃圾桶：吸附在背包面板右下角，拖到里面即出售。 */
+.rune-backpack-trash {
+  position: absolute;
+  right: -10px;
+  bottom: -18px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 2px dashed rgba(226, 140, 92, 0.6);
+  border-radius: 8px;
+  background: rgba(54, 28, 18, 0.9);
+  color: #f0c9a8;
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4);
+  transition:
+    border-color 120ms ease,
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.rune-backpack-trash-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.rune-backpack-trash-value {
+  color: #ffd9b0;
+  font-size: 11px;
+}
+
+.rune-backpack-trash.is-drop-target {
+  border-color: rgba(255, 168, 110, 0.98);
+  background: rgba(126, 52, 22, 0.95);
+  color: #fff0dd;
+  box-shadow:
+    0 0 0 2px rgba(255, 168, 110, 0.2),
+    0 8px 22px rgba(0, 0, 0, 0.4);
+}
+
+.rune-backpack-feedback {
+  margin: 0;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.rune-backpack-feedback[hidden] {
+  display: none;
+}
+
+.rune-backpack-feedback[data-tone='ok'] {
+  color: #9fe8c4;
+}
+
+.rune-backpack-feedback[data-tone='error'] {
+  color: #ffa894;
+}
+
+/* 单位详情面板里的背包按钮。 */
+.rune-backpack-open {
+  margin-top: 6px;
+  padding: 4px 10px;
+  border: 1px solid rgba(150, 116, 208, 0.7);
+  border-radius: 6px;
+  background: rgba(58, 46, 84, 0.85);
+  color: #d9c6ff;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+}
+
+.rune-backpack-open:hover {
+  border-color: rgba(226, 200, 255, 0.95);
+  background: rgba(84, 66, 122, 0.95);
+  color: #f2e8ff;
+}
+
+/* 常驻入口：与右下角弃牌区同层，固定在左侧，避免压住手牌与能量面板。 */
+.rune-backpack-button {
+  position: fixed;
+  left: 14px;
+  bottom: 128px;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 2px solid rgba(150, 116, 208, 0.6);
+  border-radius: 8px;
+  background: rgba(38, 30, 56, 0.82);
+  color: #d9c6ff;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition:
+    border-color 130ms ease,
+    background 130ms ease,
+    color 130ms ease;
+}
+
+.rune-backpack-button:hover {
+  border-color: rgba(226, 200, 255, 0.95);
+  background: rgba(66, 52, 96, 0.92);
+  color: #f2e8ff;
+}
+
+.rune-backpack-button-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.rune-backpack-button-count {
+  min-width: 16px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(122, 92, 255, 0.35);
+  color: #e8dcff;
+  font-size: 11px;
+  text-align: center;
+}
+
+body.is-rune-dragging {
+  cursor: grabbing;
+}
+
+/* 触屏：面板改为贴底满宽，避免与手牌区重叠。 */
+@media (pointer: coarse) {
+  .rune-backpack {
+    left: 8px;
+    bottom: calc(96px + env(safe-area-inset-bottom) + var(--mobile-hand-visual-height, 0px));
+    width: calc(100vw - 16px);
+  }
+
+  .rune-backpack.is-base-view {
+    left: 8px;
+    top: auto;
+    bottom: calc(96px + env(safe-area-inset-bottom) + var(--mobile-hand-visual-height, 0px));
+    width: calc(100vw - 16px);
+    transform: translateY(6px);
+  }
+
+  .rune-backpack.is-base-view.is-open {
+    transform: translateY(0);
+  }
+
+  .rune-backpack.is-base-view .rune-backpack-columns,
+  .rune-backpack-columns {
+    grid-template-columns: 1fr;
+  }
+}

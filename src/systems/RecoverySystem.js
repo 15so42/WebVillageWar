@@ -1,44 +1,18 @@
-import * as THREE from 'three';
-import { distance2D } from '../utils/math.js';
-
-const RECOVERY_TICK_SECONDS = 1;
 const PASSIVE_DURABILITY_RECOVERY_INTERVAL_SECONDS = 3;
 const PASSIVE_DURABILITY_RECOVERY_AMOUNT = 1;
 
 export class RecoverySystem {
   constructor(game) {
     this.game = game;
-    this.center = new THREE.Vector3();
-    this.tickTimer = 0;
     this.passiveDurabilityTimer = 0;
   }
 
   update(dt) {
-    const base = this.game.playerBase;
-    const recoveryRadius = this.game.modifiers.getStructureRecoveryRadius(base);
-    const healthPerSecond = this.game.modifiers.getStructureHealthPerSecond(base);
-    const durabilityPerSecond = this.game.modifiers.getStructureDurabilityPerSecond(base);
-    this.center.copy(base.position);
-    this.game.effects.ensureRecoveryAura(this.center, recoveryRadius);
-
-    this.tickTimer += dt;
-    if (this.tickTimer < RECOVERY_TICK_SECONDS) return;
-    this.tickTimer -= RECOVERY_TICK_SECONDS;
-
-    this.game.friendlyUnits.forEach((unit) => {
-      if (!unit.alive || unit.isBuilding) return;
-      if (distance2D(unit.position, this.center) > recoveryRadius) return;
-      const healed = unit.restoreHealth(healthPerSecond);
-      this.game.effects.spawnHealNumber(unit.position, healed, {
-        displayAmount: healthPerSecond,
-        height: unit.projectileHitHeight ?? 1.55
-      });
-      unit.restoreDurability(durabilityPerSecond);
-    });
-
+    // 基地不再提供生命或耐久恢复，也不再创建基地恢复光环。
+    // 前线恢复改由祭坛承担（见 ALTAR_DEFINITIONS 的共享恢复效果）。
+    // 全局被动耐久回复与壁垒回复与基地恢复无关，必须继续独立推进。
     this.tickBulwarkRegen();
-
-    this.tickPassiveDurabilityRecovery(RECOVERY_TICK_SECONDS);
+    this.tickPassiveDurabilityRecovery(dt);
   }
 
   tickPassiveDurabilityRecovery(dt) {

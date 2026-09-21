@@ -2,9 +2,12 @@
  * Wave rewards consume the selected card definition from the reward deck.
  * Every card — including summon cards — can only be obtained once per run;
  * the reward pool shrinks until it is exhausted ("牌已发光").
+ * 附魔卡是例外：它是消耗品，同类附魔卡允许在本局中重复获得，因此不消耗奖励卡定义
+ * （见 docs/RUNE_STONE_GAMEPLAY_PLAN.md 第 3.1 节）。
  */
 export function shouldConsumeWaveRewardCard(choice, eventType = null, remainingIds = null) {
   if (choice?.action !== 'add-card') return false;
+  if (choice.card?.kind === 'enchant') return false;
   if (choice.rewardSource === 'wave-reward-deck') return true;
   if (eventType !== 'wave-reward') return false;
   const cardId = choice.card?.cardDefinitionId ?? choice.card?.id;

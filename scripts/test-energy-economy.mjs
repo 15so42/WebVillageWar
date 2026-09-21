@@ -186,7 +186,18 @@ assert.match(indexSource, /<button id="run-shop-toggle"[^>]*\shidden>/);
 assert.match(gameSource, /this\.runShopUi\.toggle\.hidden = true/);
 assert.doesNotMatch(indexSource, />B 军需铺/);
 const keyDownSource = gameSource.match(/onKeyDown\(event\) \{([\s\S]*?)\n  onKeyUp\(event\)/)?.[1] ?? '';
-assert.doesNotMatch(keyDownSource, /key === ['"]b['"]/i, 'B 键不应再打开军需铺');
+// B 键现在用于打开基地符文背包；它绝不能再打开军需铺。
+assert.match(keyDownSource, /key === ['"]b['"]/i, 'B 键应绑定基地符文背包');
+assert.match(
+  keyDownSource,
+  /key === ['"]b['"][\s\S]{0,200}?toggleBaseRuneBackpack\(\)/,
+  'B 键必须打开基地符文背包'
+);
+assert.doesNotMatch(
+  keyDownSource,
+  /key === ['"]b['"][\s\S]{0,240}?[Rr]unShop/,
+  'B 键不得打开军需铺'
+);
 assert.match(
   gameSource,
   /toggleRunShop\(\) \{\s*if \(!RUN_SHOP_PLAYER_ACCESS_ENABLED && !this\.runShopFreeReward\) return false;/,

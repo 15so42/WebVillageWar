@@ -14,7 +14,12 @@ import {
   TEAMS,
   UNIT_DEFINITIONS,
   WAVE_BOSS_TYPES,
-  WAVE_MONSTER_TYPES
+  WAVE_MONSTER_TYPES,
+  isTerrainCard,
+  enemyManaFactor,
+  manaValueForEnemy,
+  openingEnergyForLevel,
+  openingUnitCardCount
 } from '../data/gameData.js';
 import {
   UNIT_GENERIC_UPGRADES,
@@ -64,8 +69,38 @@ import { PathfindingSystem } from './PathfindingSystem.js';
 import { TargetingSystem } from './TargetingSystem.js';
 import { UnitLogicSystem } from './UnitLogicSystem.js';
 import { UnitRegistry } from './UnitRegistry.js';
-import { shouldPauseRunShop, shouldRestoreFreeRunShopUi } from './runShopUiState.js';
-import { isRunShopCategoryAvailable, RUN_SHOP_CATEGORIES } from './runShopCatalog.js';
+import {
+  isRunShopPrepBlockingWaveAdvance,
+  shouldPauseRunShop,
+  shouldRestoreFreeRunShopUi
+} from './runShopUiState.js';
+import {
+  RUN_SHOP_ACTION_BUY_ENERGY,
+  RUN_SHOP_ACTION_SPECIALIZATION_FALLBACK,
+  RUN_SHOP_ACTION_SPECIALIZATION_UNIT,
+  RUN_SHOP_BACK_TO_UNIT_LABEL,
+  RUN_SHOP_CATEGORIES,
+  RUN_SHOP_CONTINUE_LABEL,
+  RUN_SHOP_ENERGY_CARD_ID,
+  RUN_SHOP_FREE_LABEL,
+  RUN_SHOP_SOLD_OUT_LABEL,
+  RUN_SHOP_SPECIALIZATION_STEPS,
+  RUN_SHOP_SPECIALIZATION_TITLE,
+  RUN_SHOP_STEP_SPECIALIZATION_TYPE,
+  RUN_SHOP_STEP_SPECIALIZATION_UPGRADE,
+  RUN_SHOP_STEP_SUPPLY,
+  RUN_SHOP_SUPPLY_KIND_ICONS,
+  RUN_SHOP_SUPPLY_KIND_LABELS,
+  RUN_SHOP_SUPPLY_KINDS,
+  RUN_SHOP_SUPPLY_TITLE,
+  isRunShopCategoryRetired,
+  runShopSupplyConfig,
+  runShopSupplyEnergyAmount,
+  runShopSupplyFallbackSilver,
+  runShopSupplyItemCount,
+  runShopSupplyKindPrice,
+  runShopSupplyKindSequence
+} from './runShopCatalog.js';
 import {
   performSelfDestructAttacks,
   performSelfDestructExplosion,
@@ -108,7 +143,9 @@ import {
   shouldConsumeWaveRewardCard,
   waveRewardUnitCards
 } from './waveRewardPool.js';
-import { normalizeFreeEnchantmentCharges } from './freeEnchantmentCharges.js';
+import { RuneStoneSystem } from './RuneStoneSystem.js';
+import { RuneBackpackUi } from './RuneBackpackUi.js';
+import { manaThresholdForLevel, runeDisplayName } from './runeStones.js';
 import { autoRebirthDurationFor } from './rebirthRules.js';
 import {
   cameraFollowCenter,
@@ -156,37 +193,51 @@ const SILVER_GAIN_MULTIPLIER = 0.6;
 const RUN_SHOP_PLAYER_ACCESS_ENABLED = false;
 const FORCED_CARD_CHOICE_UNTIL_WAVE = 3;
 const OPENING_COMBAT_UNIT_CHOICES = 2;
-// 开局固定四次三选一：单位卡 → 法术卡 → 附魔卡 → 能力卡。除第一步在开局时
-// 直接打开外，其余步骤由 pendingStrategyRewards 依次串行推进（联机按全员等待）。
-const OPENING_REWARD_STEPS = [
-  {
+// 开局步骤由关卡路线数驱动：每条路线一次单位卡三选一，之后各一次能力卡与地形卡。
+// 不再有开局附魔卡步骤——附魔卡改为一次性生成符文石（见 docs/RUNE_STONE_GAMEPLAY_PLAN.md 第 2～3 节）。
+// 第一步（首个单位卡三选一）在开局时直接打开，其余步骤由 pendingStrategyRewards 依次串行推进（联机按全员等待）。
+const OPENING_REWARD_STEP_DEFINITIONS = {
+  unit: {
     type: 'opening-unit',
     kind: 'summon',
     title: '选择你的起始单位卡',
     summary: '从所有战斗单位中三选一，获得该单位卡后自行部署。'
   },
-  {
-    type: 'opening-spell',
-    kind: 'spell',
-    title: '选择起始法术卡',
-    summary: '从法术卡中三选一，加入抽牌堆。'
-  },
-  {
-    type: 'opening-enchant',
-    kind: 'enchant',
-    title: '选择起始附魔卡',
-    summary: '从附魔卡中三选一，加入抽牌堆。'
-  },
-  {
+  ability: {
     type: 'opening-ability',
     kind: 'ability',
     title: '选择起始能力卡',
     summary: '从能力卡中三选一，加入抽牌堆。'
+  },
+  terrain: {
+    type: 'opening-terrain',
+    kind: 'spell',
+    terrainOnly: true,
+    title: '选择起始地形卡',
+    summary: '从地形卡中三选一，加入抽牌堆。'
   }
-];
+};
+const OPENING_REWARD_STEP_ORDER = ['unit', 'ability', 'terrain'];
+
+export function openingRewardStepsForLevel(level, opening = BALANCE.opening) {
+  const counts = {
+    unit: openingUnitCardCount(level, opening),
+    ability: Math.max(0, Math.floor(Number(opening?.abilityCards ?? 1))),
+    terrain: Math.max(0, Math.floor(Number(opening?.terrainCards ?? 1)))
+  };
+  const steps = [];
+  OPENING_REWARD_STEP_ORDER.forEach((key) => {
+    const definition = OPENING_REWARD_STEP_DEFINITIONS[key];
+    const count = counts[key] ?? 0;
+    for (let index = 0; index < count; index += 1) {
+      steps.push({ ...definition });
+    }
+  });
+  return steps;
+}
 const ENEMY_CAMP_IDLE_SCAN_SECONDS = 0.18;
+// 旧版“军需铺按服务类别定价”的基础价：仅用于初始化 shopPrices 这个联机私有状态字段。
 const RUN_SHOP_BASE_PRICE = 12;
-const RUN_SHOP_PRICE_INCREMENT = 3;
 const WAVE_AFFIX_DEFINITIONS = {
   swarm: {
     id: 'swarm',
@@ -940,7 +991,6 @@ export class Game {
     };
     this.currentEnemyForce = null;
     this.pendingStrategyRewards = [];
-    this.rewardedAltarIds = new Set();
     this.teamGenericUpgradeCounts = new Map();
     this.teamSpecialUpgrades = new Map();
     this.teamSupportModifiersApplied = new Set();
@@ -970,6 +1020,14 @@ export class Game {
     this.runShopCardScale = 1;
     this.runShopFreeReward = false;
     this.runShopAutoSelectSecondsRemaining = null;
+    // Boss 整备（免费兵种专精 + 明码标价补给）的本局状态。
+    // 这些字段按玩家存放：单机直接放在 Game 上，联机放在 players[slot]（withPlayerContext 会同步搬运）。
+    this.runShopItems = null;
+    this.runShopPrepNodeKey = null;
+    this.runShopSpecializationClaimed = false;
+    this.runShopSpecializationUnitType = null;
+    this.runShopPrepCompleted = false;
+    this.runShopCompletedNodeKey = null;
     this.levelTestMode = false;
     this.debugTimeScale = 1;
     this.strategyEvent = null;
@@ -995,10 +1053,7 @@ export class Game {
       projectileHitHeight: 2.1,
       maxStructureDurability: BALANCE.playerBase.maxStructureDurability ?? 49,
       attributes: {
-        maxHealth: BALANCE.playerBase.maxHealth,
-        recoveryRadius: BALANCE.playerBase.recoveryRadius,
-        healthPerSecond: BALANCE.playerBase.healthPerSecond,
-        durabilityPerSecond: BALANCE.playerBase.durabilityPerSecond
+        maxHealth: BALANCE.playerBase.maxHealth
       }
     });
 
@@ -1086,6 +1141,19 @@ export class Game {
     this.spells = new SpellSystem(this);
     this.cardEffects = new CardEffectSystem(this);
     this.recovery = new RecoverySystem(this);
+    // 符文石背包权威：附魔卡一次性生成石头，石头放在单位背包里才生效。
+    this.runeStones = new RuneStoneSystem(this);
+    // 符文背包界面：常驻入口或 B 键打开；未选中己方单位时显示基地与阵亡单位背包。
+    if (typeof document !== 'undefined') {
+      this.runeBackpack = new RuneBackpackUi(this, {
+        getSelectedUnit: () => (
+          this.selectedUnit?.team === TEAMS.PLAYER && this.selectedUnit.alive
+            ? this.selectedUnit
+            : null
+        )
+      });
+      this.runeBackpack.ensureLauncher();
+    }
     if (isCoopSession(this.levelSession)) {
       const coopPlayers = this.levelSession.players ?? {};
       if (this.networkClientMode) {
@@ -1133,6 +1201,8 @@ export class Game {
     }
     this.lootDrops = new LootDropSystem(this);
     this.altars = new AltarSystem(this, this.world.config?.altars ?? this.worldConfig.altars);
+    // 多路线关卡的开局能量：每多一条路线额外发放，具体增量由 BALANCE.opening 配置。
+    this.grantOpeningRouteEnergy();
     this.spawnWildlife();
     this.enemyEnchantment = new EnemyEnchantmentSystem(this);
     this.levelMechanics = new LevelMechanicSystem(this);
@@ -1340,6 +1410,7 @@ export class Game {
     this.activeTouchPointers.clear();
     this.setMobileBoxSelectMode(false);
     this.eventController.abort();
+    this.runeBackpack?.destroy?.();
     this.cardSystem?.destroy?.();
     this.buildings?.destroy?.();
     this.lootDrops?.destroy?.();
@@ -1493,13 +1564,20 @@ export class Game {
   updateWaveFlow() {
     if (this.levelSession.debug || this.levelFinished || this.strategyEvent) return;
     if (!this.currentWave) {
-      if (this.pendingWaveAdvance && !this.runShopFreeReward) {
+      // Boss 整备（免费专精 → 付费补给 → 继续战斗）是阻塞式状态：
+      // 只有玩家走完两步、整备结束后才允许推进下一波。
+      if (this.pendingWaveAdvance && !this.isRunShopPrepBlockingWaveAdvance()) {
         this.continueAfterStrategyFlow(false);
       }
       return;
     }
     if (this.hasActiveWaveEnemies()) return;
     this.completeCurrentWave();
+  }
+
+  /** Boss 整备进行中：禁止开始下一波（无尽自动跳过路径会提前结束整备再放行）。 */
+  isRunShopPrepBlockingWaveAdvance() {
+    return isRunShopPrepBlockingWaveAdvance({ freeReward: this.runShopFreeReward === true });
   }
 
   hasActiveWaveEnemies() {
@@ -1568,9 +1646,13 @@ export class Game {
       this.bossesDefeated += 1;
       this.grantWaveSilver(wave);
       if (!this.isEndlessMode() && this.bossesDefeated >= BOSS_WAVES_TO_WIN) {
+        // 标准战役最终 Boss：直接结算，不再弹出当局用不到的专精/补给流程。
         this.finishLevel(true, { endReason: 'waves_completed' });
         return;
       }
+      // 非最终 Boss：进入 Boss 整备（先免费专精，再明码标价补给）。
+      // 是否提供整备由“本局是否真的结束”决定，不按固定 Boss 序号硬编码，
+      // 因此无尽等仍有后续战斗的模式同样会继续提供。
       this.pendingWaveAdvance = true;
       if (this.coop?.enabled) {
         this.openCoopRunShopForAll({ freeReward: true });
@@ -1738,11 +1820,38 @@ export class Game {
   // 联机时必须带 coop 标记，才能重新走“全员各自三选一”的共享流程。
   queueOpeningRewardSteps() {
     const coop = Boolean(this.coop?.enabled);
-    OPENING_REWARD_STEPS
-      .filter((step) => step.type !== 'opening-unit')
-      .forEach((step) => {
-        this.pendingStrategyRewards.push({ type: step.type, options: {}, coop });
-      });
+    // 第一步（首个单位卡三选一）在开局时直接打开，这里只排它之后的步骤。
+    this.openingRewardSteps().slice(1).forEach((step) => {
+      this.pendingStrategyRewards.push({ type: step.type, options: {}, coop });
+    });
+  }
+
+  /** 开局步骤：路线数 × 单位卡三选一，之后各一次能力卡与地形卡。 */
+  openingRewardSteps() {
+    return openingRewardStepsForLevel(this.levelSession?.level ?? null);
+  }
+
+  /** 每多一条路线额外发放开局能量；单路线时增量为 0，不影响现有数值。 */
+  grantOpeningRouteEnergy() {
+    const extra = openingEnergyForLevel(this.levelSession?.level ?? null)
+      - Math.max(0, Number(BALANCE.playerEnergy?.initial) || 0);
+    if (!(extra > 0)) return 0;
+    this.playerSlotsWithCardSystems().forEach((slot) => {
+      this.cardSystemForSlot(slot)?.addEnergy?.(extra);
+    });
+    return extra;
+  }
+
+  playerSlotsWithCardSystems() {
+    if (this.cardSystems) return Object.keys(this.cardSystems);
+    return [this.localPlayerSlot ?? this.cardSystem?.playerSlot ?? 'p1'];
+  }
+
+  cardSystemForSlot(slot) {
+    if (this.cardSystems?.[slot]) return this.cardSystems[slot];
+    if (slot === (this.activeEconomySlot ?? this.localPlayerSlot)) return this.cardSystem ?? null;
+    if (slot === this.cardSystem?.playerSlot) return this.cardSystem ?? null;
+    return null;
   }
 
   hasPendingOpeningReward() {
@@ -1839,7 +1948,7 @@ export class Game {
     }
     this.updateCoopRewardWaitingSummary();
     if (this.runShopOpen && this.runShopFreeReward && this.runShopUi?.kicker) {
-      this.runShopUi.kicker.textContent = `Boss 战利 #${this.bossesDefeated} · 免费一次${formatCoopRewardCountdownSuffix(this.runShopAutoSelectSecondsRemaining)}`;
+      this.runShopUi.kicker.textContent = this.runShopKickerText();
     }
   }
 
@@ -1917,36 +2026,35 @@ export class Game {
       this.runShopFreeReward = false;
       this.runShopActiveCategory = null;
       this.runShopChoices = [];
+      this.runShopItems = null;
     });
     this.finishCoopRunShop(slot);
     return true;
   }
 
+  /**
+   * 超时自动处理：由 Host 代打第一步——领取一项仍可用的兵种专精（全部获得时改领补偿），
+   * 但绝不代买需要银币的补给商品。断线玩家走 skipCoopRunShopForSlot，不补发专精。
+   */
   completeRunShopAutoSelection() {
     if (!this.runShopFreeReward) return false;
-    const tryCurrentSelection = () => {
-      if (this.runShopActiveCategory === 'energy') {
-        return this.purchaseRunShopEnergy({ deferFreeRewardClose: true });
+    this.ensureRunShopPrep();
+    this.autoClaimRunShopSpecialization();
+    return true;
+  }
+
+  /** 自动领取第一项可用专精；没有可用专精时领取补偿。 */
+  autoClaimRunShopSpecialization() {
+    if (this.runShopSpecializationClaimed) return true;
+    const specialization = this.buildRunShopSpecializationState();
+    const option = specialization.options[0];
+    if (option) {
+      const upgrade = option.available[0];
+      if (upgrade && this.claimRunShopSpecialization(option.unitType, upgrade, { render: false })) {
+        return true;
       }
-      const choice = (this.runShopChoices ?? []).find((entry) => entry && !entry.disabled);
-      return choice
-        ? this.completeRunShopPurchase(choice, { deferFreeRewardClose: true })
-        : false;
-    };
-    if (tryCurrentSelection()) return true;
-    for (const category of RUN_SHOP_CATEGORIES) {
-      if (!category?.key) continue;
-      const availability = this.canRunShopCategory(category.key);
-      if (!availability.ok) continue;
-      if (category.key === 'energy') {
-        if (this.purchaseRunShopEnergy({ deferFreeRewardClose: true })) return true;
-        continue;
-      }
-      this.selectRunShopCategory(category.key);
-      if (tryCurrentSelection()) return true;
     }
-    this.clearRunShopSelection();
-    return false;
+    return this.claimRunShopSpecializationFallback({ render: false });
   }
 
   openCoopStrategyEventForAll(type, options = {}) {
@@ -2061,17 +2169,17 @@ export class Game {
     document.body.classList.add('is-game-paused', 'is-strategy-event-open');
     this.strategyEventUi.root.hidden = false;
     this.strategyEventUi.root.dataset.eventType = 'run-shop-waiting';
-    this.strategyEventUi.root.setAttribute('aria-label', '等待队友完成军需铺');
+    this.strategyEventUi.root.setAttribute('aria-label', '等待队友完成 Boss 整备');
     this.strategyEventUi.kicker.textContent = '联机军需铺';
     this.strategyEventUi.kicker.hidden = false;
-    this.strategyEventUi.title.textContent = '等待队友完成军需铺';
+    this.strategyEventUi.title.textContent = '等待队友完成 Boss 整备';
     this.strategyEventUi.summary.textContent = this.coopRunShopWaitingSummary();
     this.strategyEventUi.summary.hidden = false;
     this.strategyEventUi.choices.innerHTML = '';
     this.strategyEventUi.actions.hidden = true;
     this.strategyEventUi.actions.innerHTML = '';
     this.cardSystem?.clearHint?.('boss-shop');
-    this.cardSystem?.setHint?.('等待队友完成军需铺…', 'coop-wait-shop');
+    this.cardSystem?.setHint?.('等待队友完成 Boss 整备…', 'coop-wait-shop');
   }
 
   hideCoopRunShopWaitingUi() {
@@ -2096,9 +2204,9 @@ export class Game {
 
   coopRunShopWaitingSummary() {
     return appendCoopRewardCountdown(
-      '你的免费军需奖励已经处理完成，所有玩家完成后会继续战斗。',
+      '你已完成 Boss 整备（免费专精与补给），所有玩家完成后会继续战斗。',
       this.coopRewardAutoSelectSecondsRemaining,
-      '超时将自动处理未完成玩家。'
+      '超时将自动为未完成玩家领取可用专精。'
     );
   }
 
@@ -2219,7 +2327,13 @@ export class Game {
       run.runShopFreeReward = options.freeReward === true && canUseShop;
       run.runShopActiveCategory = null;
       run.runShopChoices = [];
+      run.runShopItems = null;
       run.runShopPendingOffers = options.freeReward === true && canUseShop ? {} : (run.runShopPendingOffers ?? {});
+      if (run.runShopFreeReward) {
+        // 每位玩家各自生成一套专精候选与补给商品；同一节点重复进入不会重建
+        // （断线重连不刷新已领专精，也不重置已售罄商品）。
+        this.withPlayerContext(slot, () => this.ensureRunShopPrep());
+      }
       if (run.runShopFreeReward) this.coopRewardWaitSlots.add(slot);
     });
     if (!this.coopRewardWaitSlots.size) {
@@ -2244,10 +2358,13 @@ export class Game {
   finishCoopRunShop(slot) {
     const resolvedSlot = slot ?? this.localPlayerSlot;
     const closeShopState = () => {
+      // 记录本节点整备已完成：之后即使收到重复/滞后命令也不会重建商品或再发专精。
+      this.markRunShopPrepCompleted();
       this.runShopFreeReward = false;
       this.runShopActiveCategory = null;
       this.runShopChoices = [];
       this.runShopPendingOffers = {};
+      this.runShopItems = null;
       this.runShopAutoSelectSecondsRemaining = null;
     };
     if (this.activeEconomySlot === resolvedSlot) closeShopState();
@@ -2258,6 +2375,7 @@ export class Game {
       run.runShopActiveCategory = null;
       run.runShopChoices = [];
       run.runShopPendingOffers = {};
+      run.runShopItems = null;
       run.runShopAutoSelectSecondsRemaining = null;
     }
     this.coopRewardWaitSlots?.delete(resolvedSlot);
@@ -2321,19 +2439,23 @@ export class Game {
   }
 
   applyNetworkShopCategory(slot, category) {
-    return this.withPlayerContext(slot, () => this.selectRunShopCategory(category));
+    // 新版军需铺不再有“先选服务类别”这一步：所有旧类别都被判定为下架，
+    // 即使客户端伪造 shopCategory 命令也无法重新打开复制/删牌/升级等服务。
+    void slot;
+    void category;
+    return false;
   }
 
   applyNetworkShopChoice(slot, index) {
-    let completedFreeReward = false;
-    const applied = this.withPlayerContext(slot, () => {
+    // 一次选择只处理一件事：选兵种、领专精、买一件商品。
+    // 补给购买不会结束整备——只有 shopRewardSkip（继续战斗）才结束。
+    return this.withPlayerContext(slot, () => {
       const choice = this.runShopChoices?.[index];
       if (!choice || choice.disabled) return false;
-      completedFreeReward = this.runShopFreeReward;
-      return this.completeRunShopPurchase(choice, { deferFreeRewardClose: true });
+      const applied = this.completeRunShopPurchase(choice);
+      if (applied) this.networkBridge?.markPrivateStateDirty?.(slot);
+      return applied;
     });
-    if (applied && completedFreeReward) this.finishCoopRunShop(slot);
-    return applied;
   }
 
   applyNetworkShopRewardSkip(slot) {
@@ -2344,13 +2466,8 @@ export class Game {
   }
 
   applyNetworkShopEnergy(slot) {
-    let completedFreeReward = false;
-    const applied = this.withPlayerContext(slot, () => {
-      completedFreeReward = this.runShopFreeReward;
-      return this.purchaseRunShopEnergy({ deferFreeRewardClose: true });
-    });
-    if (applied && completedFreeReward) this.finishCoopRunShop(slot);
-    return applied;
+    // 保底路径（旧 SHOP_ENERGY 命令）：按配置价购买能量补给，同样不结束整备。
+    return this.withPlayerContext(slot, () => this.purchaseRunShopEnergy());
   }
 
   applyNetworkShopBack(slot) {
@@ -2496,50 +2613,470 @@ export class Game {
     }
   }
 
-  shopPrice(category) {
-    const categoryMeta = RUN_SHOP_CATEGORIES.find((entry) => entry.key === category);
-    if (Number.isFinite(categoryMeta?.fixedPrice)) {
-      return Math.max(0, Number(categoryMeta.fixedPrice));
-    }
-    let price = Math.max(0, Number(this.shopPrices?.[category] ?? RUN_SHOP_BASE_PRICE));
-    if (category === 'copy' || category === 'remove') {
-      price *= 2;
-    }
-    return price;
+  // ---------------------------------------------------------------------------
+  // Boss 整备（免费兵种专精 → 明码标价的军需补给铺 → 继续战斗）
+  // 规则见 docs/RUNE_STONE_GAMEPLAY_PLAN.md 第 10 节。
+  // ---------------------------------------------------------------------------
+
+  /** 军需补给铺配置（可配置数据段；BALANCE.runCurrency.supply 可覆盖默认值）。 */
+  runShopSupplyConfig() {
+    return runShopSupplyConfig(BALANCE.runCurrency);
   }
 
-  shopPriceIncrement() {
-    return Math.max(0, Number(BALANCE.runCurrency?.shop?.priceIncrement ?? RUN_SHOP_PRICE_INCREMENT));
+  runShopRouteCount() {
+    return Math.max(1, Math.floor(Number(this.levelSession?.level?.routeCount) || 1));
   }
 
+  /** 商品类别价格（明码标价，购买前可见）。 */
+  shopPrice(kind) {
+    return runShopSupplyKindPrice(kind, this.runShopSupplyConfig());
+  }
+
+  /** 本局第 N 个 Boss 的整备节点标识；同一节点不会重复初始化。 */
+  runShopPrepKey() {
+    return `boss:${Math.max(0, Math.floor(Number(this.bossesDefeated) || 0))}`;
+  }
+
+  /**
+   * 旧版“先选服务类别再进入详情”的入口已全部下架。
+   * 新版通过 shopChoice 命令选择具体专精或具体商品，这里只保留兼容占位。
+   */
   canRunShopCategory(category) {
-    if (!isRunShopCategoryAvailable(category)) {
-      return { ok: false, reason: '该军需服务已下架' };
+    if (isRunShopCategoryRetired(category)) {
+      return { ok: false, reason: '该军需服务已从新版军需铺下架' };
     }
-    if (category === 'copy' || category === 'remove' || category === 'upgrade') {
-      if (!this.runShopOwnedCards().length) {
-        return { ok: false, reason: '牌组中没有可操作的卡牌' };
-      }
-    }
-    if (category === 'unit' && !this.waveRewardCardPool().length) {
-      return { ok: false, reason: '剩余波次奖励牌组已用完' };
-    }
-    if (category === 'attribute' && !this.buildAttributeUpgradeChoicePool().length) {
-      return { ok: false, reason: '暂无可购强化' };
-    }
-    if (category === 'trait' && !this.buildTraitUpgradeChoicePool().length) {
-      return { ok: false, reason: '专精已满' };
-    }
-    if (category === 'temporary') {
-      const options = STRATEGY_REWARD_OPTION_DEFINITIONS
-        .filter((option) => option.action === 'grant-temporary-card' && option.temporaryCard);
-      if (!options.length) return { ok: false, reason: '暂无咒印' };
-    }
-    return { ok: true, reason: '' };
+    return { ok: false, reason: '新版军需铺直接展示具体商品' };
   }
 
   isLocalEconomyContext() {
     return (this.activeEconomySlot ?? this.localPlayerSlot) === this.localPlayerSlot;
+  }
+
+  /** 当前整备步骤：'specialization-type' | 'specialization-upgrade' | 'supply' | null。 */
+  runShopPrepMode() {
+    const mode = this.runShopActiveCategory;
+    if (RUN_SHOP_SPECIALIZATION_STEPS.includes(mode)) return mode;
+    if (mode === RUN_SHOP_STEP_SUPPLY) return mode;
+    return null;
+  }
+
+  /**
+   * 初始化（或恢复）本节点整备：先展示“选择兵种”，商品列表一次性生成后保持稳定。
+   * 幂等：同一节点重复调用不会重建商品、不会重置已领专精与售罄状态，
+   * 因此断线重连或重复打开都不会刷出新商品或补发专精。
+   */
+  ensureRunShopPrep() {
+    // 联机客户端只渲染 Host 同步过来的状态，绝不自己生成商品。
+    if (this.networkClientMode) return false;
+    const nodeKey = this.runShopPrepKey();
+    if (this.runShopCompletedNodeKey && this.runShopCompletedNodeKey === nodeKey) return false;
+    if (
+      this.runShopPrepNodeKey === nodeKey
+      && Array.isArray(this.runShopItems)
+      && this.runShopChoices?.length
+    ) {
+      return true;
+    }
+    this.runShopPrepNodeKey = nodeKey;
+    this.runShopItems = this.createRunShopSupplyItems(nodeKey);
+    this.runShopSpecializationClaimed = false;
+    this.runShopSpecializationUnitType = null;
+    this.runShopPrepCompleted = false;
+    this.runShopPendingOffers = {};
+    this.runShopActiveCategory = RUN_SHOP_STEP_SPECIALIZATION_TYPE;
+    this.runShopChoices = this.createRunShopSpecializationTypeChoices();
+    return true;
+  }
+
+  /** 整备是否已走完两步（商品购买不阻塞结束，专精必须先领取或明确放弃）。 */
+  markRunShopPrepCompleted() {
+    if (!this.runShopSpecializationClaimed) {
+      // 未领取就结束整备视为放弃本次免费专精，记录在案防止重复领取。
+      this.runShopSpecializationClaimed = true;
+    }
+    this.runShopPrepCompleted = true;
+    this.runShopCompletedNodeKey = this.runShopPrepNodeKey ?? this.runShopPrepKey();
+  }
+
+  /**
+   * 已获得兵种中仍可用专精：只列本局已获得兵种（acquiredUnitTypes），
+   * 并且过滤掉该兵种已拥有的专精；全部获得时返回空列表，由补偿选项兜底。
+   */
+  buildRunShopSpecializationState() {
+    const options = [];
+    this.acquiredUnitTypes().forEach((unitType) => {
+      const owned = this.teamSpecialUpgrades?.get?.(unitType) ?? new Set();
+      const available = (UNIT_SPECIAL_UPGRADES[unitType] ?? [])
+        .filter((upgrade) => !owned.has(upgrade.id));
+      if (!available.length) return;
+      options.push({
+        unitType,
+        unitName: UNIT_DEFINITIONS[unitType]?.name ?? unitType,
+        available
+      });
+    });
+    options.sort((left, right) => left.unitName.localeCompare(right.unitName, 'zh-Hans-CN'));
+    return { options, hasAny: options.length > 0 };
+  }
+
+  /** 第一步：选择要获得专精的兵种（无可用专精时只给一个补偿选项）。 */
+  createRunShopSpecializationTypeChoices() {
+    const specialization = this.buildRunShopSpecializationState();
+    if (!specialization.hasAny) return [this.createRunShopSpecializationFallbackChoice()];
+    return specialization.options.map((option) => ({
+      action: RUN_SHOP_ACTION_SPECIALIZATION_UNIT,
+      actionLabel: '选择兵种',
+      unitType: option.unitType,
+      title: option.unitName,
+      description: `可解锁 ${option.available.length} 项专精：${option.available.map((upgrade) => upgrade.name).join('、')}`,
+      card: {
+        id: `run-shop-specialization-${option.unitType}`,
+        name: option.unitName,
+        kind: 'ability',
+        label: '专',
+        artKey: option.unitType,
+        summary: `可解锁 ${option.available.length} 项专精`,
+        energyCost: 0,
+        color: specializationIconColor(option.unitType),
+        level: 1
+      }
+    }));
+  }
+
+  createRunShopSpecializationFallbackChoice() {
+    const silver = runShopSupplyFallbackSilver(this.runShopSupplyConfig());
+    return {
+      action: RUN_SHOP_ACTION_SPECIALIZATION_FALLBACK,
+      actionLabel: '领取补偿',
+      title: '专精已满 · 领取补偿',
+      description: `本局已获得兵种的全部专精均已解锁，改领 ${formatSilverAmount(silver)} 银币补偿。`,
+      fallbackSilver: silver,
+      card: {
+        id: 'run-shop-specialization-fallback',
+        name: '专精补偿',
+        kind: 'tactic',
+        label: '补',
+        artKey: 'tacticUpgrade',
+        summary: `改领 ${formatSilverAmount(silver)} 银币`,
+        energyCost: 0,
+        color: '#ffd166',
+        level: 1
+      }
+    };
+  }
+
+  /** 第二步：展示所选兵种尚未获得的专精，选定后直接生效。 */
+  createRunShopSpecializationUpgradeChoices(unitType) {
+    const owned = this.teamSpecialUpgrades?.get?.(unitType) ?? new Set();
+    return (UNIT_SPECIAL_UPGRADES[unitType] ?? [])
+      .filter((upgrade) => !owned.has(upgrade.id))
+      .map((upgrade) => this.createTeamSpecialUpgradeChoice(unitType, upgrade));
+  }
+
+  /** 点击兵种：进入该兵种的专精列表。 */
+  selectRunShopSpecializationUnit(unitType) {
+    if (!this.isRunShopPrepEditable()) return false;
+    if (this.runShopSpecializationClaimed) return false;
+    if (this.runShopActiveCategory !== RUN_SHOP_STEP_SPECIALIZATION_TYPE) return false;
+    const choices = this.createRunShopSpecializationUpgradeChoices(unitType);
+    if (!choices.length) return false;
+    this.runShopSpecializationUnitType = unitType;
+    this.runShopActiveCategory = RUN_SHOP_STEP_SPECIALIZATION_UPGRADE;
+    this.runShopChoices = choices;
+    this.renderRunShop();
+    this.networkBridge?.markPrivateStateDirty?.(this.activeEconomySlot ?? this.localPlayerSlot);
+    return true;
+  }
+
+  /** 专精奖励只能在真正的 Boss 整备期间领取：滞后命令不能凭空补发专精。 */
+  isRunShopPrepEditable() {
+    return this.runShopFreeReward === true && Boolean(this.runShopPrepNodeKey);
+  }
+
+  /** 领取一项专精：免费、立即对该兵种现有与后续单位生效，不生成卡牌、不消耗能量。 */
+  claimRunShopSpecialization(unitType, upgrade, options = {}) {
+    if (!this.isRunShopPrepEditable()) return false;
+    if (this.runShopSpecializationClaimed) return false;
+    if (!unitType || !upgrade?.id) return false;
+    const owned = this.teamSpecialUpgrades?.get?.(unitType);
+    if (owned?.has(upgrade.id)) return false;
+    if (!this.applyTeamSpecialUpgrade(unitType, upgrade)) return false;
+    this.runShopSpecializationClaimed = true;
+    this.runShopSpecializationUnitType = null;
+    this.enterRunShopSupplyStep({ render: options.render !== false });
+    this.cardSystem?.setHint?.(
+      `已获得专精：${UNIT_DEFINITIONS[unitType]?.name ?? unitType}·${upgrade.name}`,
+      'run-shop'
+    );
+    return true;
+  }
+
+  /** 所有专精都已获得时的替代奖励：少量银币，保证流程永远可以继续。 */
+  claimRunShopSpecializationFallback(options = {}) {
+    if (!this.isRunShopPrepEditable()) return false;
+    if (this.runShopSpecializationClaimed) return false;
+    const silver = runShopSupplyFallbackSilver(this.runShopSupplyConfig());
+    this.runShopSpecializationClaimed = true;
+    this.runShopSpecializationUnitType = null;
+    if (silver > 0) this.addSilver(silver);
+    this.enterRunShopSupplyStep({ render: options.render !== false });
+    this.cardSystem?.setHint?.(`专精已满，改领 ${formatSilverAmount(silver)} 银币补偿`, 'run-shop');
+    this.updateHud(0);
+    return true;
+  }
+
+  /** 专精步骤结束：切到明码标价的军需补给铺。 */
+  enterRunShopSupplyStep(options = {}) {
+    this.runShopActiveCategory = RUN_SHOP_STEP_SUPPLY;
+    this.runShopChoices = this.createRunShopSupplyChoices();
+    this.networkBridge?.markPrivateStateDirty?.(this.activeEconomySlot ?? this.localPlayerSlot);
+    if (options.render !== false) this.renderRunShop();
+    return true;
+  }
+
+  /**
+   * 生成 4～6 件具体商品：数量、类别配额与价格全部来自 runShopCatalog 的配置。
+   * 每件商品有独立实例 id；购买一次后售罄，不退场、不自动补货。
+   */
+  createRunShopSupplyItems(nodeKey = this.runShopPrepKey()) {
+    const config = this.runShopSupplyConfig();
+    const itemCount = runShopSupplyItemCount(config, this.runShopRouteCount() - 1);
+    const kinds = runShopSupplyKindSequence(config, itemCount);
+    const context = {
+      config,
+      nodeKey,
+      cardPool: this.waveRewardCardPool(),
+      usedCardIds: new Set(),
+      usedUpgradeIds: new Set(),
+      energyOffered: false,
+      index: 0
+    };
+    const items = [];
+    const tryAdd = (kind) => {
+      const item = this.createRunShopSupplyItem(kind, context);
+      if (!item) return false;
+      if (kind === 'energy') context.energyOffered = true;
+      context.index += 1;
+      items.push(item);
+      return true;
+    };
+    kinds.forEach(tryAdd);
+    // 波次奖励牌组耗尽时仍要凑够最少商品数：优先补不同项的属性集训，再补其余类别，
+    // 保证玩家永远看得到可购买的具体商品，而不是空列表。
+    const minimum = Math.max(1, Math.min(config.minItemCount, itemCount));
+    const fillOrder = ['attribute', 'energy', ...RUN_SHOP_SUPPLY_KINDS.filter((kind) => kind !== 'attribute')];
+    let attempts = 0;
+    while (items.length < minimum && attempts < fillOrder.length * 4) {
+      tryAdd(fillOrder[attempts % fillOrder.length]);
+      attempts += 1;
+    }
+    return items;
+  }
+
+  /** 单位卡 / 附魔卡 / 能力地形卡 / 属性集训 / 能量补给各取一件具体商品。 */
+  createRunShopSupplyItem(kind, {
+    config,
+    nodeKey,
+    index = 0,
+    cardPool = [],
+    usedCardIds = new Set(),
+    usedUpgradeIds = new Set(),
+    energyOffered = false
+  } = {}) {
+    const itemId = `run-shop-item:${nodeKey}:${index}:${kind}`;
+    const price = runShopSupplyKindPrice(kind, config);
+    if (kind === 'energy') {
+      if (energyOffered) return null;
+      const amount = runShopSupplyEnergyAmount(config);
+      return {
+        itemId,
+        kind,
+        price,
+        sold: false,
+        energyAmount: amount,
+        cardId: RUN_SHOP_ENERGY_CARD_ID,
+        title: `${RUN_SHOP_SUPPLY_KIND_LABELS.energy} +${amount}`,
+        effectSummary: `立即获得 ${amount} 点能量。`,
+        choice: {
+          action: RUN_SHOP_ACTION_BUY_ENERGY,
+          actionLabel: '购买能量',
+          title: `${RUN_SHOP_SUPPLY_KIND_LABELS.energy} +${amount}`,
+          description: `立即获得 ${amount} 点能量。`,
+          card: {
+            id: RUN_SHOP_ENERGY_CARD_ID,
+            name: `${RUN_SHOP_SUPPLY_KIND_LABELS.energy} +${amount}`,
+            kind: 'tactic',
+            label: '能',
+            artKey: 'tacticUpgrade',
+            summary: `立即获得 ${amount} 点能量`,
+            energyCost: 0,
+            color: '#8ad6ff',
+            level: 1
+          }
+        }
+      };
+    }
+    if (kind === 'attribute') {
+      const pool = this.buildAttributeUpgradeChoicePool()
+        .filter((choice) => !usedUpgradeIds.has(choice.upgrade?.id));
+      const picked = pickRandomItems(pool, 1)[0];
+      if (!picked) return null;
+      if (picked.upgrade?.id) usedUpgradeIds.add(picked.upgrade.id);
+      return {
+        itemId,
+        kind,
+        price,
+        sold: false,
+        upgradeId: picked.upgrade?.id ?? null,
+        cardId: picked.card?.id ?? null,
+        title: picked.card?.name ?? picked.title ?? RUN_SHOP_SUPPLY_KIND_LABELS.attribute,
+        effectSummary: picked.card?.summary ?? picked.description ?? '',
+        choice: {
+          action: picked.action,
+          actionLabel: '购买集训',
+          title: picked.title,
+          description: picked.description,
+          upgrade: picked.upgrade,
+          card: picked.card
+        }
+      };
+    }
+    const matchesKind = (card) => {
+      if (kind === 'unitCard') return card?.kind === 'summon';
+      if (kind === 'enchant') return card?.kind === 'enchant';
+      return card?.kind === 'spell' || card?.kind === 'ability';
+    };
+    const candidates = (cardPool ?? []).filter((card) => card?.id && matchesKind(card));
+    const repeatable = kind === 'enchant' && config?.allowDuplicateEnchant !== false;
+    let card = candidates.find((entry) => !usedCardIds.has(entry.id)) ?? null;
+    if (!card && repeatable) card = candidates[0] ?? null;
+    if (!card) return null;
+    usedCardIds.add(card.id);
+    const kindLabel = RUN_SHOP_SUPPLY_KIND_LABELS[kind];
+    return {
+      itemId,
+      kind,
+      price,
+      sold: false,
+      cardId: card.id,
+      title: card.name,
+      effectSummary: card.summary ?? '',
+      choice: {
+        action: 'add-card',
+        actionLabel: '购买卡牌',
+        // 单位卡等同剩余波次奖励牌组中的同名卡：购买后同样会消耗该定义（附魔卡除外）。
+        rewardSource: 'wave-reward-deck',
+        title: card.name,
+        description: `${kindLabel} · ${card.summary ?? ''}`.trim(),
+        card
+      }
+    };
+  }
+
+  /** 商品实例 → 可渲染/可选择的选择项（含售价与售罄状态）。 */
+  runShopItemToChoice(item, silver) {
+    if (!item) return null;
+    const soldOut = item.sold === true;
+    const affordable = soldOut || silver + 0.001 >= item.price;
+    return {
+      ...item.choice,
+      itemId: item.itemId,
+      itemKind: item.kind,
+      itemPrice: item.price,
+      soldOut,
+      disabled: soldOut || !affordable,
+      actionLabel: soldOut ? RUN_SHOP_SOLD_OUT_LABEL : `${formatSilverAmount(item.price)} 银币`
+    };
+  }
+
+  createRunShopSupplyChoices() {
+    const silver = Math.max(0, Number(this.getSilver()) || 0);
+    return (this.runShopItems ?? [])
+      .map((item) => this.runShopItemToChoice(item, silver))
+      .filter(Boolean);
+  }
+
+  /** 购买后刷新商品列表（保留顺序与实例身份，只更新售价标签与售罄状态）。 */
+  refreshRunShopSupplyChoices() {
+    if (this.runShopActiveCategory === RUN_SHOP_STEP_SUPPLY) {
+      this.runShopChoices = this.createRunShopSupplyChoices();
+    }
+    if (this.isLocalEconomyContext()) this.renderRunShop();
+  }
+
+  /**
+   * 购买一件商品：Host 权威校验（银币、价格、是否已售罄、商品是否属于本节点），
+   * 先扣款再应用，应用失败立刻退款；任何一步失败都不改变世界状态。
+   */
+  purchaseRunShopSupplyItem(item) {
+    if (!item || item.sold) {
+      this.cardSystem?.setHint?.('该商品已经售罄', 'run-shop');
+      return false;
+    }
+    if (this.runShopActiveCategory !== RUN_SHOP_STEP_SUPPLY || !this.isRunShopPrepEditable()) return false;
+    if (!(this.runShopItems ?? []).includes(item)) return false;
+    const price = Math.max(0, Number(item.price) || 0);
+    if (this.getSilver() + 0.001 < price) {
+      this.cardSystem?.setHint?.('银币不足', 'run-shop');
+      return false;
+    }
+    // 银币走玩家独立经济助手，联机各自扣款；银币支出与符文石出售基准完全无关。
+    this.setSilver(this.getSilver() - price);
+    if (!this.applyRunShopSupplyItemEffect(item)) {
+      this.setSilver(this.getSilver() + price);
+      this.cardSystem?.setHint?.('购买失败，请重试', 'run-shop');
+      return false;
+    }
+    item.sold = true;
+    this.refreshRunShopSupplyChoices();
+    this.cardSystem?.setHint?.(
+      `${item.title} 已获得，-${formatSilverAmount(price)} 银币`,
+      'run-shop'
+    );
+    this.updateHud(0);
+    this.networkBridge?.markPrivateStateDirty?.(this.activeEconomySlot ?? this.localPlayerSlot);
+    return true;
+  }
+
+  /** 商品效果：加卡 / 全队属性集训 / 能量补给。 */
+  applyRunShopSupplyItemEffect(item) {
+    if (!item) return false;
+    if (item.kind === 'energy') return this.grantRunShopEnergy(item.energyAmount);
+    if (item.upgrade) return this.applyTeamGenericUpgrade(item.upgrade);
+    if (item.choice?.card) return this.applyStrategyChoice(item.choice);
+    return false;
+  }
+
+  grantRunShopEnergy(amount) {
+    const gained = this.cardSystem?.addEnergy?.(Math.max(1, Math.floor(Number(amount) || 1))) ?? 0;
+    return gained > 0;
+  }
+
+  /**
+   * 明码标价的能量补给：必须支付银币（Boss 整备期间也不免费）。
+   * 免费机会只属于兵种专精，不与补给竞争。
+   */
+  purchaseRunShopEnergy(options = {}) {
+    const config = this.runShopSupplyConfig();
+    const amount = Math.max(1, Math.floor(Number(options.amount ?? runShopSupplyEnergyAmount(config))));
+    const price = Math.max(0, Number(options.price ?? runShopSupplyKindPrice('energy', config)));
+    if (this.getSilver() + 0.001 < price) {
+      this.cardSystem?.setHint?.('银币不足', 'run-shop');
+      return false;
+    }
+    if (!this.grantRunShopEnergy(amount)) return false;
+    this.setSilver(this.getSilver() - price);
+    this.cardSystem?.setHint?.(`已购买 ${amount} 点能量，-${formatSilverAmount(price)} 银币`, 'run-shop');
+    this.updateHud(0);
+    this.renderRunShop();
+    return true;
+  }
+
+  /** “继续战斗”：结束整个 Boss 整备（两步都算完成），由调用方推进下一波。 */
+  finishRunShopPrep() {
+    if (!this.runShopFreeReward) return false;
+    this.closeRunShop({ force: true });
+    return true;
   }
 
   bindRunShopUi() {
@@ -2632,18 +3169,21 @@ export class Game {
     this.runShopOpen = true;
     if (!options.preserveState) {
       this.runShopFreeReward = options.freeReward === true;
-    }
-    if (options.freeReward === true && !options.preserveState) {
-      this.runShopActiveCategory = null;
-      this.runShopChoices = [];
-      this.runShopPendingOffers = {};
-    }
-    const run = this.players?.[this.activeEconomySlot ?? this.localPlayerSlot];
-    if (run && options.freeReward === true && !options.preserveState) {
-      run.runShopFreeReward = this.runShopFreeReward;
-      run.runShopActiveCategory = null;
-      run.runShopChoices = [];
-      run.runShopPendingOffers = {};
+      if (this.runShopFreeReward) {
+        // 打开（或恢复）Boss 整备：先给免费专精选择，再进入补给铺。
+        // 同一整备节点不会重建商品，也不会重置已领专精。
+        if (!this.ensureRunShopPrep()) {
+          this.runShopOpen = false;
+          this.runShopFreeReward = false;
+          return false;
+        }
+      } else {
+        this.runShopActiveCategory = null;
+        this.runShopChoices = [];
+        this.runShopPendingOffers = {};
+      }
+      const run = this.players?.[this.activeEconomySlot ?? this.localPlayerSlot];
+      if (run) this.mirrorRunShopPrepStateTo(run);
     }
     if (this.tryAutoSkipRunShopReward()) return true;
     if (this.runShopUi.overlay) {
@@ -2667,13 +3207,28 @@ export class Game {
       this.runShopCausedPause = false;
     }
     if (this.runShopFreeReward) {
-      this.cardSystem?.setHint?.('Boss 战利：请选择一项免费军需奖励', 'boss-shop');
+      this.cardSystem?.setHint?.(this.runShopHintText(), 'boss-shop');
     } else {
       this.cardSystem?.setHint?.('军需铺已打开，按 Esc 关闭', 'run-shop');
     }
     this.renderRunShop();
     this.runShopUi.root?.focus?.();
     return true;
+  }
+
+  /** 把当前整备状态同步到该玩家的 run 状态（断线重连与联机私有状态都以 run 为准）。 */
+  mirrorRunShopPrepStateTo(container) {
+    if (!container) return;
+    container.runShopFreeReward = this.runShopFreeReward;
+    container.runShopActiveCategory = this.runShopActiveCategory;
+    container.runShopChoices = this.runShopChoices;
+    container.runShopPendingOffers = this.runShopPendingOffers;
+    container.runShopItems = this.runShopItems;
+    container.runShopPrepNodeKey = this.runShopPrepNodeKey;
+    container.runShopSpecializationClaimed = this.runShopSpecializationClaimed;
+    container.runShopSpecializationUnitType = this.runShopSpecializationUnitType;
+    container.runShopPrepCompleted = this.runShopPrepCompleted;
+    container.runShopCompletedNodeKey = this.runShopCompletedNodeKey;
   }
 
   closeRunShop(options = {}) {
@@ -2688,12 +3243,17 @@ export class Game {
       }
     }
     const wasFreeReward = this.runShopFreeReward;
+    if (wasFreeReward && !options.localUiOnly) {
+      // 整备结束（无论是否买了商品）都记录完成，防止滞后命令重新开启或重复领取专精。
+      this.markRunShopPrepCompleted();
+    }
     const causedPause = this.runShopCausedPause;
     this.runShopOpen = false;
     if (wasFreeReward && !options.localUiOnly) {
       this.runShopFreeReward = false;
       this.runShopActiveCategory = null;
       this.runShopChoices = [];
+      this.runShopItems = null;
     }
     if (this.runShopUi?.overlay) {
       this.runShopUi.overlay.hidden = true;
@@ -2722,219 +3282,192 @@ export class Game {
     }
   }
 
+  /** 返回上一步：专精列表 → 兵种列表。领取后不可回退，补给铺也不回退。 */
   clearRunShopSelection() {
-    this.runShopActiveCategory = null;
-    this.runShopChoices = [];
-    if (this.isLocalEconomyContext() && this.runShopUi?.choices) this.runShopUi.choices.hidden = true;
-    this.renderRunShop();
-  }
-
-  selectRunShopCategory(category) {
-    const categoryMeta = RUN_SHOP_CATEGORIES.find((entry) => entry.key === category);
-    if (!categoryMeta) return false;
-    if (category === 'energy') {
-      return this.purchaseRunShopEnergy();
-    }
-    const availability = this.canRunShopCategory(category);
-    if (!availability.ok) return false;
-    const isFree = this.runShopFreeReward;
-    const price = this.shopPrice(category);
-    if (!isFree && this.getSilver() + 0.001 < price) {
-      this.cardSystem?.setHint?.('银币不足', 'run-shop');
+    if (
+      this.runShopActiveCategory !== RUN_SHOP_STEP_SPECIALIZATION_UPGRADE
+      || this.runShopSpecializationClaimed
+    ) {
       return false;
     }
-    const prepaidRefresh = !isFree && categoryMeta.prepaidChoices === true;
-    let choices = categoryMeta?.picker || prepaidRefresh
-      ? null
-      : this.runShopPendingOffers[category];
-    if (!choices?.length) {
-      choices = this.createShopChoicesForCategory(category);
-      if (!choices.length) return false;
-      if (!categoryMeta?.picker && !prepaidRefresh) {
-        choices = choices.slice(0, STRATEGY_CHOICE_COUNT);
-        this.runShopPendingOffers[category] = choices;
-      }
-    }
-    if (prepaidRefresh) {
-      this.setSilver(this.getSilver() - price);
-      this.shopPrices[category] = price + this.shopPriceIncrement();
-      delete this.runShopPendingOffers[category];
-      choices = choices.slice(0, STRATEGY_CHOICE_COUNT).map((choice) => ({
-        ...choice,
-        prepaid: true,
-        prepaidPrice: price
-      }));
-      this.cardSystem?.setHint?.(
-        `已支付 ${formatSilverAmount(price)} 银币，请三选一；返回或关闭不退款`,
-        'run-shop'
-      );
-    }
-    this.runShopActiveCategory = category;
-    this.runShopChoices = choices;
-    if (this.isLocalEconomyContext() && this.runShopUi?.choices) this.runShopUi.choices.hidden = false;
+    this.runShopSpecializationUnitType = null;
+    this.runShopActiveCategory = RUN_SHOP_STEP_SPECIALIZATION_TYPE;
+    this.runShopChoices = this.createRunShopSpecializationTypeChoices();
     this.renderRunShop();
+    this.networkBridge?.markPrivateStateDirty?.(this.activeEconomySlot ?? this.localPlayerSlot);
     return true;
   }
 
+  /** 整备中按 Esc：专精列表先返回；其余情况视为跳过本次整备继续战斗。 */
+  escapeRunShop() {
+    if (this.runShopActiveCategory === RUN_SHOP_STEP_SPECIALIZATION_UPGRADE) {
+      if (this.networkBridge?.shouldRouteLocalCommands?.()) {
+        this.networkBridge.commandSender?.shopBack?.();
+      } else {
+        this.clearRunShopSelection();
+      }
+      return;
+    }
+    if (this.runShopFreeReward) {
+      if (this.networkBridge?.shouldRouteLocalCommands?.()) {
+        this.networkBridge.commandSender?.shopRewardSkip?.();
+      } else {
+        this.finishRunShopPrep();
+      }
+      return;
+    }
+    this.closeRunShop();
+  }
+
+  /**
+   * 处理一次军需铺选择：可能是选择兵种、领取专精、领取补偿，或购买一件具体商品。
+   * 所有校验都在 Host 侧完成；被拒绝的请求不改变任何状态。
+   */
   completeRunShopPurchase(choice, options = {}) {
-    const category = this.runShopActiveCategory;
-    if (!category || !choice || !isRunShopCategoryAvailable(category)) return false;
-    const isFree = this.runShopFreeReward;
-    const isPrepaid = !isFree && choice.prepaid === true;
-    const price = isPrepaid
-      ? Math.max(0, Number(choice.prepaidPrice) || 0)
-      : this.shopPrice(category);
-    if (!isFree && !isPrepaid && this.getSilver() + 0.001 < price) {
-      this.cardSystem?.setHint?.('银币不足', 'run-shop');
-      return false;
-    }
-    if (!this.applyStrategyChoice(choice)) {
-      this.cardSystem?.setHint?.('购买失败，请重试', 'run-shop');
-      return false;
-    }
-    if (!isFree && !isPrepaid) {
-      this.setSilver(this.getSilver() - price);
-      if (category !== 'energy') {
-        this.shopPrices[category] = price + this.shopPriceIncrement();
-        delete this.runShopPendingOffers[category];
+    void options;
+    if (!choice || choice.disabled) return false;
+    const mode = this.runShopPrepMode();
+    if (mode === RUN_SHOP_STEP_SPECIALIZATION_TYPE) {
+      if (choice.action === RUN_SHOP_ACTION_SPECIALIZATION_FALLBACK) {
+        return this.claimRunShopSpecializationFallback();
       }
-    } else if (isFree) {
-      delete this.runShopPendingOffers[category];
+      if (choice.action === RUN_SHOP_ACTION_SPECIALIZATION_UNIT) {
+        return this.selectRunShopSpecializationUnit(choice.unitType);
+      }
+      return false;
     }
-    this.cardSystem?.setHint?.(
-      `${choice.title ?? '商品'} 已获得${isFree ? '' : isPrepaid
-        ? `（本次刷新已支付 ${formatSilverAmount(price)} 银币）`
-        : `，-${formatSilverAmount(price)} 银币`}`,
-      'run-shop'
-    );
-    this.runShopActiveCategory = null;
-    this.runShopChoices = [];
-    if (this.isLocalEconomyContext() && this.runShopUi?.choices) this.runShopUi.choices.hidden = true;
-    this.updateHud(0);
-    if (isFree) {
-      // 立即消费免费奖励（双保险：即使 finish/close 因任何原因延迟，
-      // 本次购买后也不再允许免费购买，杜绝"零元购"）。
-      this.runShopFreeReward = false;
-      if (!options.deferFreeRewardClose) this.closeRunShop({ afterFreeReward: true });
-      return true;
+    if (mode === RUN_SHOP_STEP_SPECIALIZATION_UPGRADE) {
+      if (choice.action !== 'apply-team-special-upgrade') return false;
+      return this.claimRunShopSpecialization(choice.unitType, choice.upgrade);
     }
-    this.renderRunShop();
-    return true;
+    if (mode !== RUN_SHOP_STEP_SUPPLY) return false;
+    const item = this.runShopItemForChoice(choice);
+    return this.purchaseRunShopSupplyItem(item);
   }
 
-  purchaseRunShopEnergy(options = {}) {
-    const isFree = this.runShopFreeReward;
-    const price = this.shopPrice('energy');
-    if (!isFree && this.getSilver() + 0.001 < price) return false;
-    const gained = this.cardSystem?.addEnergy?.(1) ?? 0;
-    if (gained <= 0) return false;
-    if (!isFree) {
-      this.setSilver(this.getSilver() - price);
-    } else {
-      // 与 completeRunShopPurchase 一致：立即消费免费奖励，杜绝零元购
-      this.runShopFreeReward = false;
-      if (!options.deferFreeRewardClose) {
-        this.closeRunShop({ afterFreeReward: true });
-      }
+  /** 选择项 → 商品实例：Host 用实例 id 定位，客户端不参与应用。 */
+  runShopItemForChoice(choice) {
+    const items = this.runShopItems ?? [];
+    if (!items.length) return null;
+    if (choice?.itemId) {
+      return items.find((item) => item.itemId === choice.itemId) ?? null;
     }
-    this.updateHud(0);
-    if (!isFree) this.renderRunShop();
-    return true;
+    const index = (this.runShopChoices ?? []).indexOf(choice);
+    return index >= 0 ? items[index] ?? null : null;
   }
 
   renderRunShop() {
     if (!this.isLocalEconomyContext() || !this.runShopOpen || !this.runShopUi?.root) return;
-    const previousRenderedCategory = this.runShopUi.renderedCategory ?? null;
-    if (this.runShopUi.silver) {
-      this.runShopUi.silver.textContent = formatSilverAmount(this.getSilver());
+    const ui = this.runShopUi;
+    const previousMode = ui.renderedCategory ?? null;
+    const mode = this.runShopPrepMode();
+    if (ui.silver) ui.silver.textContent = formatSilverAmount(this.getSilver());
+    if (ui.kicker) ui.kicker.textContent = this.runShopKickerText(mode);
+    if (ui.title) ui.title.textContent = this.runShopTitleText(mode);
+    if (ui.back) {
+      ui.back.hidden = mode !== RUN_SHOP_STEP_SPECIALIZATION_UPGRADE;
+      ui.back.textContent = RUN_SHOP_BACK_TO_UNIT_LABEL;
     }
-    if (this.runShopActiveCategory && this.runShopChoices.length) {
-      const categoryMeta = RUN_SHOP_CATEGORIES.find((entry) => entry.key === this.runShopActiveCategory);
-      const isPicker = Boolean(categoryMeta?.picker);
-      const isCatalogPicker = Boolean(categoryMeta?.catalogPicker);
-      const useAttributeTrainingStyle = this.runShopActiveCategory === 'attribute';
-      const useSpecializationStyle = this.runShopActiveCategory === 'trait';
-      const useTemporaryStyle = this.runShopActiveCategory === 'temporary';
-      const useCompactThreeChoiceLayout = useAttributeTrainingStyle || useSpecializationStyle || useTemporaryStyle;
-      const useScalableCardPicker = ['copy', 'remove', 'upgrade'].includes(this.runShopActiveCategory);
-      const useWaveRewardStyle = runShopCategoryUsesWaveRewardCards(this.runShopActiveCategory);
-      const useCardPresentation = useAttributeTrainingStyle || useSpecializationStyle || useWaveRewardStyle;
-      const useCardFaceGrid = isPicker || isCatalogPicker || useCardPresentation;
-      const useHorizontalRow = useCardPresentation && !isCatalogPicker;
-      this.runShopUi.root.classList.add('is-detail');
-      this.runShopUi.root.classList.toggle('is-wave-card-picker', useCardPresentation);
-      if (this.runShopUi.kicker) {
-        this.runShopUi.kicker.textContent = this.runShopFreeReward
-          ? `Boss 战利 #${this.bossesDefeated} · 免费一次${formatCoopRewardCountdownSuffix(this.runShopAutoSelectSecondsRemaining)}`
-          : categoryMeta?.prepaidChoices
-            ? '军需铺 · 已付费随机三选一 · 返回不退款'
-          : isCatalogPicker
-            ? '军需铺 · 已有卡牌 · 选定后立即购买'
-            : '军需铺 · 选定后立即购买';
-      }
-      if (this.runShopUi.title) this.runShopUi.title.textContent = categoryMeta?.title ?? '选择商品';
-      if (this.runShopUi.services) this.runShopUi.services.hidden = true;
-      if (this.runShopUi.choices) this.runShopUi.choices.hidden = false;
-      this.runShopUi.choiceList?.classList.toggle('is-card-picker', useCardFaceGrid);
-      this.runShopUi.choiceList?.classList.toggle('is-catalog-picker', isCatalogPicker);
-      this.runShopUi.choiceList?.classList.toggle('is-horizontal-row', useHorizontalRow);
-      this.runShopUi.choiceList?.classList.toggle('is-training-card-picker', useAttributeTrainingStyle);
-      this.runShopUi.choiceList?.classList.toggle('is-specialization-card-picker', useSpecializationStyle);
-      this.runShopUi.choiceList?.classList.toggle('is-temporary-card-picker', useTemporaryStyle);
-      this.runShopUi.choiceList?.classList.toggle('is-compact-three-choice-picker', useCompactThreeChoiceLayout);
-      this.syncRunShopCardScaleUi(useScalableCardPicker);
-      if (this.runShopUi.choiceList) {
-        this.runShopUi.choiceList.innerHTML = this.runShopChoices
+    if (ui.skip) {
+      // “继续战斗”只在补给铺出现：专精还没领时不允许误触结束整备。
+      ui.skip.hidden = mode !== RUN_SHOP_STEP_SUPPLY;
+      ui.skip.textContent = RUN_SHOP_CONTINUE_LABEL;
+      ui.skip.disabled = mode !== RUN_SHOP_STEP_SUPPLY;
+    }
+    if (ui.close) ui.close.hidden = this.runShopFreeReward === true;
+    ui.root.classList.toggle('is-free-reward', mode !== RUN_SHOP_STEP_SUPPLY);
+    ui.root.classList.toggle('is-detail', mode === RUN_SHOP_STEP_SPECIALIZATION_UPGRADE);
+    ui.root.classList.toggle('is-wave-card-picker', mode === RUN_SHOP_STEP_SPECIALIZATION_UPGRADE);
+    ui.renderedCategory = mode;
+
+    if (mode === RUN_SHOP_STEP_SPECIALIZATION_UPGRADE) {
+      if (ui.services) ui.services.hidden = true;
+      if (ui.choices) ui.choices.hidden = false;
+      ui.choiceList?.classList.toggle('is-card-picker', true);
+      ui.choiceList?.classList.toggle('is-catalog-picker', false);
+      ui.choiceList?.classList.toggle('is-horizontal-row', true);
+      ui.choiceList?.classList.toggle('is-training-card-picker', false);
+      ui.choiceList?.classList.toggle('is-specialization-card-picker', true);
+      ui.choiceList?.classList.toggle('is-temporary-card-picker', false);
+      ui.choiceList?.classList.toggle('is-compact-three-choice-picker', true);
+      this.syncRunShopCardScaleUi(false);
+      if (ui.choiceList) {
+        ui.choiceList.innerHTML = (this.runShopChoices ?? [])
           .map((choice, index) => runShopChoiceMarkup(choice, index, {
             game: this,
-            useWaveRewardStyle,
-            useAttributeTrainingStyle,
-            useSpecializationStyle
+            useSpecializationStyle: true
           }))
           .join('');
-        fitStrategyRewardCards(this.runShopUi.choiceList);
+        fitStrategyRewardCards(ui.choiceList);
       }
-      this.runShopUi.renderedCategory = this.runShopActiveCategory;
-      if (previousRenderedCategory !== this.runShopActiveCategory) {
-        this.runShopUi.root.scrollTop = 0;
-        if (this.runShopUi.choiceList) this.runShopUi.choiceList.scrollTop = 0;
+    } else {
+      if (ui.choices) ui.choices.hidden = true;
+      if (ui.choiceList) {
+        ui.choiceList.innerHTML = '';
+        ui.choiceList.classList.remove(
+          'is-card-picker',
+          'is-catalog-picker',
+          'is-horizontal-row',
+          'is-training-card-picker',
+          'is-specialization-card-picker',
+          'is-temporary-card-picker',
+          'is-compact-three-choice-picker',
+          'is-scalable-card-picker'
+        );
       }
-      if (this.runShopUi.skip) this.runShopUi.skip.hidden = true;
-      return;
+      this.syncRunShopCardScaleUi(false);
+      if (ui.services) {
+        ui.services.hidden = false;
+        if (mode === RUN_SHOP_STEP_SUPPLY) {
+          ui.services.innerHTML = (this.runShopChoices ?? [])
+            .map((choice, index) => runShopSupplyItemMarkup(choice, index))
+            .join('');
+        } else if (mode === RUN_SHOP_STEP_SPECIALIZATION_TYPE) {
+          ui.services.innerHTML = (this.runShopChoices ?? [])
+            .map((choice, index) => runShopServiceOptionMarkup(choice, index, {
+              icon: choice.action === RUN_SHOP_ACTION_SPECIALIZATION_FALLBACK
+                ? '补'
+                : (UNIT_DEFINITIONS[choice.unitType]?.name ?? '专').slice(0, 1),
+              priceLabel: RUN_SHOP_FREE_LABEL
+            }))
+            .join('');
+        } else {
+          ui.services.innerHTML = '<p class="run-shop-balance">当前没有可用的军需补给。</p>';
+        }
+      }
     }
-    this.runShopUi.root.classList.remove('is-detail', 'is-wave-card-picker');
-    if (this.runShopUi.kicker) {
-      this.runShopUi.kicker.textContent = this.runShopFreeReward
-        ? `Boss 战利 #${this.bossesDefeated} · 免费一次${formatCoopRewardCountdownSuffix(this.runShopAutoSelectSecondsRemaining)}`
-        : '营地军需';
+    if (previousMode !== mode) {
+      ui.root.scrollTop = 0;
+      if (ui.choiceList) ui.choiceList.scrollTop = 0;
     }
-    if (this.runShopUi.title) {
-      this.runShopUi.title.textContent = this.runShopFreeReward ? '免费军需铺' : '军需铺';
+  }
+
+  runShopKickerText(mode = this.runShopPrepMode()) {
+    const countdown = formatCoopRewardCountdownSuffix(this.runShopAutoSelectSecondsRemaining);
+    if (mode === RUN_SHOP_STEP_SUPPLY) {
+      return `Boss 战利 #${this.bossesDefeated} · 军需补给${countdown}`;
     }
-    if (this.runShopUi.services) {
-      this.runShopUi.services.hidden = false;
-      this.runShopUi.services.innerHTML = RUN_SHOP_CATEGORIES
-        .map((category) => runShopServiceMarkup(category, this))
-        .join('');
+    if (mode) {
+      return `Boss 战利 #${this.bossesDefeated} · 免费兵种专精${countdown}`;
     }
-    if (this.runShopUi.skip) {
-      this.runShopUi.skip.hidden = !this.runShopFreeReward;
+    return this.runShopFreeReward ? `Boss 战利 #${this.bossesDefeated}${countdown}` : '营地军需';
+  }
+
+  runShopTitleText(mode = this.runShopPrepMode()) {
+    if (mode === RUN_SHOP_STEP_SUPPLY) return RUN_SHOP_SUPPLY_TITLE;
+    if (mode === RUN_SHOP_STEP_SPECIALIZATION_UPGRADE) {
+      const unitType = this.runShopSpecializationUnitType;
+      const unitName = UNIT_DEFINITIONS[unitType]?.name ?? '兵种';
+      return `${unitName} · 选择专精`;
     }
-    this.runShopUi.choiceList?.classList.remove(
-      'is-card-picker',
-      'is-catalog-picker',
-      'is-horizontal-row',
-      'is-training-card-picker',
-      'is-specialization-card-picker',
-      'is-temporary-card-picker',
-      'is-compact-three-choice-picker',
-      'is-scalable-card-picker'
-    );
-    this.syncRunShopCardScaleUi(false);
-    if (this.runShopUi.choices) this.runShopUi.choices.hidden = true;
-    if (this.runShopUi.choiceList) this.runShopUi.choiceList.innerHTML = '';
-    this.runShopUi.renderedCategory = null;
-    if (previousRenderedCategory !== null) this.runShopUi.root.scrollTop = 0;
+    if (mode === RUN_SHOP_STEP_SPECIALIZATION_TYPE) return RUN_SHOP_SPECIALIZATION_TITLE;
+    return this.runShopFreeReward ? 'Boss 整备' : '军需铺';
+  }
+
+  runShopHintText() {
+    return this.runShopPrepMode() === RUN_SHOP_STEP_SUPPLY
+      ? 'Boss 战利：军需补给铺已开放，可购买或直接继续战斗'
+      : 'Boss 战利：请选择一项免费兵种专精';
   }
 
   onRunShopClick(event) {
@@ -2950,33 +3483,26 @@ export class Game {
         return;
       }
       const backButton = event.target.closest('#run-shop-back');
-      if (backButton) {
+      if (backButton && !backButton.hidden) {
         event.preventDefault();
         const sent = this.networkBridge?.commandSender?.shopBack?.();
         if (!sent) this.cardSystem?.setHint?.('返回请求未发送，请等待军需铺状态同步后重试', 'network-command');
         return;
       }
-      const skipButton = event.target.closest('#run-shop-skip');
-      if (skipButton) {
+      const continueButton = event.target.closest('#run-shop-skip');
+      if (continueButton && !continueButton.hidden) {
         event.preventDefault();
         if (this.runShopFreeReward) {
           const sent = this.networkBridge?.commandSender?.shopRewardSkip?.();
-          if (!sent) this.cardSystem?.setHint?.('跳过请求未发送，请等待军需铺状态同步后重试', 'network-command');
+          if (!sent) this.cardSystem?.setHint?.('继续请求未发送，请等待军需铺状态同步后重试', 'network-command');
         }
-        return;
-      }
-      const serviceButton = event.target.closest('[data-run-shop-category]');
-      if (serviceButton && !serviceButton.disabled) {
-        event.preventDefault();
-        const sent = this.networkBridge?.commandSender?.shopCategory?.(serviceButton.dataset.runShopCategory);
-        if (!sent) this.cardSystem?.setHint?.('军需请求未发送，请等待军需铺状态同步后重试', 'network-command');
         return;
       }
       const choiceButton = event.target.closest('[data-run-shop-choice-index]');
       if (choiceButton && !choiceButton.disabled) {
         event.preventDefault();
         const sent = this.networkBridge?.commandSender?.shopChoice?.(Number(choiceButton.dataset.runShopChoiceIndex));
-        if (!sent) this.cardSystem?.setHint?.('购买请求未发送，请等待军需铺状态同步后重试', 'network-command');
+        if (!sent) this.cardSystem?.setHint?.('军需请求未发送，请等待军需铺状态同步后重试', 'network-command');
       }
       return;
     }
@@ -2991,21 +3517,15 @@ export class Game {
       return;
     }
     const backButton = event.target.closest('#run-shop-back');
-    if (backButton) {
+    if (backButton && !backButton.hidden) {
       event.preventDefault();
       this.clearRunShopSelection();
       return;
     }
-    const skipButton = event.target.closest('#run-shop-skip');
-    if (skipButton) {
+    const continueButton = event.target.closest('#run-shop-skip');
+    if (continueButton && !continueButton.hidden) {
       event.preventDefault();
-      if (this.runShopFreeReward) this.closeRunShop({ force: true });
-      return;
-    }
-    const serviceButton = event.target.closest('[data-run-shop-category]');
-    if (serviceButton && !serviceButton.disabled) {
-      event.preventDefault();
-      this.selectRunShopCategory(serviceButton.dataset.runShopCategory);
+      this.finishRunShopPrep();
       return;
     }
     const choiceButton = event.target.closest('[data-run-shop-choice-index]');
@@ -3123,47 +3643,8 @@ export class Game {
     return Math.max(0.5, radius * this.getSpellAreaRadiusBonus(slot));
   }
 
-  createShopChoicesForCategory(category) {
-    if (category === 'attribute') {
-      return this.createAttributeUpgradeChoices();
-    }
-    if (category === 'trait') {
-      return this.createTraitUpgradeChoices();
-    }
-    if (category === 'copy') {
-      return this.createRunShopOwnedPickerChoices('copy-card', '复制卡牌', '复制一张加入牌组。');
-    }
-    if (category === 'unit') {
-      return this.randomCardChoices({
-        pool: this.waveRewardCardPool(),
-        action: 'add-card',
-        actionLabel: '获得卡牌'
-      }).map((choice) => ({
-        ...choice,
-        rewardSource: 'wave-reward-deck'
-      }));
-    }
-    if (category === 'remove') {
-      return this.createRunShopOwnedPickerChoices('remove-card', '移除卡牌', '移出本局全部同名卡牌。');
-    }
-    if (category === 'upgrade') {
-      return this.createRunShopOwnedPickerChoices('upgrade-card', '升级卡牌', '该牌及同名牌等级 +1。');
-    }
-    if (category === 'temporary') {
-      const options = STRATEGY_REWARD_OPTION_DEFINITIONS
-        .filter((option) => option.action === 'grant-temporary-card' && option.temporaryCard);
-      if (!options.length) return [];
-      return pickRandomItems(options, Math.min(STRATEGY_CHOICE_COUNT, options.length)).map((option) => ({
-        action: 'grant-temporary-card',
-        actionLabel: '获得特殊卡牌',
-        title: option.title,
-        description: option.description,
-        card: option.temporaryCard,
-        temporaryCard: option.temporaryCard
-      }));
-    }
-    return [];
-  }
+  // 旧版“按服务类别生成候选”的 createShopChoicesForCategory 已随八类服务一起下架；
+  // 新版军需铺的商品候选由 createRunShopSupplyItems 一次性生成。
 
   openStrategyEvent(type, options = {}) {
     if (this.levelFinished || this.levelSession.debug) return;
@@ -3228,6 +3709,7 @@ export class Game {
           })
         };
       }
+      const terrainOnly = step?.terrainOnly === true;
       return {
         type,
         kicker: '开局准备',
@@ -3235,20 +3717,11 @@ export class Game {
         summary: step?.summary ?? '从本局可选卡牌中三选一，加入抽牌堆。',
         choices: this.openingKindChoices({
           kind: step?.kind ?? null,
-          pool: this.openingKindPool(step?.kind ?? null),
+          terrainOnly,
+          pool: this.openingKindPool(step?.kind ?? null, { terrainOnly }),
           action: 'add-card',
           actionLabel: '加入牌堆'
         })
-      };
-    }
-    if (type === 'altar-reward') {
-      const altarName = options.altar?.name ?? '祭坛';
-      return {
-        type,
-        kicker: `首次占领 ${altarName}`,
-        title: '选择兵种专精',
-        summary: '每位玩家根据本局已获得的单位卡独立三选一。优先出现已获得兵种的专精，不足时由其他兵种补足。',
-        choices: this.createAltarSpecializationRewardChoices()
       };
     }
     if (type === 'wave-reward') {
@@ -3467,21 +3940,30 @@ export class Game {
     return this.openingRewardChoices(sourcePool, { action, actionLabel });
   }
 
-  // 开局指定种类（法术 / 附魔 / 能力）的三选一候选池：优先本局出战牌组里的该类卡；
+  // 开局指定种类（能力 / 地形）的三选一候选池：优先本局出战牌组里的该类卡；
   // 牌组里该类不足三张时用全部同名卡补足，保证开局永远是三选一。
-  openingKindPool(kind) {
-    const filterKind = (card) => !kind || card.kind === kind;
-    const deckPool = this.selectedCardPool({ kind, allowAllFallback: false }).filter(filterKind);
+  // terrainOnly 时按地形牌规则筛选（isTerrainCard），不能把所有法术都当成地形卡。
+  openingKindPool(kind, { terrainOnly = false } = {}) {
+    const matches = (card) => {
+      if (kind && card.kind !== kind) return false;
+      if (terrainOnly && !isTerrainCard(card)) return false;
+      return true;
+    };
+    const deckPool = this.selectedCardPool({ kind, allowAllFallback: false }).filter(matches);
     if (deckPool.length >= STRATEGY_CHOICE_COUNT) return deckPool;
     const catalogue = CARD_DEFINITIONS
       .filter((card) => !card.lootOnly && !card.retired)
-      .filter(filterKind)
+      .filter(matches)
       .map((card) => this.cardSystem?.applyRuntimeCardLevel?.(card) ?? card);
     return catalogue.length > deckPool.length ? catalogue : deckPool;
   }
 
-  openingKindChoices({ kind, pool, action, actionLabel }) {
-    const sourcePool = (pool ?? []).filter((card) => (kind ? card.kind === kind : true));
+  openingKindChoices({ kind, terrainOnly = false, pool, action, actionLabel }) {
+    const sourcePool = (pool ?? []).filter((card) => {
+      if (kind && card.kind !== kind) return false;
+      if (terrainOnly && !isTerrainCard(card)) return false;
+      return true;
+    });
     return this.openingRewardChoices(sourcePool, { action, actionLabel });
   }
 
@@ -3578,15 +4060,6 @@ export class Game {
 
   createWaveRewardOptionChoices() {
     return this.createCardWaveRewardChoices();
-  }
-
-  createAltarSpecializationRewardChoices() {
-    const choices = this.buildTraitUpgradeChoicePool({ includeAllUnitTypes: true });
-    return pickAltarSpecializationChoices(
-      choices,
-      this.acquiredUnitTypes(),
-      STRATEGY_CHOICE_COUNT
-    );
   }
 
   buildRuntimeUpgradeChoicePool() {
@@ -4901,6 +5374,12 @@ export class Game {
       runShopActiveCategory: this.runShopActiveCategory,
       runShopChoices: this.runShopChoices,
       runShopPendingOffers: this.runShopPendingOffers,
+      runShopItems: this.runShopItems,
+      runShopPrepNodeKey: this.runShopPrepNodeKey,
+      runShopSpecializationClaimed: this.runShopSpecializationClaimed,
+      runShopSpecializationUnitType: this.runShopSpecializationUnitType,
+      runShopPrepCompleted: this.runShopPrepCompleted,
+      runShopCompletedNodeKey: this.runShopCompletedNodeKey,
       silver: this.silver,
       runCardsPlayedCount: this.runCardsPlayedCount,
       waveRewardDeck: this.waveRewardDeck,
@@ -4920,6 +5399,30 @@ export class Game {
     this.runShopActiveCategory = run.runShopActiveCategory;
     this.runShopChoices = run.runShopChoices;
     this.runShopPendingOffers = run.runShopPendingOffers;
+    this.runShopItems = run.runShopItems ?? null;
+    this.runShopPrepNodeKey = run.runShopPrepNodeKey ?? null;
+    this.runShopSpecializationClaimed = run.runShopSpecializationClaimed === true;
+    this.runShopSpecializationUnitType = run.runShopSpecializationUnitType ?? null;
+    this.runShopPrepCompleted = run.runShopPrepCompleted === true;
+    this.runShopCompletedNodeKey = run.runShopCompletedNodeKey ?? null;
+    // 本地槽位的「不可逆标记」以 game 为准：整备完成/专精已领这些标记大部分是在
+    // withPlayerContext 之外写入 game 的，如果这里无条件用 run 的旧值覆盖，
+    // 同一个 Boss 节点就会被重新打开，专精可以再领一次、售罄商品也会重置。
+    // 网络客户端例外：那里的 run 是 Host 下发的权威副本。
+    if (slot === this.localPlayerSlot && !this.networkClientMode) {
+      this.runShopSpecializationClaimed = previous.runShopSpecializationClaimed === true
+        || run.runShopSpecializationClaimed === true;
+      if (this.runShopSpecializationClaimed) {
+        this.runShopSpecializationUnitType = previous.runShopSpecializationUnitType
+          ?? run.runShopSpecializationUnitType
+          ?? null;
+      }
+      this.runShopPrepCompleted = previous.runShopPrepCompleted === true
+        || run.runShopPrepCompleted === true;
+      this.runShopCompletedNodeKey = previous.runShopCompletedNodeKey
+        ?? run.runShopCompletedNodeKey
+        ?? null;
+    }
     this.silver = run.silver;
     this.runCardsPlayedCount = run.runCardsPlayedCount ?? 0;
     this.waveRewardDeck = run.waveRewardDeck;
@@ -4938,6 +5441,12 @@ export class Game {
       run.runShopActiveCategory = this.runShopActiveCategory;
       run.runShopChoices = this.runShopChoices;
       run.runShopPendingOffers = this.runShopPendingOffers;
+      run.runShopItems = this.runShopItems;
+      run.runShopPrepNodeKey = this.runShopPrepNodeKey;
+      run.runShopSpecializationClaimed = this.runShopSpecializationClaimed;
+      run.runShopSpecializationUnitType = this.runShopSpecializationUnitType;
+      run.runShopPrepCompleted = this.runShopPrepCompleted;
+      run.runShopCompletedNodeKey = this.runShopCompletedNodeKey;
       run.silver = this.silver;
       run.runCardsPlayedCount = this.runCardsPlayedCount;
       run.waveRewardDeck = this.waveRewardDeck;
@@ -4956,6 +5465,12 @@ export class Game {
       this.runShopActiveCategory = previous.runShopActiveCategory;
       this.runShopChoices = previous.runShopChoices;
       this.runShopPendingOffers = previous.runShopPendingOffers;
+      this.runShopItems = previous.runShopItems;
+      this.runShopPrepNodeKey = previous.runShopPrepNodeKey;
+      this.runShopSpecializationClaimed = previous.runShopSpecializationClaimed;
+      this.runShopSpecializationUnitType = previous.runShopSpecializationUnitType;
+      this.runShopPrepCompleted = previous.runShopPrepCompleted;
+      this.runShopCompletedNodeKey = previous.runShopCompletedNodeKey;
       this.silver = previous.silver;
       this.runCardsPlayedCount = previous.runCardsPlayedCount;
       this.waveRewardDeck = previous.waveRewardDeck;
@@ -4972,6 +5487,12 @@ export class Game {
         this.runShopActiveCategory = run.runShopActiveCategory;
         this.runShopChoices = run.runShopChoices;
         this.runShopPendingOffers = run.runShopPendingOffers;
+        this.runShopItems = run.runShopItems ?? null;
+        this.runShopPrepNodeKey = run.runShopPrepNodeKey ?? null;
+        this.runShopSpecializationClaimed = run.runShopSpecializationClaimed === true;
+        this.runShopSpecializationUnitType = run.runShopSpecializationUnitType ?? null;
+        this.runShopPrepCompleted = run.runShopPrepCompleted === true;
+        this.runShopCompletedNodeKey = run.runShopCompletedNodeKey ?? null;
         this.silver = run.silver;
       }
     }
@@ -5051,9 +5572,156 @@ export class Game {
     if (unit?.team === TEAMS.ENEMY) {
       this.grantKillEnergy(unit, source);
       this.grantKillSilver(unit, source);
+      // 魔力与能量是两种资源：只有单位击杀才结算，且均分给击杀者携带的符文石。
+      this.grantKillMana(unit, source);
+    } else if (unit?.team === TEAMS.PLAYER) {
+      // 死亡不掉落：符文石继续留在原单位背包里，数据不随渲染对象回收而丢失。
+      this.runeStones?.handleUnitDeath?.(unit);
+      // 单位阵亡时必须关掉它的符文背包，避免面板停在一个已经不存在的单位上。
+      this.runeBackpack?.closeIfUnit?.(unit);
     }
 
     return true;
+  }
+
+  /** 鼠标当前指向的己方单位（不含建筑），用于 E 键直接开背包。 */
+  hoveredFriendlyUnitForBackpack() {
+    const point = this.pointerScreen;
+    if (!point) return null;
+    const candidates = (this.friendlyUnits ?? []).filter((unit) => (
+      unit?.alive && !unit.isBuilding && this.unitBelongsToPlayer(unit)
+    ));
+    if (!candidates.length) return null;
+    // 射线为主，允许一点屏幕范围内的吸附，避免小体型单位难以对准。
+    const picked = this.pickUnitFromList(candidates, point.x, point.y, { screenRadius: 30 });
+    return picked?.alive && !picked.isBuilding ? picked : null;
+  }
+
+  /**
+   * E 键：给鼠标指向的己方单位打开符文背包；鼠标没指向单位时用当前选中单位。
+   * 既没指向也没选中单位时不打开——否则玩家不知道开的是谁的背包，只给一句提示。
+   * 已经打开时再按一次 E 关闭（两个背包一起关闭）。
+   */
+  toggleUnitRuneBackpack() {
+    if (!this.runeBackpack) return false;
+    if (this.runeBackpack.isOpen()) {
+      this.runeBackpack.close();
+      return true;
+    }
+    const hovered = this.hoveredFriendlyUnitForBackpack();
+    const selected = this.selectedUnit;
+    const unit = hovered
+      ?? (selected?.team === TEAMS.PLAYER && selected.alive ? selected : null);
+    if (!unit) {
+      this.cardSystem?.setHintOnce?.(
+        '把鼠标对准己方单位，或先选中一个单位，再按 E 打开它的符文背包。',
+        'rune-backpack'
+      );
+      return false;
+    }
+    this.runeBackpack.openForUnit(unit);
+    return true;
+  }
+
+  /** B 键：打开基地背包（居中显示，只展示基地存储）。 */
+  toggleBaseRuneBackpack() {
+    if (!this.runeBackpack) return false;
+    this.runeBackpack.toggleBase();
+    return true;
+  }
+
+  /**
+   * 符文背包 UI 的统一入口。联机时把动作交给 Host 校验，单机返回 null 让调用方
+   * 直接走本地 RuneStoneSystem；客户端不做乐观改动，结果靠 Host 私有状态同步。
+   */
+  requestRuneStoneAction(payload) {
+    if (!payload?.stoneId) return null;
+    if (!this.networkBridge?.shouldRouteLocalCommands?.()) return null;
+    const sender = this.networkBridge.commandSender;
+    if (!sender) return { ok: false, reason: 'rune_stone_not_owned' };
+    const sent = payload.action === 'sell'
+      ? sender.runeStoneSell?.(payload.stoneId)
+      : sender.runeStoneMove?.(payload.stoneId, payload.target ?? {});
+    return sent ? { ok: true, pending: true } : { ok: false, reason: 'game_rule_rejected' };
+  }
+
+  /** Host 权威：执行客户端发来的符文石转移，落点与归属在这里再校验一次。 */
+  applyNetworkRuneStoneMove(playerId, payload) {
+    const stoneId = payload?.stoneId;
+    if (!stoneId) return false;
+    let target = null;
+    if (payload?.targetKind === 'unit') {
+      const unit = (this.friendlyUnits ?? []).find(
+        (candidate) => String(candidate.id) === String(payload.targetUnitId) && candidate.alive
+      );
+      if (!unit) return false;
+      if ((unit.controllerPlayerId ?? unit.ownerPlayerId) !== playerId) return false;
+      target = { kind: 'unit', unit };
+    } else {
+      target = { kind: 'base', playerId };
+    }
+    const result = this.runeStones?.moveStone(stoneId, target, { playerId });
+    if (!result?.ok) return false;
+    this.runeBackpack?.refresh?.();
+    return true;
+  }
+
+  /** Host 权威：出售符文石，按生成时实付能量的比例返还到该玩家的能量。 */
+  applyNetworkRuneStoneSell(playerId, payload) {
+    const result = this.runeStones?.sellStone(payload?.stoneId, { playerId });
+    if (!result?.ok) return false;
+    this.runeBackpack?.refresh?.();
+    return true;
+  }
+
+  /**
+   * 敌人生成时确定携带魔力：档位基础值 × 与生命/攻击同源的难度系数，之后不再重算。
+   * 所有敌军生成点都应调用，包括召唤物、蜘蛛卵孵化与野生动物。
+   */
+  assignEnemyManaValue(unit, { isBoss = null, isElite = null } = {}) {
+    if (!unit || unit.team !== TEAMS.ENEMY) return 0;
+    // 没走过 applyEnemyDifficulty 的生成点（例如野生动物）按当前难度现算一份系数。
+    const difficulty = this.effectiveDifficulty?.() ?? 1;
+    const standard = standardEnemyStatFactors(difficulty);
+    const factor = Number.isFinite(unit.manaDifficultyFactor)
+      ? unit.manaDifficultyFactor
+      : enemyManaFactor(standard.health, standard.damage);
+    const value = manaValueForEnemy({
+      isBoss: isBoss ?? unit.isBoss === true,
+      isElite: isElite ?? unit.isElite === true,
+      factor
+    });
+    unit.manaValue = value;
+    return value;
+  }
+
+  /**
+   * 魔力结算：敌人生成时携带的 manaValue 在击杀时授予击杀单位。
+   * 法术等非单位击杀（source 不是友方单位）不产生魔力，也不会分给附近友军或基地。
+   */
+  grantKillMana(unit, source = null) {
+    if (!unit || unit.isSilentRemoval) return 0;
+    if (unit.team !== TEAMS.ENEMY) return 0;
+    if (!source?.alive || source.isBuilding) return 0;
+    if (source.team !== TEAMS.PLAYER) return 0;
+    if (!this.unitBelongsToPlayer(source)) return 0;
+    const amount = Math.max(0, Number(unit.manaValue) || 0);
+    if (amount <= 0) return 0;
+
+    const result = this.runeStones?.awardMana?.(source, amount);
+    const levels = Math.max(0, Math.floor(result?.levelsGained ?? 0));
+    if (levels > 0) {
+      this.effects.spawnDamageNumber(source.position, 1, {
+        text: `符文石 +${levels} 级`,
+        color: '#c7a6ff',
+        stroke: '#241536',
+        height: source.projectileHitHeight ?? 1.55,
+        duration: 1.05,
+        fontSize: 72,
+        baseHeight: 0.5
+      });
+    }
+    return Math.max(0, Number(result?.distributed) || 0);
   }
 
   queueRebirthForUnit(unit, source = null) {
@@ -5146,13 +5814,26 @@ export class Game {
       factionId: unit.factionId ?? unit.team,
       playerColorIndex: this.playerColorIndexFor(unit.controllerPlayerId ?? unit.ownerPlayerId),
       maxEnchantmentSlots: Math.max(unit.enchantments?.size ?? 0, Math.floor(unit.maxEnchantmentSlots ?? 5)),
-      freeEnchantmentCharges: normalizeFreeEnchantmentCharges(unit.freeEnchantmentCharges),
-      freeEnchantmentProgress: Math.max(0, finiteNumber(unit.freeEnchantmentProgress, 0)),
+      // 符文石留在原单位背包里，重生时按 unitId 把背包引到新单位上，
+      // 不在快照里复制一份，避免产生两套石头。
+      unitId: unit.id,
       homePoint: vectorSnapshot(unit.homePoint),
       rebirthLevel: level,
       attributes: captureRebirthAttributeSnapshot(unit),
       enchantments: captureRebirthEnchantments(unit)
     };
+  }
+
+  // 选中面板的符文石列表：名称 + 等级 + 当前魔力进度（满级显示已满级）。
+  formatRuneStoneList(unit) {
+    const stones = this.runeStones?.stonesForUnit?.(unit) ?? [];
+    return stones.map((stone) => {
+      const need = manaThresholdForLevel(stone.level);
+      const progress = Number.isFinite(need)
+        ? `(${Math.floor(stone.mana)}/${need})`
+        : '(满级)';
+      return `${runeDisplayName(stone.enchantmentId)}Lv.${stone.level}${progress}`;
+    }).join('、');
   }
 
   updateRebirthQueue(dt = 0) {
@@ -5188,15 +5869,16 @@ export class Game {
       Math.floor(snapshot.maxEnchantmentSlots ?? 5),
       snapshot.enchantments?.length ?? 0
     );
-    unit.freeEnchantmentCharges = normalizeFreeEnchantmentCharges(snapshot.freeEnchantmentCharges);
-    unit.freeEnchantmentProgress = Math.max(0, finiteNumber(snapshot.freeEnchantmentProgress, 0));
     // 重生单位回到之前的返回位置（若无返回位置则以重生点为准）
     unit.homePoint = vectorFromSnapshot(snapshot.homePoint) ?? position.clone();
     unit.homePoint.y = this.groundHeightAt(unit.homePoint);
     this.attachUnitStatus(unit);
     this.registerUnit(unit);
+    // 先接回原背包，再恢复非符文附魔与属性：顺序保证附魔不会被背包同步覆盖。
+    this.runeStones?.reassignUnitStones(snapshot.unitId, unit);
     restoreRebirthEnchantments(unit, snapshot.enchantments);
     restoreRebirthAttributes(unit, snapshot.attributes);
+    this.runeStones?.syncUnitEnchantments(unit);
     this.effects.spawnRing(unit.position, '#f1d97a', 1.05, 0.74);
     this.effects.spawnDamageNumber(unit.position, 1, {
       text: '复生',
@@ -5437,15 +6119,10 @@ export class Game {
   }
 
   onAltarOwnershipChanged(event) {
+    // 祭坛不再发放兵种专精奖励：专精改由非最终 Boss 后的免费奖励步骤提供。
+    // 占领的意义是获得前线部署点、祭坛恢复与魔力祭坛的魔力供给。
     if (!event || event.owner !== TEAMS.PLAYER || event.reason !== 'captured') return;
-    const altarId = event.altar?.id;
-    if (!altarId || this.rewardedAltarIds.has(altarId)) return;
-    this.rewardedAltarIds.add(altarId);
-    if (this.coop?.enabled && this.players) {
-      this.openCoopStrategyEventForAll('altar-reward', { altar: event.altar });
-      return;
-    }
-    this.queueStrategyReward('altar-reward', { altar: event.altar });
+    this.networkBridge?.markPrivateStateDirty?.(this.localPlayerSlot);
   }
 
   summonUnits(type, count, point, radius = 1, options = {}) {
@@ -5530,6 +6207,14 @@ export class Game {
       anchors.push({
         position: unit.position,
         radius: unit.definition.deploymentRadius ?? SUMMON_DEPLOY_RADIUS
+      });
+    });
+    // 己方占领的祭坛同样是前线部署点，规则复用信标的合法落点与预览流程。
+    this.altars?.altars?.forEach((altar) => {
+      if (altar.owner !== TEAMS.PLAYER) return;
+      anchors.push({
+        position: altar.position,
+        radius: BALANCE.altarRules?.deploymentRadius ?? SUMMON_DEPLOY_RADIUS
       });
     });
     return anchors;
@@ -5782,6 +6467,8 @@ export class Game {
       unit.enemyForce = waveConfig ?? null;
       this.applyEnemyDifficulty(unit, difficulty, waveConfig, i);
       this.applyEnemyForceModifiers(unit, waveConfig, i);
+      // 携带魔力在生成时按难度档位一次定死；之后等待更久、难度变化都不再重算。
+      this.assignEnemyManaValue(unit);
       this.applySpiderSpawnTraits(unit, difficulty, waveConfig, i);
       this.initializeSpiderLifecycle(unit);
       this.markEndlessEnemySpawn(unit);
@@ -5948,6 +6635,9 @@ export class Game {
         amount: damageFactor
       }
     ], 'level:difficulty');
+    // 携带魔力与生命/攻击同源成长：把这次实际用到的难度系数留到单位上，
+    // 生成流程稍后再按档位基础值折算成魔力（精英/Boss 档位在那一步才确定）。
+    unit.manaDifficultyFactor = enemyManaFactor(healthFactor, damageFactor);
     this.applyEnemyStartingBuffs(unit, difficulty, waveConfig, indexInWave);
     unit.health = unit.maxHealth;
     unit.clampToAttributeCaps();
@@ -6039,6 +6729,7 @@ export class Game {
     egg.hatchTimer = SPIDER_EGG_HATCH_SECONDS;
     egg.parentSpiderId = parent.id;
     egg.enemyForce = parent.enemyForce ?? this.currentEnemyForce ?? null;
+    this.assignEnemyManaValue(egg);
     this.markEndlessEnemySpawn(egg);
     this.attachUnitStatus(egg);
     this.registerUnit(egg);
@@ -6083,6 +6774,7 @@ export class Game {
     });
     this.applyEnemyDifficulty(spider, difficulty, egg.enemyForce ?? this.currentEnemyForce, 0);
     spider.enemyForce = egg.enemyForce ?? this.currentEnemyForce ?? null;
+    this.assignEnemyManaValue(spider);
     this.initializeSpiderLifecycle(spider);
     this.markEndlessEnemySpawn(spider);
     this.attachUnitStatus(spider);
@@ -6120,6 +6812,7 @@ export class Game {
         position: new THREE.Vector3(spawn.x, this.groundHeightAt(spawn), spawn.z)
       });
       this.applyWildlifeDifficulty(unit);
+      this.assignEnemyManaValue(unit);
       this.attachUnitStatus(unit);
       unit.isWildlife = true;
       unit.spawnPoint = unit.position.clone();
@@ -7190,6 +7883,18 @@ export class Game {
     }
     if (event.repeat) return;
     const key = event.key.toLowerCase();
+    // E：给鼠标指向（其次当前选中）的己方单位打开符文背包；再按一次关闭两个背包。
+    if (key === 'e' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault();
+      this.toggleUnitRuneBackpack();
+      return;
+    }
+    // B：打开基地背包，居中显示，只展示基地存储。
+    if (key === 'b' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault();
+      this.toggleBaseRuneBackpack();
+      return;
+    }
     if (key === 'f2') {
       event.preventDefault();
       this.togglePerfChart();
@@ -7208,26 +7913,17 @@ export class Game {
     }
     if (key === 'escape') {
       event.preventDefault();
+      // 符文背包：Esc 与再按一次 E 等价，两个背包一起关闭。
+      if (this.runeBackpack?.isOpen()) {
+        this.runeBackpack.close();
+        return;
+      }
       if (this.battleDebugPanel?.isOpen()) {
         this.battleDebugPanel.close();
         return;
       }
       if (this.runShopOpen) {
-        if (this.runShopActiveCategory) {
-          if (this.networkBridge?.shouldRouteLocalCommands?.()) {
-            this.networkBridge.commandSender?.shopBack?.();
-          } else {
-            this.clearRunShopSelection();
-          }
-        } else if (this.runShopFreeReward) {
-          if (this.networkBridge?.shouldRouteLocalCommands?.()) {
-            this.networkBridge.commandSender?.shopRewardSkip?.();
-          } else {
-            this.closeRunShop({ force: true });
-          }
-        } else {
-          this.closeRunShop();
-        }
+        this.escapeRunShop();
         return;
       }
       this.setPaused(!this.paused, '设置');
@@ -8190,7 +8886,6 @@ export class Game {
       const shield = Math.round(unit.shield);
       const durability = Math.round(unit.weapon.durability);
       const maxDurability = Math.round(unit.weapon.maxDurability);
-      const enchantments = formatEnchantmentList(unit);
       const teamLabel = unit.team === TEAMS.PLAYER ? '友军' : '敌方';
       const physicalAttack = formatSupportAmount(this.modifiers.getPhysicalAttack(unit));
       const magicAttack = formatSupportAmount(this.modifiers.getMagicAttack(unit));
@@ -8202,7 +8897,7 @@ export class Game {
       this.dom.selectedStats.textContent =
         `HP ${hp}/${Math.round(unit.maxHealth)} / 护盾 ${shield}/${Math.round(unit.maxShield)} / 武器 ${unit.weapon.name} / 耐久 ${durability}/${maxDurability}`;
       this.dom.selectedEnchants.textContent =
-        `物攻 ${physicalAttack} / 魔攻 ${magicAttack} / 护甲 ${armor} / 魔抗 ${magicResistance} / 闪避 ${dodgeChance}% / 抗击退 ${knockbackResistance}% / 附魔槽 ${unit.enchantments.size}/${Math.max(0, Math.floor(unit.maxEnchantmentSlots ?? 5))} / 附魔 ${enchantments || '-'}`;
+        `物攻 ${physicalAttack} / 魔攻 ${magicAttack} / 护甲 ${armor} / 魔抗 ${magicResistance} / 闪避 ${dodgeChance}% / 抗击退 ${knockbackResistance}% / 符文背包 ${this.runeStones?.stonesForUnit?.(unit)?.length ?? 0}/${Math.max(0, Math.floor(unit.maxEnchantmentSlots ?? 5))} / 符文 ${this.formatRuneStoneList(unit) || '-'}`;
     } else {
       if (this.dom.selectedPanel) {
         this.dom.selectedPanel.hidden = true;
@@ -9479,13 +10174,18 @@ export function normalizeStrategyEventType(type) {
   return type === 'unit-upgrade' ? 'wave-reward' : type;
 }
 
-// 开局三选一系列事件（单位 / 法术 / 附魔 / 能力）。
+// 开局三选一系列事件（单位卡 ×路线数 / 能力 / 地形）。
 export function isOpeningRewardType(type) {
-  return OPENING_REWARD_STEPS.some((step) => step.type === type);
+  return OPENING_REWARD_STEP_ORDER.some(
+    (key) => OPENING_REWARD_STEP_DEFINITIONS[key].type === type
+  );
 }
 
 function openingRewardStep(type) {
-  return OPENING_REWARD_STEPS.find((step) => step.type === type) ?? null;
+  const key = OPENING_REWARD_STEP_ORDER.find(
+    (candidate) => OPENING_REWARD_STEP_DEFINITIONS[candidate].type === type
+  );
+  return key ? OPENING_REWARD_STEP_DEFINITIONS[key] : null;
 }
 
 function unitSpecializationRewardCardId(unitType, upgradeId) {
@@ -9534,6 +10234,8 @@ function ensureRunShopUi(existing = null) {
     silver: root?.querySelector('#run-shop-silver'),
     services: root?.querySelector('#run-shop-services'),
     skip: root?.querySelector('#run-shop-skip'),
+    close: root?.querySelector('#run-shop-close'),
+    back: root?.querySelector('#run-shop-back'),
     choices: root?.querySelector('#run-shop-choices'),
     cardScaleControl: root?.querySelector('#run-shop-card-scale-control'),
     cardScaleInput: root?.querySelector('#run-shop-card-scale'),
@@ -9560,54 +10262,66 @@ const RUN_SHOP_OVERLAY_INNER_HTML = `
     </header>
     <p class="run-shop-balance">持有 <strong id="run-shop-silver">0</strong> 银币</p>
     <div id="run-shop-services" class="run-shop-services"></div>
-    <button id="run-shop-skip" class="run-shop-skip" type="button" hidden>跳过奖励，继续出征</button>
+    <button id="run-shop-skip" class="run-shop-skip" type="button" hidden>${RUN_SHOP_CONTINUE_LABEL}</button>
     <div id="run-shop-choices" class="run-shop-choices" hidden>
-      <button id="run-shop-back" class="run-shop-back" type="button">← 返回服务列表</button>
+      <button id="run-shop-back" class="run-shop-back" type="button">${RUN_SHOP_BACK_TO_UNIT_LABEL}</button>
       ${RUN_SHOP_CARD_SCALE_CONTROL_HTML}
       <div id="run-shop-choice-list" class="run-shop-choice-list"></div>
     </div>
   </section>
 `;
 
-function runShopServiceMarkup(category, game) {
-  const isFree = game.runShopFreeReward === true;
-  const price = game.shopPrice(category.key);
-  const availability = game.canRunShopCategory(category.key);
-  const currentSilver = Number(game.getSilver?.() ?? game.silver ?? 0);
-  const canAfford = isFree || currentSilver + 0.001 >= price;
-  const disabled = !availability.ok || !canAfford;
-  const statusText = !availability.ok
-    ? availability.reason
-    : isFree
-      ? '免费'
-      : `${formatSilverAmount(price)} 银币`;
-  const isActive = game.runShopActiveCategory === category.key;
+/**
+ * 军需补给铺的一件具体商品：名称、效果、银币价格与售罄状态都直接可见。
+ * 复用旧服务行的 DOM 结构与样式，点击同样走 data-run-shop-choice-index。
+ */
+function runShopSupplyItemMarkup(choice, index) {
+  const kind = choice.itemKind ?? 'unitCard';
+  const icon = RUN_SHOP_SUPPLY_KIND_ICONS[kind] ?? '✦';
+  const label = RUN_SHOP_SUPPLY_KIND_LABELS[kind] ?? '';
+  const title = choice.title ?? choice.card?.name ?? label;
+  const summary = choice.card?.summary ?? choice.description ?? '';
+  const description = label ? `${label} · ${summary}` : summary;
+  const priceLabel = choice.actionLabel
+    ?? `${formatSilverAmount(choice.itemPrice ?? 0)} 银币`;
+  const disabled = choice.disabled === true;
   return `
     <button
-      class="run-shop-service${isActive ? ' is-active' : ''}${disabled ? ' is-disabled' : ''}"
+      class="run-shop-service run-shop-supply-item${disabled ? ' is-disabled' : ''}"
       type="button"
-      data-run-shop-category="${escapeHtml(category.key)}"
+      data-run-shop-choice-index="${index}"
       ${disabled ? 'disabled aria-disabled="true"' : ''}
     >
-      <span class="run-shop-service-icon" aria-hidden="true">${escapeHtml(category.icon)}</span>
+      <span class="run-shop-service-icon" aria-hidden="true">${escapeHtml(icon)}</span>
       <span class="run-shop-service-body">
-        <strong class="run-shop-service-title">${escapeHtml(category.title)}</strong>
-        <span class="run-shop-service-desc">${escapeHtml(category.description)}</span>
+        <strong class="run-shop-service-title">${escapeHtml(title)}</strong>
+        <span class="run-shop-service-desc">${escapeHtml(description)}</span>
       </span>
-      <span class="run-shop-service-price">${escapeHtml(statusText)}</span>
+      <span class="run-shop-service-price">${escapeHtml(priceLabel)}</span>
     </button>
   `;
 }
 
-function runShopCategoryUsesWaveRewardCards(category) {
-  return [
-    'unit',
-    'trait',
-    'copy',
-    'remove',
-    'upgrade',
-    'temporary'
-  ].includes(category);
+/** 兵种专精第一步（选择兵种 / 专精已满的补偿）使用同一套服务行样式。 */
+function runShopServiceOptionMarkup(choice, index, options = {}) {
+  const icon = options.icon ?? '专';
+  const priceLabel = options.priceLabel ?? RUN_SHOP_FREE_LABEL;
+  const disabled = choice.disabled === true;
+  return `
+    <button
+      class="run-shop-service${disabled ? ' is-disabled' : ''}"
+      type="button"
+      data-run-shop-choice-index="${index}"
+      ${disabled ? 'disabled aria-disabled="true"' : ''}
+    >
+      <span class="run-shop-service-icon" aria-hidden="true">${escapeHtml(icon)}</span>
+      <span class="run-shop-service-body">
+        <strong class="run-shop-service-title">${escapeHtml(choice.title ?? '兵种专精')}</strong>
+        <span class="run-shop-service-desc">${escapeHtml(choice.description ?? '')}</span>
+      </span>
+      <span class="run-shop-service-price">${escapeHtml(priceLabel)}</span>
+    </button>
+  `;
 }
 
 function runShopChoiceUsesCardFace(choice) {
@@ -11004,14 +11718,18 @@ function shouldPreserveRebirthModifier(modifier, unit) {
   return unit?.enchantments?.has?.(enchantmentId) === true;
 }
 
+// 符石附魔由符文背包负责恢复，快照只记录非符文来源的附魔，避免重生时叠加两层效果。
 function captureRebirthEnchantments(unit) {
-  return [...(unit?.enchantments?.entries?.() ?? [])].map(([id, enchantment]) => ({
-    id,
-    level: Math.max(1, Math.floor(enchantment?.level ?? 1)),
-    sourceCard: enchantment?.sourceCard ?? null,
-    remaining: Number.isFinite(enchantment?.remaining) ? Math.max(0, enchantment.remaining) : null,
-    hidden: enchantment?.hidden === true
-  }));
+  const runeManaged = unit?.runeEnchantmentIds instanceof Set ? unit.runeEnchantmentIds : new Set();
+  return [...(unit?.enchantments?.entries?.() ?? [])]
+    .filter(([id]) => !runeManaged.has(id))
+    .map(([id, enchantment]) => ({
+      id,
+      level: Math.max(1, Math.floor(enchantment?.level ?? 1)),
+      sourceCard: enchantment?.sourceCard ?? null,
+      remaining: Number.isFinite(enchantment?.remaining) ? Math.max(0, enchantment.remaining) : null,
+      hidden: enchantment?.hidden === true
+    }));
 }
 
 function restoreRebirthEnchantments(unit, enchantments = []) {
@@ -11245,9 +11963,6 @@ function createStructureState({ id, position, projectileHitHeight, attributes, m
   };
   [
     'maxHealth',
-    'recoveryRadius',
-    'healthPerSecond',
-    'durabilityPerSecond',
     'collisionRadius',
     'attackRadius'
   ].forEach((attribute) => bindAttributeGetter(structure, attribute, attribute));

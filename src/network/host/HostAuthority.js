@@ -13,7 +13,9 @@ const PRIVATE_STATE_COMMANDS = new Set([
   COMMAND.SHOP_CHOOSE,
   COMMAND.SHOP_ENERGY,
   COMMAND.SHOP_BACK,
-  COMMAND.SHOP_REWARD_SKIP
+  COMMAND.SHOP_REWARD_SKIP,
+  COMMAND.RUNE_STONE_MOVE,
+  COMMAND.RUNE_STONE_SELL
 ]);
 
 export class HostAuthority {
@@ -116,10 +118,6 @@ export class HostAuthority {
     });
     this.lastPrivateByPlayer.set(playerId, snapshot.privateState);
     this.dirtyPrivatePlayers.delete(playerId);
-    const recoveryAura = this.game.effects?.getRecoveryAuraState?.();
-    if (recoveryAura) {
-      this.emitEvent({ name: 'fx_recovery_aura', ...recoveryAura }, { toPlayerId: playerId });
-    }
   }
 
   emitEvent(event, { toPlayerId = null } = {}) {
@@ -238,6 +236,10 @@ export class HostAuthority {
         return this.game.applyNetworkShopBack(playerId);
       case COMMAND.SHOP_REWARD_SKIP:
         return this.game.applyNetworkShopRewardSkip(playerId);
+      case COMMAND.RUNE_STONE_MOVE:
+        return this.game.applyNetworkRuneStoneMove?.(playerId, payload) ?? false;
+      case COMMAND.RUNE_STONE_SELL:
+        return this.game.applyNetworkRuneStoneSell?.(playerId, payload) ?? false;
       default:
         return false;
     }

@@ -1,15 +1,10 @@
 import * as THREE from 'three';
-import { BUFF_DEFINITIONS, ENCHANTMENTS, TEAMS, UNIT_DEFINITIONS } from '../data/gameData.js';
+import { BUFF_DEFINITIONS, TEAMS, UNIT_DEFINITIONS } from '../data/gameData.js';
 import { basicMat, mat } from '../art/lowpoly.js';
 import { createSoftParticleSprite } from '../art/vfxMaterials.js';
 import { createUnitModel, updateUnitAnimation } from '../art/visualRegistry.js';
 import { AttributeSet, bindAttributeGetter } from '../systems/AttributeSet.js';
 import { scaleResourceAfterMaximumChange } from '../systems/unitResourceSync.js';
-import {
-  advanceFreeEnchantmentState,
-  FREE_ENCHANTMENT_HINT_INTERVAL_SECONDS,
-  normalizeFreeEnchantmentCharges
-} from '../systems/freeEnchantmentCharges.js';
 import { clamp } from '../utils/math.js';
 
 let nextUnitId = 1;
@@ -84,10 +79,10 @@ export class UnitEntity {
     this.visualState = 'idle';
     this.buffs = new Map();
     this.enchantments = new Map();
+    // 由符文石系统管理的附魔 id 集合：RuneStoneSystem.syncUnitEnchantments 用它
+    // 区分「石头挂上的附魔」和「其他系统挂上的 Buff」，只回收自己那部分。
+    this.runeEnchantmentIds = new Set();
     this.maxEnchantmentSlots = 5;
-    this.freeEnchantmentCharges = 0;
-    this.freeEnchantmentProgress = 0;
-    this.freeEnchantmentHintTimer = FREE_ENCHANTMENT_HINT_INTERVAL_SECONDS;
     this.status = {
       burnTime: 0,
       burnDamagePerSecond: 0,
@@ -117,40 +112,45 @@ export class UnitEntity {
     return this.mesh.position;
   }
 
-  addEnchantment(id) {
-    this.addBuff(id, ENCHANTMENTS[id]);
-  }
-
   addBuff(id, definition = BUFF_DEFINITIONS[id], overrides = {}) {
     if (!definition) return null;
+    // 符文石专用覆盖标记，只作用于本次调用，不能写进 Buff 实例：
+    // - absoluteLevel：等级就是 overrides.level，不再与已有等级叠加（符文石等级由魔力成长决定）。
+    // - ignoreEnchantmentSlots：跳过附魔槽上限拦截，容量由 RuneStoneSystem 自己校验（符文背包）。
+    const absoluteLevel = overrides.absoluteLevel === true;
+    const ignoreEnchantmentSlots = overrides.ignoreEnchantmentSlots === true;
+    const buffOverrides = (absoluteLevel || ignoreEnchantmentSlots)
+      ? stripRuneBuffOverrides(overrides)
+      : overrides;
     const existing = this.buffs.get(id);
     const isEnchantment = definition.category === 'enchantment';
     if (
       isEnchantment &&
       !existing &&
+      !ignoreEnchantmentSlots &&
       this.enchantments.size >= Math.max(0, Math.floor(this.maxEnchantmentSlots ?? 5))
     ) {
       return null;
     }
-    const incomingLevel = resolveIncomingBuffLevel(definition, overrides);
+    const incomingLevel = resolveIncomingBuffLevel(definition, buffOverrides);
     const existingLevel = Math.max(1, existing?.level ?? 1);
-    const level = existing && isEnchantment
-      ? existingLevel + incomingLevel
-      : incomingLevel;
-    const duration = overrides.duration ?? definition.duration ?? 0;
+    const level = absoluteLevel
+      ? incomingLevel
+      : (existing && isEnchantment ? existingLevel + incomingLevel : incomingLevel);
+    const duration = buffOverrides.duration ?? definition.duration ?? 0;
     if (existing && !isEnchantment && level <= existingLevel) {
       existing.remaining = refreshBuffDuration(existing.remaining, duration);
-      refreshBuffSource(existing, overrides);
+      refreshBuffSource(existing, buffOverrides);
       return existing;
     }
 
-    const damagePerSecond = resolveBuffNumber('damagePerSecond', definition, overrides);
+    const damagePerSecond = resolveBuffNumber('damagePerSecond', definition, buffOverrides);
     const maxHealthDamagePercentPerSecond = resolveBuffNumber(
       'maxHealthDamagePercentPerSecond',
       definition,
-      overrides
+      buffOverrides
     );
-    const healPerSecond = resolveBuffNumber('healPerSecond', definition, overrides);
+    const healPerSecond = resolveBuffNumber('healPerSecond', definition, buffOverrides);
     const runtimeState = preserveEnchantmentRuntimeState(existing, id, isEnchantment);
     const previousMaxDurability = this.weapon?.maxDurability ?? 0;
     this.attributes.removeModifiersBySource(buffModifierSource(id));
@@ -161,18 +161,22 @@ export class UnitEntity {
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:advantage`);
     const instance = {
       ...definition,
-      ...overrides,
+      ...buffOverrides,
       ...runtimeState,
       id,
       level,
       ...(damagePerSecond !== null ? { damagePerSecond } : {}),
       ...(maxHealthDamagePercentPerSecond !== null ? { maxHealthDamagePercentPerSecond } : {}),
       ...(healPerSecond !== null ? { healPerSecond } : {}),
-      source: resolveBuffSource(existing, overrides),
+      source: resolveBuffSource(existing, buffOverrides),
       remaining: isEnchantment
         ? refreshBuffDuration(existing?.remaining, duration)
         : duration,
-      tickTimer: overrides.tickTimer ?? existing?.tickTimer ?? overrides.tickInterval ?? definition.tickInterval ?? 0
+      tickTimer: buffOverrides.tickTimer
+        ?? existing?.tickTimer
+        ?? buffOverrides.tickInterval
+        ?? definition.tickInterval
+        ?? 0
     };
     this.buffs.set(id, instance);
     this.attributes.addModifiers(instance.modifiers, buffModifierSource(id), {
@@ -321,21 +325,6 @@ export class UnitEntity {
     refreshStatusLagElement(this, dt);
   }
 
-  updateFreeEnchantmentCharges(dt = 0) {
-    if (this.team !== TEAMS.PLAYER || !this.alive) return 0;
-    const next = advanceFreeEnchantmentState(
-      this.freeEnchantmentCharges,
-      this.freeEnchantmentProgress,
-      dt
-    );
-    this.freeEnchantmentProgress = next.progress;
-    if (next.charges !== this.freeEnchantmentCharges) {
-      this.freeEnchantmentCharges = next.charges;
-      this.statusUiDirty = true;
-    }
-    return next.gained;
-  }
-
   takeRawDamage(amount, options = {}) {
     const damageContext = {
       target: this,
@@ -428,6 +417,16 @@ function bindUnitAttributeGetters(unit) {
 
 function buffModifierSource(id) {
   return `buff:${id}`;
+}
+
+/** 剔除符文石专用的覆盖标记，避免它们被 ...overrides 写进 Buff 实例。 */
+function stripRuneBuffOverrides(overrides) {
+  const {
+    absoluteLevel: _absoluteLevel,
+    ignoreEnchantmentSlots: _ignoreEnchantmentSlots,
+    ...rest
+  } = overrides;
+  return rest;
 }
 
 function resolveIncomingBuffLevel(definition, overrides) {
@@ -702,9 +701,6 @@ function createUnitStatusElement(team) {
   const element = document.createElement('div');
   element.className = `world-status unit-status ${team === TEAMS.PLAYER ? 'is-friendly' : 'is-enemy'}`;
   element.innerHTML = `
-    <div class="world-free-enchantment-charges" hidden aria-label="免费附魔次数">
-      <span></span><span></span><span></span><span></span>
-    </div>
     <div class="world-player-name" hidden></div>
     <div class="world-health-bar">
       <span class="world-health-loss-fill"></span>
@@ -724,7 +720,6 @@ function createUnitStatusElement(team) {
     healthLoss: element.querySelector('.world-health-loss-fill'),
     ticks: element.querySelector('.world-health-ticks'),
     shield: element.querySelector('.world-shield-fill'),
-    freeEnchantmentCharges: element.querySelector('.world-free-enchantment-charges'),
     durability: element.querySelector('.world-durability-fill'),
     enchantments: element.querySelector('.world-enchantments')
   };
@@ -747,16 +742,6 @@ function refreshStatusElement(unit, dt = 0) {
   element.parts.shield.style.transform = `scaleX(${shieldRatio})`;
   element.parts.shield.hidden = shieldRatio <= 0;
   element.parts.durability.style.transform = `scaleX(${durabilityRatio})`;
-
-  const freeCharges = normalizeFreeEnchantmentCharges(unit.freeEnchantmentCharges);
-  if (element.parts.freeEnchantmentCharges) {
-    element.parts.freeEnchantmentCharges.hidden = freeCharges <= 0;
-    element.parts.freeEnchantmentCharges.dataset.count = String(freeCharges);
-    element.parts.freeEnchantmentCharges.setAttribute('aria-label', `免费附魔次数 ${freeCharges}`);
-    element.parts.freeEnchantmentCharges.querySelectorAll('span').forEach((marker, index) => {
-      marker.hidden = index >= freeCharges;
-    });
-  }
 
   const enchantmentStatuses = [...unit.enchantments.values()]
     .filter((enchantment) => !enchantment.hidden)

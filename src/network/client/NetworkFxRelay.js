@@ -91,8 +91,8 @@ export function applyNetworkFx(game, event) {
     case 'fx_recovery':
       effects.spawnRecoveryPulse(vecFrom(event), event.radius ?? 4.8);
       break;
-    case 'fx_recovery_aura':
-      effects.ensureRecoveryAura(vecFrom(event), event.radius ?? 4.8);
+    case 'fx_mana_burst':
+      effects.spawnManaBurst(vecFrom(event), event.options ?? {});
       break;
     case 'fx_enemy_camp_blast':
       effects.spawnEnemyCampBlast(vecFrom(event.start), vecFrom(event.end), event.options ?? {});
@@ -391,12 +391,13 @@ const EFFECT_RELAY_SPECS = [
     }
   },
   {
-    method: 'ensureRecoveryAura',
-    name: 'fx_recovery_aura',
-    serialize: ([center, radius]) => ({
-      name: 'fx_recovery_aura',
-      ...vec3(center),
-      radius
+    // 魔力祭坛的向上喷发只在 Host 侧触发，因此必须中继给客户端播放。
+    method: 'spawnManaBurst',
+    name: 'fx_mana_burst',
+    serialize: ([position, options]) => ({
+      name: 'fx_mana_burst',
+      ...vec3(position),
+      options: options ?? {}
     })
   },
   {

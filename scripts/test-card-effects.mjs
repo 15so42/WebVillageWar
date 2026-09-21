@@ -80,27 +80,40 @@ const highExplosiveContext = {
 highExplosiveCombat.applyAbilityOffense(highExplosiveContext);
 assert.equal(highExplosiveContext.damage, 6);
 
-const applied = [];
+// 附魔卡改为一次性生成符文石后，「随机附魔」应逐块生成石头，
+// 由 RuneStoneSystem 判定同名/容量；被拒绝的候选跳过，成功数写进浮动字。
+const createdStones = [];
+const floatingTexts = [];
 const targetUnit = {
+  id: 'unit-1',
   position: { x: 0, y: 0, z: 0 },
   projectileHitHeight: 1.5,
   enchantments: new Map(),
   maxEnchantmentSlots: 12
 };
+let rejectFrom = Number.POSITIVE_INFINITY;
 const game = {
-  buffs: {
-    applyBuff(target, buffId, source, overrides = {}) {
-      applied.push({ buffId, level: overrides.level });
-      target.enchantments.set(`${buffId}:${applied.length}`, {
-        id: buffId,
-        level: overrides.level
-      });
-      return { id: buffId, color: '#b68cff' };
+  activeEconomySlot: 'p1',
+  localPlayerSlot: 'p1',
+  runeStones: {
+    createFromCard(card, options = {}) {
+      if (createdStones.length >= rejectFrom) return { ok: false, reason: 'rune_stone_duplicate_name' };
+      createdStones.push({ card, options });
+      return {
+        ok: true,
+        stone: {
+          id: `rune-${createdStones.length}`,
+          enchantmentId: card.enchantmentId,
+          level: card.level
+        }
+      };
     }
   },
   effects: {
     spawnRing() {},
-    spawnDamageNumber() {}
+    spawnDamageNumber(position, amount, options = {}) {
+      floatingTexts.push(options.text ?? '');
+    }
   },
   selectUnit() {}
 };
@@ -122,8 +135,43 @@ try {
     targetUnit
   });
   assert.equal(result, true);
-  assert.equal(applied.length, 5);
-  assert.ok(applied.every((entry) => entry.level === 1));
+  assert.equal(createdStones.length, 5, '随机附魔应为每个候选生成一块符文石');
+  assert.equal(createdStones.every((entry) => entry.options.paidEnergy === 0), true);
+  assert.equal(
+    createdStones.every((entry) => entry.card.level === 1),
+    true,
+    '随机附魔使用效果上的等级，并交给符文石记录'
+  );
+  assert.equal(
+    createdStones.every((entry) => entry.options.playerId === 'p1'),
+    true,
+    '石头归属必须落在当前操作的玩家槽位上'
+  );
+  assert.ok(floatingTexts.some((text) => text === '随机附魔x5'), '成功数量应写入浮动字');
+
+  // 部分候选被同名/容量拒绝时，只统计真正生成的数量，仍然算成功。
+  createdStones.length = 0;
+  floatingTexts.length = 0;
+  rejectFrom = 2;
+  const partial = effects.applyRandomEnchantments({
+    card: { id: 'temporary-mana-surge-enchant', level: 8, color: '#b68cff' },
+    effect: { type: 'apply-random-enchantments', count: 5, level: 1 },
+    targetUnit
+  });
+  assert.equal(partial, true);
+  assert.equal(createdStones.length, 2);
+  assert.ok(floatingTexts.some((text) => text === '随机附魔x2'));
+
+  // 全部被拒时返回 false，卡牌不应被消耗。
+  createdStones.length = 0;
+  floatingTexts.length = 0;
+  rejectFrom = 0;
+  const none = effects.applyRandomEnchantments({
+    card: { id: 'temporary-mana-surge-enchant', level: 8, color: '#b68cff' },
+    effect: { type: 'apply-random-enchantments', count: 5, level: 1 },
+    targetUnit
+  });
+  assert.equal(none, false);
 } finally {
   Math.random = previousRandom;
 }
