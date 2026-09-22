@@ -1,4 +1,5 @@
 import { TEAMS } from '../data/gameData.js';
+import { isHostileEnemy } from './unitTeam.js';
 import { endlessEnchantCount, endlessEnchantLevel, endlessEnemyClass } from './endlessMode.js';
 
 export const ENEMY_RANDOM_ENCHANT_IDS = Object.freeze([
@@ -147,8 +148,8 @@ export class EnemyEnchantmentSystem {
 
   isEnchantCandidate(unit) {
     return unit?.alive !== false &&
-      unit.team === TEAMS.ENEMY &&
-      !unit.isWildlife &&
+      // 只给真正的敌人上敌方附魔：野生动物与野外可招募单位也在 enemy 队伍里。
+      isHostileEnemy(unit) &&
       unit.canReceiveBuffs !== false &&
       unit.immuneToStatusEffects !== true;
   }

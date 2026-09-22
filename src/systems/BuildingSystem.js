@@ -205,6 +205,9 @@ export class BuildingSystem {
   updateBuildingAura(unit, dt) {
     const aura = unit.definition.buildingAura;
     if (!aura) return;
+    // 需要魔力的建筑（海岛关的食堂）：魔力耗尽就不提供光环。
+    // 判定在 FacilitySystem 里，这里只读结果；别的关卡 `poweredDown` 恒为 false。
+    if (unit.poweredDown === true) return;
     const tickSeconds = Math.max(1, aura.tickSeconds ?? SERVICE_TICK_SECONDS);
     unit.serviceTickTimer = (unit.serviceTickTimer ?? 0) + dt;
     while (unit.serviceTickTimer >= tickSeconds && unit.alive) {

@@ -136,6 +136,17 @@ export class UnitLogicSystem {
       return;
     }
 
+    // 傀儡：作业系统接管这一帧。作业状态机负责决定走 / 采 / 卸货，
+    // 命中后不再走下面的战斗 AI，避免傀儡一边砍树一边被拉去打架。
+    //
+    // 这里刻意不再补一次 movement.applyMotion(dt)：作业系统内部走的是
+    // MovementAgent.moveToward()，它自己就完成了位移积分与导航转向。
+    // 早退后再积分一次会让位移被抵消，表现为「状态说在走、位置一动不动」。
+    if (unit.isWorker === true && this.game.work?.updateWorker(unit, dt) === true) {
+      recordUnitStep(profile, 'motionMs', mark);
+      return;
+    }
+
     this.updateSupportAbilities(unit, dt);
     mark = recordUnitStep(profile, 'supportMs', mark);
     if (unit.visualRoot?.userData.animation?.name === 'support') {
@@ -272,6 +283,18 @@ export class UnitLogicSystem {
     unit.directMoveBlocked = false;
     unit.directMoveBlockedTime = 0;
     unit.knockbackVelocity.set(0, 0, 0);
+
+    // 需要魔力的建筑（海岛关的箭塔）：魔力耗尽就不索敌、不开火。
+    // 判定写在 FacilitySystem 里，这里只读结果——`poweredDown` 在别的关卡恒为 false，
+    // 所以卡牌召唤出来的箭塔行为完全不变。
+    if (unit.poweredDown === true) {
+      unit.target = null;
+      unit.attackRangeHoldTargetId = null;
+      unit.aiState = 'idle';
+      unit.movement?.applyMotion(dt);
+      recordUnitStep(profile, 'motionMs', mark);
+      return;
+    }
 
     const activeAttack = this.game.attacks.getActiveAttackFor(unit);
     mark = recordUnitStep(profile, 'activeAttackMs', mark);

@@ -7,6 +7,7 @@ import {
 } from '../src/data/gameData.js';
 import { AttributeSet } from '../src/systems/AttributeSet.js';
 import { BuffSystem } from '../src/systems/BuffSystem.js';
+import { RuneStoneSystem } from '../src/systems/RuneStoneSystem.js';
 import { EffectsSystem } from '../src/systems/EffectsSystem.js';
 import { UnitEntity } from '../src/entities/UnitEntity.js';
 
@@ -64,21 +65,54 @@ for (const id of ['undying', 'triumph', 'assault', 'shockwave', 'solarFlare', 'f
 }
 
 {
+  // 凯旋：成长数据的唯一持有者是符文石（生存方案第 8 节、第 10.1 条）。
+  // 旧断言看的是 Buff 上的 triumphHealthBonus 累计值——迁移后那个字段不该再存在。
   const game = createGame();
+  game.runeStones = new RuneStoneSystem(game);
   const source = createUnit({ id: 5, team: 'player', maxHealth: 40, health: 20 });
+  const other = createUnit({ id: 55, team: 'player', maxHealth: 70, health: 70 });
   const victim = createUnit({ id: 6, team: 'enemy', x: 1, alive: false });
-  game.friendlyUnits.push(source);
+  game.friendlyUnits.push(source, other);
   game.enemyUnits.push(victim);
-  attachGame(game, source, victim);
-  game.buffs.applyBuff(source, 'triumph', source, { level: 2 });
-  game.buffs.unitDeath(victim, source);
-  assert.equal(source.maxHealth, 42);
-  assert.equal(source.health, 26);
+  attachGame(game, source, other, victim);
 
+  const stone = game.runeStones.createStone({ enchantmentId: 'triumph', level: 2 });
+  assert.equal(game.runeStones.pickUpStone(stone.id, source, null).ok, true);
+  assert.equal(source.enchantments.has('triumph'), true);
+  assert.equal(source.maxHealth, 40, '凯旋本身不改基础上限，上限由击杀成长累计');
+
+  game.buffs.unitDeath(victim, source);
+  assert.equal(source.maxHealth, 42, 'lv2 每次击杀 +2 上限');
+  assert.equal(source.health, 26);
+  assert.equal(game.runeStones.stoneGrowth(stone.id), 2, '成长必须记在石头实例上');
+  assert.equal(
+    source.buffs.get('triumph')?.triumphHealthBonus,
+    undefined,
+    'Buff 上不得再留第二份独立的累计值'
+  );
+  assert.equal(
+    source.attributes.entryFor?.('maxHealth')?.add?.some?.(
+      (modifier) => String(modifier.source ?? '').includes('triumph-health')
+    ) ?? false,
+    false,
+    '凯旋的上限修改器不能再用 buff 来源，必须来自石头实例'
+  );
+
+  // 升级这条 Buff 不能把已经练出来的上限丢掉（旧实现靠 buff 上的累计值实现）
   const upgraded = source.addBuff('triumph', BUFF_DEFINITIONS.triumph, { level: 1, source });
   assert.equal(upgraded.level, 3);
-  assert.equal(upgraded.triumphHealthBonus, 2);
   assert.equal(source.maxHealth, 42, 'upgrading triumph must preserve earned maximum health');
+
+  // 再击杀一次：只更新石头的累计值
+  game.buffs.unitDeath(createUnit({ id: 60, team: 'enemy', alive: false }), source);
+  assert.equal(game.runeStones.stoneGrowth(stone.id), 5, 'lv3 每次击杀 +3，累计仍写在石头上');
+  assert.equal(source.maxHealth, 45);
+
+  // 石头转手：新持有者直接享受已有成长，旧持有者立刻失去，石头数字不变
+  game.runeStones.moveStone(stone.id, { kind: 'unit', unit: other }, { playerId: 'local-player' });
+  assert.equal(source.maxHealth, 40, '卸下石头只移除这块石头的贡献');
+  assert.equal(other.maxHealth, 75, '基础上限 70 + 石头的 5');
+  assert.equal(game.runeStones.stoneGrowth(stone.id), 5, '转移不改动石头上的成长值');
 }
 
 {
@@ -304,6 +338,7 @@ function createUnit({
       return this.attributes.get('maxShield');
     },
     addBuff: UnitEntity.prototype.addBuff,
+    removeBuff: UnitEntity.prototype.removeBuff,
     hasEnchantment: UnitEntity.prototype.hasEnchantment,
     clampToAttributeCaps: UnitEntity.prototype.clampToAttributeCaps,
     restoreHealth: UnitEntity.prototype.restoreHealth,

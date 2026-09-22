@@ -754,22 +754,28 @@ export class BuffSystem {
       ) return;
       const maxHealthGain = Math.max(0, resolveEffectNumber(effect, 'maxHealth', context, 0));
       const healAmount = Math.max(0, resolveEffectNumber(effect, 'heal', context, 0));
+      let grantedGain = 0;
       if (maxHealthGain > 0) {
-        context.buff.triumphHealthBonus = Math.max(0, context.buff.triumphHealthBonus ?? 0) + maxHealthGain;
-        const source = `${buffModifierSource(context.buff.id)}:triumph-health`;
-        owner.attributes.removeModifiersBySource(source);
-        owner.attributes.addModifier({
-          stat: 'maxHealth',
-          type: 'add',
-          amount: context.buff.triumphHealthBonus
-        }, source);
+        // 成长数据的唯一持有者是符文石：这里只把它写回"施放这个 Buff 的那块石头"，
+        // 再由石头把成长投影成属性修改器。单位/Buff 上不再留任何累计副本
+        // （方案第 8 节、第 10.1 条）。
+        const stoneId = context.buff?.runeStoneId ?? null;
+        const runeSystem = this.game?.runeStones;
+        const total = stoneId ? runeSystem?.addStoneGrowth?.(stoneId, maxHealthGain) : null;
+        if (Number.isFinite(total)) {
+          grantedGain = maxHealthGain;
+        }
+        // 没有石头来源（例如直接挂 Buff 的旧路径）时：不存在可持久化的持有者，
+        // 因此不产生永久成长。即时治疗照常结算，不会把整条效果一起吞掉。
       }
       const healed = owner.restoreHealth?.(healAmount) ?? 0;
       owner.clampToAttributeCaps?.();
       owner.statusUiDirty = true;
       this.game.effects?.spawnRing?.(owner.position, effect.color ?? '#f7cf62', 0.72, 0.44);
       this.game.effects?.spawnDamageNumber?.(owner.position, 1, {
-        text: `凯旋 +${formatEffectAmount(maxHealthGain)}上限 +${formatEffectAmount(healed)}生命`,
+        text: grantedGain > 0
+          ? `凯旋 +${formatEffectAmount(grantedGain)}上限 +${formatEffectAmount(healed)}生命`
+          : `凯旋 +${formatEffectAmount(healed)}生命`,
         color: effect.color ?? '#f7cf62',
         stroke: '#49330b',
         height: owner.projectileHitHeight ?? 1.55,

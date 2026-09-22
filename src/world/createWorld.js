@@ -250,7 +250,7 @@ function applyCliffShader(material) {
   return material;
 }
 
-import { BALANCE } from '../data/gameData.js';
+import { BALANCE, RESOURCE_NODE_DEFINITIONS } from '../data/gameData.js';
 import {
   bakeWarmLighting,
   basicMat,
@@ -397,6 +397,8 @@ let activeStaticDecorationBatch = null;
 let activeAnimatedDecorations = null;
 let activeSnowTreeQueue = null;
 let activeSnowPlacement = null;
+// 本次构建产出的资源节点实例（含独立 ID、剩余量与模型句柄）
+let activeResourceNodes = null;
 
 const DEFAULT_TERRAIN_PROFILE = {
   baseHeight: 0.25,
@@ -944,9 +946,11 @@ const SNOW_VALLEY_ROCK_CLUSTERS = [
   { x: -13, z: -24, radius: 3.5, coreHeight: 1.6, cluster: true }
 ];
 
-// 雪主题三张地图共用山地区数据：雪谷走低岩堆方案，其余地图保留原山体台地
+// 雪主题地图共用山地区数据。旧的山体台地表（SNOW_VALLEY_HILL_ZONES）已随雪谷改版删除，
+// 这里之前仍在引用它，只有已经被迁移掉的 pine-pass / frozen-ridge 会走到，所以一直没暴露；
+// 新增地图（海岛）一进来就会 ReferenceError。改为没有该表时返回空表。
 function snowHillZones(sceneKey = worldConfig().sceneKey) {
-  return sceneKey === 'snow-valley' ? SNOW_VALLEY_TERRACE_ZONES : SNOW_VALLEY_HILL_ZONES;
+  return sceneKey === 'snow-valley' ? SNOW_VALLEY_TERRACE_ZONES : [];
 }
 
 const WORLD_PRESETS = {
@@ -2076,6 +2080,169 @@ const WORLD_PRESETS = {
       gustScale: 0,
       windScale: 0
     }
+  },
+  // 海岛生存：整张地图是一块被海水包围的岛。landmass 的 lobe 决定海岸线形状，
+  // 岛心中央高地提供地形起伏，树林与巨石群分别由 forestZones / boulderClusters 铺设。
+  // shoreInner/shoreOuter 取 0.5/1.0 时水面线正好在 lobe 归一化距离 0.75，
+  // 与寻路认定的陆地边界完全重合（见 ISLAND_SHORELINE_DISTANCE）。
+  // 本关不采用「基地→敌营」走廊结构；monsterCamp 只是占位，生存玩法阶段替换为刷怪点。
+  'island-survival': {
+    sceneKey: 'island-survival',
+    theme: 'island',
+    seed: 20260921,
+    ground: { width: 200, depth: 184 },
+    // 海面本身不可走，只把导航网格铺到岛和沙滩外缘，省掉大片无效海域采样
+    navigationBounds: { minX: -58, maxX: 58, minZ: -54, maxZ: 54 },
+    sky: {
+      background: '#8fc9e6',
+      skyGradient: { top: '#2f6fb0', middle: '#7dc0e8', horizon: '#dff0f5' },
+      fog: '#bcdcea',
+      fogNear: 130,
+      fogFar: 420,
+      sun: '#fff2d5',
+      sunIntensity: 3.35,
+      shadowIntensity: 0.88,
+      sunPosition: { x: -54, y: 76, z: 62 },
+      sunTarget: { x: 0, y: 0, z: 0 },
+      hemiSky: '#bfe4ff',
+      hemiGround: '#43593a',
+      hemiIntensity: 1.12,
+      ambientColor: '#9fbfd0',
+      ambientIntensity: 0.56,
+      shadowMapSize: 2048,
+      shadowRadius: 4,
+      shadowExtent: 118,
+      realtimeShadows: true,
+      bakedShadows: false
+    },
+    palette: {
+      base: '#6f9a52',
+      side: '#5d8347',
+      north: '#547a42',
+      valley: '#7ba85c',
+      forest: '#3f6236',
+      high: '#8d8b74',
+      snow: '#cfd6c4',
+      path: '#a98f66',
+      puddle: '#4f9fb0',
+      sand: '#dcc99c',
+      wetSand: '#bda87c',
+      shallow: '#59c3c8',
+      deep: '#155f86',
+      cliff: '#7d7768'
+    },
+    materials: {
+      snow: '#6f9a52',
+      rock: '#8b8577',
+      tree: '#3f6b3a'
+    },
+    pathWidth: 2.6,
+    // 出生营地与敌营都必须落在陆地内侧：landmassMaskAt() 会围绕它们各自保留一块
+    // 强制陆地（基地 16m / 敌营 14m）。如果摆在岸边，这块保留区会把「陆地」推到
+    // 水面线以外，于是出现「寻路说可走、地形却是海底」的错位。
+    playerBasePosition: { x: 2, z: 20 },
+    enemyCampPosition: { x: 26, z: -12 },
+    pathPoints: [
+      { x: 2, z: 20 },
+      { x: 8, z: 14 },
+      { x: 13, z: 7 },
+      { x: 18, z: 0 },
+      { x: 23, z: -7 },
+      { x: 26, z: -12 }
+    ],
+    landmass: {
+      waterHeight: 0,
+      oceanColor: '#1d6f8f',
+      cliffColor: '#8b8577',
+      cliffDarkColor: '#6f6a5f',
+      shoreInner: 0.5,
+      shoreOuter: 1.0,
+      // 四个重叠的椭圆拼出岛形：主岛 + 西北半岛 + 东岬 + 南岬。
+      // 不用 bays 切湾，避免「地形说是陆地、寻路说是水面」的错位。
+      lobes: [
+        { x: 0, z: 0, rx: 46, rz: 40, rot: -0.06, irregularity: 0.12 },
+        { x: -26, z: -22, rx: 30, rz: 24, rot: 0.55, irregularity: 0.16 },
+        { x: 30, z: 13, rx: 28, rz: 22, rot: -0.32, irregularity: 0.16 },
+        { x: -8, z: 32, rx: 24, rz: 20, rot: 0.2, irregularity: 0.18 }
+      ],
+      bays: []
+    },
+    terrain: {
+      ...DEFAULT_TERRAIN_PROFILE,
+      // 岛内没有走廊，南北抬升与谷底混合全部关掉，起伏只来自 hills / ridges
+      northRise: 0,
+      sideRise: 0,
+      sideNorthRise: 0,
+      baseHeight: 1.35,
+      beachHeight: 0.5,
+      beachStart: 0.6,
+      shelfEnd: 0.95,
+      seaDepth: 5.2,
+      basePlatformHeight: 1.5,
+      roughnessScale: 1.05,
+      hills: [
+        { x: -2, z: -4, rx: 21, rz: 17, height: 11.6 },
+        { x: -18, z: 16, rx: 14, rz: 12, height: 4.2 },
+        { x: 18, z: -14, rx: 15, rz: 12, height: 3.8 },
+        { x: -24, z: -18, rx: 13, rz: 11, height: 3.4 },
+        { x: 22, z: 18, rx: 14, rz: 11, height: 3.2 },
+        { x: 6, z: 26, rx: 13, rz: 10, height: 2.6 }
+      ],
+      ridges: [
+        { x: -6, z: -6, rx: 7, rz: 18, height: 3.8 },
+        { x: 10, z: 8, rx: 16, rz: 6, height: 2 }
+      ]
+    },
+    // 资源节点：岛上的树 / 石堆 / 矿脉都是能采空的实例，定义见 gameData.js 的
+    // RESOURCE_NODE_DEFINITIONS。配了这张表就不再铺装饰性森林与巨石群，
+    // 免得出现「这棵能砍、那棵砍不动」的歧义。
+    resourceZones: [
+      // 木材：橡树为主，松树补外围
+      { node: 'oak', x: -15, z: 18, rx: 12, rz: 10, count: 14 },
+      { node: 'oak', x: 19, z: -17, rx: 12, rz: 10, count: 14 },
+      { node: 'oak', x: 21, z: 21, rx: 11, rz: 9, count: 10 },
+      { node: 'pine', x: -24, z: -8, rx: 10, rz: 11, count: 12 },
+      { node: 'pine', x: -4, z: -26, rx: 12, rz: 8, count: 12 },
+      // 石料：四片石堆，采空后这一带会明显空出来
+      { node: 'stonePile', x: -14, z: -4, rx: 5, rz: 4.4, count: 8, spacing: 1.5 },
+      { node: 'stonePile', x: 20, z: -22, rx: 5, rz: 4.4, count: 8, spacing: 1.5 },
+      { node: 'stonePile', x: -24, z: 14, rx: 4.6, rz: 4, count: 7, spacing: 1.5 },
+      { node: 'stonePile', x: 8, z: -16, rx: 4.6, rz: 4, count: 7, spacing: 1.5 },
+      // 铁矿：数量刻意少，留给中期
+      { node: 'ironVein', x: -18, z: -20, rx: 4, rz: 3.4, count: 5, spacing: 1.9 },
+      { node: 'ironVein', x: 22, z: 6, rx: 3.6, rz: 3.2, count: 4, spacing: 1.9 },
+      // 食物与纤维：不需要工具，开局就能采
+      { node: 'berryBush', x: -8, z: 7, rx: 6, rz: 5, count: 10 },
+      { node: 'berryBush', x: 16, z: 4, rx: 5, rz: 4.4, count: 8 },
+      { node: 'fiberPlant', x: -2, z: 26, rx: 6, rz: 4.6, count: 12 },
+      { node: 'fiberPlant', x: 14, z: 14, rx: 5, rz: 4.4, count: 10 }
+    ],
+    forestPassages: [],
+    clearings: [
+      { x: 2, z: 20, r: 11 },
+      { x: 26, z: -12, r: 8 },
+      { x: -16, z: -26, r: 6 }
+    ],
+    puddles: [],
+    altars: [
+      { id: 'mana-altar-island-center', type: 'mana', position: { x: -6, z: -12 }, rotation: 0.2, clearingRadius: 6 },
+      { id: 'energy-altar-island-east', type: 'energy', position: { x: 16, z: 10 }, rotation: -0.5, clearingRadius: 5.6 }
+    ],
+    wildlife: [
+      { type: 'wolf', x: -20, z: -4, radius: 6 },
+      { type: 'bear', x: 20, z: -6, radius: 6.4 },
+      { type: 'wolf', x: -4, z: 28, radius: 6 },
+      { type: 'bear', x: -26, z: 16, radius: 5.6 }
+    ],
+    monsterCamp: { x: -16, z: -26, rot: 0.42, scale: 1.1, offset: 0.24 },
+    // 岛上不放雪谷那种村舍：placeCottages 的默认坐标是按旧关卡摆的，会落到海里
+    cottages: [],
+    snowfall: {
+      enabled: false,
+      countScale: 0,
+      gustScale: 0,
+      windScale: 0
+    }
   }
 };
 
@@ -2145,9 +2312,11 @@ export function createWorld(scene, worldOptions = {}) {
     : null;
   updateBakedShadowLightRay(config);
   config.navigationBlockers = [];
+  invalidateWorldNavigationBlockers();
   activeStaticCullables = [];
   activeStaticDecorationBatch = createStaticDecorationBatch();
   activeAnimatedDecorations = [];
+  activeResourceNodes = null;
   activeSnowTreeQueue = config.sceneKey === 'snow-valley' ? [] : null;
   activeSnowPlacement = config.sceneKey === 'snow-valley' ? createSnowCanyonPlacement(
     // Keep the established placement plan independent of shallow valley relief.
@@ -2203,6 +2372,9 @@ export function createWorld(scene, worldOptions = {}) {
   const ground = createGroundMesh();
   scene.add(ground);
   beginBakedGroundShadows(scene);
+  // 海岛：地形只负责海床与沙滩，海面是单独一层半透明水面，
+  // 这样浅滩/深海的颜色由海底颜色透出来，不需要额外的深度贴图。
+  const islandOcean = config.sceneKey === 'island-survival' ? createIslandOcean(scene) : null;
 
   const pathPoints = pathVectors();
   const pathGraph = config.theme === 'dungeon' ? createDungeonNavigationGraph() : null;
@@ -2336,9 +2508,59 @@ export function createWorld(scene, worldOptions = {}) {
     staticCullables,
     staticCulling,
     staticDecorationMeshes: staticDecorationResult.meshes,
+    resourceNodes: activeResourceNodes ?? [],
+    // 采空一个资源节点：隐藏模型、解除它登记的寻路阻挡，并只重采样那一小片网格。
+    // 网格是构建时烘好的，不重采样的话 A* 会继续绕着一棵已经不存在的树走。
+    releaseResourceNode: (nodeId) => {
+      const node = (activeResourceNodes ?? []).find((entry) => entry.id === nodeId);
+      if (!node || node.released) return false;
+      node.released = true;
+      if (node.object) node.object.visible = false;
+      if (node.navRadius > 0 && releaseWorldNavigationBlocker(node.x, node.z, node.navRadius)) {
+        navGrid?.refreshRegion(node.x, node.z, node.navRadius);
+      }
+      return true;
+    },
+    // 运行时新增一个资源节点（树坑长成的树）。
+    // 与 build 时的 placeResourceNodes 走同一套模型/地形贴合/寻路阻挡，
+    // 并把节点推进 **同一个数组**（world.resourceNodes 就是它的引用），
+    // 所以采空时既有的 releaseResourceNode 能原样处理它。
+    spawnResourceNode: (definitionId, x, z) => {
+      const definition = RESOURCE_NODE_DEFINITIONS[definitionId];
+      if (!definition || !activeResourceNodes) return null;
+      const random = seededRandom((worldConfig().seed ?? 42) + 9001 + activeResourceNodes.length * 17);
+      const object = createResourceNodeModel(definition, random);
+      if (!object) return null;
+      const position = { x, z };
+      placeOnTerrainOrWall(object, position, definition.groundOffset ?? 0, definition.navRadius ?? 0.5);
+      object.rotation.y = random() * Math.PI * 2;
+      enableDecorationShadows(object);
+      scene.add(object);
+      const navRadius = definition.navRadius ?? 0;
+      if (navRadius > 0) {
+        registerWorldNavigationBlocker(position.x, position.z, navRadius, 'resource');
+        navGrid?.refreshRegion(position.x, position.z, navRadius);
+      }
+      const node = {
+        id: `${definition.id}-planted-${activeResourceNodes.length}`,
+        definitionId: definition.id,
+        resource: definition.resource,
+        x: position.x,
+        z: position.z,
+        y: object.position.y,
+        amount: definition.amount,
+        maxAmount: definition.amount,
+        navRadius,
+        planted: true,
+        object
+      };
+      activeResourceNodes.push(node);
+      return node;
+    },
     update: (dt, cameraTarget, camera, options = {}) => {
       updateSkyGradientPosition(skyGradient, camera);
       snowfall.update(dt, cameraTarget);
+      islandOcean?.update(dt);
       staticCulling.update(dt, camera, options);
       decorationElapsed += Math.max(0, dt);
       animatedDecorations.forEach((decoration) => {
@@ -2524,6 +2746,9 @@ export function terrainHeightAt(x, z) {
   const config = worldConfig();
   if (config.theme === 'dungeon') {
     return dungeonTerrainHeightAt(x, z);
+  }
+  if (config.sceneKey === 'island-survival') {
+    return islandSurvivalHeightAt(x, z);
   }
   const terrain = config.terrain;
   // Shared by terrain vertices, road and object placement; never displace only
@@ -2847,6 +3072,194 @@ function dungeonPlatformSurfaceHeightAt(x, z) {
   return mix(dungeonBridgeDeckHeightAt(x, z), platformHeight, bridgeBlend);
 }
 
+// ---------------------------------------------------------------------------
+// 海岛生存地图
+//
+// 与「基地 → 敌营」的走廊式关卡不同，这里是一块被海水完全包围的岛：海岸线由
+// WORLD_PRESETS['island-survival'].landmass 的若干 lobe 决定，岛心是中央高地，
+// 向海方向依次过渡为丘陵、沙滩、浅滩与海床。所有数值都在预设里，方便直接调。
+//
+// 关键约定：landmassMaskAt() 的 0.5 等值线就是寻路认定的陆地边界；当
+// shoreInner / shoreOuter 取 0.5 / 1.0 时，该等值线正好落在 lobe 归一化距离
+// 0.75 处。因此下面的地形也把水面线放在 0.75，保证「可走」与「露出水面」
+// 是同一条线——不会出现能走进海里、或岸边突然整片不可走。
+const ISLAND_SHORELINE_DISTANCE = 0.75;
+
+// 岛心到海岸线的归一化距离：0 为岛心，1 为 lobe 边缘，>1 为外海。
+// 取各 lobe 的最小值，与 landmassMaskAt() 对 mask 取 max 在岸线上等价。
+function islandCoastDistanceAt(x, z) {
+  const landmass = worldConfig().landmass;
+  if (!landmass) return 0;
+  let distance = Infinity;
+  (landmass.lobes ?? []).forEach((lobe) => {
+    distance = Math.min(distance, landmassNormalizedDistanceAt(x, z, lobe));
+  });
+  return Number.isFinite(distance) ? distance : 0;
+}
+
+function islandSurvivalHeightAt(x, z) {
+  const config = worldConfig();
+  const terrain = config.terrain;
+  const waterHeight = config.landmass?.waterHeight ?? 0;
+  const distance = islandCoastDistanceAt(x, z);
+  const pathDistance = distanceToPath(x, z, rawPathPoints());
+
+  // 内陆起伏：中央高地 + 丘陵 + 山脊，靠海一侧随 beachStart 平滑收平
+  let relief = 0;
+  (terrain.hills ?? []).forEach((hill) => {
+    relief += hillHeight(x, z, hill.x, hill.z, hill.rx, hill.rz, hill.height);
+  });
+  (terrain.ridges ?? []).forEach((ridge) => {
+    relief += ridgeHeight(x, z, ridge.x, ridge.z, ridge.rx, ridge.rz, ridge.height);
+  });
+
+  const roughness = (
+    Math.sin(x * 0.17 + z * 0.11) * 0.26 +
+    Math.cos(x * 0.09 - z * 0.14) * 0.22 +
+    Math.sin((x + z) * 0.075) * 0.18
+  ) * (terrain.roughnessScale ?? 1);
+  // 主路附近压平保证通路；靠海压平保证沙滩连续可走
+  const roughnessKeep = smoothstep(2.4, 7, pathDistance);
+
+  const inlandHeight = terrain.baseHeight + relief + roughness * roughnessKeep;
+  // 从沙滩起点开始，内陆高度平滑降到 beachHeight，形成一条宽而缓的沙带
+  const beachStart = terrain.beachStart ?? 0.6;
+  const beachMix = smoothstep(beachStart, ISLAND_SHORELINE_DISTANCE, distance);
+  let height = mix(inlandHeight, terrain.beachHeight ?? 0.5, beachMix);
+
+  // 出生营地平台：与旧关卡一致，基地附近保持平整
+  const base = config.playerBasePosition;
+  height = mix(
+    height,
+    terrain.basePlatformHeight ?? terrain.beachHeight ?? 0.5,
+    1 - smoothstep(6, 14, Math.hypot(x - base.x, z - base.z))
+  );
+
+  if (distance <= ISLAND_SHORELINE_DISTANCE) return height;
+
+  // 海岸线之外：浅滩带继续下沉，随后进入平坦海床
+  const shelfEnd = terrain.shelfEnd ?? 0.95;
+  const seaFloor = waterHeight - (terrain.seaDepth ?? 5);
+  return mix(height, seaFloor, smoothstep(ISLAND_SHORELINE_DISTANCE, shelfEnd, distance));
+}
+
+function islandTerrainColorAt(x, z, height, palette) {
+  const config = worldConfig();
+  const terrain = config.terrain ?? {};
+  const waterHeight = config.landmass?.waterHeight ?? 0;
+  const aboveWater = height - waterHeight;
+  const distance = islandCoastDistanceAt(x, z);
+  const facet = hash2(x * 0.14, z * 0.14) - 0.5;
+  const sand = new THREE.Color(palette.sand ?? '#dcc99c');
+
+  // 水下：贴岸亮沙 → 浅滩青绿 → 深海蓝，深度取实际水下高度
+  if (aboveWater <= 0.02) {
+    const depth = Math.max(0, -aboveWater);
+    const color = new THREE.Color(palette.shallow ?? '#59c3c8');
+    color.lerp(new THREE.Color(palette.deep ?? '#155f86'), smoothstep(0.35, (terrain.seaDepth ?? 5) * 0.92, depth));
+    color.lerp(sand, 0.42 * (1 - smoothstep(0, 1.2, depth)));
+    return color;
+  }
+
+  // 陆地：湿沙 → 干沙 → 草地，越高越干
+  const color = sand.clone();
+  color.lerp(new THREE.Color(palette.wetSand ?? '#bda87c'), 1 - smoothstep(0.06, 0.44, aboveWater));
+  color.lerp(new THREE.Color(palette.base ?? '#6f9a52'), smoothstep(0.55, 1.5, aboveWater));
+
+  // 树林地表压暗，岛心裸岩随高度转灰，形成清晰的植被/岩层读法
+  color.lerp(new THREE.Color(palette.forest ?? '#3f6236'), forestFloorMask(x, z) * 0.38);
+  color.lerp(new THREE.Color(palette.high ?? '#8d8b74'), smoothstep(5.8, 10.5, aboveWater));
+
+  // 海岸岩壁：紧贴水面线内侧的一圈石色，交代岛缘而不是一圈均匀色带
+  const cliffBand = smoothstep(0.58, 0.72, distance) * (1 - smoothstep(0.72, 0.76, distance));
+  color.lerp(new THREE.Color(palette.cliff ?? '#7d7768'), cliffBand * 0.3);
+
+  color.offsetHSL(0, 0.012 * facet, 0.02 * facet);
+  return color;
+}
+
+// 海面：一块覆盖全图（含外海）的半透明水面。起伏交给顶点着色器，
+// CPU 每帧只推进一个 uTime，不做任何逐帧几何重建。
+function createIslandOcean(scene) {
+  const config = worldConfig();
+  const waterHeight = config.landmass?.waterHeight ?? 0;
+  const size = Math.max(config.ground.width, config.ground.depth) * 4.4;
+  const geometry = new THREE.PlaneGeometry(size, size, 96, 96);
+  const material = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(config.landmass?.oceanColor ?? '#1d6f8f'),
+    transparent: true,
+    opacity: 0.74,
+    roughness: 0.24,
+    metalness: 0,
+    depthWrite: false
+  });
+  const uniforms = { uTime: { value: 0 } };
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = uniforms.uTime;
+    shader.vertexShader = `
+      uniform float uTime;
+      varying vec3 vOceanWorld;
+      ${shader.vertexShader}
+    `.replace(
+      '#include <begin_vertex>',
+      `
+      #include <begin_vertex>
+      // 三个不同频率的错速波，避免整片海面同相位地一起起伏
+      float oceanWaveA = sin(position.x * 0.15 + uTime * 0.52);
+      float oceanWaveB = cos(position.y * 0.12 - uTime * 0.40);
+      float oceanWaveC = sin((position.x + position.y) * 0.07 + uTime * 0.30);
+      transformed.z += oceanWaveA * 0.20 + oceanWaveB * 0.15 + oceanWaveC * 0.11;
+      vOceanWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;
+      `
+    );
+    shader.fragmentShader = `
+      uniform float uTime;
+      varying vec3 vOceanWorld;
+      ${shader.fragmentShader}
+    `.replace(
+      '#include <color_fragment>',
+      `
+      #include <color_fragment>
+      // 缓慢流动的明暗带，让大面积水面不是一整块死色
+      float oceanCrest =
+        sin(vOceanWorld.x * 0.34 + uTime * 0.85) * cos(vOceanWorld.z * 0.30 - uTime * 0.64);
+      diffuseColor.rgb *= 1.0 + oceanCrest * 0.07;
+      `
+    );
+  };
+  material.customProgramCacheKey = () => 'island-ocean';
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = waterHeight;
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  mesh.name = 'island-ocean';
+  scene.add(mesh);
+
+  // 地面网格只有 ground.width×depth 那么大，网格之外没有海床，透过去就是天空，
+  // 俯视时会露出一块方形色差。用一层不透明的深海底板铺满外海把它盖住，
+  // 位置比海床最低点再低一点，避免和海床共面打架。
+  const backing = new THREE.Mesh(
+    new THREE.PlaneGeometry(size, size, 1, 1),
+    new THREE.MeshBasicMaterial({
+      color: new THREE.Color(config.palette?.deep ?? '#155f86'),
+      fog: true
+    })
+  );
+  backing.rotation.x = -Math.PI / 2;
+  backing.position.y = waterHeight - (config.terrain?.seaDepth ?? 5) - 0.25;
+  backing.name = 'island-ocean-floor';
+  scene.add(backing);
+
+  return {
+    mesh,
+    backing,
+    update(dt) {
+      uniforms.uTime.value += Math.max(0, dt);
+    }
+  };
+}
+
 function createGroundMesh() {
   const config = worldConfig();
   const isBroadMarsh = config.theme === 'emerald-marsh';
@@ -2972,6 +3385,9 @@ function terrainColorAt(x, z, height) {
   }
   if (config.theme === 'emerald-marsh') {
     return marshTerrainColorAt(x, z, height, palette);
+  }
+  if (config.sceneKey === 'island-survival') {
+    return islandTerrainColorAt(x, z, height, palette);
   }
   const storybookSnow = config.sceneKey === 'snow-valley';
   const color = new THREE.Color(
@@ -3728,7 +4144,16 @@ function doesWorldNavigationSegmentHitBlocker(start, end) {
   ));
 }
 
+// 可走性查询每帧都会走 worldNavigationBlockers()，旧实现每次重新拼一个数组。
+// 资源节点会把障碍数量从个位数推到上百，因此改成缓存 + 显式失效。
+let activeNavigationBlockerCache = null;
+
+function invalidateWorldNavigationBlockers() {
+  activeNavigationBlockerCache = null;
+}
+
 function worldNavigationBlockers() {
+  if (activeNavigationBlockerCache) return activeNavigationBlockerCache;
   const config = worldConfig();
   const blockers = [
     {
@@ -3747,6 +4172,7 @@ function worldNavigationBlockers() {
   blockers.push(
     ...(config.navigationBlockers ?? [])
   );
+  activeNavigationBlockerCache = blockers;
   return blockers;
 }
 
@@ -3762,6 +4188,22 @@ function registerWorldNavigationBlocker(x, z, radius, kind = 'decor') {
     radius: Math.max(0.16, radius),
     kind
   });
+  invalidateWorldNavigationBlockers();
+}
+
+// 解除某一个障碍（资源节点采空时用）。按坐标 + 半径精确匹配，
+// 避免误删同位置的其他障碍；命中后重采样该点附近的导航格子。
+function releaseWorldNavigationBlocker(x, z, radius) {
+  const config = worldConfig();
+  const blockers = config.navigationBlockers;
+  if (!Array.isArray(blockers)) return false;
+  const index = blockers.findIndex((blocker) => (
+    blocker.x === x && blocker.z === z && Math.abs(blocker.radius - radius) < 1e-6
+  ));
+  if (index < 0) return false;
+  blockers.splice(index, 1);
+  invalidateWorldNavigationBlockers();
+  return true;
 }
 
 function registerRockNavigationBlocker(x, z, size, scale = null) {
@@ -5124,6 +5566,13 @@ function placeSnowRoadOverlap(scene, pathPoints) {
   } else {
     placeLegacyPathDecor(scene);
   }
+  // 关卡配了资源节点表时，用它替代纯装饰的森林/巨石群：地图上能看到的树和石头
+  // 都应该是能采的，两种混着放会让玩家分不清哪棵砍得动。
+  if ((worldConfig().resourceZones ?? []).length) {
+    activeResourceNodes = placeResourceNodes(scene, pathPoints);
+    return;
+  }
+  activeResourceNodes = null;
   placeForests(scene, pathPoints, random);
   placeRocks(scene, pathPoints, random);
   placeBoulderClusters(scene, pathPoints, random);
@@ -6900,6 +7349,138 @@ function placeDesertScrub(scene, pathPoints, random) {
     scrub.rotation.y = random() * Math.PI * 2;
     addStaticCulledObject(scene, scrub);
   }
+}
+
+// ---------------------------------------------------------------------------
+// 资源节点布点
+//
+// 节点刻意不进静态合批：合批会把整批装饰合成一个 mesh，之后就没办法单独隐藏
+// 某一棵被采空的树。代价是每个节点一次绘制调用，换来的是每个节点都能独立改变
+// 状态，也满足存档与联机快照需要「稳定逻辑 ID」的要求。
+// ---------------------------------------------------------------------------
+function createResourceNodeModel(definition, random) {
+  const [minScale, maxScale] = definition.scale ?? [1, 1];
+  const size = minScale + random() * Math.max(0, maxScale - minScale);
+  switch (definition.model) {
+    case 'tree':
+      return createWorldSnowPine(size);
+    case 'rock':
+      return createLowpolySnowRock(size, random, {
+        color: worldMaterialColor('rock', '#8b8577'),
+        snowCap: false
+      });
+    case 'ore': {
+      // 矿脉本身还是一块石头，靠暖色晶簇把「这块能挖矿」读出来
+      const rock = createLowpolySnowRock(size * 0.92, random, {
+        color: '#6f6b62',
+        snowCap: false
+      });
+      const crystals = createCrystalClusterModel(0.42 + size * 0.32, '#d8b25c');
+      if (crystals) {
+        crystals.position.y = size * 0.5;
+        rock.add(crystals);
+      }
+      return rock;
+    }
+    case 'bush':
+      return createBush(size, {
+        leafColor: '#4f7a44',
+        berryColor: '#7d3f5c',
+        snowCap: false
+      });
+    case 'grass':
+      return createGrassTuft(size, '#7f9a4c');
+    default:
+      return null;
+  }
+}
+
+// 椭圆区域内布点。纯随机撒点再按最小间距互相否决，在椭圆里很容易只剩几个——
+// 这里在连续多次放不进去时逐步放宽间距，保证「要几个就放几个」，
+// 同时优先保住较大的间距，不会挤成一堆。
+// 椭圆区域内成簇布点。
+//
+// 纯「随机撒点 + 最小间距拒绝」会收敛成近似均匀的准格子，俯视下读起来像人工林。
+// 这里先选若干个树丛中心，再围绕中心按 sqrt 分布取点（中心密、边缘疏），
+// 同时保留一个较小的最小间距防止模型互相穿插；连续放不进去时逐步放宽间距，
+// 保证「要几个就放几个」，不会静默少放。
+function resourceZonePoints(zone, count, random, isValid) {
+  const accepted = [];
+  if (count <= 0) return accepted;
+  const clumpSize = Math.max(1, zone.clumpSize ?? 5);
+  const clumpRadius = zone.clumpRadius
+    ?? Math.max(1.6, Math.min(zone.rx ?? 6, zone.rz ?? 6) * 0.34);
+  const clumps = [];
+  const wantedClumps = Math.max(1, Math.round(count / clumpSize));
+  for (let attempt = 0; attempt < wantedClumps * 24 && clumps.length < wantedClumps; attempt += 1) {
+    const center = randomPointInEllipse(zone, random);
+    if (isValid && !isValid(center)) continue;
+    clumps.push(center);
+  }
+  if (!clumps.length) return accepted;
+
+  let spacing = Math.max(0.7, zone.spacing ?? 1.6);
+  const maxAttempts = Math.max(320, count * 60);
+  for (let attempt = 0; attempt < maxAttempts && accepted.length < count; attempt += 1) {
+    const clump = clumps[Math.floor(random() * clumps.length) % clumps.length];
+    const angle = random() * Math.PI * 2;
+    const radius = Math.sqrt(random()) * clumpRadius;
+    const point = {
+      x: clump.x + Math.cos(angle) * radius,
+      z: clump.z + Math.sin(angle) * radius
+    };
+    if (isValid && !isValid(point)) continue;
+    if (accepted.every((other) => Math.hypot(other.x - point.x, other.z - point.z) >= spacing)) {
+      accepted.push(point);
+      continue;
+    }
+    if (attempt > 0 && attempt % Math.max(24, count * 6) === 0) spacing *= 0.85;
+  }
+  return accepted;
+}
+
+function placeResourceNodes(scene, pathPoints) {
+  const config = worldConfig();
+  const zones = config.resourceZones ?? [];
+  const random = seededRandom((config.seed ?? 42) + 6143);
+  const nodes = [];
+  zones.forEach((zone, zoneIndex) => {
+    const definition = RESOURCE_NODE_DEFINITIONS[zone.node];
+    if (!definition) return;
+    const count = Math.max(0, Math.round(zone.count ?? 0));
+    const points = resourceZonePoints(
+      { ...zone, spacing: zone.spacing ?? definition.spacing },
+      count,
+      random,
+      (point) => isDecorationClear(point.x, point.z, pathPoints, 1.6)
+    );
+    points.forEach((point, index) => {
+      const object = createResourceNodeModel(definition, random);
+      if (!object) return;
+      const position = { x: point.x, z: point.z };
+      placeOnTerrainOrWall(object, position, definition.groundOffset ?? 0, definition.navRadius ?? 0.5);
+      object.rotation.y = random() * Math.PI * 2;
+      enableDecorationShadows(object);
+      scene.add(object);
+      const navRadius = definition.navRadius ?? 0;
+      if (navRadius > 0) {
+        registerWorldNavigationBlocker(point.x, point.z, navRadius, 'resource');
+      }
+      nodes.push({
+        id: `${definition.id}-${zoneIndex}-${index}`,
+        definitionId: definition.id,
+        resource: definition.resource,
+        x: point.x,
+        z: point.z,
+        y: object.position.y,
+        amount: definition.amount,
+        maxAmount: definition.amount,
+        navRadius,
+        object
+      });
+    });
+  });
+  return nodes;
 }
 
 function placeForests(scene, pathPoints, random) {

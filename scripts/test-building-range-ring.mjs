@@ -6,18 +6,35 @@ import { BuildingSystem } from '../src/systems/BuildingSystem.js';
 const dashedRange = createAttackRangeDashedRing('#62d56f');
 assert.equal(dashedRange.userData.isAttackRangeDashedRing, true);
 assert.equal(dashedRange.userData.dashCount, 24);
-assert.equal(dashedRange.userData.colorMeshes.length, 24);
-assert.ok(dashedRange.userData.colorMeshes.every((arc) => (
+// colorMeshes = 地面填充圆盘 + 24 段虚线弧。旧断言按 24 数总数，
+// 加了那层"淡淡铺出作用范围"的填充圆盘之后就必然对不上。
+assert.equal(
+  dashedRange.userData.colorMeshes.length,
+  dashedRange.userData.dashCount + 1,
+  '24 段虚线弧 + 1 个地面填充圆盘'
+);
+const dashedArcs = dashedRange.userData.colorMeshes.filter(
+  (mesh) => mesh !== dashedRange.userData.fill
+);
+assert.equal(dashedArcs.length, 24, '虚线弧段数量等于 dashCount');
+assert.equal(
+  dashedRange.userData.fill.geometry?.type,
+  'CircleGeometry',
+  '地面填充是圆盘而不是又一段虚线弧'
+);
+assert.ok(dashedArcs.every((arc) => (
   arc.geometry?.type === 'RingGeometry'
   && arc.material.transparent === true
   && arc.material.side === THREE.DoubleSide
   && arc.material.depthTest === true
   && arc.material.depthWrite === false
-  && arc.renderOrder === 0
+  // 弧段比地面填充高一个渲染序，避免同层深度冲突；两者都不置顶
+  && arc.renderOrder === 1
 )), '虚线弧段保持正常渲染层纪律');
+assert.equal(dashedRange.userData.fill.renderOrder, 0, '地面填充不抢弧段的渲染顺序');
 assert.equal(
-  dashedRange.userData.colorMeshes[0].geometry,
-  dashedRange.userData.colorMeshes[1].geometry,
+  dashedArcs[0].geometry,
+  dashedArcs[1].geometry,
   '全部虚线弧共享同一段几何体'
 );
 dashedRange.traverse((node) => assert.equal(node.layers.mask, 1, '虚线范围环位于主世界层'));

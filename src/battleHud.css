@@ -5033,3 +5033,13 @@ body.is-game-active .pc-medieval-hud .wave-command-panel > .energy-panel-toolbar
 body.is-game-active .wave-command-panel .ability-icon-tooltip {
   display: none !important;
 }
+
+/* 海岛生存没有波次：把「当前波次」计数器与波次情报整块隐藏，只留时间与刷怪点进度。
+   不隐藏的话玩家会在生存关看到「当前波次 1/21」这种和玩法无关的误导信息
+   （这一关的敌人全部来自刷怪点，spawnEnemyWave 也早已提前返回）。
+   注意 .wave-command-info 自带 display: grid !important，所以必须用 !important 压过去，
+   光加 [hidden] 是没用的。 */
+body.is-game-active .pc-medieval-hud .wave-command-panel.is-survival .wave-command-wave,
+body.is-game-active .pc-medieval-hud .wave-command-panel.is-survival .wave-command-info {
+  display: none !important;
+}

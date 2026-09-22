@@ -40,6 +40,9 @@ assert.match(playerBaseAttackSource, /applyKnockbackImpulse\(this, target, this\
   const { Game } = await import('../src/systems/Game.js');
   const makeTarget = (x, z) => ({
     alive: true,
+    // 队伍必须写出来：过滤用的是 isHostileEnemy（"enemy 队伍且不是野生动物/中立"），
+    // 只写 isWildlife: false 的假单位在真实游戏里不存在，也会被这个判断直接滤掉。
+    team: 'enemy',
     isWildlife: false,
     isBoss: false,
     position: { x, z },

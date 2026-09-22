@@ -67,6 +67,28 @@ export class NavigationGrid {
     }
   }
 
+  // 运行时遮挡变化（例如资源节点被采空、解除阻挡）后，只重采样受影响的格子。
+  // A* 读的是 walkable[]，所以必须把结果写回数组：只在查询时判断可走性
+  // 会让寻路继续绕着一个已经消失的障碍走。
+  refreshRegion(centerX, centerZ, radius = 0) {
+    const pad = Math.max(0, radius) + this.cellSize;
+    const minCellX = Math.max(0, Math.floor((centerX - pad - this.minX) / this.cellSize));
+    const maxCellX = Math.min(this.cols - 1, Math.floor((centerX + pad - this.minX) / this.cellSize));
+    const minCellZ = Math.max(0, Math.floor((centerZ - pad - this.minZ) / this.cellSize));
+    const maxCellZ = Math.min(this.rows - 1, Math.floor((centerZ + pad - this.minZ) / this.cellSize));
+    let changed = 0;
+    for (let z = minCellZ; z <= maxCellZ; z += 1) {
+      for (let x = minCellX; x <= maxCellX; x += 1) {
+        const index = this.index(x, z);
+        const next = this.isWalkablePoint(this.cellCenter(x, z)) ? 1 : 0;
+        if (this.walkable[index] === next) continue;
+        this.walkable[index] = next;
+        changed += 1;
+      }
+    }
+    return changed;
+  }
+
   index(x, z) {
     return z * this.cols + x;
   }

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { createAltarModel } from '../art/lowpoly.js';
 import { ALTAR_DEFINITIONS, BALANCE, TEAMS } from '../data/gameData.js';
+import { isHostileEnemy } from './unitTeam.js';
 import { clamp, distance2D } from '../utils/math.js';
 
 const TEAM_COLORS = {
@@ -366,7 +367,10 @@ export class AltarSystem {
 
   unitsForTeam(team, { includeWildlife = true } = {}) {
     if (team === TEAMS.PLAYER) return this.game.friendlyUnits;
-    return this.game.enemyUnits.filter((unit) => includeWildlife || !unit.isWildlife);
+    // 野外可招募单位虽然在 enemy 队伍里，但它不属于任何一方，别让祭坛的光环去治疗它。
+    return this.game.enemyUnits.filter((unit) => (
+      isHostileEnemy(unit) || (includeWildlife && unit.isWildlife === true)
+    ));
   }
 
   snapshot() {

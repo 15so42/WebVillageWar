@@ -2041,6 +2041,206 @@ export function createEngineerModel(team) {
   return enableShadows(group);
 }
 
+// 木傀儡：木制构装后勤单位（采集/搬运/跑腿），不参战。
+// 造型刻意做成"方、拙、驼背"的木工活：全是箱体与短木轴，
+// 肩、胯、脖颈都用可见的木销连接，剪影与人类兵种的圆润轮廓区分开。
+// 材质全部复用 mat() 的共享低多边形材质，不新增纹理，也不改任何既有模型。
+export function createWoodPuppetModel(team = 'player') {
+  const group = new THREE.Group();
+  const isPlayer = team === 'player';
+  // 哑光木色：主体中等棕、受光面浅一档、深色木轴负责勾边
+  const wood = mat(isPlayer ? '#8a6a45' : '#7d5a3c');
+  const woodLight = mat(isPlayer ? '#a8834f' : '#96704a');
+  const woodDark = mat('#4b3524');
+  const joint = mat('#33241a');
+  const core = mat('#9dd8ff', {
+    emissive: '#4fb2ff',
+    emissiveIntensity: 0.42,
+    transparent: true,
+    opacity: 0.9
+  });
+
+  // 底盘：一小截暗色木桩，让方脑袋傀儡在地面上"站得住"
+  const basePlate = mesh(
+    new THREE.CylinderGeometry(0.3, 0.36, 0.09, 6),
+    woodDark,
+    new THREE.Vector3(0, 0.045, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+
+  // 腿：两段式，膝/踝各一根深色木轴；walk 时整条腿绕胯部前后摆
+  const legDetails = [];
+  const buildLeg = (side) => {
+    const hip = new THREE.Vector3(0.17 * side, 0.66, 0);
+    const knee = new THREE.Vector3(0.18 * side, 0.36, 0.02);
+    const ankle = new THREE.Vector3(0.18 * side, 0.11, 0.03);
+    const thigh = limb(hip, knee, { radius: 0.062, blocky: true }, wood);
+    const shin = limb(knee, ankle, { radius: 0.052, blocky: true }, woodDark);
+    const kneeJoint = mesh(
+      new THREE.BoxGeometry(0.13, 0.11, 0.13),
+      joint,
+      knee.clone(),
+      new THREE.Vector3(1, 1, 1)
+    );
+    const foot = mesh(
+      new THREE.BoxGeometry(0.17, 0.09, 0.26),
+      woodDark,
+      new THREE.Vector3(0.18 * side, 0.055, 0.06),
+      new THREE.Vector3(1, 1, 1)
+    );
+    const pivot = createPivot(
+      side < 0 ? 'woodPuppetLeftLegPivot' : 'woodPuppetRightLegPivot',
+      hip,
+      [thigh, shin, kneeJoint, foot]
+    );
+    legDetails.push(pivot);
+    return pivot;
+  };
+  const leftLegPivot = buildLeg(-1);
+  const rightLegPivot = buildLeg(1);
+
+  // 躯干做在 upperBodyPivot 上，整体前倾一点形成驼背姿态
+  const torsoCenter = new THREE.Vector3(0, 1.0, 0);
+  const torso = mesh(
+    new THREE.BoxGeometry(0.5, 0.56, 0.34),
+    wood,
+    torsoCenter.clone(),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const chestPlate = mesh(
+    new THREE.BoxGeometry(0.34, 0.34, 0.06),
+    woodLight,
+    new THREE.Vector3(0, 1.04, 0.19),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const chestCore = mesh(
+    new THREE.DodecahedronGeometry(0.075, 0),
+    core,
+    new THREE.Vector3(0, 1.04, 0.24),
+    new THREE.Vector3(1, 1, 1)
+  );
+  // 腰部的横向木箍：一眼能看出是"拼出来的"而不是长出来的
+  const waistBand = mesh(
+    new THREE.BoxGeometry(0.54, 0.07, 0.38),
+    woodDark,
+    new THREE.Vector3(0, 0.75, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const shoulderBeam = mesh(
+    new THREE.BoxGeometry(0.68, 0.1, 0.16),
+    woodDark,
+    new THREE.Vector3(0, 1.24, 0),
+    new THREE.Vector3(1, 1, 1)
+  );
+
+  // 头：方木块 + 木销脖子，稍微前伸，配合驼背
+  const headCenter = new THREE.Vector3(0, 1.42, 0.05);
+  const neck = mesh(
+    new THREE.CylinderGeometry(0.07, 0.08, 0.1, 5),
+    joint,
+    new THREE.Vector3(0, 1.29, 0.03),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const head = mesh(
+    new THREE.BoxGeometry(0.32, 0.3, 0.29),
+    wood,
+    headCenter.clone(),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const headTop = mesh(
+    new THREE.BoxGeometry(0.34, 0.06, 0.31),
+    woodLight,
+    new THREE.Vector3(0, 1.59, 0.05),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const headPeg = mesh(
+    new THREE.CylinderGeometry(0.035, 0.045, 0.07, 5),
+    joint,
+    new THREE.Vector3(0, 1.65, 0.05),
+    new THREE.Vector3(1, 1, 1)
+  );
+  // 眼窝是两块更深的木楔，不给表情，保留"木偶"的呆板感
+  const eyeLeft = mesh(
+    new THREE.BoxGeometry(0.07, 0.05, 0.03),
+    joint,
+    new THREE.Vector3(-0.08, 1.45, 0.2),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const eyeRight = eyeLeft.clone();
+  eyeRight.position.x = 0.08;
+  const mouthSlot = mesh(
+    new THREE.BoxGeometry(0.14, 0.025, 0.03),
+    joint,
+    new THREE.Vector3(0, 1.34, 0.2),
+    new THREE.Vector3(1, 1, 1)
+  );
+  const headPivot = createPivot(
+    'woodPuppetHeadPivot',
+    new THREE.Vector3(0, 1.3, 0.02),
+    [neck, head, headTop, headPeg, eyeLeft, eyeRight, mouthSlot]
+  );
+
+  // 手臂：肩关节用木销，肘部再一节，手腕是方块手掌；肱二头/小臂都可摆动
+  const buildArm = (side) => {
+    const shoulder = new THREE.Vector3(0.32 * side, 1.2, 0);
+    const elbow = new THREE.Vector3(0.36 * side, 0.92, 0.06);
+    const wrist = new THREE.Vector3(0.34 * side, 0.68, 0.12);
+    const peg = mesh(
+      new THREE.CylinderGeometry(0.07, 0.07, 0.14, 6),
+      joint,
+      shoulder.clone(),
+      new THREE.Vector3(1, 1, 1)
+    );
+    peg.rotation.z = Math.PI / 2;
+    const upperArm = limb(shoulder, elbow, { radius: 0.055, blocky: true }, wood);
+    const foreArm = limb(elbow, wrist, { radius: 0.048, blocky: true }, woodDark);
+    const hand = mesh(
+      new THREE.BoxGeometry(0.14, 0.14, 0.13),
+      woodLight,
+      wrist.clone(),
+      new THREE.Vector3(1, 1, 1)
+    );
+    return createPivot(
+      side < 0 ? 'woodPuppetLeftArmPivot' : 'woodPuppetRightArmPivot',
+      shoulder,
+      [peg, upperArm, foreArm, hand]
+    );
+  };
+  const leftArmPivot = buildArm(-1);
+  const rightArmPivot = buildArm(1);
+
+  const upperBodyPivot = createPivot(
+    'woodPuppetUpperBodyPivot',
+    new THREE.Vector3(0, 0.72, 0),
+    [
+      torso,
+      chestPlate,
+      chestCore,
+      waistBand,
+      shoulderBeam,
+      headPivot,
+      leftArmPivot,
+      rightArmPivot
+    ]
+  );
+  // 驼背：上半身整体前倾，头再往前探一点
+  upperBodyPivot.rotation.x = 0.14;
+
+  group.add(basePlate, leftLegPivot, rightLegPivot, upperBodyPivot);
+  group.userData.parts = {
+    upperBodyPivot,
+    headPivot,
+    // 与其他兵种保持同样的插槽命名，方便动作系统与后续武器挂点复用
+    weaponPivot: rightArmPivot,
+    offhandPivot: leftArmPivot,
+    leftArmPivot,
+    rightArmPivot,
+    leftLegPivot,
+    rightLegPivot
+  };
+  return enableShadows(group);
+}
+
 export function createArrowTowerModel(team = 'player') {
   const group = new THREE.Group();
   const wood = mat(team === 'player' ? '#6d4a30' : '#5a3228');
@@ -2183,6 +2383,203 @@ export function createCanteenModel(team = 'player') {
   bowlRight.position.x = 0.43;
 
   group.add(base, hut, roof, counter, pot, soup, chimney, bowlLeft, bowlRight);
+  return enableShadows(group);
+}
+
+export function createFurnaceModel(team = 'player') {
+  const group = new THREE.Group();
+  const stone = mat('#6f6a60');
+  const stoneDark = mat('#4f4b44');
+  const metal = mat(team === 'player' ? '#8d99a4' : '#9e6a58', { metalness: 0.2, roughness: 0.5 });
+  // 炉口的亮芯：低模风格里靠自发光交代"里面在烧"，不靠粒子
+  const ember = mat('#ff8a3c', {
+    emissive: '#ff6a1e',
+    emissiveIntensity: 0.92
+  });
+  const coal = mat('#2b2b2f');
+
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.92, 1.06, 0.3, 10), stoneDark);
+  base.position.y = 0.15;
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.74, 0.86, 1.05, 10), stone);
+  body.position.y = 0.82;
+  const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.44, 0.18), stoneDark);
+  mouth.position.set(0, 0.62, 0.74);
+  const glow = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.32), ember);
+  glow.position.set(0, 0.62, 0.84);
+  const lid = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.8, 0.24, 10), metal);
+  lid.position.y = 1.45;
+  const chimney = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, 0.72, 8), stoneDark);
+  chimney.position.set(0.3, 1.88, -0.2);
+  const pile = new THREE.Mesh(new THREE.DodecahedronGeometry(0.26, 0), coal);
+  pile.position.set(-0.88, 0.18, 0.52);
+  pile.scale.set(1, 0.62, 1);
+  const pileSmall = pile.clone();
+  pileSmall.position.set(-0.62, 0.12, 0.86);
+  pileSmall.scale.set(0.66, 0.44, 0.66);
+
+  group.add(base, body, mouth, glow, lid, chimney, pile, pileSmall);
+  group.userData.parts = {
+    furnaceGlow: glow
+  };
+  return enableShadows(group);
+}
+
+export function createManaFurnaceModel(team = 'player') {
+  const group = new THREE.Group();
+  const stone = mat('#5f6472');
+  const stoneDark = mat('#3f4350');
+  const metal = mat(team === 'player' ? '#9aa8b8' : '#a2705c', { metalness: 0.24, roughness: 0.46 });
+  // 炉膛里的火与顶端的符文晶石：低模风格靠自发光交代"这里在烧、在出魔力"
+  const ember = mat('#ff9a4a', {
+    emissive: '#ff6a1e',
+    emissiveIntensity: 0.95
+  });
+  const rune = mat(team === 'player' ? '#9fe8ff' : '#ffb0a0', {
+    emissive: team === 'player' ? '#4fc8ff' : '#ff6a4a',
+    emissiveIntensity: 1.05,
+    transparent: true,
+    opacity: 0.92
+  });
+
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(1.02, 1.18, 0.32, 8), stoneDark);
+  base.position.y = 0.16;
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.98, 1.3, 8), stone);
+  body.position.y = 0.97;
+  const band = new THREE.Mesh(new THREE.TorusGeometry(0.86, 0.07, 6, 16), metal);
+  band.position.y = 1.12;
+  band.rotation.x = Math.PI / 2;
+  const hatch = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.44, 0.16), stoneDark);
+  hatch.position.set(0, 0.7, 0.92);
+  const hatchGlow = new THREE.Mesh(new THREE.PlaneGeometry(0.36, 0.3), ember);
+  hatchGlow.position.set(0, 0.7, 1.01);
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.66, 0.42, 8), stone);
+  neck.position.y = 1.78;
+  const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(0.38, 0), rune);
+  crystal.position.y = 2.2;
+  const crystalRing = new THREE.Mesh(new THREE.TorusGeometry(0.52, 0.04, 6, 20), metal);
+  crystalRing.position.y = 2.2;
+  crystalRing.rotation.x = Math.PI / 2;
+  const chimney = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 0.6, 6), stoneDark);
+  chimney.position.set(0.52, 1.95, -0.44);
+
+  group.add(base, body, band, hatch, hatchGlow, neck, crystal, crystalRing, chimney);
+  group.userData.parts = {
+    manaCrystal: crystal,
+    manaGlow: hatchGlow
+  };
+  return enableShadows(group);
+}
+
+export function createResearchStationModel(team = 'player') {
+  const group = new THREE.Group();
+  const stone = mat('#7a7367');
+  const stoneDark = mat('#565049');
+  const wood = mat('#8a6136');
+  const paper = mat('#efe6cf');
+  // 顶上的小灯：低模风格里用自发光交代"这里在运转"
+  const lamp = mat('#cfe9ff', {
+    emissive: team === 'player' ? '#5cb8ff' : '#ff7a5c',
+    emissiveIntensity: 0.8
+  });
+
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.04, 0.26, 8), stoneDark);
+  base.position.y = 0.13;
+  const desk = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.72, 1.1), stone);
+  desk.position.y = 0.62;
+  const board = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.86, 0.1), stoneDark);
+  board.position.set(0, 1.38, -0.42);
+  board.rotation.x = -0.18;
+  const sheet = new THREE.Mesh(new THREE.PlaneGeometry(1.05, 0.66), paper);
+  sheet.position.set(0, 1.4, -0.35);
+  sheet.rotation.x = -0.18;
+  const lampPost = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.72, 0.1), wood);
+  lampPost.position.set(0.62, 1.32, 0.36);
+  const lampHead = new THREE.Mesh(new THREE.OctahedronGeometry(0.16, 0), lamp);
+  lampHead.position.set(0.62, 1.74, 0.36);
+  const scroll = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.5, 6), paper);
+  scroll.rotation.z = Math.PI / 2;
+  scroll.position.set(-0.32, 1.04, 0.5);
+
+  group.add(base, desk, board, sheet, lampPost, lampHead, scroll);
+  group.userData.parts = { researchLamp: lampHead };
+  return enableShadows(group);
+}
+
+export function createEnchantTableModel(team = 'player') {
+  const group = new THREE.Group();
+  const stone = mat('#6b6478');
+  const stoneDark = mat('#484354');
+  const metal = mat(team === 'player' ? '#a9b6c6' : '#a2705c', { metalness: 0.26, roughness: 0.44 });
+  const rune = mat(team === 'player' ? '#c9a8ff' : '#ff9c86', {
+    emissive: team === 'player' ? '#8b5cff' : '#ff5a2e',
+    emissiveIntensity: 1.0,
+    transparent: true,
+    opacity: 0.94
+  });
+
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.92, 1.06, 0.24, 8), stoneDark);
+  base.position.y = 0.12;
+  const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.56, 0.78, 8), stone);
+  pillar.position.y = 0.62;
+  const top = new THREE.Mesh(new THREE.CylinderGeometry(0.86, 0.78, 0.22, 8), stone);
+  top.position.y = 1.1;
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.78, 0.05, 6, 20), metal);
+  rim.position.y = 1.22;
+  rim.rotation.x = Math.PI / 2;
+  const runeDisc = new THREE.Mesh(new THREE.CircleGeometry(0.6, 20), rune);
+  runeDisc.rotation.x = -Math.PI / 2;
+  runeDisc.position.y = 1.22;
+  const shardLeft = new THREE.Mesh(new THREE.OctahedronGeometry(0.18, 0), rune);
+  shardLeft.position.set(-0.62, 1.42, 0.3);
+  const shardRight = shardLeft.clone();
+  shardRight.position.set(0.62, 1.42, -0.3);
+  const brazier = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.34, 6), metal);
+  brazier.position.set(0, 1.48, 0.72);
+
+  group.add(base, pillar, top, rim, runeDisc, shardLeft, shardRight, brazier);
+  group.userData.parts = { enchantRuneDisc: runeDisc };
+  return enableShadows(group);
+}
+
+export function createTreePitModel(team = 'player') {
+  const group = new THREE.Group();
+  const soil = mat('#5b4630');
+  const soilDark = mat('#3f3021');
+  const wood = mat('#8a6136');
+  const leaf = mat(team === 'player' ? '#6fae5a' : '#7f9c52');
+
+  // 一块整好的苗床：矮木框 + 里面的土
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.82, 0.09, 6, 16), wood);
+  rim.position.y = 0.16;
+  rim.rotation.x = Math.PI / 2;
+  const bed = new THREE.Mesh(new THREE.CylinderGeometry(0.78, 0.84, 0.18, 12), soil);
+  bed.position.y = 0.11;
+  const mound = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.68, 0.12, 10), soilDark);
+  mound.position.y = 0.22;
+  // 四角的小木桩，让"这是设施不是地面装饰"一眼看得出来
+  const postGeometry = new THREE.BoxGeometry(0.1, 0.34, 0.1);
+  const posts = [
+    [-0.62, 0.3, -0.62], [0.62, 0.3, -0.62], [-0.62, 0.3, 0.62], [0.62, 0.3, 0.62]
+  ].map(([x, y, z]) => {
+    const post = new THREE.Mesh(postGeometry, wood);
+    post.position.set(x, y, z);
+    return post;
+  });
+
+  // 坑里的小树苗：默认隐藏，种下之后由 PlantingSystem 按生长进度放大
+  const sapling = new THREE.Group();
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.06, 0.5, 6), wood);
+  stem.position.y = 0.25;
+  const crown = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.52, 7), leaf);
+  crown.position.y = 0.72;
+  const crownLow = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.34, 7), leaf);
+  crownLow.position.y = 0.5;
+  sapling.add(stem, crown, crownLow);
+  sapling.position.y = 0.24;
+  sapling.visible = false;
+
+  group.add(rim, bed, mound, ...posts, sapling);
+  group.userData.parts = { pitSapling: sapling };
   return enableShadows(group);
 }
 

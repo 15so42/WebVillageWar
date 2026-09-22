@@ -1,6 +1,7 @@
 import {
   createArcherModel,
   createArrowTowerModel,
+  createManaFurnaceModel,
   createMiniTurretModel,
   createMireHunterModel,
   createMireJavelinModel,
@@ -19,7 +20,11 @@ import {
   createEnergyOrbModel,
   createEngineerModel,
   createFrostAcolyteModel,
+  createFurnaceModel,
+  createEnchantTableModel,
   createFrostArrowModel,
+  createResearchStationModel,
+  createTreePitModel,
   createFrostScoutModel,
   createFrostTrollBossModel,
   createFrostOracleBossModel,
@@ -65,6 +70,7 @@ import {
   createWindMageModel,
   createWizardModel,
   createWolfModel,
+  createWoodPuppetModel,
   createYellowSandOgreModel
 } from './lowpoly.js';
 import * as THREE from 'three';
@@ -94,6 +100,8 @@ const UNIT_FACTORIES = {
   windMage: ({ team }) => createWindMageModel(team),
   rogue: ({ team }) => createRogueModel(team),
   engineer: ({ team }) => createEngineerModel(team),
+  // 木傀儡：非战斗后勤单位。不注册会静默回落到 raider 模型
+  woodPuppet: ({ team }) => createWoodPuppetModel(team),
   physician: ({ team }) => createPhysicianModel(team),
   purifier: ({ team }) => createPurifierModel(team),
   warder: ({ team }) => createWarderModel(team),
@@ -125,6 +133,9 @@ const UNIT_FACTORIES = {
   scorpion: () => createScorpionModel(),
   spider: () => createSpiderModel(),
   spiderEgg: () => createSpiderEggModel(),
+  // 刷怪巢穴借用蜘蛛卵的模型：只是外形借用，类型不同所以不会触发蜘蛛那套
+  // 孵化生命周期——拿 spiderEgg 当类型会让巢穴变成会孵化的活单位。
+  spawnPointNest: () => createSpiderEggModel(),
   wolf: () => createWolfModel(),
   wolfFrost: () => createWolfModel({ frost: true }),
   frostWolf: () => createWolfModel({ frost: true }),
@@ -135,7 +146,16 @@ const UNIT_FACTORIES = {
   miniTurret: ({ team }) => createMiniTurretModel(team),
   repairStation: ({ team }) => createRepairStationModel(team),
   canteen: ({ team }) => createCanteenModel(team),
-  beacon: ({ team }) => createBeaconModel(team)
+  beacon: ({ team }) => createBeaconModel(team),
+  // 熔炉：海岛生存的第一座可放置生产设施（木材 → 木炭）
+  furnace: ({ team }) => createFurnaceModel(team),
+  // 魔力炉：烧木炭产出魔力，为周围供能
+  manaFurnace: ({ team }) => createManaFurnaceModel(team),
+  // 科研站 / 附魔台：科技解锁链上的两座设施
+  researchStation: ({ team }) => createResearchStationModel(team),
+  enchantTable: ({ team }) => createEnchantTableModel(team),
+  // 树坑：种下树苗、等它长成一棵可砍的树
+  treePit: ({ team }) => createTreePitModel(team)
 };
 
 const PROJECTILE_FACTORIES = {
@@ -401,6 +421,10 @@ export function updateUnitAnimation(unit, dt) {
   }
   if (unit.type === 'spearman') {
     applySpearmanStance(root, time, unit.visualState === 'walk', unit.id);
+    return;
+  }
+  if (unit.type === 'woodPuppet') {
+    applyWoodPuppetStance(root, time, unit.visualState === 'walk', unit.id);
     return;
   }
   if (unit.visualState === 'walk') {
@@ -708,6 +732,43 @@ function applySpearmanStance(root, time, walking, unitId = 0) {
     spearPivot.rotation.set(0, 0, 0);
     const baseY = spearPivot.userData.bindPose?.position.y ?? spearPivot.position.y;
     spearPivot.position.y = baseY + bob * 0.3;
+  }
+}
+
+// 木傀儡的待机/行走姿态：没有膝关节 IK，靠上下两段肢体错相摆动，
+// 配合比人类单位更大的左右摇晃，读起来就是"关节木头人在挪步"。
+// resetAnimatedParts 每帧已恢复 bindPose（驼背前倾就存在 bindPose 里），
+// 这里只叠加动画偏移，绝不重写 pivot 的基准旋转。
+function applyWoodPuppetStance(root, time, walking, unitId = 0) {
+  const {
+    upperBodyPivot,
+    headPivot,
+    leftArmPivot,
+    rightArmPivot,
+    leftLegPivot,
+    rightLegPivot
+  } = root.userData.parts ?? {};
+  const bobRate = walking ? WALK_BOB_RATE * 0.9 : 1.7;
+  const bobHeight = walking ? WALK_BOB_HEIGHT * 1.4 : IDLE_BOB_HEIGHT * 0.7;
+  const bob = Math.sin(time * bobRate + unitId) * bobHeight;
+  root.position.y = rootGroundOffset(root) + bob;
+  root.rotation.x = 0;
+  root.rotation.y = 0;
+  root.rotation.z = walking
+    ? Math.sin(time * WALK_SWAY_RATE + unitId) * WALK_SWAY_ANGLE * 1.6
+    : 0;
+  const swingRate = walking ? 5.6 : 1.3;
+  const swing = Math.sin(time * swingRate + unitId) * (walking ? 0.5 : 0.06);
+  if (leftLegPivot) leftLegPivot.rotation.x = swing;
+  if (rightLegPivot) rightLegPivot.rotation.x = -swing;
+  if (leftArmPivot) leftArmPivot.rotation.x = -swing * 0.7;
+  if (rightArmPivot) rightArmPivot.rotation.x = swing * 0.7;
+  if (upperBodyPivot) {
+    upperBodyPivot.rotation.x += Math.abs(swing) * 0.08;
+    upperBodyPivot.rotation.y = Math.sin(time * swingRate * 0.5 + unitId) * (walking ? 0.05 : 0.012);
+  }
+  if (headPivot) {
+    headPivot.rotation.x = Math.sin(time * swingRate + unitId + 0.8) * (walking ? 0.06 : 0.02);
   }
 }
 

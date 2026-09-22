@@ -44,9 +44,11 @@ assert.match(
 );
 
 // ---- 2) 单位阵亡时关闭对应背包 ----
+// 阵亡处理已按生存方案第 7 节改为"背包与符文石一起落地"（dropUnitBelongingsOnDeath），
+// 但"关掉已经不存在的单位的背包"这条必须保留。
 assert.match(
   gameSource,
-  /this\.runeStones\?\.handleUnitDeath\?\.\(unit\);[\s\S]{0,200}?this\.runeBackpack\?\.closeIfUnit\?\.\(unit\);/,
+  /this\.dropUnitBelongingsOnDeath\(unit\);[\s\S]{0,200}?this\.runeBackpack\?\.closeIfUnit\?\.\(unit\);/,
   '玩家单位阵亡时必须关闭它的符文背包'
 );
 assert.match(
@@ -71,9 +73,12 @@ assert.match(
   /\.rune-backpack\.is-base-view \{[\s\S]*?left:\s*50%;[\s\S]*?translate\(-50%, -50%\)/,
   '基地背包必须居中显示'
 );
+// Esc 分支里现在还有别的优先处理项（放置模式取消、基地库存面板），
+// 所以窗口不能再卡得那么死：这里要断言的是"Esc 最终会关掉符文背包"，
+// 而不是"它是 Esc 分支里第一件事"。窗口放宽到 600 字符。
 assert.match(
   keyDownSource,
-  /key === ['"]escape['"][\s\S]{0,200}?this\.runeBackpack\?\.isOpen\(\)[\s\S]{0,120}?this\.runeBackpack\.close\(\)/,
+  /key === ['"]escape['"][\s\S]{0,600}?this\.runeBackpack\?\.isOpen\(\)[\s\S]{0,160}?this\.runeBackpack\.close\(\)/,
   'Esc 必须关闭整个符文背包面板'
 );
 assert.match(uiSource, /两个背包一起关闭，不提供单独关闭其中一个的入口/);

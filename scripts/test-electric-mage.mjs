@@ -61,9 +61,17 @@ assert.equal(cloudVisual.children.filter((child) => child.isLine).length, 0);
 assert.equal(cloudLobes.length, 32);
 assert.equal(cloudLobes.every((lobe) => lobe.geometry?.type === 'DodecahedronGeometry'), true);
 assert.equal(cloudBolts.length, 4);
+// 闪电必须是分段实体（HDR 亮核 + 外辉光），不能依赖 LineBasicMaterial.linewidth。
+// 段数由 EffectsSystem 的 boltSegmentCount 决定，这里只要求"至少 5 段"：
+// 写死段数会让"为了更平滑而加段"这种改进直接变成测试失败。
 assert.equal(cloudBolts.every((bolt) => (
-  bolt.children.length === 5
-  && bolt.children.every((segment) => segment.userData?.core?.geometry?.type === 'CylinderGeometry')
+  bolt.children.length >= 5
+  && bolt.children.every((segment) => (
+    segment.isGroup
+    && segment.children.length === 2
+    && segment.userData?.core?.geometry?.type === 'CylinderGeometry'
+    && segment.userData?.halo?.geometry?.type === 'CylinderGeometry'
+  ))
   && bolt.userData.coreMaterial?.toneMapped === false
   && Math.max(
     bolt.userData.coreMaterial.color.r,

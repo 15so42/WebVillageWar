@@ -10,7 +10,13 @@ import {
   BALANCE,
   CARD_DEFINITIONS,
   COOP_ENEMY_SCALING,
+  ISLAND_SPAWN_POINTS,
+  ITEM_DEFINITIONS,
+  ITEM_RULES,
   LEVEL_DEFINITIONS,
+  POWER_RULES,
+  RECRUITMENT_ORDER_ITEM_ID,
+  RESOURCE_NODE_RULES,
   TEAMS,
   UNIT_DEFINITIONS,
   WAVE_BOSS_TYPES,
@@ -30,6 +36,7 @@ import {
 import { pickAltarSpecializationChoices } from './altarRewardChoices.js';
 import { UnitEntity } from '../entities/UnitEntity.js';
 import {
+  createUnitModel,
   playUnitAnimation,
   prewarmUnitModelTemplates,
   setUnitRuntimeVisualScale,
@@ -144,6 +151,36 @@ import {
   waveRewardUnitCards
 } from './waveRewardPool.js';
 import { RuneStoneSystem } from './RuneStoneSystem.js';
+import { ResourceNodeSystem } from './ResourceNodeSystem.js';
+import { Inventory } from './Inventory.js';
+import {
+  CRAFT_ERROR_LABELS,
+  allRecipes,
+  canCraft,
+  craftRecipe as craftIntoInventory,
+  maxCraftableTimes,
+  normalizeRecipe,
+  recipeById
+} from './crafting.js';
+import { BaseStorageUi } from './BaseStorageUi.js';
+import { isHostileEnemy } from './unitTeam.js';
+import { PowerSystem } from './PowerSystem.js';
+import { SpawnPointSystem } from './SpawnPointSystem.js';
+import { GroundDropSystem } from './GroundDropSystem.js';
+import { ProductionSystem } from './ProductionSystem.js';
+import { FuelPowerSystem } from './FuelPowerSystem.js';
+import { ResearchSystem } from './ResearchSystem.js';
+import { PlantingSystem } from './PlantingSystem.js';
+import { FacilitySystem } from './FacilitySystem.js';
+import {
+  WEAPON_ERROR_LABELS,
+  baselineWeaponItemFor,
+  canEquipWeapon,
+  weaponStatPatch
+} from './weapons.js';
+import { HotbarUi } from './HotbarUi.js';
+import { planDeathDrop } from './drops.js';
+import { WorkSystem } from './WorkSystem.js';
 import { RuneBackpackUi } from './RuneBackpackUi.js';
 import { manaThresholdForLevel, runeDisplayName } from './runeStones.js';
 import { autoRebirthDurationFor } from './rebirthRules.js';
@@ -236,6 +273,9 @@ export function openingRewardStepsForLevel(level, opening = BALANCE.opening) {
   return steps;
 }
 const ENEMY_CAMP_IDLE_SCAN_SECONDS = 0.18;
+// 海岛生存：己方单位全灭后要连续这么多秒没有新单位，才算真的走投无路。
+// 单位死亡与替补入场可能落在相邻两帧，不设这个宽限会在"刚要有人"的瞬间误判失败。
+const SURVIVAL_STRANDED_GRACE_SECONDS = 5;
 // 旧版“军需铺按服务类别定价”的基础价：仅用于初始化 shopPrices 这个联机私有状态字段。
 const RUN_SHOP_BASE_PRICE = 12;
 const WAVE_AFFIX_DEFINITIONS = {
@@ -1034,6 +1074,8 @@ export class Game {
     this.enemyCampAttackTimer = 0;
     this.playerBaseAttackTimer = 0;
     this.playerBaseHealthLossProgress = 0;
+    // 生存模式：己方一个单位都不剩是从哪一刻开始的（用于延迟判负，见 checkSurvivalLevelEnd）
+    this.survivalStrandedSince = null;
     this.lastCardPlayed = null;
     this.runCardsPlayedCount = 0;
     this.selectedUnit = null;
@@ -1059,6 +1101,19 @@ export class Game {
 
     this.world = createWorld(this.scene, this.worldConfig);
     this.worldConfig = this.world.config ?? this.worldConfig;
+    // 基地实体的坐标必须跟随关卡预设，而不是停在 BALANCE 的全局默认值。
+    // 上面那句在 createWorld 之前执行，此时 worldConfig 还只有关卡的 world 字段
+    // （例如 { sceneKey: 'island-survival' }），拿不到预设里的 playerBasePosition，
+    // 于是会退回 (0,30)。而世界里的基地模型是按预设坐标摆的，两边会差出一段距离，
+    // 出生点、返程、部署与供能半径全都跟着错位。
+    if (this.worldConfig.playerBasePosition && this.playerBase) {
+      this.playerBase.position.set(
+        this.worldConfig.playerBasePosition.x,
+        this.playerBase.position.y,
+        this.worldConfig.playerBasePosition.z
+      );
+      this.playerBase.homePoint = null;
+    }
     const useResolvedRealtimeShadows = this.renderQuality.realtimeShadows && this.worldConfig.sky?.realtimeShadows !== false;
     this.renderer.shadowMap.enabled = useResolvedRealtimeShadows;
     this.renderer.shadowMap.autoUpdate = useResolvedRealtimeShadows;
@@ -1141,6 +1196,44 @@ export class Game {
     this.spells = new SpellSystem(this);
     this.cardEffects = new CardEffectSystem(this);
     this.recovery = new RecoverySystem(this);
+    // 基地库存：目前是资源节点的落点，后续合成、快捷栏、搬运都以它为准。
+    this.baseInventory = new Inventory({ id: 'base', capacity: ITEM_RULES.baseInventorySlots });
+    // 资源节点：地图上每棵树/石堆/矿脉的剩余量归这里管；模型与寻路阻挡仍由 world 提供。
+    this.resourceNodes = new ResourceNodeSystem(this);
+    this.resourceNodes.attach(this.world);
+    this.resourceNodes.setDepositTarget(this.baseInventory);
+    // 基地供能：周围约 20m 内的傀儡与工作设施从这里补活动魔力。
+    // 供能功率有上限，分配时不能给范围内每个接收者各发一份完整功率。
+    this.power = new PowerSystem(this);
+    {
+      const basePosition = this.world?.config?.playerBasePosition ?? { x: 0, z: 0 };
+      this.power.registerSupplier({
+        id: 'player-base',
+        kind: 'base',
+        x: basePosition.x,
+        z: basePosition.z,
+        supplyPerSecond: POWER_RULES.baseSupplyPerSecond,
+        supplyRadius: POWER_RULES.baseSupplyRadius
+      });
+    }
+    // 傀儡作业：采集状态机 + 每个傀儡自己的背包与活动魔力。
+    // 与供能系统是上下游关系：这里决定傀儡干什么，power 负责给它的储备补魔。
+    this.work = new WorkSystem(this);
+    // 刷怪点：海岛关没有波次，持续压力来自地图上的点位；点被摧毁后永久停止产怪。
+    this.spawnPoints = new SpawnPointSystem(this);
+    // 地面遗物包：单位阵亡时背包与符文石一起落地，走近即转移进拾取者（物品守恒，方案第 7 节）。
+    this.drops = new GroundDropSystem(this);
+    this.drops.attach();
+    // 生产设施（方案第 9 节）：放置下来的熔炉按周期把基地库存里的木材烧成木炭。
+    this.production = new ProductionSystem(this);
+    // 燃料供能设施（魔力炉）：烧木炭，为周围的生产与战斗供能。
+    this.fuelPower = new FuelPowerSystem(this);
+    // 科技与附魔台：研究解锁配方，附魔台用材料制作附魔石（不再依赖附魔卡）。
+    this.research = new ResearchSystem(this);
+    // 树坑与种植：种下树苗 → 长成一棵真实资源节点 → 傀儡去砍 → 自动补种。
+    this.planting = new PlantingSystem(this);
+    // 需要魔力的功能设施（箭塔 / 食堂）：魔力耗尽就停机。
+    this.facilities = new FacilitySystem(this);
     // 符文石背包权威：附魔卡一次性生成石头，石头放在单位背包里才生效。
     this.runeStones = new RuneStoneSystem(this);
     // 符文背包界面：常驻入口或 B 键打开；未选中己方单位时显示基地与阵亡单位背包。
@@ -1153,6 +1246,16 @@ export class Game {
         )
       });
       this.runeBackpack.ensureLauncher();
+    }
+    // 基地库存与合成面板：与符文背包分开，因为库存里是可堆叠材料、没有拖拽出售那套语义。
+    if (typeof document !== 'undefined') {
+      this.baseStorage = new BaseStorageUi(this);
+      // 必须在这里就把常驻入口建出来：入口按钮原本是在 ensureUi()（也就是第一次打开面板）时
+      // 才创建的，于是"不知道怎么开面板"的玩家永远看不到入口——符文背包当初也踩过这个鸡生蛋问题。
+      this.baseStorage.ensureLauncher();
+      // 物品快捷栏：基地里可放置建筑的快捷入口（数字键 1..9）。
+      this.hotbar = new HotbarUi(this);
+      this.hotbar.ensureUi();
     }
     if (isCoopSession(this.levelSession)) {
       const coopPlayers = this.levelSession.players ?? {};
@@ -1213,14 +1316,18 @@ export class Game {
       waveLabel: document.querySelector('#wave-label'),
       silverCount: document.querySelector('#silver-count'),
       wavePreview: document.querySelector('#wave-preview'),
+      wavePanel: document.querySelector('.wave-command-panel'),
       battleTimeLabel: document.querySelector('#battle-time-label'),
       battleTime: document.querySelector('#battle-time'),
       unitCount: document.querySelector('#unit-count'),
+    spawnPointMeter: document.querySelector('#spawn-point-meter'),
+    spawnPointCount: document.querySelector('#spawn-point-count'),
       selectedPanel: document.querySelector('#selected-panel'),
       selectedName: document.querySelector('#selected-name'),
       selectedStats: document.querySelector('#selected-stats'),
       selectedEnchants: document.querySelector('#selected-enchants'),
       cameraFollowButton: document.querySelector('#selected-camera-follow'),
+      selectedRecruitButton: document.querySelector('#selected-recruit'),
       settingsButton: document.querySelector('#game-settings-button'),
       commandDock: document.querySelector('#game-command-dock'),
       pauseOverlay: document.querySelector('#pause-overlay'),
@@ -1312,6 +1419,14 @@ export class Game {
     }, { signal });
     this.dom.cameraFollowButton?.addEventListener('pointerdown', stopUiEvent, { signal });
     this.dom.cameraFollowButton?.addEventListener('contextmenu', stopUiEvent, { signal });
+    // 招募按钮：只在选中野外中立单位时可见；点击消耗一张招募令把它变成自己人。
+    this.dom.selectedRecruitButton?.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      this.recruitSelectedUnit();
+    }, { signal });
+    this.dom.selectedRecruitButton?.addEventListener('pointerdown', stopUiEvent, { signal });
+    this.dom.selectedRecruitButton?.addEventListener('contextmenu', stopUiEvent, { signal });
     this.dom.pauseOverlay?.addEventListener('click', (event) => this.onPauseOverlayClick(event), { signal });
     this.dom.pauseOverlay?.addEventListener('pointerdown', stopUiEvent, { signal });
     this.dom.pauseOverlay?.addEventListener('contextmenu', stopUiEvent, { signal });
@@ -1357,6 +1472,8 @@ export class Game {
       // 每次选完由 continueAfterStrategyFlow 取出下一项，全部选完才开第一波。
       // 联机 Client 走上面的分支、不排本地队列，步骤由 Host 权威推进。
       this.queueOpeningRewardSteps();
+      // 孤岛求生：开局布置木傀儡与初始物资（在开局奖励流程之外，不占用三选一）
+      this.setupSurvivalOpening();
       if (this.coop?.enabled) {
         this.openCoopStrategyEventForAll('opening-unit');
       } else {
@@ -1411,9 +1528,12 @@ export class Game {
     this.setMobileBoxSelectMode(false);
     this.eventController.abort();
     this.runeBackpack?.destroy?.();
+    this.baseStorage?.destroy?.();
+    this.hotbar?.destroy?.();
     this.cardSystem?.destroy?.();
     this.buildings?.destroy?.();
     this.lootDrops?.destroy?.();
+    this.drops?.destroy?.();
     this.enemyEnchantment?.destroy?.();
     this.areaEffects?.destroy?.();
     this.levelMechanics?.destroy?.();
@@ -1516,6 +1636,18 @@ export class Game {
       runPerfStep('buildings', () => this.buildings.update(dt));
       runPerfStep('recovery', () => this.recovery.update(dt));
       runPerfStep('altars', () => this.altars.update(dt));
+      // 供能：傀儡与工作设施的活动魔力分配，实发量受基地功率上限约束
+      // 燃料供能：必须在 power 之前——这一段分配用的功率是它刚算出来的
+      runPerfStep('fuelPower', () => this.fuelPower.update(dt));
+      // 设施的供能状态：必须在 power 之前，决定这一段它吃不吃魔
+      runPerfStep('facilities', () => this.facilities.update(dt));
+      runPerfStep('power', () => this.power.update(dt));
+      // 生产：必须在 power 之后——设施这一段拿到的 activityMana 决定它能不能开工
+      runPerfStep('production', () => this.production.update(dt));
+      // 傀儡作业：清掉已经不在注册表里的傀儡（不扫描资源节点）
+      runPerfStep('work', () => this.work.update(dt));
+      runPerfStep('spawnPoints', () => this.spawnPoints.update(dt));
+      runPerfStep('drops', () => this.drops.update(dt));
       runPerfStep('mechanics', () => this.levelMechanics.update(dt));
       runPerfStep('areaEffects', () => this.areaEffects.update(dt));
       runPerfStep('loot', () => this.lootDrops.update(dt));
@@ -1544,6 +1676,15 @@ export class Game {
       runStep('buildings', () => this.buildings.update(dt));
       runStep('recovery', () => this.recovery.update(dt));
       runStep('altars', () => this.altars.update(dt));
+      runStep('fuelPower', () => this.fuelPower.update(dt));
+      runStep('facilities', () => this.facilities.update(dt));
+      runStep('power', () => this.power.update(dt));
+      runStep('production', () => this.production.update(dt));
+      // 种植：长成时会往世界里加资源节点，所以放在采集之前
+      runStep('planting', () => this.planting.update(dt));
+      runStep('work', () => this.work.update(dt));
+      runStep('spawnPoints', () => this.spawnPoints.update(dt));
+      runStep('drops', () => this.drops.update(dt));
       runStep('mechanics', () => this.levelMechanics.update(dt));
       runStep('areaEffects', () => this.areaEffects.update(dt));
       runStep('loot', () => this.lootDrops.update(dt));
@@ -5197,17 +5338,40 @@ export class Game {
     button.textContent = this.cameraFollowEnabled ? '停止跟随' : '跟随镜头';
   }
 
+  // 关卡的可行进范围：优先取世界配置里的 navigationBounds，没有才回退到全局
+  // BALANCE.battlefield。海岛这类比旧走廊大得多的地图如果继续用 ±42 / −40..40，
+  // 镜头、信标落点、单位落点和击退都会被悄悄裁到中间一小块。
+  battlefieldBounds() {
+    const nav = this.world?.config?.navigationBounds ?? this.worldConfig?.navigationBounds;
+    if (nav && Number.isFinite(nav.minX) && Number.isFinite(nav.maxX)) {
+      return {
+        minX: nav.minX,
+        maxX: nav.maxX,
+        minZ: nav.minZ,
+        maxZ: nav.maxZ
+      };
+    }
+    const legacy = BALANCE.battlefield;
+    return {
+      minX: -legacy.halfWidth,
+      maxX: legacy.halfWidth,
+      minZ: legacy.minZ,
+      maxZ: legacy.maxZ
+    };
+  }
+
   clampCameraTarget() {
     const margin = 4;
+    const bounds = this.battlefieldBounds();
     this.cameraTarget.x = clamp(
       this.cameraTarget.x,
-      -BALANCE.battlefield.halfWidth + margin,
-      BALANCE.battlefield.halfWidth - margin
+      bounds.minX + margin,
+      bounds.maxX - margin
     );
     this.cameraTarget.z = clamp(
       this.cameraTarget.z,
-      BALANCE.battlefield.minZ + margin,
-      BALANCE.battlefield.maxZ - margin
+      bounds.minZ + margin,
+      bounds.maxZ - margin
     );
   }
 
@@ -5562,6 +5726,11 @@ export class Game {
 
   handleUnitDeath(unit, source = null) {
     if (!unit || unit.deathHandled) return false;
+    // 刷怪点巢穴被打掉 → 永久停止该点产怪。
+    // 挂钩在死亡处理里而不是轮询：轮询会重复结算进度与掉落。
+    if (unit.isSpawnPointNest) {
+      this.spawnPoints?.destroyPoint(unit.spawnPointId);
+    }
     this.triggerSelfDestructOnDeath(unit);
     this.queueRebirthForUnit(unit, source);
     const handled = this.unitRegistry.handleDeath(unit, source);
@@ -5574,14 +5743,62 @@ export class Game {
       this.grantKillSilver(unit, source);
       // 魔力与能量是两种资源：只有单位击杀才结算，且均分给击杀者携带的符文石。
       this.grantKillMana(unit, source);
+      // 敌方单位若真有背包或符文石，同样按方案第 7 节掉落；没有则什么也不发生。
+      // 这里不是"给所有装饰武器模型自动生成战利品"——只有真实持有物才会落地。
+      this.dropUnitBelongingsOnDeath(unit);
     } else if (unit?.team === TEAMS.PLAYER) {
-      // 死亡不掉落：符文石继续留在原单位背包里，数据不随渲染对象回收而丢失。
-      this.runeStones?.handleUnitDeath?.(unit);
+      // 死亡掉落（方案第 7 节）：背包里的东西与身上的符文石一起落地。
+      // 不再是"石头留在阵亡单位档案里"，也不自动传回基地。
+      this.dropUnitBelongingsOnDeath(unit);
       // 单位阵亡时必须关掉它的符文背包，避免面板停在一个已经不存在的单位上。
       this.runeBackpack?.closeIfUnit?.(unit);
     }
 
     return true;
+  }
+
+  /**
+   * 单位阵亡结算：清空背包 + 符文石落地 + 中断作业并释放任务预留。
+   *
+   * 顺序不能调换：
+   *   1. 先让石头离开单位（`detachStonesOnDeath` 会顺带撤掉单位身上的附魔与成长投影）；
+   *   2. 再算背包掉落（`planDeathDrop` 是清空式转移，之后背包里不再有这些物品）；
+   *   3. 最后注销傀儡登记——`unregisterWorker` 会删掉系统持有的背包引用，
+   *      所以必须在掉落结算之后调用，否则第 2 步就拿不到背包了。
+   * 重复死亡通知由 `unit.deathHandled`（外层）与 `unit.deathDropPlanned`（这里）双重挡住。
+   */
+  dropUnitBelongingsOnDeath(unit) {
+    if (!unit || unit.deathDropPlanned) return null;
+    unit.deathDropPlanned = true;
+
+    const position = unit.position ?? null;
+    const x = position?.x ?? 0;
+    const z = position?.z ?? 0;
+    const ownerId = unit.controllerPlayerId ?? unit.ownerPlayerId ?? this.localPlayerSlot ?? null;
+    const dropId = this.drops?.reserveId?.() ?? null;
+
+    const stacks = [];
+    // 符文石：石头是成长数据的唯一持有者，掉落搬运的是同一块实例。
+    const stoneStacks = this.runeStones?.detachStonesOnDeath?.(unit, { x, z, dropId }) ?? [];
+    stoneStacks.forEach((stack) => stacks.push(stack));
+
+    // 傀儡背包里的货物与工具：已经搬进背包的跟着背包掉落，
+    // 尚未取出的留在源容器（资源节点的剩余量归 ResourceNodeSystem）。
+    // 傀儡的背包由作业系统持有；战斗单位的背包按需创建，
+    // 死亡掉落与搬运都要能看见它，所以统一走 itemBagFor / 这里的非创建式读取。
+    const inventory = unit.workerInventory ?? unit.itemBag ?? this.work?.inventoryFor?.(unit.id) ?? null;
+    const planned = planDeathDrop(inventory, { dropId, alreadyDropped: false });
+    planned.stacks.forEach((stack) => stacks.push(stack));
+
+    const drop = stacks.length
+      ? this.drops?.spawnFromStacks?.(stacks, { dropId, x, z, ownerId }) ?? null
+      : null;
+
+    // 中断作业并释放任务预留：`unregisterWorker` 内部会 `board.release`，
+    // 否则这支傀儡占着的资源点会一直没人能接。
+    if (this.work?.isWorker?.(unit)) this.work.unregisterWorker(unit);
+
+    return { drop, stacks: stacks.length, inventoryCleared: planned.dropped === true };
   }
 
   /** 鼠标当前指向的己方单位（不含建筑），用于 E 键直接开背包。 */
@@ -5760,6 +5977,9 @@ export class Game {
       unit &&
       unit.deathHandled !== true &&
       unit.team === TEAMS.PLAYER &&
+      // 傀儡不自动重生：开局只发一个工人，让它排进重生队列等于
+      // 「工人战死会自动复活」，把「采集单位是稀缺资源」这条设计直接抹掉。
+      unit.isWorker !== true &&
       unit.isSilentRemoval !== true &&
       unit.isBuilding !== true &&
       unit.underConstruction !== true &&
@@ -5874,8 +6094,10 @@ export class Game {
     unit.homePoint.y = this.groundHeightAt(unit.homePoint);
     this.attachUnitStatus(unit);
     this.registerUnit(unit);
-    // 先接回原背包，再恢复非符文附魔与属性：顺序保证附魔不会被背包同步覆盖。
-    this.runeStones?.reassignUnitStones(snapshot.unitId, unit);
+    // 复生单位**不接回**原单位的符文石：石头在阵亡时已经落地成了遗物包（方案第 7 节），
+    // 再把它塞给复生单位等于让同一块石头同时存在于地面和新身体里。
+    // 想要拿回来，就派人去遗物包那里捡。
+    // 顺序仍然是"先非符文附魔与属性、后同步符文附魔"，保证附魔不会被背包同步覆盖。
     restoreRebirthEnchantments(unit, snapshot.enchantments);
     restoreRebirthAttributes(unit, snapshot.attributes);
     this.runeStones?.syncUnitEnchantments(unit);
@@ -6154,6 +6376,90 @@ export class Game {
     }
   }
 
+  /**
+   * 海岛开局的出生护卫（`BALANCE.world.survivalOpening.escorts`）。
+   *
+   * 落点同样要过 `resolveWalkablePoint`：基地自身有半径 2.25 的寻路阻挡，
+   * 落在里面的单位会一直"想走但一步不动"。
+   * 每个护卫错开一点站位，避免全部叠在同一个格子上互相挤。
+   */
+  spawnSurvivalEscorts() {
+    const opening = this.world?.config?.survivalOpening
+      ?? this.worldConfig?.survivalOpening
+      ?? BALANCE.world.survivalOpening
+      ?? {};
+    const escorts = Array.isArray(opening.escorts) ? opening.escorts : [];
+    const spawned = [];
+    escorts.forEach((type, index) => {
+      if (!UNIT_DEFINITIONS[type]) return;
+      const spot = this.playerBase.position.clone().add(new THREE.Vector3(
+        1.8 + (index % 2) * 1.6,
+        0,
+        -3.4 - Math.floor(index / 2) * 1.7
+      ));
+      const position = this.resolveWalkablePoint(spot);
+      position.y = this.groundHeightAt(position);
+      this.summonUnits(type, 1, position, 0.7, { select: false });
+      const unit = this.findNewestFriendlyUnit(type);
+      if (unit) spawned.push(unit);
+    });
+    return spawned;
+  }
+
+  // 孤岛求生的开局布置：一个木傀儡 + 一把斧子一把镐子 + 一小笔启动物资。
+  //
+  // 刻意放在开局奖励流程之外：三选一卡牌不应该被「你已经有个工人了」干扰，
+  // 也不该因为玩家没选工人就变成没法采集。这里不发牌、不推波次、不写策略事件。
+  setupSurvivalOpening() {
+    if (this.worldConfig?.sceneKey !== 'island-survival') return null;
+    if (!this.work) return null;
+    // 缺 woodPuppet 定义时安静跳过：宁可不生成工人，也不要把整个开局搞崩。
+    if (!UNIT_DEFINITIONS.woodPuppet) return null;
+    // 出生点不能只按几何偏移算：基地自身登记了半径 2.25 的寻路阻挡，
+    // 落在它附近（含所在格子中心落在半径内）的格子是不可走的。
+    // 傀儡若出生在这种格子上，MovementAgent.moveToward 里的
+    // safeSurfaceSteeringToward 会一直返回空，于是每帧 false、一步不动，
+    // 而作业状态机还会按「正在移动」扣魔力。这里直接放到阻挡外的可走区域（约 5m）。
+    const spawnPoint = this.playerBase.position.clone().add(new THREE.Vector3(-3.6, 0, 3.4));
+    this.summonUnits('woodPuppet', 1, spawnPoint, 0.7, { select: false });
+    const worker = this.findNewestFriendlyUnit('woodPuppet');
+    if (!worker) return null;
+    // 出生护卫。没有它这个模式走不通：招募链是「招募令 ← 深邃核心 ← 摧毁巢穴」，
+    // 战斗单位本身来自巢穴——只给傀儡的话整条链是死循环（见 BALANCE.world.survivalOpening）。
+    this.spawnSurvivalEscorts();
+    // 工具放进背包而不是单独挂一个列表：工具所有权只有一个来源（背包实例），
+    // 规划器判断「缺工具」时读的就是这份背包。
+    const workerInventory = this.createWorkerBootstrapInventory(worker.id);
+    this.work.registerWorker(worker, { inventory: workerInventory });
+    // 默认采集需求：前期以木材为主、石料次之，食物只占一小份。
+    // 这里只给权重与库存目标，具体派谁、去哪棵树由调度器按可执行性与距离决定。
+    this.work.setDemands([
+      { id: 'auto-wood', resource: 'wood', weight: 50, targetStock: 400 },
+      { id: 'auto-stone', resource: 'stone', weight: 30, targetStock: 300 },
+      { id: 'auto-food', resource: 'food', weight: 20, targetStock: 60 }
+    ]);
+    // 海岛不跑波次，敌人由这 4 个刷怪点持续产生，全部摧毁才通关。
+    this.spawnPoints.attach(ISLAND_SPAWN_POINTS);
+    // 巢穴用惰性建筑类型 spawnPointNest：早前拿 spiderEgg 当占位，
+    // 它其实是会孵化的活单位，会衍生出不带点位归属的敌人（验收 20→24）。
+    this.spawnSpawnPointNests();
+    // 野外中立战斗单位：点开详情面板花一张招募令就能归队。
+    this.spawnFieldRecruits();
+    // 启动物资：够搭第一座工作台与一段栅栏，但不够跳过采集阶段。
+    this.baseInventory.add('wood', 20);
+    this.baseInventory.add('stone', 12);
+    return worker;
+  }
+
+  // summonUnits 不返回生成结果，按类型从注册表里取最新的一支。
+  findNewestFriendlyUnit(type) {
+    const units = this.friendlyUnits;
+    for (let i = units.length - 1; i >= 0; i -= 1) {
+      if (units[i]?.type === type && units[i].alive) return units[i];
+    }
+    return null;
+  }
+
   buildStructureUnit(type, point, options = {}) {
     const position = this.resolveWalkablePoint(point.clone());
     position.y = this.groundHeightAt(position);
@@ -6184,10 +6490,12 @@ export class Game {
 
   canPlaceBeaconAt(point) {
     if (!point) return false;
+    const bounds = this.battlefieldBounds();
     return (
-      Math.abs(point.x) <= BALANCE.battlefield.halfWidth &&
-      point.z >= BALANCE.battlefield.minZ &&
-      point.z <= BALANCE.battlefield.maxZ &&
+      point.x >= bounds.minX &&
+      point.x <= bounds.maxX &&
+      point.z >= bounds.minZ &&
+      point.z <= bounds.maxZ &&
       this.isPointWalkable(point)
     );
   }
@@ -6286,7 +6594,9 @@ export class Game {
     let best = null;
     let bestScore = Number.POSITIVE_INFINITY;
     this.enemyUnits.forEach((unit) => {
-      if (!unit.alive || unit.isWildlife || !unit.position) return;
+      // 用 isHostileEnemy 而不是 team === enemy：野生动物与野外可招募单位也在 enemy 队伍里，
+      // 基地不该把它们当敌人打（那会把还没招募的野外单位直接打死）。
+      if (!unit.alive || !isHostileEnemy(unit) || !unit.position) return;
       const distance = Math.max(
         0,
         flatDistance(this.playerBase.position, unit.position) - baseRadius - targetCombatRadius(unit)
@@ -6446,6 +6756,11 @@ export class Game {
   }
 
   spawnEnemyWave(waveNumber, { waveConfig = null } = {}) {
+    // 海岛生存没有波次：持续压力来自地图上的刷怪点（SpawnPointSystem）。
+    // 这里直接不产出敌人，否则会同时存在两套敌人来源，玩家分不清压力从哪来，
+    // 「清除全部刷怪点」这个目标也就不成立了。
+    // 只屏蔽本关，其它关卡行为不变。
+    if (this.worldConfig?.sceneKey === 'island-survival') return;
     const waveIndex = waveConfig?.index ?? waveNumber;
     const difficulty = waveConfig?.effectiveDifficulty ?? this.effectiveDifficultyForWave(waveIndex);
     const count = waveConfig?.count ?? Math.min(
@@ -6480,8 +6795,63 @@ export class Game {
     this.enemyEnchantment?.enchantSpawnWave?.(spawnedUnits, waveConfig);
   }
 
-  enemyTypeForWave(waveIndex, index, difficulty, waveConfig = null) {
-    if (waveConfig?.types?.length) {
+  // 给每个刷怪点放一个可被玩家攻击摧毁的巢穴实体。
+  // 暂时复用现成的敌方静止建筑作为外形与耐久载体；专用巢穴模型留待美术阶段替换。
+  // 巢穴带 isSpawnPointNest 标记，SpawnPointSystem 统计存活时会把它们排除，
+  // 否则巢穴会白白占掉一个「这个点还能生几个」的名额。
+  spawnSpawnPointNests() {
+    if (!this.spawnPoints?.points.length) return [];
+    const nests = [];
+    this.spawnPoints.points.forEach((point) => {
+      const position = new THREE.Vector3(point.x, 0, point.z);
+      position.y = this.groundHeightAt(position);
+      const unit = new UnitEntity({ type: 'spawnPointNest', team: TEAMS.ENEMY, position });
+      // 标记必须在 registerUnit 之前打上：注册过程会重建/重置单位的运行期字段，
+      // 放在之后再赋值会被覆盖，表现为「巢穴既不是 nest 也没有 pointId」，
+      // 统计时落进无归属分组。
+      unit.isSpawnPointNest = true;
+      unit.spawnPointId = point.id;
+      this.applyEnemyDifficulty(unit, 1, null, 0);
+      // 按点覆盖巢穴血量（起始点用）。health 是普通字段，maxHealth 是绑到属性的
+      // getter（赋值会抛错），所以只动 health；血条比例要跟着调，否则条子会显示成满血。
+      if (point.nestHealth > 0) {
+        unit.health = Math.min(unit.health, point.nestHealth);
+        unit.healthLagRatio = Math.min(1, unit.health / Math.max(1, unit.maxHealth));
+      }
+      this.attachUnitStatus(unit);
+      this.registerUnit(unit);
+      nests.push(unit);
+    });
+    return nests;
+  }
+
+  // 在指定位置生成一个敌人，供刷怪点使用。
+  // 走的是和波次生成完全相同的注册路径（属性、难度、魔力、状态条、注册表），
+  // 只是来源不是波次配置，而是某个刷怪点；unit.spawnPoint 是这个点和敌人的唯一关联，
+  // SpawnPointSystem 靠它从注册表反算每个点还有多少存活。
+  spawnEnemyAt(type, basePoint, options = {}) {
+    if (!type || !basePoint) return null;
+    const difficulty = options.difficulty ?? this.effectiveDifficultyForWave(1);
+    const radius = options.radius ?? 1.6;
+    const index = options.index ?? 0;
+    const position = this.resolveWalkablePoint(
+      new THREE.Vector3(basePoint.x, 0, basePoint.z).add(polarOffset(index, 6, radius))
+    );
+    position.y = this.groundHeightAt(position);
+    const unit = new UnitEntity({ type, team: TEAMS.ENEMY, position });
+    this.applyEnemyDifficulty(unit, difficulty, null, index);
+    this.assignEnemyManaValue(unit);
+    this.attachUnitStatus(unit);
+    this.registerUnit(unit);
+    // 注意：unit.spawnPoint 在本代码库里已经被占用（旧波次敌人用它存出生坐标，
+    // 供拴绳/游荡使用）。刷怪点的归属必须用独立字段，否则两套语义会互相覆盖，
+    // 表现为「按点位统计存活数」时多出一个 "[object Object]" 分组。
+    unit.spawnPointId = options.spawnPointId ?? null;
+    this.orderEnemyAttack(unit, index, 6);
+    return unit;
+  }
+
+  enemyTypeForWave(waveIndex, index, difficulty, waveConfig = null) {    if (waveConfig?.types?.length) {
       return waveConfig.types[index % waveConfig.types.length];
     }
     const pool = this.levelSession.level.enemyPool ?? [];
@@ -6804,6 +7174,38 @@ export class Game {
     unit.moveGoalUsesDirectSteering = false;
   }
 
+  /**
+   * 野外可招募单位（方案第 6.1 条：原有战斗单位可在野外发现并招募）。
+   *
+   * 它们是**中立**单位。走 ENEMY 队伍只是为了复用现有的注册、索敌索引、
+   * 状态条与死亡链路（野生动物也是这么做的）；`isRecruitable` 让索敌系统
+   * 两边都跳过它们——既不主动打人，也不会被己方单位自动打。招募之后这个标记
+   * 会被清掉，它就以普通战斗单位身份正常参战。
+   */
+  spawnFieldRecruits() {
+    const entries = this.world?.config?.fieldRecruits
+      ?? this.worldConfig?.fieldRecruits
+      ?? BALANCE.world.fieldRecruits
+      ?? [];
+    entries.forEach((spawn) => {
+      if (!UNIT_DEFINITIONS[spawn.type]) return;
+      // 落点过一遍可走点：坐标是手写的，落到阻挡格或水里就会永远站着不动。
+      const position = this.resolveWalkablePoint(new THREE.Vector3(spawn.x, 0, spawn.z));
+      position.y = this.groundHeightAt(position);
+      const unit = new UnitEntity({
+        type: spawn.type,
+        team: TEAMS.ENEMY,
+        position
+      });
+      this.attachUnitStatus(unit);
+      unit.isRecruitable = true;
+      // 不设 moveGoal / wanderGoal / homePoint：中立待招募单位应该守在原地，
+      // 给它们 wanderGoal 会像野生动物那样自己走开，玩家就找不到了。
+      this.registerUnit(unit);
+      this.effects.spawnRing(unit.position, '#ffd9a0', 0.7, 0.5);
+    });
+  }
+
   spawnWildlife() {
     (this.world.config?.wildlife ?? this.worldConfig.wildlife ?? BALANCE.world.wildlife).forEach((spawn, index) => {
       const unit = new UnitEntity({
@@ -6907,10 +7309,12 @@ export class Game {
   }
 
   isPointWalkable(point, options = {}) {
+    const bounds = this.battlefieldBounds();
     if (
-      Math.abs(point.x) > BALANCE.battlefield.halfWidth ||
-      point.z < BALANCE.battlefield.minZ ||
-      point.z > BALANCE.battlefield.maxZ
+      point.x < bounds.minX ||
+      point.x > bounds.maxX ||
+      point.z < bounds.minZ ||
+      point.z > bounds.maxZ
     ) {
       return false;
     }
@@ -7248,8 +7652,9 @@ export class Game {
   resolveWalkablePoint(point, padding = 0) {
     const resolved = point.clone();
     void padding;
-    resolved.x = clamp(resolved.x, -BALANCE.battlefield.halfWidth, BALANCE.battlefield.halfWidth);
-    resolved.z = clamp(resolved.z, BALANCE.battlefield.minZ, BALANCE.battlefield.maxZ);
+    const bounds = this.battlefieldBounds();
+    resolved.x = clamp(resolved.x, bounds.minX, bounds.maxX);
+    resolved.z = clamp(resolved.z, bounds.minZ, bounds.maxZ);
     resolved.y = this.groundHeightAt(resolved);
     return this.isPointWalkable(resolved)
       ? resolved
@@ -7259,8 +7664,9 @@ export class Game {
   resolveCommandPoint(point) {
     if (!point) return null;
     const resolved = point.clone();
-    resolved.x = clamp(resolved.x, -BALANCE.battlefield.halfWidth, BALANCE.battlefield.halfWidth);
-    resolved.z = clamp(resolved.z, BALANCE.battlefield.minZ, BALANCE.battlefield.maxZ);
+    const bounds = this.battlefieldBounds();
+    resolved.x = clamp(resolved.x, bounds.minX, bounds.maxX);
+    resolved.z = clamp(resolved.z, bounds.minZ, bounds.maxZ);
     resolved.y = this.groundHeightAt(resolved);
     return resolved;
   }
@@ -7489,12 +7895,31 @@ export class Game {
     }
     if (!this.enemyCamp.alive) {
       this.enemyCamp.health = 0;
-      this.finishLevel(true, { endReason: 'enemy_camp_destroyed' });
+      // 海岛关的目标是清除全部刷怪点（写在关卡副标题里），敌营不是通关按钮。
+      // 它照样会开火，所以打掉它仍然有意义——但要明确告诉玩家"这不是终点"，
+      // 否则会出现"打完敌营什么都没发生"的困惑。
+      if (this.isSurvivalLevel()) {
+        this.cardSystem?.setHintOnce?.(
+          '敌营已摧毁。本关目标是清除全部刷怪点，并清掉它们已经放出来的敌人。',
+          'enemy-camp-down'
+        );
+      } else {
+        this.finishLevel(true, { endReason: 'enemy_camp_destroyed' });
+      }
     }
+  }
+
+  /** 是否海岛生存关。这一关的胜负规则与旧关卡完全不同，见 checkSurvivalLevelEnd。 */
+  isSurvivalLevel() {
+    return this.worldConfig?.sceneKey === 'island-survival';
   }
 
   checkLevelEnd() {
     if (this.levelFinished) return;
+    if (this.isSurvivalLevel()) {
+      this.checkSurvivalLevelEnd();
+      return;
+    }
     if (!this.enemyCamp.alive) {
       this.finishLevel(true, { endReason: 'enemy_camp_destroyed' });
       return;
@@ -7502,6 +7927,708 @@ export class Game {
     if (!this.playerBase.alive) {
       this.finishLevel(this.isEndlessMode(), { endReason: 'player_base_destroyed' });
     }
+  }
+
+  /**
+   * 海岛生存的胜负（方案第 6 节）。
+   *
+   * 胜：全部刷怪点被永久摧毁，**且**它们放出来的敌人也已经清干净。
+   *     这条规则本来就写在 `SpawnPointSystem.checkVictory()` 里，并且一直在算，
+   *     只是此前没有任何地方读它的结果——于是海岛关从来不会赢。
+   *     野生动物（isWildlife）不算残余敌人：它们不是刷怪点产出的，也不该让人
+   *     为了通关满地图找最后一只兔子。`aliveByPoint()` 的口径正好是这样。
+   * 负：基地被毁；或一个己方单位都不剩且当前没有任何补充单位的途径。
+   *
+   * 敌营被毁在这张图上**不算通关**——本关目标写在关卡副标题里：
+   * 「最终摧毁全部刷怪点」。敌营仍然会开火，所以它是个战术目标，不是通关按钮。
+   */
+  checkSurvivalLevelEnd() {
+    if (this.spawnPoints?.checkVictory?.()) {
+      this.finishLevel(true, { endReason: 'spawn_points_cleared' });
+      return;
+    }
+    if (this.playerBase?.alive === false) {
+      this.finishLevel(false, { endReason: 'player_base_destroyed' });
+      return;
+    }
+    if (this.survivalStrandedLongEnough()) {
+      this.finishLevel(false, { endReason: 'no_units_left' });
+    }
+  }
+
+  /**
+   * 己方单位全灭、且没有别的办法再拿到单位，并且这个状态已经持续了一会儿。
+   *
+   * 延迟确认是必要的：单位刚死、替补正要入场的同一帧不能直接判负；
+   * 重生队列里还有条目时也不判负（它们马上就要回到场上）。
+   */
+  survivalStrandedLongEnough() {
+    if ((this.friendlyUnits ?? []).some((unit) => unit?.alive)) {
+      this.survivalStrandedSince = null;
+      return false;
+    }
+    if (this.survivalCanStillGetUnits()) {
+      this.survivalStrandedSince = null;
+      return false;
+    }
+    if ((this.rebirthQueue?.length ?? 0) > 0 || this.awaitingOpeningReward) return false;
+    const now = Number(this.elapsedTime) || 0;
+    if (!Number.isFinite(this.survivalStrandedSince)) {
+      this.survivalStrandedSince = now;
+      return false;
+    }
+    return now - this.survivalStrandedSince >= SURVIVAL_STRANDED_GRACE_SECONDS;
+  }
+
+  /**
+   * 生存模式还有没有"再获得单位"的途径。
+   *
+   * 答案是**没有**，而且刷怪点奖励也救不了这个局面——这一点容易想反：
+   * 巢穴里的傀儡只有摧毁巢穴才会出来，而摧毁巢穴需要己方单位去打。
+   * 所以"一个己方单位都不剩"时，剩下的巢穴再肥也拿不到手，只能判负。
+   * 野外招募（方案第 6.2 条，发现方式与条件待定）接上之后，
+   * 这个判断才可能真的返回 true，届时必须一起改。
+   */
+  survivalCanStillGetUnits() {
+    return false;
+  }
+
+  /**
+   * 摧毁一个刷怪点之后的结算（方案第 6 节）。
+   *
+   * 由 `SpawnPointSystem.destroyPoint()` 在**真正完成清除**的那一次调用，
+   * 所以奖励天然幂等：重复摧毁同一个点不会再发一份。
+   *
+   * 两样东西会掉出来：
+   *   - `point.drops` 里的资源，走地面遗物包（和阵亡掉落同一个系统、同一套守恒规则）；
+   *   - `point.workerReward` 的傀儡——方案第 6.1 条确认过「新增傀儡来源是刷怪点」。
+   */
+  onSpawnPointCleared(point) {
+    if (!point) return null;
+    if (!this.isSurvivalLevel()) return null;
+    const x = Number(point.x) || 0;
+    const z = Number(point.z) || 0;
+
+    const stacks = (point.drops ?? [])
+      .filter((entry) => entry?.itemId && Number(entry.count) > 0)
+      .map((entry) => ({
+        itemId: entry.itemId,
+        count: Math.max(1, Math.floor(Number(entry.count)))
+      }));
+    const drop = stacks.length
+      ? this.drops?.spawnFromStacks?.(stacks, {
+        x: x + 0.6,
+        z: z + 0.6,
+        ownerId: this.localPlayerSlot ?? null
+      }) ?? null
+      : null;
+
+    const workers = this.grantSpawnPointWorkerReward(point, x, z);
+
+    const label = [
+      drop ? '遗物落地' : null,
+      workers ? `获得木傀儡 ×${workers}` : null
+    ].filter(Boolean).join(' · ');
+    if (label) {
+      const center = new THREE.Vector3(x, 0, z);
+      center.y = this.groundHeightAt(center);
+      this.effects?.spawnRing?.(center, '#8fe3c8', 1.5, 0.7);
+      this.effects?.spawnDamageNumber?.(center, 1, {
+        text: `${point.name ?? '刷怪点'}已清除 · ${label}`,
+        color: '#bff5e2',
+        stroke: '#123a2e',
+        height: 2.1,
+        duration: 1.5,
+        fontSize: 74,
+        baseHeight: 0.5
+      });
+    }
+    return { drop, workers };
+  }
+
+  /**
+   * 把巢穴里那支木傀儡交给玩家。
+   *
+   * 落点必须先过 `resolveWalkablePoint`：巢穴自身登记了寻路阻挡，直接按几何偏移
+   * 落点会踩进阻挡格，那支傀儡就会永远"想走但一步不动"（这个坑在开局傀儡上踩过一次）。
+   */
+  grantSpawnPointWorkerReward(point, x, z) {
+    const reward = point?.workerReward;
+    if (!reward?.type) return 0;
+    // 定义缺失时安静跳过：宁可不发傀儡，也不要把整局搞崩。
+    if (!UNIT_DEFINITIONS[reward.type]) return 0;
+    const count = Math.max(1, Math.min(4, Math.floor(Number(reward.count) || 1)));
+    const spot = new THREE.Vector3(x - 3.2, 0, z + 3.0);
+    const position = this.resolveWalkablePoint(spot);
+    position.y = this.groundHeightAt(position);
+
+    const before = new Set((this.friendlyUnits ?? []).map((unit) => unit.id));
+    this.summonUnits(reward.type, count, position, 0.7, { select: false });
+    const fresh = (this.friendlyUnits ?? []).filter((unit) => (
+      unit?.alive && !before.has(unit.id) && unit.type === reward.type
+    ));
+    fresh.forEach((unit) => {
+      this.work?.registerWorker?.(unit, { inventory: this.createWorkerBootstrapInventory(unit.id) });
+    });
+    return fresh.length;
+  }
+
+  /**
+   * 傀儡的启动工具。
+   *
+   * 目前游戏里还没有工具制作链，所以工具的唯一来源就是这里（开局那支 + 刷怪点奖励的那支）。
+   * 合成 / 附魔台接上之后，这段要改成"只发开局那一支"，
+   * 否则工具会一直免费发，采集需求也就不再有意义。
+   */
+  createWorkerBootstrapInventory(unitId) {
+    const inventory = new Inventory({
+      id: `worker:${unitId}`,
+      capacity: ITEM_RULES.workerInventorySlots
+    });
+    ['axe', 'pickaxe'].forEach((itemId) => {
+      if (!ITEM_DEFINITIONS[itemId]) return;
+      inventory.add(itemId, 1);
+    });
+    return inventory;
+  }
+
+  /**
+   * 合成入口（方案第 9 节）。目前只在**基地库存**上合成——熔炉、附魔台这类设施还没做，
+   * 所以没有"必须站在某台机器旁边"的限制。整笔原子性由 crafting.js 保证：
+   * 材料不够或产物放不下都不会扣掉一半材料。
+   */
+  craftAtBase(recipeId, { times = 1 } = {}) {
+    if (!this.baseInventory) return { ok: false, reason: 'no_inventory', crafted: 0, missing: [] };
+    const result = craftIntoInventory(this.baseInventory, recipeId, { times });
+    const recipe = recipeById(recipeId);
+    if (result.ok) {
+      const name = recipe?.name ?? recipeId;
+      const center = this.playerBase?.position?.clone?.() ?? new THREE.Vector3();
+      if (this.playerBase?.position) {
+        center.y = this.groundHeightAt(center);
+        this.effects?.spawnRing?.(center, '#9fe8ff', 1.1, 0.6);
+        this.effects?.spawnDamageNumber?.(center, 1, {
+          text: `合成 ${name} ×${result.crafted}`,
+          color: '#cdf3ff',
+          stroke: '#123043',
+          height: 2.4,
+          duration: 1.1,
+          fontSize: 76,
+          baseHeight: 0.5
+        });
+      }
+      return result;
+    }
+    const label = CRAFT_ERROR_LABELS[result.reason] ?? '无法合成';
+    this.cardSystem?.setHintOnce?.(`${recipe?.name ?? '合成'}：${label}`, `crafting:${recipeId}`);
+    return result;
+  }
+
+  /**
+   * 配方的可读状态：每个配方当前能不能做、缺什么、还差多少。
+   * 合成界面直接渲染这个，不要在 UI 里重算库存规则。
+   */
+  recipeStatus() {
+    const inventory = this.baseInventory;
+    return allRecipes()
+      // 没被科技解锁的配方**根本不出现**在列表里，而不是显示成灰的：
+      // 玩家在解锁前不该知道有这么个东西，列表也不该被暂时用不了的条目撑满。
+      .filter((raw) => this.research?.recipeUnlocked?.(raw) !== false)
+      .map((raw) => {
+        const recipe = normalizeRecipe(raw);
+        const check = canCraft(inventory, recipe);
+        return {
+          ...recipe,
+          craftable: check.ok,
+          reason: check.reason,
+          reasonLabel: check.ok ? '' : (CRAFT_ERROR_LABELS[check.reason] ?? ''),
+          missing: check.missing,
+          inputs: recipe.inputs.map((entry) => ({
+            ...entry,
+            have: inventory?.countOf?.(entry.itemId) ?? 0
+          }))
+        };
+      });
+  }
+
+  /**
+   * 这批配方在当前基地库存下最多能连做几批。
+   * 界面用它决定"全部合成"按钮显示多少，规则本身在 crafting.js 里。
+   */
+  maxCraftableTimes(recipeOrId, { limit = 20 } = {}) {
+    return maxCraftableTimes(this.baseInventory, recipeOrId, { limit });
+  }
+
+  /** I 键 / 常驻入口：基地库存与合成面板。合成不暂停战斗。 */
+  toggleBaseStorage() {
+    if (!this.baseStorage) return false;
+    this.baseStorage.toggle();
+    return true;
+  }
+
+  /**
+   * 详情面板上的招募按钮要显示成什么样。全部规则都在这里算，UI 只负责渲染。
+   */
+  recruitStatusFor(unit) {
+    const hidden = { visible: false, canRecruit: false, orders: 0, label: '', hint: '' };
+    if (!unit || unit.alive === false) return hidden;
+    if (!this.isSurvivalLevel()) return hidden;
+    if (!unit.isRecruitable) return hidden;
+    const orders = this.baseInventory?.countOf?.(RECRUITMENT_ORDER_ITEM_ID) ?? 0;
+    return {
+      visible: true,
+      canRecruit: orders > 0,
+      orders,
+      label: orders > 0 ? '招募' : '缺招募令',
+      hint: orders > 0
+        ? `消耗 1 张招募令，把${unit.name}招募成自己人`
+        : '需要 1 张招募令：在刷怪点拿到深邃核心后，到基地库存（I）里合成'
+    };
+  }
+
+  /**
+   * 把野外中立单位招募成自己人（用户定稿的交互：详情面板按钮 + 消耗一张招募令）。
+   *
+   * 距离不做限制：用户指定的是"点开面板按按钮"，面板里再要求"必须站到旁边"
+   * 就成了一条界面上看不出来的隐藏规则。招募令本身就是"一道命令"，
+   * 远程下达是自洽的。若之后要加距离门槛，改这里并同时给出提示文案。
+   */
+  recruitUnit(unit) {
+    if (!unit || unit.alive === false) return { ok: false, reason: 'no_unit' };
+    if (!this.isSurvivalLevel()) return { ok: false, reason: 'not_survival_level' };
+    if (!unit.isRecruitable) return { ok: false, reason: 'not_recruitable' };
+    if (!this.baseInventory) return { ok: false, reason: 'no_inventory' };
+
+    const spent = this.baseInventory.remove(RECRUITMENT_ORDER_ITEM_ID, 1);
+    if (!spent.ok) return { ok: false, reason: 'no_order' };
+
+    const changed = this.unitRegistry?.changeTeam?.(unit, TEAMS.PLAYER);
+    if (!changed) {
+      // 换队失败必须把招募令放回去：刚扣掉 1 张，背包里一定有位置。
+      this.baseInventory.add(RECRUITMENT_ORDER_ITEM_ID, 1);
+      return { ok: false, reason: 'team_change_failed' };
+    }
+
+    unit.isRecruitable = false;
+    unit.recruitedAt = this.elapsedTime;
+    unit.ownerPlayerId = this.localPlayerSlot ?? null;
+    unit.controllerPlayerId = unit.ownerPlayerId;
+    unit.statusUiDirty = true;
+    // 招募后它是自己人了：别让"野生动物/敌人"那套按类型做的加成继续套用。
+    unit.isWildlife = false;
+
+    this.effects?.spawnRing?.(unit.position, '#ffe6a3', 1.0, 0.62);
+    this.effects?.spawnDamageNumber?.(unit.position, 1, {
+      text: `${unit.name} 已加入`,
+      color: '#ffe6a3',
+      stroke: '#4a3a12',
+      height: unit.projectileHitHeight ?? 1.55,
+      duration: 1.2,
+      fontSize: 80,
+      baseHeight: 0.5
+    });
+    this.baseStorage?.markDirty?.();
+    return { ok: true, unit };
+  }
+
+  /** 详情面板上的招募按钮：对当前选中单位调用 recruitUnit。 */
+  recruitSelectedUnit() {
+    const unit = this.selectedUnit;
+    const status = this.recruitStatusFor(unit);
+    if (!status.visible) return { ok: false, reason: 'not_recruitable' };
+    const result = this.recruitUnit(unit);
+    if (!result.ok) {
+      const label = result.reason === 'no_order'
+        ? '招募需要一张招募令'
+        : '这个单位现在无法招募';
+      this.cardSystem?.setHintOnce?.(label, `recruit:${unit.id}`);
+      return result;
+    }
+    // 招募成功后立刻切到它，玩家能直接下令——不然还要再点一次才知道成了。
+    this.selectUnit(unit);
+    this.baseStorage?.markDirty?.();
+    return result;
+  }
+
+  /**
+   * 把一个库存格里的东西整格搬到另一个容器（合成面板里的点击搬运）。
+   *
+   * 堆叠物走 `transferTo`，实例物走 `transferInstanceTo`——后者必须保留 instanceId，
+   * 否则工具会被重新发一个 ID，等于凭空造了第二件。
+   * 两者都是库存自己的原子转移：目标装不下就整笔失败，不会出现"两边都没有"的瞬间。
+   */
+  transferInventoryEntry(source, target, slotIndex) {
+    if (!source || !target) return { ok: false, reason: 'no_inventory' };
+    const slot = source.slots?.[slotIndex];
+    if (!slot?.itemId) return { ok: false, reason: 'empty_slot' };
+    const result = slot.instanceId
+      ? source.transferInstanceTo(target, slot.instanceId)
+      : source.transferTo(target, slot.itemId, slot.count);
+    return result?.ok
+      ? { ok: true, itemId: slot.itemId, count: slot.count }
+      : { ok: false, reason: result?.error ?? 'transfer_failed', itemId: slot.itemId };
+  }
+
+  /**
+   * 单位的物品背包。傀儡的背包由作业系统创建（`workerInventory`），
+   * 战斗单位没有作业系统，所以在这里按需建一个。
+   *
+   * 不做成"只有傀儡有背包"：方案第 4 节写的是「点击单位同时打开单位与基地背包，
+   * 可以把工具、武器和附魔石拖给单位」——能接收物品的单位都得有背包。
+   * 建筑除外（它们不是能拿东西的东西）。
+   */
+  itemBagFor(unit, { create = true } = {}) {
+    if (!unit?.id) return null;
+    if (unit.workerInventory) return unit.workerInventory;
+    if (unit.itemBag) return unit.itemBag;
+    if (!create) return null;
+    // **必须是真的单位**：基地、资源节点这类对象也有 id，但它们不是能拿东西的东西。
+    // 用 `definition` 作为"这是 UnitEntity"的判据，再排除建筑。
+    if (!unit.definition) return null;
+    if (unit.isBuilding === true || unit.definition.canMove === false) return null;
+    unit.itemBag = new Inventory({
+      id: `unit:${unit.id}`,
+      capacity: ITEM_RULES.combatInventorySlots
+    });
+    return unit.itemBag;
+  }
+
+  /** 基地库存 → 单位背包。 */
+  transferBaseSlotToUnit(slotIndex, unit) {
+    if (!unit?.alive) return { ok: false, reason: 'no_unit' };
+    const bag = this.itemBagFor(unit);
+    if (!bag) return { ok: false, reason: 'unit_has_no_bag' };
+    const result = this.transferInventoryEntry(this.baseInventory, bag, slotIndex);
+    if (result.ok) {
+      // 背包缓存不会自己失效：工具列表与卸货清单都从缓存派生，
+      // 不通知的话会出现"背包里明明有斧子，规划器还说缺工具"。
+      this.work?.notifyInventoryChanged?.(unit);
+      this.baseStorage?.markDirty?.();
+    }
+    return result;
+  }
+
+  /** 单位背包 → 基地库存。 */
+  transferUnitSlotToBase(slotIndex, unit) {
+    const bag = this.itemBagFor(unit, { create: false });
+    if (!bag) return { ok: false, reason: 'unit_has_no_bag' };
+    const result = this.transferInventoryEntry(bag, this.baseInventory, slotIndex);
+    if (result.ok) {
+      this.work?.notifyInventoryChanged?.(unit);
+      this.baseStorage?.markDirty?.();
+    }
+    return result;
+  }
+
+  /**
+   * 从单位背包里装备一件武器（方案第 6.2 节：武器只能换成同类武器）。
+   *
+   * 三条纪律：
+   *   1. **先校验再动手**：家族、射程、投射物、攻击动作四项由 `canEquipWeapon` 判定，
+   *      不匹配就整笔拒绝并给出原因，绝不"先脱了旧武器再说"；
+   *   2. **换下来的武器必须还回背包**：单位最初手里那把不是物品，
+   *      所以第一次换装时按家族物化成"原配武器"物品放进背包（`baselineWeaponItemFor`），
+   *      否则每换一次武器就凭空少一把；
+   *   3. 背包放不下换下来的武器时**整笔失败**，不做半途而废的交换。
+   */
+  equipWeaponFromBag(unit, slotIndex) {
+    if (!unit?.alive) return { ok: false, reason: 'no_unit' };
+    const bag = this.itemBagFor(unit, { create: false });
+    if (!bag) return { ok: false, reason: 'unit_has_no_bag', label: '这个单位没有物品背包' };
+    const slot = bag.slots[slotIndex] ?? null;
+    if (!slot) return { ok: false, reason: 'not_in_bag', label: '背包里没有这件东西' };
+    const check = canEquipWeapon(slot.itemId, unit);
+    if (!check.ok) return { ok: false, reason: check.reason, label: check.label };
+
+    // 换下来的那把：优先用"上次装上去的那件"，否则把原配武器物化成物品
+    const outgoingItemId = unit.weaponItemId ?? baselineWeaponItemFor(check.weapon.family);
+    if (outgoingItemId && outgoingItemId === slot.itemId && unit.weaponItemId === slot.itemId) {
+      return { ok: false, reason: 'already_equipped', label: '已经装备着这件武器' };
+    }
+
+    // 先确认背包腾得出位置：换下来的武器要放回去（武器是实例，按 instanceId 移动）
+    const bagSlots = bag.slots;
+    const outgoingSlotIndex = slotIndex;
+    bagSlots[outgoingSlotIndex] = null;
+    let returned = { ok: true };
+    if (outgoingItemId) {
+      returned = bag.add(outgoingItemId, 1, { allowPartial: false });
+      if (!returned.ok) {
+        // 放不回去就把新武器放回原格，整笔回滚
+        bagSlots[outgoingSlotIndex] = slot;
+        return {
+          ok: false,
+          reason: 'no_space_for_old_weapon',
+          label: WEAPON_ERROR_LABELS.no_space_for_old_weapon
+        };
+      }
+    }
+
+    this.applyWeaponToUnit(unit, slot.itemId);
+    this.work?.notifyInventoryChanged?.(unit);
+    this.baseStorage?.markDirty?.();
+    this.cardSystem?.setHintOnce?.(
+      `${unit.name}换上了${ITEM_DEFINITIONS[slot.itemId]?.name ?? slot.itemId}`,
+      `equip:${unit.id}`
+    );
+    return {
+      ok: true,
+      reason: 'none',
+      itemId: slot.itemId,
+      returnedItemId: outgoingItemId,
+      stats: weaponStatPatch(slot.itemId)
+    };
+  }
+
+  /**
+   * 把武器的数值写到单位身上。
+   *
+   * **`weapon.maxDurability` 与 `weapon.durabilityCost` 都只有 getter**
+   * （UnitEntity 用 `bindAttributeGetter` 绑到 attributes 上），直接赋值会抛
+   * "Cannot set property ... which has only a getter"。所以这两项要走
+   * `attributes.setBase`，和护甲/攻击力是同一条路。
+   * `durability` 是普通字段，可以写；换装按"新武器满耐久"处理。
+   * 这里**不碰** activityMana（方案第 3 节：活动魔力与武器耐久互不混用）。
+   */
+  applyWeaponToUnit(unit, itemId) {
+    const patch = weaponStatPatch(itemId);
+    if (!patch || !unit) return null;
+    const attributes = unit.attributes;
+    const attribute = patch.damageType === 'magic' ? 'magicAttack' : 'physicalAttack';
+    attributes?.setBase?.(attribute, patch.damage, { min: 0 });
+    if (Number.isFinite(patch.attackRate)) {
+      attributes?.setBase?.('attackRate', patch.attackRate, { min: 0.05 });
+    }
+    attributes?.setBase?.('maxDurability', patch.maxDurability, { min: 1 });
+    attributes?.setBase?.('durabilityCost', patch.durabilityCost, { min: 0 });
+    if (unit.weapon) {
+      unit.weapon.name = patch.name;
+      // 换装给的是满耐久的武器，和刚建出来时一致
+      unit.weapon.durability = attributes?.get?.('maxDurability') ?? patch.maxDurability;
+    }
+    unit.weaponItemId = itemId;
+    return patch;
+  }
+
+  /** 合成面板搬运失败时的中文原因，UI 直接显示。 */
+  transferFailureLabel(reason) {
+    const labels = {
+      no_unit: '先选中一个己方单位',
+      unit_has_no_bag: '这个单位没有物品背包（目前只有傀儡有）',
+      empty_slot: '这一格是空的',
+      no_space: '对面放不下',
+      not_enough: '数量不够',
+      unknown_instance: '找不到这件物品'
+    };
+    return labels[reason] ?? '搬不过去';
+  }
+
+  // ---------------------------------------------------------------- 放置建筑
+  //
+  // 流程：合成面板里点「放置」→ 进入放置模式（地图上跟一个半透明预览）→
+  // 左键落地 / 右键或 Esc 取消。落地时才扣物品，取消不扣。
+  //
+  // 校验规则只有两条，都是"不满足就不能放"而不是"放了再说"：
+  //   1. 落点必须可走（`world.isWalkable`）——否则建筑会卡在障碍里；
+  //   2. 必须落在某个供能源的半径内——设施是供能接收者，没电的生产设施是摆设。
+  //      方案第 9 节的魔力炉就是"为周围生产和战斗提供魔力"，所以"紧邻供能"是既有模型。
+
+  /** 进入放置模式。物品不可放置时明确拒绝并给原因。 */
+  beginPlacement(itemId) {
+    const definition = ITEM_DEFINITIONS[itemId];
+    if (!definition?.placeable?.unitType) return { ok: false, reason: 'not_placeable' };
+    if (!UNIT_DEFINITIONS[definition.placeable.unitType]) return { ok: false, reason: 'unknown_building' };
+    if (this.baseInventory?.countOf?.(itemId) <= 0) return { ok: false, reason: 'not_in_stock' };
+    this.cancelPlacement();
+    this.placingItem = { itemId, unitType: definition.placeable.unitType };
+    this.createPlacementGhost(definition.placeable.unitType);
+    this.cardSystem?.setHint?.(
+      `放置${definition.name}：左键落地，右键或 Esc 取消`,
+      'placement'
+    );
+    this.baseStorage?.close?.();
+    return { ok: true, itemId, unitType: definition.placeable.unitType };
+  }
+
+  cancelPlacement() {
+    if (!this.placingItem) return false;
+    this.placingItem = null;
+    if (this.placementGhost) {
+      this.scene.remove(this.placementGhost);
+      disposeObject3D(this.placementGhost, { materials: true });
+      this.placementGhost = null;
+    }
+    this.cardSystem?.clearHint?.('placement');
+    return true;
+  }
+
+  isPlacing() {
+    return Boolean(this.placingItem);
+  }
+
+  createPlacementGhost(unitType) {
+    try {
+      const ghost = createUnitModel(unitType, TEAMS.PLAYER);
+      // 半透明预览：材质是这一份模型独有的，可以安全改透明度。
+      ghost.traverse((node) => {
+        if (!node.isMesh) return;
+        const materials = Array.isArray(node.material) ? node.material : [node.material];
+        materials.forEach((material) => {
+          if (!material) return;
+          material.transparent = true;
+          material.opacity = 0.55;
+          material.depthWrite = false;
+        });
+      });
+      ghost.userData.isPlacementGhost = true;
+      this.scene.add(ghost);
+      this.placementGhost = ghost;
+      return ghost;
+    } catch {
+      this.placementGhost = null;
+      return null;
+    }
+  }
+
+  /**
+   * 能不能把当前待放置的建筑放在这个点上。
+   * 返回的 `label` 可以直接显示给玩家——"放不下"必须说清是哪种放不下。
+   */
+  canPlaceAt(point) {
+    const placing = this.placingItem;
+    if (!placing || !point) return { ok: false, reason: 'not_placing', label: '没有正在放置的建筑' };
+    const definition = UNIT_DEFINITIONS[placing.unitType];
+    const radius = Math.max(0.2, Number(definition?.collisionRadius) || 0.8);
+    if (!this.world?.isWalkable?.(point.x, point.z)) {
+      return { ok: false, reason: 'blocked', label: '这里放不下（地面不可走）' };
+    }
+    // 供能源自己不受"必须在供能范围内"约束——魔力炉就是来给远处供能的，
+    // 要求它先待在基地旁边等于把它的用途取消掉。它只需要地面可走。
+    if (definition?.powerSource === true) {
+      return { ok: true, reason: 'none', label: '', radius, supplierId: null };
+    }
+    const supplier = this.power?.nearestSupplier?.(point.x, point.z) ?? null;
+    const inRange = Boolean(supplier && supplier.distance <= supplier.supplier.supplyRadius);
+    if (!inRange) {
+      return {
+        ok: false,
+        reason: 'no_power',
+        label: `离供能范围太远（基地约 ${Math.round(this.power?.suppliers?.get?.('player-base')?.supplyRadius ?? 20)} 米内）`
+      };
+    }
+    return { ok: true, reason: 'none', label: '', radius, supplierId: supplier.supplier.id };
+  }
+
+  /** 放置预览跟着指针走，并用颜色交代"这里能不能放"。 */
+  updatePlacementPreview(clientX, clientY) {
+    if (!this.placingItem) return null;
+    const point = this.groundPointFromClient(clientX, clientY);
+    if (!point) return null;
+    const check = this.canPlaceAt(point);
+    if (this.placementGhost) {
+      this.placementGhost.position.copy(point);
+      this.placementGhost.visible = true;
+      this.placementGhost.userData.placementValid = check.ok === true;
+    }
+    return { point, check };
+  }
+
+  /**
+   * 落地。成功才扣物品，并把建筑登记成生产者（如果有生产配方）。
+   * 校验失败时**什么都不扣**，只给提示——这是放置流程最容易写错的地方。
+   */
+  confirmPlacement(point) {
+    const placing = this.placingItem;
+    if (!placing) return { ok: false, reason: 'not_placing' };
+    // 统一成 Vector3 再往下走：canPlaceAt 只读 x/z（可以接受普通对象），
+    // 但 buildStructureUnit 会调 point.clone()。同一个 API 不该一半接受普通对象、
+    // 一半要求 Vector3——调用方传 {x,z} 时直接 TypeError 是最难查的那种错。
+    const spot = point?.clone
+      ? point
+      : new THREE.Vector3(Number(point?.x) || 0, 0, Number(point?.z) || 0);
+    const check = this.canPlaceAt(spot);
+    if (!check.ok) {
+      this.cardSystem?.setHintOnce?.(check.label, 'placement-blocked');
+      return { ok: false, reason: check.reason, label: check.label };
+    }
+    const spent = this.baseInventory.remove(placing.itemId, 1);
+    if (!spent.ok) {
+      this.cancelPlacement();
+      return { ok: false, reason: 'not_in_stock' };
+    }
+    const unit = this.buildStructureUnit(placing.unitType, spot, { buildSeconds: 6 });
+    const producer = this.production?.registerProducer?.(unit) ?? null;
+    // 燃料供能设施（魔力炉）注册成供能源；它没有生产配方，所以 producer 为空。
+    const burner = this.fuelPower?.registerBurner?.(unit) ?? null;
+    // 树坑：注册成种植地块（种树苗 → 长成 → 可砍）
+    const plot = this.planting?.registerPlot?.(unit) ?? null;
+    // 箭塔 / 食堂：注册成"要魔力的设施"（魔力耗尽就停机）
+    const facility = this.facilities?.registerFacility?.(unit) ?? null;
+    this.effects?.spawnRing?.(unit.position, '#a9f0d8', 1.3, 0.6);
+    this.cardSystem?.setHintOnce?.(
+      producer ? `${UNIT_DEFINITIONS[placing.unitType].name}已动工，建成后开始生产`
+        : (burner ? `${UNIT_DEFINITIONS[placing.unitType].name}已动工，建成后开始供能`
+          : (plot ? `${UNIT_DEFINITIONS[placing.unitType].name}已动工，建成后开始种树`
+            : (facility ? `${UNIT_DEFINITIONS[placing.unitType].name}已动工，建成后需要魔力驱动` : '建筑已动工'))),
+      'placement-done'
+    );
+    this.cancelPlacement();
+    this.baseStorage?.markDirty?.();
+    return {
+      ok: true,
+      unit,
+      producer: Boolean(producer),
+      burner: Boolean(burner),
+      plot: Boolean(plot),
+      facility: Boolean(facility)
+    };
+  }
+
+  /** 左键按下时优先尝试放置：成功/失败都吃掉这次点击，别再当成框选。 */
+  tryPlaceAtPointer(event) {
+    if (!this.placingItem) return false;
+    const point = this.groundPointFromClient(event.clientX, event.clientY);
+    if (!point) return false;
+    this.confirmPlacement(point);
+    return true;
+  }
+
+  /** 快捷栏槽位：基地里当前可放置的建筑（按物品定义里的 `placeable` 判定）。 */
+  hotbarItems() {
+    const inventory = this.baseInventory;
+    if (!inventory) return [];
+    const entries = [];
+    inventory.slots.forEach((slot) => {
+      if (!slot?.itemId) return;
+      const definition = ITEM_DEFINITIONS[slot.itemId];
+      if (!definition?.placeable?.unitType) return;
+      const existing = entries.find((entry) => entry.itemId === slot.itemId);
+      if (existing) {
+        existing.count += slot.count;
+        return;
+      }
+      entries.push({ itemId: slot.itemId, name: definition.name, count: slot.count });
+    });
+    return entries;
+  }
+
+  /**
+   * 数字键 / 点击快捷栏：进入该建筑的放置模式；再按同一个键取消。
+   * 槽位是按"库存里现在有什么"动态算的，所以按键与物品的对应关系随时可能变——
+   * 这也是为什么取消的条件是"当前正在放的就是这一件"，而不是记住槽位号。
+   */
+  activateHotbarSlot(index) {
+    const items = this.hotbarItems();
+    const entry = items[index] ?? null;
+    if (!entry) return { ok: false, reason: 'empty_slot' };
+    if (this.placingItem?.itemId === entry.itemId) {
+      this.cancelPlacement();
+      this.hotbar?.refresh?.();
+      return { ok: true, cancelled: true, itemId: entry.itemId };
+    }
+    const result = this.beginPlacement(entry.itemId);
+    this.hotbar?.refresh?.();
+    return result;
   }
 
   finishLevel(victory, { endReason = null } = {}) {
@@ -7827,12 +8954,22 @@ export class Game {
 
     if (event.button === 2) {
       event.preventDefault();
+      // 放置模式里右键是"取消"，不能顺手把部队派过去
+      if (this.isPlacing()) {
+        this.cancelPlacement();
+        return;
+      }
       this.issueMoveCommand(event);
       return;
     }
 
     if (event.button !== 0 || this.cardSystem.drag) return;
     if (this.lootDrops?.tryOpenPickup(event)) return;
+    // 放置模式：左键落地。无论成功与否都吃掉这次点击，避免顺带拉出一个框选。
+    if (this.tryPlaceAtPointer(event)) {
+      event.preventDefault();
+      return;
+    }
     event.preventDefault();
     this.beginSelectionDrag(event);
   }
@@ -7895,6 +9032,22 @@ export class Game {
       this.toggleBaseRuneBackpack();
       return;
     }
+    // I：基地库存与合成面板。E/B 已经被符文背包占用，所以库存另给一个键。
+    if (key === 'i' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault();
+      this.toggleBaseStorage();
+      return;
+    }
+    // 数字键 1-9：物品快捷栏。放的是基地里可放置的建筑，按一次进入放置模式，
+    // 再按一次取消——比"开面板找那件东西点放置"少两步。
+    if (!event.ctrlKey && !event.metaKey && !event.altKey && /^[1-9]$/.test(key)) {
+      const slotIndex = Number(key) - 1;
+      const result = this.activateHotbarSlot(slotIndex);
+      if (result?.ok) {
+        event.preventDefault();
+        return;
+      }
+    }
     if (key === 'f2') {
       event.preventDefault();
       this.togglePerfChart();
@@ -7913,9 +9066,18 @@ export class Game {
     }
     if (key === 'escape') {
       event.preventDefault();
+      // 放置模式优先取消，不要一点 Esc 就把整个游戏暂停了
+      if (this.isPlacing()) {
+        this.cancelPlacement();
+        return;
+      }
       // 符文背包：Esc 与再按一次 E 等价，两个背包一起关闭。
       if (this.runeBackpack?.isOpen()) {
         this.runeBackpack.close();
+        return;
+      }
+      if (this.baseStorage?.isOpen()) {
+        this.baseStorage.close();
         return;
       }
       if (this.battleDebugPanel?.isOpen()) {
@@ -7979,6 +9141,8 @@ export class Game {
   }
 
   onCanvasPointerMove(event) {
+    // 放置预览跟着指针走：不更新的话玩家看不到自己要放在哪
+    if (this.isPlacing()) this.updatePlacementPreview(event.clientX, event.clientY);
     this.pointerScreen.set(event.clientX, event.clientY);
     if (event.pointerType === 'touch') {
       this.trackTouchPointer(event);
@@ -8430,6 +9594,9 @@ export class Game {
     if (!units.length) return false;
     const commandCenter = this.resolveCommandPoint(point);
     if (!commandCenter) return false;
+    // 点在一个还能采的资源点附近时，选中的傀儡改为「去采这里」而不是走过去站着。
+    // 只在这里（一次点击）做节点距离判定，绝不放进每帧循环——activeNodes() 会遍历节点表。
+    if (this.issueHarvestOrders(commandCenter, units)) return true;
     const formationRadius = Math.min(2.4, 0.55 + Math.sqrt(units.length) * 0.42);
     const forceMoveUnits = [];
     let commanded = false;
@@ -8460,6 +9627,40 @@ export class Game {
       formationRadius,
       this.playerVisualColor(units[0] ?? this.localPlayerSlot)
     );
+    return true;
+  }
+
+  // 右键点在一个还能采的资源点附近时的「派活」分支。
+  //
+  // 放在这里而不是每帧逻辑里：节点距离判定只应在玩家点击时做一次，
+  // resourceNodes.activeNodes() 会遍历整张节点表，放进 update 就是每帧全表扫描。
+  //
+  // 返回 true 表示这次点击已经变成采集指令，调用方不要再补一条移动指令。
+  // 选中的非傀儡单位不受影响，仍然走原来的移动流程。
+  issueHarvestOrders(commandPoint, units) {
+    if (!this.work || !commandPoint) return false;
+    const nodes = this.resourceNodes;
+    if (!nodes?.activeNodes) return false;
+    const range = RESOURCE_NODE_RULES.harvestRange;
+    let target = null;
+    let bestDistance = Infinity;
+    nodes.activeNodes().forEach((node) => {
+      const distance = Math.hypot((node.x ?? 0) - commandPoint.x, (node.z ?? 0) - commandPoint.z);
+      if (distance > range || distance >= bestDistance) return;
+      target = node;
+      bestDistance = distance;
+    });
+    if (!target) return false;
+    let assigned = 0;
+    units.forEach((unit) => {
+      if (unit.isWorker !== true) return;
+      if (this.work.assignNode(unit, target.id)) assigned += 1;
+    });
+    if (!assigned) return false;
+    const color = this.playerVisualColor(units[0] ?? this.localPlayerSlot);
+    // 节点状态里只有 x/z，落点特效需要地面高度，所以过一次 resolveCommandPoint
+    const marker = this.resolveCommandPoint(new THREE.Vector3(target.x, 0, target.z));
+    this.effects.spawnMoveDestination(marker ?? target, range * 0.8, color);
     return true;
   }
 
@@ -8856,12 +10057,36 @@ export class Game {
       );
     }
     this.dom.unitCount.textContent = String(this.friendlyUnits.length);
+    // 海岛关没有波次：把「当前波次」计数器与波次情报整块隐藏（CSS 里按 is-survival 压
+    // display），只留时间与刷怪点进度。否则生存关会显示「当前波次 1/21」这种误导信息。
+    this.dom.wavePanel?.classList.toggle('is-survival', this.isSurvivalLevel());
+    // 海岛关：显示刷怪点清除进度（「清除全部刷怪点」是本关的胜利条件）。
+    // 其它关卡没有刷怪点，整行保持隐藏。
+    if (this.dom.spawnPointMeter) {
+      const spawnProgress = this.spawnPoints?.progress?.();
+      const showSpawnPoints = Boolean(spawnProgress?.total);
+      this.dom.spawnPointMeter.hidden = !showSpawnPoints;
+      if (showSpawnPoints && this.dom.spawnPointCount) {
+        // 胜利条件是「全部点位摧毁 **且** 残余敌人清空」，所以 4/4 不代表已经赢。
+        // 点位全清之后必须把还剩几个敌人也显示出来，否则玩家会以为卡住了。
+        const remaining = this.spawnPoints?.aliveByPoint?.() ?? {};
+        const remainingCount = Object.values(remaining).reduce((sum, count) => sum + count, 0);
+        const label = spawnProgress.allCleared && remainingCount > 0
+          ? `${spawnProgress.cleared}/${spawnProgress.total} · 残敌 ${remainingCount}`
+          : `${spawnProgress.cleared}/${spawnProgress.total}`;
+        if (this.dom.spawnPointCount.textContent !== label) {
+          this.dom.spawnPointCount.textContent = label;
+        }
+      }
+    }
     if (this.selectedUnits.length > 1) {
       if (this.dom.selectedPanel) {
         this.dom.selectedPanel.hidden = false;
         this.dom.selectedPanel.dataset.selection = 'group';
         this.dom.selectedPanel.dataset.team = 'player';
       }
+      // 多选不显示招募按钮：招募是单个单位的事，留着会让人以为能整队招募。
+      if (this.dom.selectedRecruitButton) this.dom.selectedRecruitButton.hidden = true;
       const totalHealth = formatDisplayedHealth(
         this.selectedUnits.reduce((sum, unit) => sum + unit.health, 0)
       );
@@ -8894,6 +10119,19 @@ export class Game {
       const dodgeChance = Math.round(this.modifiers.getDodgeChance(unit) * 100);
       const knockbackResistance = Math.round(this.modifiers.getKnockbackResistance(unit) * 100);
       this.dom.selectedName.textContent = `${teamLabel} ${unit.name} #${unit.id}`;
+      // 野外中立单位：队友/敌人都不合适，明确写成"野外单位"，并把招募按钮亮出来。
+      const recruit = this.recruitStatusFor(unit);
+      if (this.dom.selectedName && unit.isRecruitable) {
+        this.dom.selectedName.textContent = `野外单位 ${unit.name} #${unit.id}`;
+      }
+      if (this.dom.selectedRecruitButton) {
+        this.dom.selectedRecruitButton.hidden = !recruit.visible;
+        if (recruit.visible) {
+          this.dom.selectedRecruitButton.textContent = recruit.label;
+          this.dom.selectedRecruitButton.disabled = !recruit.canRecruit;
+          this.dom.selectedRecruitButton.title = recruit.hint;
+        }
+      }
       this.dom.selectedStats.textContent =
         `HP ${hp}/${Math.round(unit.maxHealth)} / 护盾 ${shield}/${Math.round(unit.maxShield)} / 武器 ${unit.weapon.name} / 耐久 ${durability}/${maxDurability}`;
       this.dom.selectedEnchants.textContent =
@@ -8904,6 +10142,7 @@ export class Game {
         delete this.dom.selectedPanel.dataset.selection;
         delete this.dom.selectedPanel.dataset.team;
       }
+      if (this.dom.selectedRecruitButton) this.dom.selectedRecruitButton.hidden = true;
       this.dom.selectedName.textContent = '未选中';
       this.dom.selectedStats.textContent = 'HP - / 武器 -';
       this.dom.selectedEnchants.textContent = '附魔 -';

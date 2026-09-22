@@ -103,6 +103,8 @@ export const UNIT_DEFINITIONS = {
     aggroRange: 11.2,
     weapon: {
       name: '铁剑',
+      // 武器家族：换装必须同族（方案第 6.2 节），用配置标识判定而不是名字字符串
+      family: 'sword',
       maxDurability: 35,
       durabilityCost: 1.15
     },
@@ -201,6 +203,7 @@ export const UNIT_DEFINITIONS = {
     projectileSpeed: 20.25,
     weapon: {
       name: '短弓',
+      family: 'bow',
       maxDurability: 27,
       durabilityCost: 1
     }
@@ -624,6 +627,59 @@ export const UNIT_DEFINITIONS = {
       durabilityCost: 0.65
     }
   },
+  // 木傀儡：非战斗后勤单位，负责采集、搬运和跑腿，本身不参战。
+  // role 用自由字符串 'worker'：全仓只有 'melee' / 'ranged' / 'support' 三处
+  // 字符串比较（索敌、攻击动作、面板分类），新值走到的是"非远程非支援"的中性分支。
+  // 伤害与索敌全部为 0，武器块仍然必须有：UnitEntity.createUnitAttributes 要读
+  // weapon.maxDurability / weapon.durabilityCost，缺了会在生成时抛错。
+  // 活动魔力（activityMana / manaCapacity / drainPerSecond / isWorker）是运行时实例字段，
+  // 由供能系统写入，这里刻意不写进定义，避免"定义里像是有、实际没人读"的假字段。
+  woodPuppet: {
+    name: '木傀儡',
+    role: 'worker',
+    art: {
+      modelKey: 'unit.woodPuppet',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Walk',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        hit: {
+          duration: 0.22
+        }
+      }
+    },
+    maxHealth: 30,
+    maxShield: 0,
+    speed: 2.85,
+    canMove: true,
+    // 非战斗：不造成任何伤害，也不主动索敌
+    physicalAttack: 0,
+    magicAttack: 0,
+    damage: 0,
+    aggroRange: 0,
+    // 攻击相关字段保留成合法数值，避免除零或 NaN 扩散到索敌/动作计时
+    attackRange: 0.9,
+    attackRate: 1,
+    attackRadius: 0.34,
+    armor: 2,
+    magicResistance: 0,
+    dodgeChance: 0,
+    knockback: 0,
+    projectileHitHeight: 1.45,
+    collisionRadius: 0.42,
+    statusHeight: 1.72,
+    traits: [],
+    weapon: {
+      name: '木质手臂',
+      maxDurability: 40,
+      // 非战斗单位不消耗耐久（与维修站/食堂一致）
+      durabilityCost: 0
+    }
+  },
   physician: {
     name: '牧师',
     role: 'ranged',
@@ -895,6 +951,202 @@ export const UNIT_DEFINITIONS = {
       durabilityCost: 0
     }
   },
+  // 刷怪巢穴：海岛刷怪点在场景里的实体，玩家可以攻击并摧毁它。
+  // 必须是「惰性建筑」——isBuilding + canMove:false + aggroRange:0，
+  // 且不能是 spiderEgg 那种会自我转化/孵化的活单位：
+  // 用活单位当占位会衍生出不带点位归属的敌人，把刷怪点的存活统计弄乱。
+  spawnPointNest: {
+    name: '刷怪巢穴',
+    role: 'support',
+    isBuilding: true,
+    canMove: false,
+    canReceiveBuffs: false,
+    immuneToStatusEffects: true,
+    art: {
+      modelKey: 'unit.spawnPointNest',
+      rig: 'building',
+      clips: { idle: 'Idle', hit: 'Hit', death: 'Death' }
+    },
+    maxHealth: 420,
+    maxShield: 0,
+    speed: 0,
+    attackRange: 0,
+    attackRate: 0,
+    damage: 0,
+    armor: 4,
+    magicResistance: 0,
+    dodgeChance: 0,
+    knockback: 0,
+    aggroRange: 0,
+    projectileHitHeight: 2.1,
+    collisionRadius: 1.1,
+    weapon: {
+      name: '巢穴外壳',
+      maxDurability: 60,
+      durabilityCost: 0
+    }
+  },
+  furnace: {
+    name: '熔炉',
+    role: 'support',
+    isBuilding: true,
+    canMove: false,
+    canReceiveBuffs: false,
+    immuneToStatusEffects: true,
+    art: {
+      modelKey: 'unit.furnace',
+      rig: 'building',
+      clips: { idle: 'Idle', hit: 'Hit', death: 'Death' }
+    },
+    maxHealth: 90,
+    maxShield: 0,
+    speed: 0,
+    attackRange: 0,
+    attackRate: 0,
+    damage: 0,
+    armor: 2,
+    magicResistance: 0,
+    dodgeChance: 0,
+    knockback: 0,
+    aggroRange: 0,
+    projectileHitHeight: 2.2,
+    collisionRadius: 0.9,
+    weapon: {
+      name: '石砌炉体',
+      maxDurability: 40,
+      durabilityCost: 0
+    }
+  },
+  // 魔力炉：本身没有生产配方，它的作用写在 FUEL_POWER_CONFIGS 里（烧燃料供能）。
+  // `powerSource: true` 让放置校验跳过"附近必须有供能"这条——它就是来供能的。
+  manaFurnace: {
+    name: '魔力炉',
+    role: 'support',
+    isBuilding: true,
+    canMove: false,
+    canReceiveBuffs: false,
+    immuneToStatusEffects: true,
+    powerSource: true,
+    art: {
+      modelKey: 'unit.manaFurnace',
+      rig: 'building',
+      clips: { idle: 'Idle', hit: 'Hit', death: 'Death' }
+    },
+    maxHealth: 110,
+    maxShield: 0,
+    speed: 0,
+    attackRange: 0,
+    attackRate: 0,
+    damage: 0,
+    armor: 3,
+    magicResistance: 2,
+    dodgeChance: 0,
+    knockback: 0,
+    aggroRange: 0,
+    projectileHitHeight: 2.8,
+    collisionRadius: 1,
+    weapon: {
+      name: '符文炉体',
+      maxDurability: 50,
+      durabilityCost: 0
+    }
+  },
+  // 科研站：建造之后才能研究科技。本身不生产物品。
+  researchStation: {
+    name: '科研站',
+    role: 'support',
+    isBuilding: true,
+    canMove: false,
+    canReceiveBuffs: false,
+    immuneToStatusEffects: true,
+    art: {
+      modelKey: 'unit.researchStation',
+      rig: 'building',
+      clips: { idle: 'Idle', hit: 'Hit', death: 'Death' }
+    },
+    maxHealth: 80,
+    maxShield: 0,
+    speed: 0,
+    attackRange: 0,
+    attackRate: 0,
+    damage: 0,
+    armor: 2,
+    magicResistance: 2,
+    dodgeChance: 0,
+    knockback: 0,
+    aggroRange: 0,
+    projectileHitHeight: 2.4,
+    collisionRadius: 0.85,
+    weapon: {
+      name: '书案与图纸',
+      maxDurability: 36,
+      durabilityCost: 0
+    }
+  },
+  // 附魔台：用材料制作附魔石。必须由「附魔工艺」科技解锁配方。
+  enchantTable: {
+    name: '附魔台',
+    role: 'support',
+    isBuilding: true,
+    canMove: false,
+    canReceiveBuffs: false,
+    immuneToStatusEffects: true,
+    art: {
+      modelKey: 'unit.enchantTable',
+      rig: 'building',
+      clips: { idle: 'Idle', hit: 'Hit', death: 'Death' }
+    },
+    maxHealth: 85,
+    maxShield: 0,
+    speed: 0,
+    attackRange: 0,
+    attackRate: 0,
+    damage: 0,
+    armor: 2,
+    magicResistance: 4,
+    dodgeChance: 0,
+    knockback: 0,
+    aggroRange: 0,
+    projectileHitHeight: 2.3,
+    collisionRadius: 0.88,
+    weapon: {
+      name: '符文台面',
+      maxDurability: 40,
+      durabilityCost: 0
+    }
+  },
+  // 树坑：一块整好的苗床。不生产物品，靠 PlantingSystem 驱动"种下 → 长成 → 砍伐"。
+  treePit: {
+    name: '树坑',
+    role: 'support',
+    isBuilding: true,
+    canMove: false,
+    canReceiveBuffs: false,
+    immuneToStatusEffects: true,
+    art: {
+      modelKey: 'unit.treePit',
+      rig: 'building',
+      clips: { idle: 'Idle', hit: 'Hit', death: 'Death' }
+    },
+    maxHealth: 60,
+    maxShield: 0,
+    speed: 0,
+    attackRange: 0,
+    attackRate: 0,
+    damage: 0,
+    armor: 1,
+    magicResistance: 0,
+    dodgeChance: 0,
+    knockback: 0,
+    aggroRange: 0,
+    projectileHitHeight: 1.4,
+    collisionRadius: 0.8,
+    weapon: {
+      name: '苗床',
+      maxDurability: 30,
+      durabilityCost: 0
+    }
+  },
   repairStation: {
     name: '维修站',
     role: 'support',
@@ -1057,6 +1309,7 @@ export const UNIT_DEFINITIONS = {
     aggroRange: 9.8,
     weapon: {
       name: '木棒',
+      family: 'club',
       maxDurability: 32,
       durabilityCost: 0
     }
@@ -6414,6 +6667,785 @@ export const LEVEL_DEFINITIONS = [
     world: {
       sceneKey: 'emerald-marsh'
     }
+  },
+  {
+    id: 'island-survival',
+    name: '孤岛求生',
+    subtitle: '海岛生存：环海岛链上采集、建造与防守，最终摧毁全部刷怪点',
+    baseReward: 120,
+    targetTime: 1800,
+    baseDifficulty: 3,
+    waveDifficultyGrowth: 1.1,
+    // 生存玩法不使用波次敌人池。这里的名单只是刷怪点系统接入前的临时来源，
+    // 接入后应由刷怪点配置（生成间隔/存活上限/掉落）接管，不要据此恢复波次。
+    enemyPool: [
+      { type: 'goblinSoldier', weight: 4, minWave: 1, minDifficulty: 1 },
+      { type: 'goblinArcher', weight: 2, minWave: 1, minDifficulty: 1 },
+      { type: 'spider', weight: 2, minWave: 1, minDifficulty: 1 },
+      { type: 'wolf', weight: 2, minWave: 1, minDifficulty: 1 },
+      { type: 'goblinHunter', weight: 2, minWave: 1, minDifficulty: 2 },
+      { type: 'ogre', weight: 1, minWave: 1, minDifficulty: 3 }
+    ],
+    elitePool: [
+      { type: 'frostScout', weight: 1, minWave: 1, minDifficulty: 1 }
+    ],
+    bossPool: [
+      { type: 'frostTrollBoss', weight: 1, minWave: 1, minDifficulty: 1 }
+    ],
+    routeCount: 1,
+    world: {
+      sceneKey: 'island-survival'
+    }
+  }
+];
+
+// ---------------------------------------------------------------------------
+// 资源节点（生存玩法）
+//
+// 地图上每一棵树 / 石头 / 矿脉都是一个有独立 ID 与剩余量的实例：可以采空，
+// 采空后从场景隐藏并解除对寻路的阻挡。关卡如果在预设里给了 `resourceZones`，
+// 就用这层资源节点替代原本纯装饰的森林与巨石群——避免出现「有些树能砍、
+// 有些树砍不动」的歧义。所有数值都是配置默认值，可直接调。
+// ---------------------------------------------------------------------------
+export const RESOURCE_TYPES = {
+  wood: { id: 'wood', name: '木材', unit: '份', stackLimit: 200 },
+  stone: { id: 'stone', name: '石料', unit: '份', stackLimit: 200 },
+  iron: { id: 'iron', name: '铁矿', unit: '份', stackLimit: 120 },
+  food: { id: 'food', name: '食物', unit: '份', stackLimit: 120 },
+  fiber: { id: 'fiber', name: '纤维', unit: '束', stackLimit: 120 }
+};
+
+// 采集工具：没有对应工具时节点会返回 needsTool，而不是静默失败。
+export const TOOL_DEFINITIONS = {
+  axe: { id: 'axe', name: '木斧', resource: 'wood' },
+  pickaxe: { id: 'pickaxe', name: '木镐', resource: 'stone' }
+};
+
+export const RESOURCE_NODE_DEFINITIONS = {
+  oak: {
+    id: 'oak', name: '橡树', resource: 'wood', amount: 45, tool: 'axe',
+    model: 'tree', scale: [1.55, 2.15], navRadius: 0.95, spacing: 3.2, groundOffset: 0,
+    harvestSeconds: 1.6,
+    // 副产物：砍树顺带得到树苗，供树坑补种（方案第 9 节「单位取得种子/树苗」）。
+    // 做成"每累计砍够 N 木材出 1 棵树苗"而不是随机掉落：
+    // 净产出必须是可计算的，随机会让"这条链能不能自持"变成看运气。
+    byproduct: { itemId: 'sapling', perAmount: 15, maxPerNode: 3 }
+  },
+  pine: {
+    id: 'pine', name: '松树', resource: 'wood', amount: 34, tool: 'axe',
+    model: 'tree', scale: [1.15, 1.7], navRadius: 0.8, spacing: 2.8, groundOffset: 0,
+    harvestSeconds: 1.3,
+    byproduct: { itemId: 'sapling', perAmount: 15, maxPerNode: 2 }
+  },
+  stonePile: {
+    id: 'stonePile', name: '石堆', resource: 'stone', amount: 40, tool: 'pickaxe',
+    model: 'rock', scale: [1.2, 2.0], navRadius: 1.0, spacing: 3.6, groundOffset: -0.06,
+    harvestSeconds: 1.5
+  },
+  ironVein: {
+    id: 'ironVein', name: '铁矿脉', resource: 'iron', amount: 26, tool: 'pickaxe',
+    model: 'ore', scale: [1.0, 1.6], navRadius: 1.05, spacing: 4.4, groundOffset: -0.08,
+    harvestSeconds: 2.2
+  },
+  berryBush: {
+    id: 'berryBush', name: '浆果丛', resource: 'food', amount: 14, tool: null,
+    model: 'bush', scale: [0.95, 1.35], navRadius: 0, spacing: 2.4, groundOffset: 0,
+    harvestSeconds: 0.9
+  },
+  fiberPlant: {
+    id: 'fiberPlant', name: '纤维草', resource: 'fiber', amount: 12, tool: null,
+    model: 'grass', scale: [0.85, 1.25], navRadius: 0, spacing: 2.0, groundOffset: 0,
+    harvestSeconds: 0.7
+  }
+};
+
+export function resourceNodeHarvestSeconds(definitionId) {
+  return RESOURCE_NODE_DEFINITIONS[definitionId]?.harvestSeconds ?? 1.2;
+}
+
+// 采集规则：一次采集动作取出多少、以及节点采空后是否再生。
+export const RESOURCE_NODE_RULES = {
+  harvestPerAction: 5,
+  // 采空后不再自动复活；种植/树场属于后续生产链，不在这里偷偷回血
+  regrowSeconds: 0,
+  // 采集者必须站到节点这个距离以内
+  harvestRange: 2.6
+};
+
+// ---------------------------------------------------------------------------
+// 树坑与种植（方案第 9 节：「单位取得种子/树苗，种植、等待生长、砍伐」）
+//
+// 一个完整回合：树坑消耗 1 棵树苗 → 等待生长 → 在坑边**生成一棵真实的资源节点**
+// → 傀儡照常去砍它 → 砍完坑自动补种。
+//
+// 两条来自方案第 9 节的硬要求，都做成了可断言的性质：
+//   1. **保留量**：「建议种植材料有保留量，避免把下一轮种植所需资源全部加工掉」。
+//      所以树坑只在树苗数量**超过** `reserveSaplings` 时才补种，
+//      永远不会把最后几棵苗也种掉（否则一旦这一轮产出不及预期就彻底断了）。
+//   2. **净产出为正**：一棵橡树 45 木材 ÷ 15 = 3 棵树苗，而补种只要 1 棵；
+//      松树 34 ÷ 15 = 2 棵。所以木材与树苗都是净增长的。
+//      这条由 `test:planting` 直接按数据算，不靠手感。
+// ---------------------------------------------------------------------------
+export const PLANTING_CONFIGS = {
+  treePit: {
+    id: 'treePit',
+    unitType: 'treePit',
+    name: '树坑',
+    saplingItemId: 'sapling',
+    // 一次补种消耗几棵树苗
+    saplingCost: 1,
+    // 至少留几棵不种（保留量）
+    reserveSaplings: 1,
+    growthSeconds: 40,
+    // 长成之后在坑边生成哪种资源节点
+    nodeDefinitionId: 'oak',
+    // 生成位置离坑多远（找可走的空位）
+    spawnRadius: 3.4,
+    // 同时最多养几棵，防止无限铺开把地图塞满
+    maxGrownNodes: 2
+  }
+};
+
+// ---------------------------------------------------------------------------
+// 物品与库存
+//
+// 物品分两类，这是物品体系最关键的一条规则：
+//   kind: 'stack'    —— 可按 itemId 合并的普通资源/耗材，占用一个格子装到 stackLimit
+//   kind: 'instance' —— 携带独立数据的物品（附魔石、工具、武器），永不按名字合并，
+//                       每件有唯一 instanceId，移动的是这一件本身而不是「一份副本」
+// 资源节点的产出直接对应同名的 stack 物品，所以采到的东西不需要转换层。
+// ---------------------------------------------------------------------------
+export const ITEM_DEFINITIONS = {  wood: { id: 'wood', name: '木材', kind: 'stack', stackLimit: 200, category: 'resource', resource: 'wood' },
+  stone: { id: 'stone', name: '石料', kind: 'stack', stackLimit: 200, category: 'resource', resource: 'stone' },
+  iron: { id: 'iron', name: '铁矿', kind: 'stack', stackLimit: 120, category: 'resource', resource: 'iron' },
+  food: { id: 'food', name: '食物', kind: 'stack', stackLimit: 120, category: 'resource', resource: 'food' },
+  fiber: { id: 'fiber', name: '纤维', kind: 'stack', stackLimit: 120, category: 'resource', resource: 'fiber' },
+  axe: { id: 'axe', name: '木斧', kind: 'instance', stackLimit: 1, category: 'tool', tool: 'axe' },
+  pickaxe: { id: 'pickaxe', name: '木镐', kind: 'instance', stackLimit: 1, category: 'tool', tool: 'pickaxe' },
+  // 附魔石也是实例物品：instanceId 就是石头自己的 id，掉落/拾取搬的是同一块。
+  // 等级、魔力经验与累计成长都在 data 里跟随，绝不能按 itemId 合并成一块。
+  runeStone: { id: 'runeStone', name: '符文石', kind: 'instance', stackLimit: 1, category: 'rune' },
+  // 深邃核心：只从刷怪点掉出来，是招募令的材料。做成可堆叠材料而不是实例，
+  // 因为它没有需要跟随的个体数据，堆叠能省格子。
+  deepCore: { id: 'deepCore', name: '深邃核心', kind: 'stack', stackLimit: 20, category: 'material' },
+  // 招募令：野外招募的消耗品，一次招募用掉一张。
+  recruitmentOrder: { id: 'recruitmentOrder', name: '招募令', kind: 'stack', stackLimit: 20, category: 'consumable' },
+  // 木炭：熔炉把木材加工出来的燃料。方案第 9 节：「建议木材产物命名为木炭」。
+  charcoal: { id: 'charcoal', name: '木炭', kind: 'stack', stackLimit: 120, category: 'material' },
+  // 树苗：砍树时的副产物，树坑补种要消耗它。
+  sapling: { id: 'sapling', name: '树苗', kind: 'stack', stackLimit: 40, category: 'material' },
+  // 熔炉（打包状态）：放置后变成一座玩家建筑。`placeable` 是放置流程唯一需要的标记，
+  // 缺省表示这件物品不能放到地图上。
+  furnace: {
+    id: 'furnace',
+    name: '熔炉',
+    kind: 'stack',
+    stackLimit: 5,
+    category: 'building',
+    placeable: { unitType: 'furnace' }
+  },
+  // 魔力炉：把木炭烧成魔力，为周围的生产与战斗供能（方案第 9 节）。
+  // 它是**供能源**，所以放置时不要求"附近已有供能"——那正是它存在的意义。
+  manaFurnace: {
+    id: 'manaFurnace',
+    name: '魔力炉',
+    kind: 'stack',
+    stackLimit: 5,
+    category: 'building',
+    placeable: { unitType: 'manaFurnace' }
+  },
+  // 科研站：建造之后才能投入资源研究科技（方案第 9 节）。
+  researchStation: {
+    id: 'researchStation',
+    name: '科研站',
+    kind: 'stack',
+    stackLimit: 5,
+    category: 'building',
+    placeable: { unitType: 'researchStation' }
+  },
+  // 附魔台：由「附魔工艺」科技解锁，建好之后可以用材料制作附魔石。
+  // 注意它的配方在 RECIPES 里带 `tech` 字段——没研究出科技就不出现在合成列表里。
+  enchantTable: {
+    id: 'enchantTable',
+    name: '附魔台',
+    kind: 'stack',
+    stackLimit: 5,
+    category: 'building',
+    placeable: { unitType: 'enchantTable' }
+  },
+  // 树坑：种下树苗、等它长成一棵可砍的树。木材再生的入口。
+  treePit: {
+    id: 'treePit',
+    name: '树坑',
+    kind: 'stack',
+    stackLimit: 5,
+    category: 'building',
+    placeable: { unitType: 'treePit' }
+  },
+  // 箭塔与食堂：旧玩法里就有的两座建筑，现在可以用材料做出来放在岛上。
+  arrowTower: {
+    id: 'arrowTower',
+    name: '箭塔',
+    kind: 'stack',
+    stackLimit: 5,
+    category: 'building',
+    placeable: { unitType: 'arrowTower' }
+  },
+  canteen: {
+    id: 'canteen',
+    name: '食堂',
+    kind: 'stack',
+    stackLimit: 5,
+    category: 'building',
+    placeable: { unitType: 'canteen' }
+  },
+
+  // -------------------------------------------------------------------------
+  // 武器（方案第 6.2 节「武器只能换成同类武器」）
+  //
+  // 武器是**实例**物品：每把有自己的耐久，按 instanceId 逐件管理。
+  // `weapon.profile` 是"能不能装到某个单位身上"的判据，依据方案第 6.2 节
+  // 「检查攻击动画、投射物、射程、攻击事件和耐力参数兼容，不能只改模型」：
+  //   family          —— 家族（剑/棍/弓），跨家族一律不允许
+  //   attackRange     —— 必须与单位当前射程一致（近战武器不能给弓手）
+  //   projectileType  —— 必须一致（有没有投射物、什么投射物）
+  //   attackAnimation —— 必须一致（攻击动作不能对不上）
+  // 也就是说这一批是"同族升级件"：动作/射程/投射物完全相同，只有伤害、耐久、
+  // 耐力消耗与攻速可以不同。跨族与跨动作的组合会被明确拒绝，并给出原因。
+  //
+  // `defaultFor` 指向同族的"原配武器"物品：单位一开始手里那把不是物品，
+  // 第一次换装时会按这个映射**物化**成物品放回背包，保证换装不凭空吞掉东西。
+  // -------------------------------------------------------------------------
+  wornSword: {
+    id: 'wornSword',
+    name: '旧剑',
+    kind: 'instance',
+    category: 'weapon',
+    weapon: {
+      family: 'sword',
+      profile: { attackRange: 1.28, projectileType: null, attackAnimation: 'Sword_Attack' },
+      damage: 7,
+      damageType: 'physical',
+      maxDurability: 35,
+      durabilityCost: 1.15,
+      attackRate: 1.12,
+      defaultFor: 'swordsman'
+    }
+  },
+  steelSword: {
+    id: 'steelSword',
+    name: '精钢剑',
+    kind: 'instance',
+    category: 'weapon',
+    weapon: {
+      family: 'sword',
+      profile: { attackRange: 1.28, projectileType: null, attackAnimation: 'Sword_Attack' },
+      damage: 12,
+      damageType: 'physical',
+      maxDurability: 52,
+      durabilityCost: 1.15,
+      attackRate: 1.12
+    }
+  },
+  wornClub: {
+    id: 'wornClub',
+    name: '旧木棒',
+    kind: 'instance',
+    category: 'weapon',
+    weapon: {
+      family: 'club',
+      profile: { attackRange: 1.25, projectileType: null, attackAnimation: 'Club_Attack' },
+      damage: 6,
+      damageType: 'physical',
+      maxDurability: 32,
+      durabilityCost: 0,
+      attackRate: 0.82,
+      defaultFor: 'raider'
+    }
+  },
+  spikedClub: {
+    id: 'spikedClub',
+    name: '狼牙棒',
+    kind: 'instance',
+    category: 'weapon',
+    weapon: {
+      family: 'club',
+      profile: { attackRange: 1.25, projectileType: null, attackAnimation: 'Club_Attack' },
+      damage: 11,
+      damageType: 'physical',
+      maxDurability: 46,
+      durabilityCost: 0,
+      attackRate: 0.82
+    }
+  },
+  wornBow: {
+    id: 'wornBow',
+    name: '旧弓',
+    kind: 'instance',
+    category: 'weapon',
+    weapon: {
+      family: 'bow',
+      profile: { attackRange: 8.4, projectileType: null, attackAnimation: 'Bow_Shot' },
+      damage: 5,
+      damageType: 'physical',
+      maxDurability: 27,
+      durabilityCost: 1,
+      attackRate: 0.72,
+      defaultFor: 'archer'
+    }
+  },
+  longBow: {
+    id: 'longBow',
+    name: '长弓',
+    kind: 'instance',
+    category: 'weapon',
+    weapon: {
+      family: 'bow',
+      profile: { attackRange: 8.4, projectileType: null, attackAnimation: 'Bow_Shot' },
+      damage: 9,
+      damageType: 'physical',
+      maxDurability: 40,
+      durabilityCost: 1,
+      attackRate: 0.72
+    }
+  }
+};
+
+/** 野外招募消耗的物品 id。单独导出一个常量，避免各处写字符串字面量。 */
+export const RECRUITMENT_ORDER_ITEM_ID = 'recruitmentOrder';
+
+// ---------------------------------------------------------------------------
+// 合成配方
+//
+// 与库存同源的三条硬要求（都由 crafting.js 保证，并有独立测试守着）：
+//   1. 材料不够 → 整笔失败，不扣任何材料；
+//   2. 产物放不下 → 整笔失败，同样不扣材料（不能"扣了才发现做出来的东西没地方放"）；
+//   3. 材料腾出来的格子要算进产物的空间里——所以不能"先查空位再扣材料"。
+//
+// 配方数值都放在这里，改平衡不用碰逻辑。
+// ---------------------------------------------------------------------------
+export const RECIPES = {
+  recruitmentOrder: {
+    id: 'recruitmentOrder',
+    name: '招募令',
+    // 配方来源：深邃核心（破坏刷怪点获得）+ 木材
+    inputs: [
+      { itemId: 'deepCore', count: 1 },
+      { itemId: 'wood', count: 20 }
+    ],
+    output: { itemId: 'recruitmentOrder', count: 1 },
+    description: '用巢穴里的深邃核心与木材制成，用来把野外发现的战斗单位招募成自己人。'
+  },
+  // 工具可制作。此前工具的唯一来源是开局白送，傀儡阵亡把工具掉在危险地方之后就再也补不回来。
+  // 产物是实例物品（每件有唯一身份），合成时会发一个新的 instanceId，这是对的：
+  // 造出来的本来就是一件新工具，不是"把旧工具换个位置"。
+  axe: {
+    id: 'axe',
+    name: '木斧',
+    inputs: [
+      { itemId: 'wood', count: 5 },
+      { itemId: 'stone', count: 5 }
+    ],
+    output: { itemId: 'axe', count: 1 },
+    description: '砍树用的木斧。做出来会放在基地库存里，需要到合成面板把它搬给傀儡。'
+  },
+  pickaxe: {
+    id: 'pickaxe',
+    name: '木镐',
+    inputs: [
+      { itemId: 'wood', count: 5 },
+      { itemId: 'stone', count: 8 }
+    ],
+    output: { itemId: 'pickaxe', count: 1 },
+    description: '挖石料与铁矿用的木镐。做出来会放在基地库存里，需要到合成面板把它搬给傀儡。'
+  },
+  furnace: {
+    id: 'furnace',
+    name: '熔炉',
+    inputs: [
+      { itemId: 'stone', count: 30 },
+      { itemId: 'wood', count: 20 }
+    ],
+    output: { itemId: 'furnace', count: 1 },
+    description: '烧炭用的石炉。做出来之后在基地库存面板里点"放置"，再点到地面上放下。'
+  },
+  // 注意配方里**不能有木炭**：方案第 9 节要求"保证第一批燃料有启动路径"，
+  // 魔力炉是木炭的消费者而不是生产者，让它要求木炭就等于死循环。
+  // 铁在这里第一次有了用处（此前铁矿只能堆着）。
+  manaFurnace: {
+    id: 'manaFurnace',
+    name: '魔力炉',
+    inputs: [
+      { itemId: 'stone', count: 40 },
+      { itemId: 'iron', count: 8 },
+      { itemId: 'wood', count: 20 }
+    ],
+    output: { itemId: 'manaFurnace', count: 1 },
+    description: '烧木炭产出魔力的石塔，为周围的生产与战斗供能。放在离基地较远的地方才有意义。'
+  },
+  researchStation: {
+    id: 'researchStation',
+    name: '科研站',
+    inputs: [
+      { itemId: 'stone', count: 25 },
+      { itemId: 'wood', count: 30 }
+    ],
+    output: { itemId: 'researchStation', count: 1 },
+    description: '建好之后才能在基地库存面板里投入资源研究科技。'
+  },
+  // `tech` 字段：没研究出对应科技时，这条配方根本不出现在合成列表里
+  // （`recipeStatus()` 会按已解锁科技过滤），而不是"显示成灰的"。
+  enchantTable: {
+    id: 'enchantTable',
+    name: '附魔台',
+    inputs: [
+      { itemId: 'stone', count: 30 },
+      { itemId: 'iron', count: 10 }
+    ],
+    output: { itemId: 'enchantTable', count: 1 },
+    tech: 'enchanting',
+    description: '用材料制作附魔石，不再依赖附魔卡。需要先研究「附魔工艺」。'
+  },
+  treePit: {
+    id: 'treePit',
+    name: '树坑',
+    inputs: [
+      { itemId: 'wood', count: 20 },
+      { itemId: 'stone', count: 10 }
+    ],
+    output: { itemId: 'treePit', count: 1 },
+    description: '木材再生的设施：放好之后它会用库存里的树苗补种，长成后直接砍。'
+  },
+  // 武器：同族升级件。配方不需要科技（铁本身就要镐子才能挖）。
+  steelSword: {
+    id: 'steelSword',
+    name: '精钢剑',
+    inputs: [
+      { itemId: 'iron', count: 8 },
+      { itemId: 'wood', count: 5 }
+    ],
+    output: { itemId: 'steelSword', count: 1 },
+    description: '比旧剑更耐用也更疼的剑。只能在单位面板里装给剑士。'
+  },
+  spikedClub: {
+    id: 'spikedClub',
+    name: '狼牙棒',
+    inputs: [
+      { itemId: 'iron', count: 6 },
+      { itemId: 'wood', count: 8 }
+    ],
+    output: { itemId: 'spikedClub', count: 1 },
+    description: '蛮兵的升级武器。'
+  },
+  longBow: {
+    id: 'longBow',
+    name: '长弓',
+    inputs: [
+      { itemId: 'iron', count: 6 },
+      { itemId: 'fiber', count: 10 }
+    ],
+    output: { itemId: 'longBow', count: 1 },
+    description: '弓手的升级武器。'
+  },
+  arrowTower: {
+    id: 'arrowTower',
+    name: '箭塔',
+    inputs: [
+      { itemId: 'wood', count: 25 },
+      { itemId: 'stone', count: 20 }
+    ],
+    output: { itemId: 'arrowTower', count: 1 },
+    description: '自动射击范围内敌人的箭塔。要消耗魔力，放在基地供能范围里才有用。'
+  },
+  canteen: {
+    id: 'canteen',
+    name: '食堂',
+    inputs: [
+      { itemId: 'wood', count: 20 },
+      { itemId: 'food', count: 15 }
+    ],
+    output: { itemId: 'canteen', count: 1 },
+    description: '治疗附近单位（消耗自身耐久）。要消耗魔力。'
+  }
+};
+
+// ---------------------------------------------------------------------------
+// 科技（方案第 9 节：「科研站与基地科技 | 投入资源解锁科技、更高级装备和能力」）
+//
+// 规则刻意保持最小：
+//   - 研究需要**先建好科研站**（未完工不算），否则建筑没有意义；
+//   - 科技有前置（`requires`），形成一条链而不是一堆并列项；
+//   - `unlocks.recipes` 里的配方在没解锁前**不出现在合成列表**里；
+//   - 研究消耗是整笔原子的：材料不够就什么都不扣（复用库存的原子接口）。
+//
+// 为什么第一个科技是「附魔工艺」：方案第 8.1 条明确「后续解锁附魔台制作附魔石，
+// 不再依赖附魔卡生成」。接上之后整条附魔链就不需要卡牌系统了。
+// ---------------------------------------------------------------------------
+export const TECH_DEFINITIONS = {
+  enchanting: {
+    id: 'enchanting',
+    name: '附魔工艺',
+    description: '解锁附魔台的建造，并允许在附魔台上用材料制作附魔石。',
+    cost: [
+      { itemId: 'stone', count: 40 },
+      { itemId: 'iron', count: 12 },
+      { itemId: 'deepCore', count: 1 }
+    ],
+    requires: [],
+    unlocks: { recipes: ['enchantTable'] }
+  },
+  // 下面两项是"更高级的能力"（方案第 9 节：科研站「投入资源解锁科技、更高级装备和能力」）。
+  // 它们不改配方表，而是**改已经建好的设施的运转参数**，所以效果必须能被观察：
+  //   高效烧炭 —— 熔炉每个周期多出 1 个木炭
+  //   采集效率 —— 傀儡每次采集动作多采 2 个
+  // `effects` 是这几类效果的统一入口；以后加"塔射程""背包容量"之类也走这里，
+  // 不需要再往 Tech 之外散逻辑。
+  efficientFuel: {
+    id: 'efficientFuel',
+    name: '高效烧炭',
+    description: '熔炉每个周期多产出 1 个木炭（2 → 3）。',
+    cost: [
+      { itemId: 'stone', count: 30 },
+      { itemId: 'charcoal', count: 20 }
+    ],
+    requires: [],
+    unlocks: { recipes: [] },
+    effects: {
+      production: [
+        { recipeId: 'furnace', patch: { output: { itemId: 'charcoal', count: 3 } } }
+      ]
+    }
+  },
+  harvesting: {
+    id: 'harvesting',
+    name: '采集效率',
+    description: '傀儡每次采集动作多采 2 个资源（5 → 7）。',
+    cost: [
+      { itemId: 'wood', count: 40 },
+      { itemId: 'fiber', count: 25 }
+    ],
+    requires: [],
+    unlocks: { recipes: [] },
+    effects: {
+      harvest: { perActionBonus: 2 }
+    }
+  }
+};
+
+// 附魔台能做的附魔石：附魔种类 → 材料成本。
+// 用的是现有 ENCHANTMENTS 里的 id，所以做出来的石头和附魔卡生成的完全同一种。
+export const ENCHANT_RECIPES = [
+  {
+    enchantmentId: 'fire',
+    cost: [
+      { itemId: 'iron', count: 6 },
+      { itemId: 'charcoal', count: 4 }
+    ]
+  },
+  {
+    enchantmentId: 'thorns',
+    cost: [
+      { itemId: 'fiber', count: 20 },
+      { itemId: 'iron', count: 4 }
+    ]
+  },
+  {
+    enchantmentId: 'triumph',
+    cost: [
+      { itemId: 'deepCore', count: 1 },
+      { itemId: 'iron', count: 8 }
+    ]
+  }
+];
+
+// 科技与附魔各自需要哪座建筑。做成配置而不是写死字符串：
+// 以后加科研站等级或别的台子只改这里。
+export const RESEARCH_RULES = {
+  stationUnitType: 'researchStation',
+  enchantUnitType: 'enchantTable'
+};
+
+// ---------------------------------------------------------------------------
+// 需要魔力的功能设施（方案第 9 节：「箭塔、食堂 | 合成后放置，使用魔力提供对应作用」）
+//
+// 这两座在旧卡牌玩法里本来就有定义与模型，这里补的是两件事：
+//   1. 变成可合成、可放置的物品（放置流程是通用的，加一条配方就接上了）；
+//   2. **用魔力驱动**：登记成供能接收者，魔力耗尽就停机。
+//
+// `restartRatio` 是重启门槛（滞回）：停机之后要充到容量的这个比例才重新开工。
+// 没有滞回的话，魔力在 0 附近会让设施一帧开一帧停，表现成箭塔抽搐式射击。
+//
+// 只在海岛生存关生效（见 FacilitySystem）：另外四关的箭塔/食堂来自卡牌，
+// 那里没有供能网络，强行要求魔力会把老玩法直接改坏。
+// ---------------------------------------------------------------------------
+export const FACILITY_CONFIGS = {
+  arrowTower: {
+    id: 'arrowTower',
+    unitType: 'arrowTower',
+    name: '箭塔',
+    drainPerSecond: 3,
+    manaCapacity: 30,
+    restartRatio: 0.4
+  },
+  canteen: {
+    id: 'canteen',
+    unitType: 'canteen',
+    name: '食堂',
+    drainPerSecond: 2,
+    manaCapacity: 24,
+    restartRatio: 0.4
+  }
+};
+
+// ---------------------------------------------------------------------------
+// 燃料供能设施（方案第 9 节：魔力炉「消耗燃料，为周围生产和战斗提供魔力」）
+//
+// 与生产设施共用同一套周期推进（缺料停摆、空转不攒工作量），区别只在于产物是**魔力**：
+// 烧一份燃料换一段时间的供能功率，这段功率由 PowerSystem 按半径分配给接收者。
+//
+// 启动路径：木材 → 木炭（熔炉）→ 魔力炉。木炭不参与魔力炉自己的建造，
+// 所以"第一批燃料"永远是拿得到的。
+// ---------------------------------------------------------------------------
+export const FUEL_POWER_CONFIGS = {
+  manaFurnace: {
+    id: 'manaFurnace',
+    unitType: 'manaFurnace',
+    name: '魔力炉',
+    fuelItemId: 'charcoal',
+    fuelPerCycle: 2,
+    cycleSeconds: 20,
+    supplyPerSecond: 14,
+    supplyRadius: 16
+  }
+};
+
+// ---------------------------------------------------------------------------
+// 生产设施配方（方案第 9 节）
+//
+// 一座设施按周期把输入变成输出：每秒推进 progress，攒够 seconds 就结算一次。
+// 三条约束：
+//   1. **必须在供能范围内**（放置时校验）：设施是供能接收者，没魔力就停；
+//   2. 缺料就停摆，进度保留，不会凭空产出；
+//   3. 输入输出都走基地库存，且用库存自己的整笔原子接口——
+//      先确认材料够、再扣、再产出，杜绝"扣了木材但木炭没出来"。
+//
+// 方案第 9 节要求整条链净产出为正、第一批燃料有启动路径：
+// 木炭的消费者是魔力炉（尚未实现），所以在魔力炉接上之前，
+// 这条链**只到燃料为止**，不要把它当成已经闭环的产出。
+// ---------------------------------------------------------------------------
+export const PRODUCTION_RECIPES = {
+  furnace: {
+    id: 'furnace',
+    name: '烧炭',
+    unitType: 'furnace',
+    input: { itemId: 'wood', count: 4 },
+    output: { itemId: 'charcoal', count: 2 },
+    seconds: 8,
+    // 干活才吃魔；停摆时由系统把 drainPerSecond 设回 0（和傀儡待机不吃魔同一套）
+    drainPerSecond: 2.4,
+    manaCapacity: 24
+  }
+};
+
+export const ITEM_RULES = {
+  // 基地库存格数；傀儡背包更小，容量做成参数而不是写死
+  baseInventorySlots: 24,
+  workerInventorySlots: 8,
+  // 战斗单位的背包：比傀儡小。它是按需创建的（见 Game.itemBagFor），
+  // 所以每个战斗单位不会白白多一个 Inventory 对象。
+  combatInventorySlots: 6
+};
+
+// ---------------------------------------------------------------------------
+// 基地供能与傀儡的活动魔力
+//
+// 必须和旧符文升级资源分开：那一份长在符文石实例上（石头自己的 mana/等级），
+// 这一份是傀儡干活用的活动魔力，长在单位身上（activityMana / activityManaCapacity）。
+// 两者字段、计量与 UI 文案都不共用；旧的那份后续应改称「符文经验」。
+//
+// 已确认：基地为周围约 20m 提供魔力，半径做成配置参数，供能有功率上限。
+// 其余数值都是默认值，不是已批准的平衡值（文档里的 10/秒只是供需举例）。
+// ---------------------------------------------------------------------------
+export const POWER_RULES = {
+  baseSupplyPerSecond: 12,
+  // 文档明确「约 20m」，这条是已确认的，不是占位值
+  baseSupplyRadius: 20,
+  workerManaCapacity: 60,
+  // 行为耗魔：待机不吃，移动/采集/搬运/战斗各不同
+  workerDrainIdle: 0,
+  workerDrainMove: 1.1,
+  workerDrainHarvest: 2.2,
+  workerDrainCarry: 1.7,
+  workerDrainCombat: 1.6,
+  // 单个接收者每段最多补多少，避免一进范围瞬间充满
+  maxRechargePerSecond: 8,
+  // 低于容量的这个比例就提示该回供能区了
+  lowManaRatio: 0.25,
+  // 返程储备额外留出的秒数，用于覆盖采集收尾与装卸
+  returnExtraSeconds: 3
+};
+
+// ---------------------------------------------------------------------------
+// 海岛刷怪点
+//
+// 生存玩法没有波次：地图上这些点持续产生怪物压力，最终目标是清除全部刷怪点。
+// 摧毁一个点是「永久停止该点产怪」，不是只杀光当前一批，所以每个点都要有
+// 生成间隔与存活上限——移除波次不等于每帧无上限生成。
+// 位置按推进方向铺开：出生区附近只有一个弱化点，越往外越硬。
+// 掉落里的傀儡来源尚未定稿（成品还是制造核心），这里先留数据钩子，不要写死配方。
+// ---------------------------------------------------------------------------
+export const ISLAND_SPAWN_POINTS = [
+  {
+    id: 'island-camp-north',
+    name: '北岬巢穴',
+    x: -6, z: 30,
+    intervalSeconds: 16, maxAlive: 2, maxPerTick: 1,
+    leashRadius: 9,
+    // 起始巢穴：blood 明显低于其余三个点，让出生护卫能打得下来。
+    // 这是链条的起点（打掉它才拿到第一个深邃核心），必须先能打。
+    nestHealth: 120,
+    enemyPool: [{ type: 'goblinSoldier', weight: 3 }, { type: 'spider', weight: 1 }],
+    // 深邃核心只从刷怪点掉：它是招募令的材料，而招募令是野外招募的门槛。
+    drops: [
+      { itemId: 'deepCore', count: 1 },
+      { itemId: 'wood', count: 12 },
+      { itemId: 'stone', count: 8 }
+    ],
+    // 方案第 6.1 条已确认：新增傀儡的来源是刷怪点，不是抽卡也不是纯木石合成。
+    // 方案第 6.2 条把「是否必掉、哪个点掉、掉成品还是制造核心」列为待定，
+    // 这里选的是**每个点必掉一支成品傀儡**——理由是当前还没有工具/合成链，
+    // 掉"制造核心"会让玩家拿到一个暂时用不上的东西。改动只需改这个字段。
+    workerReward: { type: 'woodPuppet', count: 1 }
+  },
+  {
+    id: 'island-west-ridge',
+    name: '西岭哨站',
+    x: -26, z: -6,
+    intervalSeconds: 13, maxAlive: 5, maxPerTick: 2,
+    leashRadius: 12,
+    enemyPool: [{ type: 'goblinSoldier', weight: 2 }, { type: 'goblinArcher', weight: 2 }, { type: 'wolf', weight: 1 }],
+    drops: [{ itemId: 'deepCore', count: 1 }, { itemId: 'iron', count: 6 }],
+    workerReward: { type: 'woodPuppet', count: 1 }
+  },
+  {
+    id: 'island-east-cape',
+    name: '东岬营地',
+    x: 26, z: 6,
+    intervalSeconds: 13, maxAlive: 5, maxPerTick: 2,
+    leashRadius: 12,
+    enemyPool: [{ type: 'goblinSoldier', weight: 2 }, { type: 'goblinArcher', weight: 2 }, { type: 'shieldBearer', weight: 1 }],
+    drops: [{ itemId: 'deepCore', count: 1 }, { itemId: 'iron', count: 6 }],
+    workerReward: { type: 'woodPuppet', count: 1 }
+  },
+  {
+    id: 'island-south-woods',
+    name: '南林深处',
+    x: 4, z: -26,
+    intervalSeconds: 11, maxAlive: 6, maxPerTick: 2,
+    leashRadius: 14,
+    enemyPool: [{ type: 'goblinSoldier', weight: 2 }, { type: 'goblinHunter', weight: 2 }, { type: 'ogre', weight: 1 }],
+    drops: [{ itemId: 'deepCore', count: 1 }, { itemId: 'iron', count: 8 }],
+    workerReward: { type: 'woodPuppet', count: 1 }
   }
 ];
 
@@ -6645,7 +7677,27 @@ export const BALANCE = {
       { type: 'wolf', x: -35, z: -16, radius: 5.4 },
       { type: 'bear', x: 27, z: -18, radius: 5.9 },
       { type: 'wolf', x: 32, z: -24, radius: 5.5 }
-    ]
+    ],
+    // 野外可招募的战斗单位（方案第 6.1 条：原有战斗单位可在野外发现并招募）。
+    // 它们是**中立**的：不主动攻击，也不会被己方单位自动索敌；点开详情面板
+    // 花一张招募令即可归队。位置铺在出生营地通往各刷怪点的路上，早期就能碰上。
+    // 具体坐标不必是精确的可走点：生成时会过 resolveWalkablePoint 兜一层。
+    fieldRecruits: [
+      { type: 'raider', x: -8, z: 10 },
+      { type: 'archer', x: 12, z: 9 },
+      { type: 'spearman', x: -16, z: 2 }
+    ],
+    // 海岛开局的初始部队。
+    //
+    // 为什么必须有出生护卫：用户定稿的招募链是「招募令 ← 深邃核心 ← 摧毁巢穴」，
+    // 也就是**战斗单位本身来自巢穴**。只给一支木傀儡的话整条链是死循环——
+    // 实测（scripts/verify-island-opening.mjs 的前身探针）：只有傀儡时必定走到
+    // 「no_units_left」判负，加 4 个战斗单位才勉强打掉第一座巢穴。
+    // 方案第 6.2 条也要求出生区要撑得起第一轮推进（"战斗单位负责护卫进攻"）。
+    survivalOpening: {
+      workers: 1,
+      escorts: ['raider', 'raider', 'archer', 'archer']
+    }
   }
 };
 

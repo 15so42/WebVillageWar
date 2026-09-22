@@ -163,28 +163,41 @@ if (started) {
       && activeBeforeSell !== activeAfterSell;
     out.enchantKeptByBackup = unit.enchantments.has('fire') === true;
 
-    // 死亡不掉落：真正走一遍战斗死亡链路，石头必须留在原单位背包、
-    // 不自动回基地、出现在「阵亡单位背包」里，并且可以全部手动收回。
+    // 阵亡掉落（生存方案第 7 节）：真正走一遍战斗死亡链路。
+    // 石头必须**离开单位落地**成为可拾取遗物，不再留在阵亡单位背包里，也不自动回基地；
+    // 等级、经验与身份必须原样保留，捡回后是同一块石头。
     const again = g.runeStones.createFromCard(card, { playerId: slot, targetUnit: unit, paidEnergy: 2 });
     out.stoneIdBeforeDeath = again.stone?.id ?? null;
     const stonesBeforeDeath = g.runeStones.unitStones(unit.id).length;
     out.stonesBeforeDeath = stonesBeforeDeath;
+    const groundLevelBefore = again.stone?.level ?? null;
     g.spawnEnemyWave(1);
     const killer = g.enemyUnits.find((u) => u.alive && u.team === 'enemy' && !u.isWildlife);
     if (killer) g.combat.applyDamage(unit, 99999, killer, 0, { source: killer, target: unit, isAttack: true });
     out.unitDied = unit.alive === false;
-    out.stoneKeptOnDeath = g.runeStones.unitStones(unit.id).length === stonesBeforeDeath;
+    out.stoneLeftDeadUnit = g.runeStones.unitStones(unit.id).length === 0;
     out.notAutoReturned = g.runeStones.baseStones(slot).length === 0;
-    out.strandedVisible = g.runeStones.strandedBackpacks(slot).length === 1;
-    const keptIds = g.runeStones.unitStones(unit.id).map((entry) => entry.id);
-    let recoveredAll = keptIds.length > 0;
-    keptIds.forEach((id) => {
-      const moved = g.runeStones.moveStone(id, { kind: 'base', playerId: slot }, { playerId: slot });
-      if (!moved.ok) recoveredAll = false;
-    });
-    out.recoveredToBase = recoveredAll
-      && g.runeStones.baseStones(slot).length === keptIds.length
-      && g.runeStones.strandedBackpacks(slot).length === 0;
+    out.strandedListStaysEmpty = g.runeStones.strandedBackpacks(slot).length === 0;
+    const groundStone = g.runeStones.stoneById(out.stoneIdBeforeDeath);
+    out.stoneDroppedToGround = groundStone?.location?.kind === 'ground';
+    out.groundLevelKept = groundStone?.level === groundLevelBefore;
+    out.deadUnitLostEnchant = unit.enchantments.has('fire') === false;
+    const dropEntry = [...g.drops.entries.values()]
+      .find((entry) => entry.drop.stacks.some((stack) => stack.instanceId === out.stoneIdBeforeDeath)) ?? null;
+    out.groundDropExists = Boolean(dropEntry);
+    out.groundDropHasStoneStack = Boolean(dropEntry)
+      && dropEntry.drop.stacks.some((stack) => stack.itemId === 'runeStone');
+    // 派人捡回：同一个实例回到新持有者身上，而不是新造一块
+    const stonesBeforePick = g.runeStones.allStones({ playerId: slot }).length;
+    g.summonUnits('knight', 1, g.playerBase.position.clone(), 0.8, { select: false });
+    const picker = g.friendlyUnits.find((u) => u.team === 'player' && u.alive && u.type === 'knight') ?? null;
+    const picked = dropEntry && picker ? g.drops.pickUp(dropEntry.drop.id, picker) : null;
+    out.pickedUp = picked?.ok === true;
+    out.pickerHasStone = Boolean(picker)
+      && g.runeStones.stonesForUnit(picker).some((entry) => entry.id === out.stoneIdBeforeDeath);
+    out.pickerEnchantActive = Boolean(picker) && picker.enchantments.has('fire') === true;
+    out.stoneCountUnchanged = g.runeStones.allStones({ playerId: slot }).length === stonesBeforePick;
+    out.groundStoneGone = g.runeStones.stoneById(out.stoneIdBeforeDeath)?.location?.kind === 'unit';
     return JSON.stringify(out);
   })()`));
 

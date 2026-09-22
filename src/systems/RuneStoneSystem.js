@@ -1,6 +1,8 @@
 import {
   RUNE_LOCATION_BASE,
+  RUNE_LOCATION_GROUND,
   RUNE_LOCATION_UNIT,
+  RUNE_STONE_ITEM_ID,
   applyManaToStone,
   baseRuneCapacity,
   initialRuneLevelForCard,
@@ -13,17 +15,23 @@ import {
   runeSellValue,
   serializeRuneStone,
   splitManaEvenly,
+  stoneItemData,
   unitRuneCapacity
 } from './runeStones.js';
+import { addGrowth, growthModifiersFor, growthOf } from './runeGrowth.js';
 
 /**
  * 符文石背包的运行时权威。
  *
- * 规则（对应 docs/RUNE_STONE_GAMEPLAY_PLAN.md 第 3～4 节）：
+ * 规则（对应 docs/RUNE_STONE_GAMEPLAY_PLAN.md 第 3～4 节、
+ * docs/SURVIVAL_LOGISTICS_GAMEPLAY_PLAN.md 第 7～8 节）：
  * - 附魔卡使用一次即消耗，并在基地背包或目标单位背包里生成一块石头。
- * - 石头放在单位背包即生效；同名石头同一单位只能带一块。
+ * - 石头放在单位背包即生效；同名石头里只有排在最前的一块生效。
  * - 石头随时可转移，不限制地点、不限制交战状态。
- * - 死亡不掉落、不自动回基地：石头继续留在原单位背包，数据不随单位对象回收而丢失。
+ * - **永久成长（growth）记录在石头实例上，不记在单位或 Buff 上**：
+ *   石头转到谁身上谁就享受已有成长，不需要重新练。
+ * - **单位阵亡时石头落地成为可拾取的遗物包**，等级/经验/成长原样保留；
+ *   地面上的石头不给原单位或附近单位继续提供加成。
  * - 等级只由魔力成长；获得魔力时按携带数量均分。
  *
  * 单机时 `players` 为 null，此时石头归属于 `game.localPlayerSlot`。
@@ -63,7 +71,9 @@ export class RuneStoneSystem {
     this.stones = new Map();
     this.nextStoneId = 1;
     this.orderCounter = 0;
-    /** 阵亡后仍保留背包的单位档案：unitId → { unitId, unitType, name, playerId }。 */
+    /** 阵亡单位档案：unitId → { unitId, unitType, name, playerId }。
+     *  新玩法里石头会在阵亡时落地（`detachStonesOnDeath`），所以这份档案不再
+     *  承载"石头留在尸体背包"的语义，仅保留给旧存档的显示兜底。 */
     this.strandedUnits = new Map();
   }
 
@@ -151,7 +161,15 @@ export class RuneStoneSystem {
     return active;
   }
 
-  /** 阵亡单位留下的背包：石头仍在原单位，玩家可手动把它们收回基地。 */
+  /**
+   * 阵亡单位留下的背包。
+   *
+   * 新玩法里单位阵亡时石头会立刻落地（见 `detachStonesOnDeath`），所以这个查询
+   * 对当前一局只会返回空数组——UI 的那一段会自动隐藏。之所以保留：旧存档里可能
+   * 还有 `location.kind === 'unit'` 而单位已不存在的石头，加载后仍然要能看见并收回。
+   * 地面上的石头**故意不列在这里**：方案第 7 节把"是否允许远程手动拾取"列为待定，
+   * 而这个列表里的石头可以拖拽，等于开了远程拾取的后门。
+   */
   strandedBackpacks(playerId = this.localSlot()) {
     const groups = new Map();
     this.allStones({ playerId })
@@ -379,6 +397,76 @@ export class RuneStoneSystem {
 
   // ---- 效果同步 ----
 
+  /** 单位当前生效的石头列表（每个附魔名取第一块），顺序稳定。 */
+  activeStones(unit) {
+    return [...this.activeStonesForUnit(unit).values()];
+  }
+
+  /**
+   * 把石头上的永久成长投影成单位的属性修改器。
+   *
+   * 这是「石头是唯一持有者」在属性层的落地：修改器的值每次都从石头现算，
+   * 单位侧不再保存任何累计值。修改器来源按石头实例区分，因此
+   * 卸下一块只移除这一块的贡献，同单位另一块同名石头不受影响。
+   */
+  applyGrowthModifiers(unit, { stat = 'maxHealth' } = {}) {
+    if (!unit?.attributes) return 0;
+    const desired = growthModifiersFor(this.activeStones(unit), { stat });
+    const tracked = unit.runeGrowthSources instanceof Set
+      ? unit.runeGrowthSources
+      : new Set();
+    // 先撤销不再需要的来源：石头被卸下/掉落/转走后必须立刻停止提供加成。
+    tracked.forEach((source) => {
+      if (!desired.has(source)) unit.attributes.removeModifiersBySource(source);
+    });
+    desired.forEach((modifier, source) => {
+      // 先删后加：石头成长值变化时同源修改器要整体替换，不能叠加成两份。
+      unit.attributes.removeModifiersBySource(source);
+      unit.attributes.addModifier({
+        stat: modifier.stat,
+        type: 'add',
+        amount: modifier.amount
+      }, source);
+    });
+    unit.runeGrowthSources = new Set(desired.keys());
+    return desired.size;
+  }
+
+  /**
+   * 击杀产生的永久成长写进石头，再据此刷新持有者的属性。
+   * 返回累计后的成长值；找不到石头时返回 null（调用方据此判断"没有持久持有者"）。
+   */
+  addStoneGrowth(stoneId, amount) {
+    const stone = this.stoneById(stoneId);
+    if (!stone) return null;
+    const total = addGrowth(stone, amount);
+    const holder = this.unitForStrandedId(stone.location?.unitId);
+    if (holder) {
+      const before = holder.attributes?.get?.('maxHealth');
+      this.applyGrowthModifiers(holder);
+      // 方案第 8.3 节：推荐增加上限时不凭空补血；但上限被削减时当前生命要裁剪。
+      // 所以这里只在 maxHealth 变小时裁剪，变大时不动当前生命。
+      if (Number.isFinite(before) && holder.maxHealth < before) holder.clampToAttributeCaps?.();
+      holder.statusUiDirty = true;
+    }
+    this.markPrivateStateDirty(stone.playerId ?? this.localSlot());
+    return total;
+  }
+
+  /** 这块石头当前的累计成长（供 UI / 断言读取，不在单位上留副本）。 */
+  stoneGrowth(stoneId, field = 'triumphHealthBonus') {
+    return growthOf(this.stoneById(stoneId), field);
+  }
+
+  /** 把单位的附魔效果与成长修改器一起撤掉（阵亡后立刻生效，不等对象回收）。 */
+  clearUnitProjections(unit) {
+    if (!unit?.removeBuff) return;
+    const managed = unit.runeEnchantmentIds instanceof Set ? unit.runeEnchantmentIds : new Set();
+    managed.forEach((id) => unit.removeBuff(id));
+    unit.runeEnchantmentIds = new Set();
+    this.applyGrowthModifiers(unit);
+  }
+
   /**
    * 让单位身上的附魔与背包内容一致。
    * 只管理由符文石施加的附魔（unit.runeEnchantmentIds），不会误删其他系统挂上的 Buff。
@@ -408,39 +496,104 @@ export class RuneStoneSystem {
       nextManaged.add(enchantmentId);
     });
     unit.runeEnchantmentIds = nextManaged;
+    // 成长修改器在附魔之后同步：凯旋这类 Buff 的累计值现在就长在石头上，
+    // 属性层的投影是它唯一的出口。
+    this.applyGrowthModifiers(unit);
     unit.statusUiDirty = true;
   }
 
-  /** 单位阵亡：石头留在原背包，不掉落、不自动回基地、不销毁。 */
-  handleUnitDeath(unit) {
-    if (!unit) return;
+  // ---- 阵亡掉落与拾取（方案第 7 节） ----
+
+  /**
+   * 单位阵亡：石头离开单位，作为可拾取物品返回给掉落系统。
+   *
+   * 石头本体不离开 `this.stones`（还是同一块），只是位置变成 `ground`，
+   * 所以等级、魔力经验与累计成长天然保留，不存在"再来一份"的可能。
+   */
+  detachStonesOnDeath(unit, { x = null, z = null, dropId = null } = {}) {
+    if (!unit) return [];
     const stones = this.stonesForUnit(unit);
-    if (!stones.length) return;
-    const record = {
-      unitId: String(unit.id),
-      unitType: unit.type,
-      name: unit.name ?? unit.definition?.name ?? unit.type,
-      playerId: unit.controllerPlayerId ?? unit.ownerPlayerId ?? this.localSlot()
-    };
-    this.strandedUnits.set(record.unitId, record);
+    if (!stones.length) return [];
+    const px = Number.isFinite(x) ? x : (unit.position?.x ?? 0);
+    const pz = Number.isFinite(z) ? z : (unit.position?.z ?? 0);
+    const fallenName = unit.name ?? unit.definition?.name ?? unit.type ?? null;
+    const stacks = stones.map((stone) => {
+      stone.location = {
+        kind: RUNE_LOCATION_GROUND,
+        x: px,
+        z: pz,
+        dropId: dropId != null ? String(dropId) : null,
+        fallenUnitId: String(unit.id),
+        fallenUnitName: fallenName != null ? String(fallenName) : null
+      };
+      return {
+        itemId: RUNE_STONE_ITEM_ID,
+        count: 1,
+        instanceId: stone.id,
+        data: stoneItemData(stone)
+      };
+    });
+    // 立刻撤掉单位身上的附魔与成长：不允许"已经掉在地上的石头还在给原单位加成"。
+    this.clearUnitProjections(unit);
+    this.markPrivateStateDirty(unit.controllerPlayerId ?? unit.ownerPlayerId ?? this.localSlot());
+    return stacks;
   }
 
-  /** 重生会创建全新的单位对象，需要把原背包引到新单位上，避免复制出一套石头。 */
-  reassignUnitStones(previousUnitId, unit) {
-    if (previousUnitId == null || !unit) return 0;
-    const key = String(previousUnitId);
-    const stones = this.unitStones(key);
-    if (!stones.length) return 0;
-    const placed = [];
-    stones.forEach((stone) => {
-      const check = this.canPlaceInUnit(unit, stone.enchantmentId);
-      if (!check.ok) return;
-      stone.location = { kind: RUNE_LOCATION_UNIT, unitId: String(unit.id) };
-      placed.push(stone);
-    });
-    this.strandedUnits.delete(key);
+  /**
+   * 拾取一块掉落的石头：把同一实例挂回拾取者背包。
+   *
+   * 背包已满时返回 `{ ok: false, reason: UNIT_FULL }`，让掉落物留在原地——
+   * 不允许静默销毁，也不允许在别处再造一块。
+   */
+  pickUpStone(stoneId, unit, data = null) {
+    const id = stoneId != null ? String(stoneId) : null;
+    if (!id) return { ok: false, reason: RUNE_ERROR.UNKNOWN_STONE };
+    if (!unit?.id || unit.alive === false) return { ok: false, reason: RUNE_ERROR.UNKNOWN_UNIT };
+
+    let stone = this.stoneById(id);
+    if (!stone) {
+      // 存档 / 联机快照可能只留下物品数据：按同一个 instanceId 复原，绝不新发一块。
+      stone = normalizeRuneStone({
+        ...(data ?? {}),
+        id,
+        location: { kind: RUNE_LOCATION_UNIT, unitId: String(unit.id) }
+      });
+      if (!stone) return { ok: false, reason: RUNE_ERROR.UNKNOWN_STONE };
+      this.stones.set(stone.id, stone);
+      const numeric = Number(String(stone.id).replace(/[^0-9]/g, ''));
+      if (Number.isFinite(numeric)) this.nextStoneId = Math.max(this.nextStoneId, numeric + 1);
+      this.orderCounter = Math.max(this.orderCounter, stone.order + 1);
+    }
+
+    const check = this.canPlaceInUnit(unit, stone.enchantmentId, { ignoreStoneId: stone.id });
+    if (!check.ok) return { ok: false, reason: check.reason };
+
+    // 归属不在这里改：石头是谁的，由生成它的那次调用（createStone / createFromCard）决定。
+    // 单位身上的 ownerPlayerId / controllerPlayerId 属于卡牌系统那套 id 空间，
+    // 和符文系统用的 slot 不是同一个命名空间（本地单机实测是 'p1' vs 'local-player'），
+    // 拿它覆盖的后果是这块石头当场从玩家自己的符文背包 UI 里消失。
+    // 跨玩家拾取的归属规则在方案第 7 节里仍是待定项，所以这里保持原归属，不静默转移。
+    stone.location = { kind: RUNE_LOCATION_UNIT, unitId: String(unit.id) };
     this.syncUnitEnchantments(unit);
-    return placed.length;
+    this.markPrivateStateDirty(stone.playerId ?? this.localSlot());
+    return { ok: true, stone };
+  }
+
+  /** 掉落物被销毁时断开石头与它的关联，避免留下"地上还有块石头"的幽灵引用。 */
+  forgetGroundStones(dropId) {
+    if (dropId == null) return 0;
+    const key = String(dropId);
+    let count = 0;
+    this.stones.forEach((stone) => {
+      if (stone.location?.kind !== RUNE_LOCATION_GROUND) return;
+      if (String(stone.location.dropId ?? '') !== key) return;
+      stone.location = {
+        ...stone.location,
+        dropId: null
+      };
+      count += 1;
+    });
+    return count;
   }
 
   // ---- 联机 / 存档 ----

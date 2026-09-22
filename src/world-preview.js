@@ -22,6 +22,22 @@ const L1_TUNING = {
   snowColor: '#e9eef6', rockColor: '#7c7f85', treeColor: '#46685a'
 };
 
+// 海岛生存预览调色：亮白天光 + 高饱和植被，和关卡预设里的光照/雾保持一致
+const ISLAND_TUNING = {
+  toneMapping: 'aces', exposure: 1.02,
+  brightness: 1.03, contrast: 1.14, saturation: 1.06, hue: 0, warmth: 0,
+  sunColor: '#fff2d5', sunIntensity: 3.35, sunX: -54, sunY: 76, sunZ: 62, shadowIntensity: 0.88,
+  hemiSky: '#bfe4ff', hemiGround: '#43593a', hemiIntensity: 1.12,
+  ambientColor: '#9fbfd0', ambientIntensity: 0.56,
+  background: '#8fc9e6', fogColor: '#bcdcea', fogNear: 130, fogFar: 420,
+  bloomStrength: 0.1, vignetteStrength: 0.05,
+  snowColor: '#6f9a52', rockColor: '#8b8577', treeColor: '#3f6b3a'
+};
+
+// 预览页支持 ?scene=<sceneKey>，默认仍是雪谷；可用的 key 与 WORLD_PRESETS 一致。
+const PREVIEW_SCENE_KEY = new URLSearchParams(location.search).get('scene') ?? 'snow-valley';
+const TUNING = PREVIEW_SCENE_KEY === 'island-survival' ? ISLAND_TUNING : L1_TUNING;
+
 const canvas = document.getElementById('preview-canvas');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -29,26 +45,28 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = L1_TUNING.exposure;
+renderer.toneMappingExposure = TUNING.exposure;
 canvas.style.filter = [
-  `brightness(${L1_TUNING.brightness})`,
-  `contrast(${L1_TUNING.contrast})`,
-  `saturate(${L1_TUNING.saturation})`,
-  `hue-rotate(${L1_TUNING.hue}deg)`,
-  `sepia(${L1_TUNING.warmth})`
+  `brightness(${TUNING.brightness})`,
+  `contrast(${TUNING.contrast})`,
+  `saturate(${TUNING.saturation})`,
+  `hue-rotate(${TUNING.hue}deg)`,
+  `sepia(${TUNING.warmth})`
 ].join(' ');
 // 暗角近似（vignetteStrength 0.06）
 const previewVignette = document.createElement('div');
 previewVignette.style.cssText = [
   'position:fixed', 'inset:0', 'pointer-events:none',
-  `background:radial-gradient(ellipse at center, transparent 58%, rgba(10,16,26,${L1_TUNING.vignetteStrength}) 100%)`,
+  `background:radial-gradient(ellipse at center, transparent 58%, rgba(10,16,26,${TUNING.vignetteStrength}) 100%)`,
   'z-index:5'
 ].join(';');
 document.body.appendChild(previewVignette);
 
 const scene = new THREE.Scene();
 // 与正式游戏一致：启用静态烘焙地面阴影
-const world = createWorld(scene, { sceneKey: 'snow-valley', sky: { bakedShadows: true } });
+const world = createWorld(scene, PREVIEW_SCENE_KEY === 'island-survival'
+  ? { sceneKey: PREVIEW_SCENE_KEY }
+  : { sceneKey: PREVIEW_SCENE_KEY, sky: { bakedShadows: true } });
 
 const sun = world.lights.sun;
 sun.shadow.camera.left = -100;
@@ -57,32 +75,32 @@ sun.shadow.camera.top = 100;
 sun.shadow.camera.bottom = -100;
 
 // 复刻 applyRenderTuning：光照/背景/雾/材质前景色
-sun.color.set(L1_TUNING.sunColor);
-sun.intensity = L1_TUNING.sunIntensity;
-sun.position.set(L1_TUNING.sunX, L1_TUNING.sunY, L1_TUNING.sunZ);
+sun.color.set(TUNING.sunColor);
+sun.intensity = TUNING.sunIntensity;
+sun.position.set(TUNING.sunX, TUNING.sunY, TUNING.sunZ);
 sun.target?.updateMatrixWorld?.();
-if (sun.shadow) sun.shadow.intensity = L1_TUNING.shadowIntensity;
+if (sun.shadow) sun.shadow.intensity = TUNING.shadowIntensity;
 const hemisphere = world.lights.hemisphere;
 if (hemisphere) {
-  hemisphere.color.set(L1_TUNING.hemiSky);
-  hemisphere.groundColor.set(L1_TUNING.hemiGround);
-  hemisphere.intensity = L1_TUNING.hemiIntensity;
+  hemisphere.color.set(TUNING.hemiSky);
+  hemisphere.groundColor.set(TUNING.hemiGround);
+  hemisphere.intensity = TUNING.hemiIntensity;
 }
 const ambient = world.lights.ambient;
 if (ambient) {
-  ambient.color.set(L1_TUNING.ambientColor);
-  ambient.intensity = L1_TUNING.ambientIntensity;
+  ambient.color.set(TUNING.ambientColor);
+  ambient.intensity = TUNING.ambientIntensity;
 }
-scene.background = new THREE.Color(L1_TUNING.background);
+scene.background = new THREE.Color(TUNING.background);
 if (scene.fog) {
-  scene.fog.color.set(L1_TUNING.fogColor);
-  scene.fog.near = L1_TUNING.fogNear;
-  scene.fog.far = L1_TUNING.fogFar;
+  scene.fog.color.set(TUNING.fogColor);
+  scene.fog.near = TUNING.fogNear;
+  scene.fog.far = TUNING.fogFar;
 }
 world.setMaterialColors?.({
-  snow: L1_TUNING.snowColor,
-  rock: L1_TUNING.rockColor,
-  tree: L1_TUNING.treeColor
+  snow: TUNING.snowColor,
+  rock: TUNING.rockColor,
+  tree: TUNING.treeColor
 });
 
 // 始终锁定 16:9 视口（fov 35 与游戏一致）
@@ -94,7 +112,7 @@ composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 composer.addPass(new RenderPass(scene, camera));
 const previewBloom = new UnrealBloomPass(
   new THREE.Vector2(window.innerWidth, window.innerHeight),
-  L1_TUNING.bloomStrength, 0.4, 0.85
+  TUNING.bloomStrength, 0.4, 0.85
 );
 composer.addPass(previewBloom);
 composer.addPass(new OutputPass());
@@ -136,12 +154,21 @@ function applyOrbit() {
   camera.lookAt(orbit.target);
 }
 
-const VIEWS = {
-  overview: { target: [0, 2, 0], yaw: Math.PI * 0.5, pitch: 0.95, distance: 96 },
-  player: { target: [-1, 3, 8], yaw: Math.PI * 0.62, pitch: 0.72, distance: 52 },
-  ridge: { target: [-10, 5, 4], yaw: Math.PI * 0.28, pitch: 0.22, distance: 58 },
-  horizon: { target: [0, 8, -6], yaw: Math.PI * 0.5, pitch: 0.07, distance: 46 }
-};
+const VIEWS = PREVIEW_SCENE_KEY === 'island-survival'
+  ? {
+      // 海岛：先看全岛轮廓与环海，再看海岸线、沙滩、岛心高地
+      overview: { target: [0, 2, 0], yaw: Math.PI * 0.5, pitch: 0.86, distance: 168 },
+      coast: { target: [-6, 2, 26], yaw: Math.PI * 0.7, pitch: 0.36, distance: 92 },
+      beach: { target: [-22, 2, 24], yaw: Math.PI * 0.34, pitch: 0.26, distance: 58 },
+      highland: { target: [-2, 7, -4], yaw: Math.PI * 0.5, pitch: 0.55, distance: 104 },
+      horizon: { target: [0, 5, -12], yaw: Math.PI * 0.5, pitch: 0.1, distance: 96 }
+    }
+  : {
+      overview: { target: [0, 2, 0], yaw: Math.PI * 0.5, pitch: 0.95, distance: 96 },
+      player: { target: [-1, 3, 8], yaw: Math.PI * 0.62, pitch: 0.72, distance: 52 },
+      ridge: { target: [-10, 5, 4], yaw: Math.PI * 0.28, pitch: 0.22, distance: 58 },
+      horizon: { target: [0, 8, -6], yaw: Math.PI * 0.5, pitch: 0.07, distance: 46 }
+    };
 
 function setView(name) {
   const view = VIEWS[name];
@@ -150,6 +177,9 @@ function setView(name) {
   orbit.yaw = view.yaw;
   orbit.pitch = view.pitch;
   orbit.distance = view.distance;
+  // headless 下 requestAnimationFrame 会被节流，机位必须立即应用，
+  // 否则自动截图拿到的是上一个机位。
+  applyOrbit();
 }
 
 const initialView = new URLSearchParams(location.search).get('view');
@@ -190,10 +220,10 @@ canvas.addEventListener('wheel', (event) => {
   orbit.distance = Math.min(220, Math.max(14, orbit.distance * (1 + Math.sign(event.deltaY) * 0.09)));
 }, { passive: false });
 window.addEventListener('keydown', (event) => {
-  if (event.key === '1') setView('overview');
-  else if (event.key === '2') setView('player');
-  else if (event.key === '3') setView('ridge');
-  else if (event.key === '4') setView('horizon');
+  // 数字键按当前场景的机位顺序切换，不再写死雪谷的机位名
+  const viewNames = Object.keys(VIEWS);
+  const viewIndex = Number(event.key) - 1;
+  if (Number.isInteger(viewIndex) && viewNames[viewIndex]) setView(viewNames[viewIndex]);
   else if (event.key === 'o' || event.key === 'O') orbit.autoRotate = !orbit.autoRotate;
 });
 

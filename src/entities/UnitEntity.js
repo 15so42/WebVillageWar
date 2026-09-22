@@ -5,6 +5,7 @@ import { createSoftParticleSprite } from '../art/vfxMaterials.js';
 import { createUnitModel, updateUnitAnimation } from '../art/visualRegistry.js';
 import { AttributeSet, bindAttributeGetter } from '../systems/AttributeSet.js';
 import { scaleResourceAfterMaximumChange } from '../systems/unitResourceSync.js';
+import { isHostileEnemy } from '../systems/unitTeam.js';
 import { clamp } from '../utils/math.js';
 
 let nextUnitId = 1;
@@ -112,6 +113,14 @@ export class UnitEntity {
     return this.mesh.position;
   }
 
+  /**
+   * 真正意义上的敌方单位。判定逻辑在 `systems/unitTeam.js`——
+   * 那里是自由函数，因为测试与联机镜像里存在大量普通对象充当单位。
+   */
+  get isHostileEnemy() {
+    return isHostileEnemy(this);
+  }
+
   addBuff(id, definition = BUFF_DEFINITIONS[id], overrides = {}) {
     if (!definition) return null;
     // 符文石专用覆盖标记，只作用于本次调用，不能写进 Buff 实例：
@@ -155,7 +164,6 @@ export class UnitEntity {
     const previousMaxDurability = this.weapon?.maxDurability ?? 0;
     this.attributes.removeModifiersBySource(buffModifierSource(id));
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:body-bonus`);
-    this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:triumph-health`);
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:focus-range`);
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:nearby`);
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:advantage`);
@@ -178,6 +186,15 @@ export class UnitEntity {
         ?? definition.tickInterval
         ?? 0
     };
+    // 石头关联必须显式定优先级：调用方传了就用新的（石头换了一块），
+    // 没传就沿用旧实例身上的。丢掉它会让这个 Buff 再也找不到自己的石头，
+    // 于是凯旋的成长无处可写——而且是静默失效，不会报错。
+    const runeStoneId = buffOverrides.runeStoneId ?? existing?.runeStoneId ?? null;
+    if (runeStoneId != null && runeStoneId !== '') {
+      instance.runeStoneId = String(runeStoneId);
+    } else {
+      delete instance.runeStoneId;
+    }
     this.buffs.set(id, instance);
     this.attributes.addModifiers(instance.modifiers, buffModifierSource(id), {
       level: instance.level,
@@ -204,7 +221,6 @@ export class UnitEntity {
     this.attributes.removeModifiersBySource(buffModifierSource(id));
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:soul-bonus`);
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:body-bonus`);
-    this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:triumph-health`);
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:focus-range`);
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:nearby`);
     this.attributes.removeModifiersBySource(`${buffModifierSource(id)}:advantage`);
@@ -299,6 +315,9 @@ export class UnitEntity {
   }
 
   updateVisual(camera, dt) {
+    // 活动魔力每帧都在变，且不经过任何置脏入口，这里补一次差异检查
+    // （普通单位无 manaCapacity，这一步是纯比较，不会产生 DOM 写入）
+    markActivityManaDirty(this);
     if (!this.underConstruction) {
       updateUnitAnimation(this, dt);
     }
@@ -307,6 +326,7 @@ export class UnitEntity {
   }
 
   updateNetworkVisual(dt) {
+    markActivityManaDirty(this);
     if (!this.underConstruction) {
       // The Host chooses visualState/one-shot animations. The mirror only advances
       // that received pose for rendering and never derives movement or combat state.
@@ -466,7 +486,8 @@ function preserveEnchantmentRuntimeState(existing, id, isEnchantment) {
   copyFiniteRuntimeValue(preserved, existing, 'focusRangeBonus');
   copyFiniteRuntimeValue(preserved, existing, 'judgmentReadyAt');
   copyFiniteRuntimeValue(preserved, existing, 'undyingReadyAt');
-  copyFiniteRuntimeValue(preserved, existing, 'triumphHealthBonus');
+  // 凯旋的累计成长不在这里保留：它长在符文石实例上（方案第 8 节）。
+  // 在这里再存一份合计值会造出"第二个持有者"，石头转手后两份数字必然打架。
   copyFiniteRuntimeValue(preserved, existing, 'assaultStacks');
   copyFiniteRuntimeValue(preserved, existing, 'shockwaveReadyAt');
   copyFiniteRuntimeValue(preserved, existing, `deathCooldown:${id}`);
@@ -475,6 +496,8 @@ function preserveEnchantmentRuntimeState(existing, id, isEnchantment) {
 
 function restoreEnchantmentRuntimeModifiers(unit, buff, isEnchantment) {
   if (!isEnchantment || !unit?.attributes || !buff) return;
+  // 注意：凯旋（triumph）的成长上限不在这里恢复。它由 RuneStoneSystem 按石头
+  // 实例投影成属性修改器（来源 `rune-growth:<石头 id>`），本文件不再持有该数值。
 
   if (buff.soulBonus > 0) {
     const source = `${buffModifierSource(buff.id)}:soul-bonus`;
@@ -493,16 +516,6 @@ function restoreEnchantmentRuntimeModifiers(unit, buff, isEnchantment) {
       stat: 'maxHealth',
       type: 'add',
       amount: buff.bodyForgingBonus
-    }, source);
-  }
-
-  if (buff.triumphHealthBonus > 0) {
-    const source = `${buffModifierSource(buff.id)}:triumph-health`;
-    unit.attributes.removeModifiersBySource(source);
-    unit.attributes.addModifier({
-      stat: 'maxHealth',
-      type: 'add',
-      amount: buff.triumphHealthBonus
     }, source);
   }
 
@@ -711,6 +724,9 @@ function createUnitStatusElement(team) {
     <div class="world-durability-bar">
       <span class="world-durability-fill"></span>
     </div>
+    <div class="world-activity-mana-bar" hidden>
+      <span class="world-activity-mana-fill"></span>
+    </div>
     <div class="world-enchantments" hidden></div>
   `;
   element.hidden = true;
@@ -721,6 +737,9 @@ function createUnitStatusElement(team) {
     ticks: element.querySelector('.world-health-ticks'),
     shield: element.querySelector('.world-shield-fill'),
     durability: element.querySelector('.world-durability-fill'),
+    // 活动魔力条：排在耐久条正下方（容器是贴底对齐的 grid，最后一行离单位最近）
+    activityManaBar: element.querySelector('.world-activity-mana-bar'),
+    activityMana: element.querySelector('.world-activity-mana-fill'),
     enchantments: element.querySelector('.world-enchantments')
   };
   return element;
@@ -742,6 +761,7 @@ function refreshStatusElement(unit, dt = 0) {
   element.parts.shield.style.transform = `scaleX(${shieldRatio})`;
   element.parts.shield.hidden = shieldRatio <= 0;
   element.parts.durability.style.transform = `scaleX(${durabilityRatio})`;
+  updateActivityManaBar(unit, element);
 
   const enchantmentStatuses = [...unit.enchantments.values()]
     .filter((enchantment) => !enchantment.hidden)
@@ -749,6 +769,47 @@ function refreshStatusElement(unit, dt = 0) {
   const enchantmentText = wrapEnchantmentStatuses(enchantmentStatuses);
   element.parts.enchantments.textContent = enchantmentText;
   element.parts.enchantments.hidden = enchantmentText.length === 0;
+}
+
+// 活动魔力条上一次真正写入 DOM 的比例。
+// 用 WeakMap 挂在单位上而不是写成单位实例字段：这是纯 UI 状态，不该出现在
+// 单位快照/存档里；WeakMap 也不会阻止单位被回收。
+const activityManaBarRatio = new WeakMap();
+
+// 返回要显示的比例；返回 null 表示这条魔力条应当完全隐藏。
+// 普通战斗单位的 manaCapacity 是 undefined → capacity 为 0 → 返回 null，
+// 也就是永远走"隐藏"分支，和加这条 UI 之前的表现完全一致。
+function activityManaDisplayRatio(unit) {
+  const capacity = Math.max(0, Number(unit?.manaCapacity) || 0);
+  if (capacity <= 0) return null;
+  // 死亡单位也要隐藏，避免残影停在尸体上方
+  if (unit.alive === false) return null;
+  return clamp((Number(unit.activityMana) || 0) / capacity, 0, 1);
+}
+
+// 活动魔力由供能系统每帧直接写单位字段，不会经过其他任何会置脏的入口，
+// 所以这里做一次 O(1) 的比例比较：只有值真的变了才请求一次全量刷新。
+// 普通单位两个值都是 null，永远不会因此把 statusUiDirty 打开，
+// 因此不会破坏其他单位的刷新节流（不能无条件每帧置脏）。
+function markActivityManaDirty(unit) {
+  const ratio = activityManaDisplayRatio(unit);
+  if (ratio === (activityManaBarRatio.get(unit) ?? null)) return;
+  unit.statusUiDirty = true;
+}
+
+function updateActivityManaBar(unit, element) {
+  const bar = element.parts.activityManaBar;
+  const fill = element.parts.activityMana;
+  if (!bar || !fill) return;
+  const ratio = activityManaDisplayRatio(unit);
+  if (ratio === (activityManaBarRatio.get(unit) ?? null)) return;
+  activityManaBarRatio.set(unit, ratio);
+  if (ratio === null) {
+    bar.hidden = true;
+    return;
+  }
+  bar.hidden = false;
+  fill.style.transform = `scaleX(${ratio})`;
 }
 
 function refreshStatusLagElement(unit, dt = 0) {

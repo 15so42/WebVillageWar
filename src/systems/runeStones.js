@@ -1,12 +1,13 @@
 import { BALANCE, BUFF_DEFINITIONS, ENCHANTMENTS } from '../data/gameData.js';
+import { normalizeGrowth } from './runeGrowth.js';
 
 /**
  * 符文石的纯数据层。
  *
  * 附魔卡使用后不再直接给单位挂 Buff，而是生成一块「符文石」实例：
- *   { id, enchantmentId, level, mana, paidEnergy, playerId, location, order, sourceCardId }
+ *   { id, enchantmentId, level, mana, paidEnergy, growth, playerId, location, order, sourceCardId }
  * - 石头放在单位背包里即产生原附魔对应的效果，放在基地背包里只是存储。
- * - 石头随时可以转移，永久保留，死亡不掉落。
+ * - 石头随时可以转移，永久保留；携带的永久成长（growth）跟着石头走。
  * - 等级只由魔力成长，不再通过重复施加同名附魔卡叠加。
  *
  * 本文件只做数值与规范化，不接触 game / THREE；运行时状态在 RuneStoneSystem。
@@ -14,6 +15,11 @@ import { BALANCE, BUFF_DEFINITIONS, ENCHANTMENTS } from '../data/gameData.js';
 
 export const RUNE_LOCATION_BASE = 'base';
 export const RUNE_LOCATION_UNIT = 'unit';
+/** 阵亡掉落：石头本体留在 RuneStoneSystem 里，只是位置变成「地上的某个掉落物」。 */
+export const RUNE_LOCATION_GROUND = 'ground';
+
+/** 附魔石作为通用物品时的 itemId，掉落/拾取链路靠它识别实例与重建石头。 */
+export const RUNE_STONE_ITEM_ID = 'runeStone';
 
 export function runeConfig() {
   return BALANCE.runes ?? {};
@@ -149,24 +155,78 @@ export function normalizeRuneStone(raw) {
   if (!enchantmentId) return null;
   const id = raw.id != null ? String(raw.id) : null;
   if (!id) return null;
-  const locationKind = raw.location?.kind === RUNE_LOCATION_UNIT
-    ? RUNE_LOCATION_UNIT
-    : RUNE_LOCATION_BASE;
-  const unitId = locationKind === RUNE_LOCATION_UNIT
-    ? (raw.location?.unitId != null ? String(raw.location.unitId) : null)
-    : null;
   return {
     id,
     enchantmentId: String(enchantmentId),
     level: normalizeRuneLevel(raw.level),
     mana: Math.max(0, Number(raw.mana) || 0),
     paidEnergy: roundEnergy(Math.max(0, Number(raw.paidEnergy) || 0)),
+    // 永久成长：石头是唯一持有者，这里只做缺省补零，不参与任何"按附魔种类合并"
+    growth: { ...(normalizeGrowth(raw)?.growth ?? {}) },
     playerId: raw.playerId != null ? String(raw.playerId) : null,
     sourceCardId: raw.sourceCardId != null ? String(raw.sourceCardId) : null,
     order: Number.isFinite(Number(raw.order)) ? Number(raw.order) : 0,
-    location: unitId
-      ? { kind: RUNE_LOCATION_UNIT, unitId }
-      : { kind: RUNE_LOCATION_BASE, unitId: null }
+    location: normalizeRuneLocation(raw.location)
+  };
+}
+
+/**
+ * 位置规范化。
+ *
+ * 关键点：**未知的位置类型原样保留**。旧实现只认 base / unit，任何没见过的
+ * 位置都会被静默改成基地，等于把地图上的掉落物无声地搬回玩家背包
+ * （方案第 10.1 条点名了这个风险）。新位置类型必须先在这里显式登记。
+ */
+export function normalizeRuneLocation(raw) {
+  const kind = raw?.kind;
+  if (kind === RUNE_LOCATION_UNIT) {
+    const unitId = raw?.unitId != null ? String(raw.unitId) : null;
+    if (unitId) return { kind: RUNE_LOCATION_UNIT, unitId };
+    return { kind: RUNE_LOCATION_BASE, unitId: null };
+  }
+  if (kind === RUNE_LOCATION_GROUND) {
+    return {
+      kind: RUNE_LOCATION_GROUND,
+      x: Number.isFinite(Number(raw?.x)) ? Number(raw.x) : 0,
+      z: Number.isFinite(Number(raw?.z)) ? Number(raw.z) : 0,
+      dropId: raw?.dropId != null ? String(raw.dropId) : null,
+      fallenUnitId: raw?.fallenUnitId != null ? String(raw.fallenUnitId) : null,
+      fallenUnitName: raw?.fallenUnitName != null ? String(raw.fallenUnitName) : null
+    };
+  }
+  if (kind === RUNE_LOCATION_BASE) return { kind: RUNE_LOCATION_BASE, unitId: null };
+  if (kind != null) return { ...raw, kind: String(kind) };
+  return { kind: RUNE_LOCATION_BASE, unitId: null };
+}
+
+export function serializeRuneLocation(location) {
+  const normalized = normalizeRuneLocation(location);
+  if (normalized.kind === RUNE_LOCATION_UNIT) {
+    return { kind: RUNE_LOCATION_UNIT, unitId: normalized.unitId };
+  }
+  if (normalized.kind === RUNE_LOCATION_GROUND) {
+    return { ...normalized };
+  }
+  return { ...normalized };
+}
+
+/**
+ * 石头转成通用物品实例的附加数据。
+ *
+ * instanceId 就是石头自己的 id——掉落、拾取、转移搬运的都是同一块石头，
+ * 不是"再生成一块一样的"。等级、魔力经验与累计成长全部随数据一起走。
+ */
+export function stoneItemData(stone) {
+  if (!stone) return null;
+  return {
+    enchantmentId: stone.enchantmentId,
+    level: normalizeRuneLevel(stone.level),
+    mana: Math.max(0, Number(stone.mana) || 0),
+    paidEnergy: roundEnergy(Math.max(0, Number(stone.paidEnergy) || 0)),
+    growth: { ...(normalizeGrowth(stone)?.growth ?? {}) },
+    playerId: stone.playerId ?? null,
+    sourceCardId: stone.sourceCardId ?? null,
+    order: Number(stone.order) || 0
   };
 }
 
@@ -178,12 +238,11 @@ export function serializeRuneStone(stone) {
     level: normalizeRuneLevel(stone.level),
     mana: Math.max(0, Number(stone.mana) || 0),
     paidEnergy: roundEnergy(Math.max(0, Number(stone.paidEnergy) || 0)),
+    growth: { ...(normalizeGrowth(stone)?.growth ?? {}) },
     playerId: stone.playerId ?? null,
     sourceCardId: stone.sourceCardId ?? null,
     order: Number(stone.order) || 0,
-    location: stone.location?.kind === RUNE_LOCATION_UNIT
-      ? { kind: RUNE_LOCATION_UNIT, unitId: String(stone.location.unitId) }
-      : { kind: RUNE_LOCATION_BASE, unitId: null }
+    location: serializeRuneLocation(stone.location)
   };
 }
 

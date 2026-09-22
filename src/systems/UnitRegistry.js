@@ -48,6 +48,28 @@ export class UnitRegistry {
     unit.registry = null;
   }
 
+  /**
+   * 改变归属队伍。野外招募的唯一入口。
+   *
+   * 只搬列表、不碰 mesh 与寻路注册：那些和队伍无关。
+   * 索敌索引也不用在这里手动维护——`TargetingSystem.rebuild()` 每个索引周期
+   * 都会从 `allUnits` 重新按 `unit.team` 分桶，改完队伍下一周期自然归位。
+   */
+  changeTeam(unit, team) {
+    if (!unit || !this.byId.has(unit.id)) return false;
+    if (team !== 'player' && team !== 'enemy') return false;
+    if (unit.team === team) return false;
+    removeItem(this.friendlyUnits, unit);
+    removeItem(this.enemyUnits, unit);
+    unit.team = team;
+    (team === 'player' ? this.friendlyUnits : this.enemyUnits).push(unit);
+    // 改完队伍必须清掉旧目标：它可能正锁着一个"昨天还是敌人"的对象。
+    unit.target = null;
+    this.game.targeting?.unregister?.(unit);
+    this.game.targeting?.register?.(unit);
+    return true;
+  }
+
   destroy() {
     [...this.allUnits].forEach((unit) => this.unregister(unit));
     this.byId.clear();

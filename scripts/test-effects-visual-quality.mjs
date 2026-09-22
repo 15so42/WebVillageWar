@@ -47,9 +47,13 @@ const wildfire = createAreaEffectVisual({
   accent: '#ffc75a',
   kind: 'wildfire'
 });
+// 野火整组走主世界层（layer 0）：地面痕迹必须被单位与地形正常遮挡。
+// 火苗的暖色由 OutlineShader 的 warmth/fireMask 豁免，不需要靠 layer 1 绕描边
+// （见 Game.js OutlineShader 与 areaEffectVisual 的注释）。
+// 旧断言要求这两者在 layer 1，是野火改走主世界层之前的写法。
 assert.equal(wildfire.userData.groundTraces.length, 14);
 assert.equal(wildfire.userData.groundTraces.every(({ patch, emberTrace }) => (
-  patch.layers.isEnabled(1) && emberTrace.layers.isEnabled(1)
+  patch.layers.mask === 1 && emberTrace.layers.mask === 1
 )), true);
 
 for (const kind of ['poisonFog', 'plagueFog']) {
@@ -86,8 +90,11 @@ deathEffect.traverse((node) => {
     deathSmokeSizes.push(node.userData.baseScale);
   }
 });
-assert.equal(deathSmokeCount, 26);
-assert.equal(polygonDeathSmokeCount, 26, 'death smoke should use crisp translucent low-poly chunks');
+// 白烟由两组低多边形烟块组成：26 块向上蒸腾的主体 + 18 块贴地径向扩散带
+// （后者替代了原来"实心圆盘整体缩放"的做法，见 EffectsSystem.spawnDeathBurst）。
+// 断言拆成两个数，避免以后再加一层时只看到一个对不上的总数。
+assert.equal(deathSmokeCount, 44, '白烟 = 26 块上升烟 + 18 块贴地扩散烟块');
+assert.equal(polygonDeathSmokeCount, deathSmokeCount, 'death smoke should use crisp translucent low-poly chunks');
 assert(Math.max(...deathSmokeSizes) - Math.min(...deathSmokeSizes) > 0.35, 'death smoke chunks should have distinct small, medium, and large tiers');
 assert.equal(deathEffect.userData.preserveRenderLayers, true);
 deathEffect.traverse((node) => assert.equal(node.layers.mask, 1, 'death smoke must remain on layer 0'));
@@ -331,25 +338,40 @@ assert(shardCenter.distanceTo(focusCenter) < 0.001, 'staff fragments should orbi
 
 const frostBoss = createFrostTrollBossModel();
 assert.equal(frostBoss.userData.parts.hammerHead.geometry.type, 'DodecahedronGeometry');
-assert.equal(
-  frostBoss.userData.parts.hammerHead.material.color.getHexString(),
-  '262c31',
-  'hammer head should share the boss skin color'
-);
+// 锤头与身体是同一套调色板（lowpoly.createFrostTrollBossModel 的 skin / skinDark）。
+// 这里断言的是那两个常量本身：改配色时同步改这两行，但"锤头亮、尖刺暗"这层
+// 关系必须保持——所以额外断言两者不同色，避免以后整块刷成一个颜色也算通过。
+const bossHammerHeadColor = frostBoss.userData.parts.hammerHead.material.color.getHexString();
+assert.equal(bossHammerHeadColor, '394953', 'hammer head should share the boss skin color');
 assert.equal(frostBoss.userData.parts.hammerSpikes.length, 4);
-assert.equal(
-  frostBoss.userData.parts.hammerSpikes[0].material.color.getHexString(),
-  '15191d',
-  'hammer spikes should share the boss dark skin color'
+const bossSpikeColors = [...new Set(
+  frostBoss.userData.parts.hammerSpikes.map((spike) => spike.material.color.getHexString())
+)];
+assert.deepEqual(bossSpikeColors, ['26343e'], 'hammer spikes should share the boss dark skin color');
+assert.notEqual(
+  bossHammerHeadColor,
+  bossSpikeColors[0],
+  '锤头必须比尖刺亮，不能整块同色'
 );
 {
-  // Boss 整体剪影：高明显大于宽（瘦高、宽肩窄腰），而不是矮胖
+  // Boss 整体剪影：高明显大于宽（瘦高、宽肩窄腰），而不是矮胖。
+  // 量的是**身体**：巨锤是横向兵器，挂在身上时把包围盒宽度撑到接近身高
+  // （含锤 1.02，不含锤 1.14），拿它算比例等于在量兵器长度而不是体型。
+  // 所以临时把武器支点摘下来量，再原样挂回去。
+  frostBoss.updateMatrixWorld(true);
+  const weaponPivot = frostBoss.userData.parts.weaponPivot;
+  const weaponParent = weaponPivot?.parent ?? null;
+  if (weaponParent) weaponParent.remove(weaponPivot);
   frostBoss.updateMatrixWorld(true);
   const bossBounds = new THREE.Box3().setFromObject(frostBoss);
+  if (weaponParent) {
+    weaponParent.add(weaponPivot);
+    frostBoss.updateMatrixWorld(true);
+  }
   const bossSize = bossBounds.getSize(new THREE.Vector3());
   assert(
-    bossSize.y / bossSize.x > 1.02,
-    `Boss 整体应高瘦挺拔（当前高宽比 ${(bossSize.y / bossSize.x).toFixed(2)}）`
+    bossSize.y / bossSize.x > 1.1,
+    `Boss 身体应高瘦挺拔（当前高宽比 ${(bossSize.y / bossSize.x).toFixed(2)}）`
   );
 }
 const animatedBoss = {
@@ -374,18 +396,40 @@ assert.match(gameSource, /unit\.type === 'frostTrollBoss' \? 1\.5 : 1\.32/);
 const dashedRange = createAttackRangeDashedRing('#62d56f');
 assert.equal(dashedRange.userData.isAttackRangeDashedRing, true);
 assert.equal(dashedRange.userData.dashCount, 24);
-assert.equal(dashedRange.userData.colorMeshes.length, 24, '24 段虚线弧组成范围环');
-assert.ok(dashedRange.userData.colorMeshes.every((arc) => (
+// colorMeshes 是「地面填充圆盘 + 24 段虚线弧」，不是只有弧。
+// 旧断言按 24 数总数，加了填充圆盘之后就对不上了。
+assert.equal(
+  dashedRange.userData.colorMeshes.length,
+  dashedRange.userData.dashCount + 1,
+  '24 段虚线弧 + 1 个地面填充圆盘'
+);
+const dashedArcs = dashedRange.userData.colorMeshes.filter(
+  (mesh) => mesh !== dashedRange.userData.fill
+);
+assert.equal(dashedArcs.length, 24, '24 段虚线弧组成范围环');
+assert.equal(
+  dashedRange.userData.fill.geometry.type,
+  'CircleGeometry',
+  '地面填充必须是圆盘，而不是又一段环'
+);
+assert.ok(dashedArcs.every((arc) => (
   arc.geometry?.type === 'RingGeometry'
   && arc.material.side === THREE.DoubleSide
   && arc.material.depthTest === true
   && arc.material.depthWrite === false
-  && arc.renderOrder === 0
+  // 弧段略高于地面填充，避免同层深度冲突；两者都在主世界层、不置顶
+  && arc.renderOrder === 1
 )), '虚线弧段保持正常渲染层纪律');
+assert.equal(dashedRange.userData.fill.renderOrder, 0, '地面填充不抢弧段的渲染顺序');
 assert.equal(
-  dashedRange.userData.colorMeshes[0].geometry,
-  dashedRange.userData.colorMeshes[1].geometry,
+  dashedArcs[0].geometry,
+  dashedArcs[1].geometry,
   '全部虚线弧共享同一段几何体'
+);
+assert.equal(
+  dashedRange.userData.fill.material.opacity < dashedArcs[0].material.opacity,
+  true,
+  '地面填充应当比虚线弧更淡，不能喧宾夺主'
 );
 dashedRange.traverse((node) => assert.equal(node.layers.mask, 1, '虚线范围环位于主世界层'));
 
@@ -491,7 +535,7 @@ assert(deathBurstRadius({ isBoss: true, projectileHitHeight: 3.2 }, 0.9) >= 1.55
 }
 
 {
-  // 野火：火苗数量翻倍、更宽、覆盖层绕描边、根部锚定
+  // 野火：火苗数量翻倍、更宽、根部锚定，并且整组留在主世界层被单位遮挡
   const wildfire = createAreaEffectVisual({
     radius: 5,
     color: '#ff7a2d',
@@ -503,9 +547,10 @@ assert(deathBurstRadius({ isBoss: true, projectileHitHeight: 3.2 }, 0.9) >= 1.55
     if (node.userData?.isFlame) flames.push(node);
   });
   assert.equal(flames.length, 68, '野火火苗数量翻倍为 68');
-  assert.ok(flames.every((flame) => flame.layers.mask === 2), '野火火苗位于覆盖层，不受描边影响');
+  assert.ok(flames.every((flame) => flame.layers.mask === 1), '野火火苗位于主世界层，被单位与地形遮挡');
+  assert.ok(flames.every((flame) => flame.material.depthTest === true), '野火火苗参与深度测试');
   assert.ok(flames.every((flame) => flame.userData.flameWidth >= 0.26), '野火火苗更宽');
-  assert.equal(wildfire.userData.disc.layers.mask, 2, '野火地面痕迹保留覆盖层');
+  assert.equal(wildfire.userData.disc.layers.mask, 1, '野火地面痕迹保留在主世界层');
 }
 
 {

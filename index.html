@@ -39,6 +39,11 @@
             <span id="battle-time-label">目标剩余</span>
             <strong id="battle-time">03:00</strong>
           </div>
+          <!-- 海岛生存：刷怪点清除进度。没有波次，所以这行只在海岛关显示。 -->
+          <div class="meter meter-spawn-points" id="spawn-point-meter" hidden>
+            <span>刷怪点</span>
+            <strong id="spawn-point-count">0/0</strong>
+          </div>
           <div class="hud-resource-data" aria-hidden="true" hidden>
             <strong id="base-health">100%</strong>
             <strong id="silver-count">0</strong>
@@ -103,6 +108,8 @@
           <div id="selected-enchants">附魔 -</div>
         </div>
         <button id="selected-camera-follow" class="selected-camera-follow" type="button" aria-pressed="false" hidden>跟随镜头</button>
+        <!-- 海岛生存：野外中立单位的招募入口。只在选中可招募单位时出现。 -->
+        <button id="selected-recruit" class="selected-recruit" type="button" hidden>招募</button>
       </section>
 
       <section id="card-hand" class="card-hand" aria-label="card hand"></section>

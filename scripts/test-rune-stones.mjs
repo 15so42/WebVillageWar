@@ -2,7 +2,7 @@
 // 1) 附魔卡一次使用只生成一块石头，可落在单位背包或基地背包；
 // 2) 同名一块、容量上限、随时转移、取出后立即失去效果；
 // 3) 售价 = 生成时实付能量 × 80%，允许小数，练级不提高售价；
-// 4) 死亡不掉落、不自动回基地，石头留在原单位背包且可从阵亡背包手动收回；
+// 4) 阵亡掉落：石头离开单位落地成为遗物包，等级/经验/成长原样保留，可由人捡回；
 // 5) 魔力按携带数量均分、跨级扣除、总量守恒，且满级不再累计；
 // 6) 序列化/反序列化守恒，不复制不丢失。
 import assert from 'node:assert/strict';
@@ -298,35 +298,107 @@ const THORNS_CARD = { id: 'thorns-enchant', kind: 'enchant', level: 1, enchantme
 }
 
 {
-  // 死亡不掉落：石头留在原单位，不自动回基地，可从阵亡背包手动收回
+  // 阵亡掉落（生存方案第 7 节）：石头立刻离开单位落地成为遗物包。
+  // 这里断言的是新契约，和旧版"石头留在阵亡单位背包里"是相反的行为。
   const { game } = makeGame();
   const system = new RuneStoneSystem(game);
   game.runeStones = system;
   const unit = makeUnit('u1');
   game.friendlyUnits.push(unit);
-  system.createFromCard(FIRE_CARD, { playerId: 'p1', targetUnit: unit, paidEnergy: 2 });
+  const created = system.createFromCard(FIRE_CARD, { playerId: 'p1', targetUnit: unit, paidEnergy: 2 });
+  const stoneId = created.stone.id;
+  assert.equal(unit.enchantments.has('fire'), true, '掉落前石头应当在单位身上生效');
 
   unit.alive = false;
   game.friendlyUnits = [];
-  system.handleUnitDeath(unit);
+  const stacks = system.detachStonesOnDeath(unit, { x: 3, z: -4, dropId: 'drop-1' });
 
-  assert.equal(system.stonesForUnit(unit).length, 1, '死亡后石头仍在原单位背包');
+  assert.equal(stacks.length, 1, '阵亡必须把石头交出来作为掉落物');
+  assert.equal(stacks[0].instanceId, stoneId, '掉的必须是同一块石头实例');
+  assert.equal(stacks[0].itemId, 'runeStone');
+  assert.equal(system.stonesForUnit(unit).length, 0, '石头必须离开阵亡单位');
   assert.equal(system.baseStones('p1').length, 0, '死亡不得把石头自动送回基地');
-  const stranded = system.strandedBackpacks('p1');
-  assert.equal(stranded.length, 1);
-  assert.equal(stranded[0].stones.length, 1);
-  assert.equal(stranded[0].profile?.unitType, 'knight');
+  assert.equal(
+    system.strandedBackpacks('p1').length,
+    0,
+    '石头已经落地，不该再出现在"阵亡单位背包"里'
+  );
+  const groundStone = system.stoneById(stoneId);
+  assert.equal(groundStone.location.kind, 'ground');
+  assert.equal(groundStone.location.dropId, 'drop-1');
+  assert.equal(groundStone.location.fallenUnitId, 'u1');
+  assert.equal(unit.enchantments.has('fire'), false, '落地后不得继续给原单位提供加成');
 
-  // 手动收回基地
-  const stoneId = stranded[0].stones[0].id;
-  const recovered = system.moveStone(stoneId, { kind: 'base', playerId: 'p1' }, { playerId: 'p1' });
-  assert.equal(recovered.ok, true);
-  assert.equal(system.strandedBackpacks('p1').length, 0, '收回后不应再出现在阵亡背包里');
-  assert.equal(system.baseStones('p1').length, 1);
+  // 拾取：同一个实例回到拾取者背包，等级与身份不变
+  const picker = makeUnit('u2');
+  game.friendlyUnits.push(picker);
+  const picked = system.pickUpStone(stacks[0].instanceId, picker, stacks[0].data);
+  assert.equal(picked.ok, true);
+  assert.equal(picked.stone.id, stoneId, '拾取搬的是同一块石头，不是新造一块');
+  assert.equal(system.stonesForUnit(picker).length, 1);
+  assert.equal(picker.enchantments.has('fire'), true, '捡回后石头重新生效');
+  assert.equal(system.allStones({ playerId: 'p1' }).length, 1, '掉落拾取不得复制石头');
 }
 
 {
-  // 重生：背包引到新单位上，不复制出一套石头
+  // 拾取者的符文背包满了：石头原地不动，绝不静默销毁
+  const { game } = makeGame();
+  const system = new RuneStoneSystem(game);
+  game.runeStones = system;
+  const fallen = makeUnit('u1');
+  game.friendlyUnits.push(fallen);
+  system.createFromCard(FIRE_CARD, { playerId: 'p1', targetUnit: fallen, paidEnergy: 2 });
+  fallen.alive = false;
+  game.friendlyUnits = [];
+  const stacks = system.detachStonesOnDeath(fallen, { x: 0, z: 0 });
+
+  const full = makeUnit('u2', { capacity: 1 });
+  game.friendlyUnits.push(full);
+  system.createFromCard(THORNS_CARD, { playerId: 'p1', targetUnit: full, paidEnergy: 2 });
+  const denied = system.pickUpStone(stacks[0].instanceId, full, stacks[0].data);
+  assert.equal(denied.ok, false);
+  assert.equal(denied.reason, RUNE_ERROR.UNIT_FULL);
+  assert.equal(system.stoneById(stacks[0].instanceId).location.kind, 'ground', '装不下就必须留在原地');
+}
+
+{
+  // 拾取不得改写归属：单位身上的 ownerPlayerId / controllerPlayerId 属于卡牌系统那套
+  // id 空间（本地单机是 'p1'），符文系统用的是 slot（'local-player'）。
+  // 真机上曾经因为拿 unit.ownerPlayerId 覆盖 playerId，导致石头一被捡起来
+  // 就从玩家自己的符文背包 UI 里消失（allStones({playerId}) 查不到了）。
+  const { game } = makeGame();
+  const system = new RuneStoneSystem(game);
+  game.runeStones = system;
+  const fallen = makeUnit('u1');
+  game.friendlyUnits.push(fallen);
+  system.createFromCard(FIRE_CARD, { playerId: 'p1', targetUnit: fallen, paidEnergy: 2 });
+  fallen.alive = false;
+  game.friendlyUnits = [];
+  const stacks = system.detachStonesOnDeath(fallen, { x: 0, z: 0 });
+
+  const picker = makeUnit('u2');
+  // 故意让单位的归属 id 与石头的 playerId 不同名
+  picker.ownerPlayerId = 'card-slot-p1';
+  picker.controllerPlayerId = 'card-slot-p1';
+  game.friendlyUnits.push(picker);
+
+  const picked = system.pickUpStone(stacks[0].instanceId, picker, stacks[0].data);
+  assert.equal(picked.ok, true);
+  assert.equal(picked.stone.playerId, 'p1', '拾取不得改写石头的归属');
+  assert.equal(
+    system.allStones({ playerId: 'p1' }).length,
+    1,
+    '拾取后石头必须仍在原玩家的列表里，否则 UI 会当场看不到它'
+  );
+  assert.equal(
+    system.allStones({ playerId: 'card-slot-p1' }).length,
+    0,
+    '不得把石头划到单位那套 id 空间下'
+  );
+}
+
+{
+  // 重生：石头已经落地，复生单位不得继承——否则同一块石头会同时存在于地面和新身体里
   const { game } = makeGame();
   const system = new RuneStoneSystem(game);
   game.runeStones = system;
@@ -334,14 +406,21 @@ const THORNS_CARD = { id: 'thorns-enchant', kind: 'enchant', level: 1, enchantme
   game.friendlyUnits.push(oldUnit);
   system.createFromCard(FIRE_CARD, { playerId: 'p1', targetUnit: oldUnit, paidEnergy: 2 });
 
+  oldUnit.alive = false;
+  const stacks = system.detachStonesOnDeath(oldUnit, { x: 1, z: 1 });
   const reborn = makeUnit('u9');
   game.friendlyUnits.push(reborn);
-  const moved = system.reassignUnitStones('u1', reborn);
-  assert.equal(moved, 1);
+
+  assert.equal(system.stonesForUnit(reborn).length, 0, '复生单位不得自动继承阵亡单位的石头');
+  assert.equal(reborn.enchantments.has('fire'), false);
+  assert.equal(system.stoneById(stacks[0].instanceId).location.kind, 'ground');
+
+  // 想要拿回来就派人去捡
+  const picked = system.pickUpStone(stacks[0].instanceId, reborn, stacks[0].data);
+  assert.equal(picked.ok, true);
   assert.equal(system.stonesForUnit(reborn).length, 1);
-  assert.equal(system.stonesForUnit(oldUnit).length, 0);
-  assert.equal(system.allStones({ playerId: 'p1' }).length, 1, '重生不得复制符文石');
   assert.equal(reborn.enchantments.has('fire'), true);
+  assert.equal(system.allStones({ playerId: 'p1' }).length, 1, '重生链路不得复制符文石');
 }
 
 {

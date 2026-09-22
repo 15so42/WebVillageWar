@@ -82,6 +82,9 @@ export function createAreaEffectVisual({ radius, color, accent, kind }) {
       patch.rotation.z = angle + (Math.random() - 0.5) * 0.8;
       patch.scale.set(width, length, 1);
       patch.renderOrder = 1321;
+      // 野火整组都在主世界层：地面痕迹跟着 disc/ring 走 layer 0，
+      // 才能被单位与地形正常遮挡。火苗的暖色由 OutlineShader 的
+      // warmth/fireMask 豁免，不需要靠 layer 1 绕描边（见 Game.js 的 OutlineShader）。
       patch.layers.set(0);
       const emberTrace = new THREE.Mesh(traceGeometry, emberTraceMaterial);
       emberTrace.position.copy(patch.position);

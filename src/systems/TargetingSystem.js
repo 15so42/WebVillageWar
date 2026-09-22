@@ -94,6 +94,9 @@ export class TargetingSystem {
 
   acquireTarget(unit) {
     const aggroRange = this.game.modifiers.getAggroRange(unit);
+    // 野外可招募单位是中立的：既不主动打人，也不该被人自动打。
+    // 招募之后 isRecruitable 会被清掉，它就以普通战斗单位身份正常索敌。
+    if (unit.isRecruitable) return null;
     if (unit.team === TEAMS.PLAYER) {
       return this.nearestUnit(unit, TEAMS.ENEMY, aggroRange)
         ?? this.nearestStructure(unit, this.game.enemyCamp, aggroRange);
@@ -137,6 +140,9 @@ export class TargetingSystem {
     for (let i = 0; i < candidates.length; i += 1) {
       const candidate = candidates[i];
       if (!candidate.alive || candidate === source) continue;
+      // 没被招募的野外单位不是敌人：不进入任何自动索敌结果。
+      // 放在索敌这一层而不是各调用点，是为了避免"某个技能忘了过滤"。
+      if (candidate.isRecruitable) continue;
       if (predicate && !predicate(candidate)) continue;
       const distance = Math.max(
         0,
