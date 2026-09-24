@@ -164,6 +164,17 @@ body.is-meta-open .mobile-box-select-hint {
   --hp-color: #55a7ff;
 }
 
+/* 可招募的野外单位：血条必须是**白色**（需求原文）。
+ *
+ * 它们挂在敌方队伍里（为了复用注册、索敌索引、状态条与死亡链路），所以会先命中
+ * 上面那条 `.world-status.is-enemy`。两条选择器优先级相同（都是 0,2,0），
+ * **靠源码顺序决定胜负**——所以这条必须放在 `.is-enemy` 之后，否则白色不生效。
+ * 招募之后 `isRecruitable` 被清掉、类也会被摘掉，它就恢复成普通的友军颜色。 */
+.world-status.is-recruitable {
+  --hp-color: #ffffff;
+  --status-name-color: #ffffff;
+}
+
 .world-status.is-structure {
   --status-bar-width: 72px;
   display: grid;

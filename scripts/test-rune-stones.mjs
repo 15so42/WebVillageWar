@@ -7,6 +7,7 @@
 // 6) 序列化/反序列化守恒，不复制不丢失。
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
+import { Inventory } from '../src/systems/Inventory.js';
 
 globalThis.window = {
   innerWidth: 1280,
@@ -170,6 +171,17 @@ function makeGame() {
       unit?.team === 'player' || (unit?.controllerPlayerId ?? unit?.ownerPlayerId) === slot
     )
   };
+  // 符文石现在就是背包里的一件物品（itemId === 'runeStone'）：落点就是格子本身。
+  // 所以假 game 也必须真的有存储，否则 createStone() 会因为"没地方放"直接失败。
+  game.baseInventory = new Inventory({ id: 'base', capacity: 48 });
+  game.itemBagFor = (unit, { create = true } = {}) => {
+    if (!unit?.id) return null;
+    if (unit.workerInventory) return unit.workerInventory;
+    if (unit.itemBag) return unit.itemBag;
+    if (!create) return null;
+    unit.itemBag = new Inventory({ id: `unit:${unit.id}`, capacity: 16 });
+    return unit.itemBag;
+  };
   return { game, cardSystem, energyEvents };
 }
 
@@ -185,7 +197,7 @@ const FIRE_CARD = { id: 'fire-enchant', kind: 'enchant', level: 1, enchantmentId
 const THORNS_CARD = { id: 'thorns-enchant', kind: 'enchant', level: 1, enchantmentId: 'thorns', energyCost: 2 };
 
 {
-  const { game, cardSystem } = makeGame();
+  const { game } = makeGame();
   const system = new RuneStoneSystem(game);
   game.runeStones = system;
   const unit = makeUnit('u1');
@@ -243,11 +255,16 @@ const THORNS_CARD = { id: 'thorns-enchant', kind: 'enchant', level: 1, enchantme
   assert.equal(system.isStoneActive(sameName.stone), true, '前一块移走后备用石接管生效');
   assert.equal(unit.enchantments.get('fire')?.runeStoneId, sameName.stone.id);
 
-  // 容量上限
-  const small = makeUnit('u2', { capacity: 1 });
+  // 容量上限：符文石现在占的是**背包格**（不再单独有一套"符文槽位数"），
+  // 所以"放不下"就等于单位的背包没有空格。
+  // 用不可堆叠的魔力石把剩下的格子填满（木柴会叠成一堆，填不出"没格子"的状态）。
+  const small = makeUnit('u2');
   game.friendlyUnits.push(small);
   const first = system.createFromCard(THORNS_CARD, { playerId: 'p1', targetUnit: small, paidEnergy: 2 });
   assert.equal(first.ok, true);
+  const smallBag = game.itemBagFor(small);
+  while (smallBag.freeSlots() > 0) smallBag.add('manaStone', 1);
+  assert.equal(smallBag.freeSlots(), 0, '夹具前提：这个单位的背包确实已经填满');
   const overflow = system.createFromCard(FIRE_CARD, { playerId: 'p1', targetUnit: small, paidEnergy: 2 });
   assert.equal(overflow.ok, false);
   assert.equal(overflow.reason, RUNE_ERROR.UNIT_FULL);
@@ -255,12 +272,11 @@ const THORNS_CARD = { id: 'thorns-enchant', kind: 'enchant', level: 1, enchantme
 
   // 失败不消耗：已存在的石头数量只受成功操作影响
   assert.equal(system.allStones({ playerId: 'p1' }).length, 3);
-  assert.equal(cardSystem.energy, 0, '转移与失败都不应产生能量变动');
 }
 
 {
-  // 出售：只销毁被卖的实例，按实付能量返还
-  const { game, cardSystem } = makeGame();
+  // 出售：只销毁被卖的实例。卡牌能量已删除，所以不再返还能量。
+  const { game } = makeGame();
   const system = new RuneStoneSystem(game);
   game.runeStones = system;
   const unit = makeUnit('u1');
@@ -285,7 +301,6 @@ const THORNS_CARD = { id: 'thorns-enchant', kind: 'enchant', level: 1, enchantme
   const sold = system.sellStone(created.stone.id, { playerId: 'p1' });
   assert.equal(sold.ok, true);
   assert.equal(sold.refund, levelPrice);
-  assert.equal(cardSystem.energy, levelPrice);
   assert.equal(system.allStones({ playerId: 'p1' }).length, 0);
   assert.equal(unit.enchantments.has('fire'), false, '卖掉单位身上的石头必须解除其效果');
 
@@ -294,7 +309,6 @@ const THORNS_CARD = { id: 'thorns-enchant', kind: 'enchant', level: 1, enchantme
   const denied = system.sellStone(other.stone.id, { playerId: 'p1' });
   assert.equal(denied.ok, false);
   assert.equal(denied.reason, RUNE_ERROR.NOT_OWNED);
-  assert.equal(cardSystem.energy, levelPrice, '被拒绝的出售不得产生返还');
 }
 
 {
@@ -352,9 +366,14 @@ const THORNS_CARD = { id: 'thorns-enchant', kind: 'enchant', level: 1, enchantme
   game.friendlyUnits = [];
   const stacks = system.detachStonesOnDeath(fallen, { x: 0, z: 0 });
 
-  const full = makeUnit('u2', { capacity: 1 });
+  // 拾取者的背包满了：石头原地不动，绝不静默销毁
+  //（"满"的判据现在是背包没有空格，用不可堆叠的魔力石把格子填掉。）
+  const full = makeUnit('u2');
   game.friendlyUnits.push(full);
   system.createFromCard(THORNS_CARD, { playerId: 'p1', targetUnit: full, paidEnergy: 2 });
+  const fullBag = game.itemBagFor(full);
+  while (fullBag.freeSlots() > 0) fullBag.add('manaStone', 1);
+  assert.equal(fullBag.freeSlots(), 0, '夹具前提：拾取者的背包确实已经填满');
   const denied = system.pickUpStone(stacks[0].instanceId, full, stacks[0].data);
   assert.equal(denied.ok, false);
   assert.equal(denied.reason, RUNE_ERROR.UNIT_FULL);

@@ -17,6 +17,7 @@ import {
   spawnPointRules,
   spawnPointState
 } from '../src/systems/spawnPoints.js';
+import { ISLAND_SPAWN_POINTS } from '../src/data/gameData.js';
 
 const report = [];
 function check(name, fn) {
@@ -148,6 +149,15 @@ check('清除进度算得对，且必须全部清除才算完成', () => {
   assert.equal(clearedProgress([]).allCleared, false);
 });
 
+check('白天冻结出兵：到点也不生，且不把冷却重置成整段间隔', () => {
+  const point = makePoint({ intervalSeconds: 10, maxPerTick: 2 });
+  point.timer = 0;
+  const result = advanceSpawnPoint(point, { dt: 0.05, aliveCount: 0, allowSpawn: false });
+  assert.equal(result.spawnCount, 0);
+  assert.equal(result.reason, SPAWN_BLOCK_REASON.outOfRange);
+  assert.equal(point.timer, 0, '白天攒下的欠账不能在入夜一次性倒出来');
+});
+
 check('每个点可以有自己的节奏，不被全局默认抹平', () => {
   const points = normalizeSpawnPoints([
     { id: 'slow', intervalSeconds: 30, maxAlive: 8 },
@@ -157,6 +167,47 @@ check('每个点可以有自己的节奏，不被全局默认抹平', () => {
   assert.equal(points[1].intervalSeconds, 5);
   assert.equal(points[0].maxAlive, 8);
   assert.equal(points[1].maxAlive, 2);
+});
+
+check('可招募奖励进白名单：配了就拿得到，配坏了不产生空洞', () => {
+  // 需求第 6 条：可招募单位的来源是"击破哪个点就在哪个点生成"。
+  // normalizeSpawnPoint 是**显式白名单**，忘了登记就会静默丢掉（workerReward 丢过一次），
+  // 所以这里既验"记得登记"，也验规范化本身的边界。
+  const kept = makePoint({
+    recruitReward: { types: ['raider', 'archer'], count: 2 }
+  });
+  assert.deepEqual(kept.recruitReward, { types: ['raider', 'archer'], count: 2 });
+
+  // 也接受单数形式 type，方便只给一种兵种时少写一层数组
+  assert.deepEqual(
+    makePoint({ recruitReward: { type: 'spearman' } }).recruitReward,
+    { types: ['spearman'], count: 1 }
+  );
+
+  // 没配 / 配坏了 → null（调用方按"没有奖励"处理），而不是留一个空 types 数组
+  assert.equal(makePoint({}).recruitReward, null);
+  assert.equal(makePoint({ recruitReward: {} }).recruitReward, null);
+  assert.equal(makePoint({ recruitReward: { types: [] } }).recruitReward, null);
+  assert.equal(makePoint({ recruitReward: { types: ['', null, 7] } }).recruitReward, null);
+
+  // 数量被夹在 1..4，类型里的非法项被剔掉
+  assert.equal(makePoint({ recruitReward: { types: ['raider'], count: 99 } }).recruitReward.count, 4);
+  assert.equal(makePoint({ recruitReward: { types: ['raider'], count: 0 } }).recruitReward.count, 1);
+  assert.deepEqual(
+    makePoint({ recruitReward: { types: ['raider', '', 'archer'], count: 2 } }).recruitReward,
+    { types: ['raider', 'archer'], count: 2 }
+  );
+});
+
+check('海岛四个点都配了可招募奖励（否则那个点打下来什么都没多）', () => {
+  ISLAND_SPAWN_POINTS.forEach((point) => {
+    const normalized = normalizeSpawnPoint(point, 0);
+    assert.ok(
+      normalized.recruitReward?.types?.length > 0,
+      `${point.id} 没有 recruitReward：打掉它不会留下可招募单位`
+    );
+    assert.ok(normalized.recruitReward.count >= 1, `${point.id} 的招募数量必须至少 1`);
+  });
 });
 
 console.log(report.join('\n'));

@@ -1,18 +1,9 @@
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { BUFF_DEFINITIONS, LEVEL_DEFINITIONS, UNIT_DEFINITIONS } from '../src/data/gameData.js';
+import { BUFF_DEFINITIONS, UNIT_DEFINITIONS } from '../src/data/gameData.js';
 import { createProjectileModel, createUnitModel } from '../src/art/visualRegistry.js';
 import { AreaEffectSystem } from '../src/systems/AreaEffectSystem.js';
 import { AttackSystem } from '../src/systems/AttackSystem.js';
-
-const level = LEVEL_DEFINITIONS.find((entry) => entry.id === 'emerald-marsh');
-assert.ok(level, '应注册翡翠沼泽关卡');
-assert.equal(level.baseDifficulty, 4);
-assert.equal(level.world?.sceneKey, 'emerald-marsh');
-assert.deepEqual(level.elitePool.map((entry) => entry.type), ['mireHunter']);
-assert.deepEqual(level.bossPool.map((entry) => entry.type), ['rotrootColossus']);
-assert.equal(level.enemyPool.some((entry) => entry.type === 'mireHunter'), false);
-assert.equal(level.enemyPool.some((entry) => entry.type === 'rotrootColossus'), false);
 
 const hunter = UNIT_DEFINITIONS.mireHunter;
 const boss = UNIT_DEFINITIONS.rotrootColossus;

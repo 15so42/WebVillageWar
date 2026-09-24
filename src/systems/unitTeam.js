@@ -21,3 +21,16 @@ export function isHostileEnemy(unit) {
 export function isFieldRecruit(unit) {
   return unit?.isRecruitable === true;
 }
+
+/**
+ * 会不会主动伤人——威胁度数组与傀儡的"打还是逃"用的就是这个判断。
+ *
+ * 比 `isHostileEnemy` **宽**：野生动物也算。区别是刻意的：
+ *   - `isHostileEnemy` 回答的是"这是不是敌军"（基地自动开火、清点敌人、通关判定用），
+ *     野生动物不算，否则基地会把路过的狼打死；
+ *   - 本函数回答的是"它会不会伤到我"，狼会咬傀儡，所以必须进威胁数组。
+ * 只有"尚未被招募的野外单位"两边都不算——它们既不打人，也不该被自动打。
+ */
+export function isThreateningUnit(unit) {
+  return unit?.team === TEAMS.ENEMY && unit.isRecruitable !== true;
+}

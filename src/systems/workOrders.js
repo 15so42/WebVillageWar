@@ -16,7 +16,12 @@ export const WORK_STATE = {
   haulingHome: 'hauling_home',
   depositing: 'depositing',
   blocked: 'blocked',
-  lowPower: 'low_power'
+  lowPower: 'low_power',
+  // 附近有威胁：打不过（或空手）就往低威胁处跑。任务**不取消**，
+  // 威胁一散它照原路回去干活——半路清任务会让它把已经背上的货和预留都丢掉。
+  fleeing: 'fleeing',
+  // 附近有威胁，但战力判断认为打得过：这一帧交回常规战斗 AI。
+  engaging: 'engaging'
 };
 
 export const WORK_REASON = {
@@ -28,7 +33,8 @@ export const WORK_REASON = {
   unreachable: 'unreachable',
   lowPower: 'low_power',
   recharging: 'recharging',
-  containerFull: 'container_full'
+  containerFull: 'container_full',
+  threatNearby: 'threat_nearby'
 };
 
 export const WORK_ACTION = {
@@ -36,7 +42,8 @@ export const WORK_ACTION = {
   moveToNode: 'move_to_node',
   harvest: 'harvest',
   moveToBase: 'move_to_base',
-  deposit: 'deposit'
+  deposit: 'deposit',
+  flee: 'flee'
 };
 
 const STATE_LABELS = {
@@ -46,7 +53,9 @@ const STATE_LABELS = {
   [WORK_STATE.haulingHome]: '正在运输',
   [WORK_STATE.depositing]: '正在卸货',
   [WORK_STATE.blocked]: '无法继续',
-  [WORK_STATE.lowPower]: '魔力不足'
+  [WORK_STATE.lowPower]: '魔力不足',
+  [WORK_STATE.fleeing]: '逃跑',
+  [WORK_STATE.engaging]: '迎战'
 };
 
 const REASON_LABELS = {
@@ -58,7 +67,8 @@ const REASON_LABELS = {
   [WORK_REASON.unreachable]: '路线不可达',
   [WORK_REASON.lowPower]: '供能不足',
   [WORK_REASON.recharging]: '正在补魔',
-  [WORK_REASON.containerFull]: '容器已满'
+  [WORK_REASON.containerFull]: '容器已满',
+  [WORK_REASON.threatNearby]: '附近有敌人'
 };
 
 export const WORK_RULES = {
@@ -104,8 +114,15 @@ export function workerManaRatio(worker) {
 }
 
 // 单步决策。优先级顺序与文档一致：
-//   满包回程 > 缺魔力返程 > 任务有效性 > 工具 > 距离 > 采集
-// 之所以把「满包」放在任务有效性之前，是因为手上这批货不能因为目标枯竭就丢掉。
+//   威胁（打/逃）> 满包回程 > 缺魔力返程 > 任务有效性 > 工具 > 距离 > 采集
+//
+// 「威胁」排在**最前**，包括满包回程之前：背着满包跑回基地的路上被截杀，
+// 货和人都没了，而"先逃到安全处、威胁散了再回程"永远不亏。
+//
+// `danger` 由调用方（WorkSystem）从自卫反射（combatReflex + combatPlan）里算好后传进来——
+// "打不打得过"需要战力公式与敌人列表，"什么时候还该继续打"需要跨帧的记忆，
+// 那两样都不属于这个纯状态机。
+// 这里只消费结论：`{action:'flee'|'engage', target?}`。
 export function planWorkerStep({
   worker = {},
   task = null,
@@ -113,7 +130,8 @@ export function planWorkerStep({
   rules = WORK_RULES,
   supplyPoint = null,
   inSupplyRange = true,
-  baseHasRoom = true
+  baseHasRoom = true,
+  danger = null
 } = {}) {
   const resolved = workRules(rules);
   const workerPosition = { x: worker.x ?? 0, z: worker.z ?? 0 };
@@ -125,6 +143,16 @@ export function planWorkerStep({
     target: target ?? null,
     note: workStateLabel(state, reason)
   });
+
+  // 0) 威胁：最高优先级。打不过（含空手）就跑，打得过就把这一帧交回战斗 AI。
+  //    `flee` 的 target 为 null 表示"周围找不到更安全的落点"——此时原地不动，
+  //    而不是朝随机方向乱跑（乱跑会把它送进更大的威胁里）。
+  if (danger?.action === 'flee') {
+    return result(WORK_STATE.fleeing, WORK_REASON.threatNearby, WORK_ACTION.flee, danger.target ?? null);
+  }
+  if (danger?.action === 'engage') {
+    return result(WORK_STATE.engaging, WORK_REASON.threatNearby, WORK_ACTION.none, null);
+  }
 
   // 1) 背包满了：先把货送回基地，任务不取消，卸完继续
   if (workerInventoryFull(worker)) {

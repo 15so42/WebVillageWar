@@ -179,44 +179,10 @@ export class CommandValidator {
   }
 
   validateCard(playerId, payload, { discardOnly = false } = {}) {
-    const cards = this.game.cardSystems?.[playerId]
-      ?? (playerId === this.localPlayerId() ? this.game.cardSystem : null);
-    const instanceId = payload.cardInstanceId;
-    if (!cards || typeof instanceId !== 'string') return reject('invalid_card_instance');
-    const card = cards.findCardByInstanceId?.(instanceId);
-    if (!card) return reject('card_not_owned_or_not_available');
-    if (discardOnly) {
-      return {
-        ok: true,
-        payload: {
-          cardInstanceId: instanceId,
-          sourceLocation: 'hand'
-        }
-      };
-    }
-    let normalizedPayload = payload;
-    if (card.target === 'ground') {
-      const point = payload.point;
-      if (!Array.isArray(point) || point.length < 2 || point.slice(0, 2).some((value) => !Number.isFinite(Number(value)))) {
-        return reject('invalid_target_point');
-      }
-      normalizedPayload = {
-        ...payload,
-        point: [Number(point[0]), Number(point[1])]
-      };
-    }
-    if (payload.targetUnitId) {
-      const target = [...this.game.friendlyUnits, ...this.game.enemyUnits]
-        .find((unit) => unit.id === payload.targetUnitId && unit.alive);
-      if (!target) return reject('target_not_found');
-      if (
-        card.target === 'friendly-unit'
-        && (target.controllerPlayerId ?? target.ownerPlayerId) !== playerId
-      ) {
-        return reject('target_not_owned');
-      }
-    }
-    return { ok: true, payload: normalizedPayload };
+    void playerId;
+    void payload;
+    void discardOnly;
+    return reject('card_not_owned_or_not_available');
   }
 
   validateRewardState(playerId, payload) {

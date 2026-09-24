@@ -97,7 +97,7 @@ export class ResearchSystem {
     // 而玩家的实际顺序几乎总是"先建设施，后研究"。
     this.game?.production?.refreshRecipes?.();
     this.game?.baseStorage?.markDirty?.();
-    this.game?.cardSystem?.setHintOnce?.(`科技已解锁：${tech.name}`, `research:${tech.id}`);
+    this.game?.hints?.setHintOnce?.(`科技已解锁：${tech.name}`, `research:${tech.id}`);
     return { ok: true, reason: 'none', tech };
   }
 
@@ -125,10 +125,6 @@ export class ResearchSystem {
     if (!check.ok) return { ok: false, reason: check.reason, label: ENCHANT_ERROR_LABELS[check.reason] ?? '', missing: check.missing };
     const runeSystem = this.game?.runeStones;
     if (!runeSystem?.createStone) return { ok: false, reason: 'no_rune_system', label: '', missing: [] };
-    const capacity = runeSystem.canPlaceInBase?.(runeSystem.localSlot?.());
-    if (capacity && capacity.ok === false) {
-      return { ok: false, reason: capacity.reason, label: '基地符文背包已满', missing: [] };
-    }
     const inventory = this.game?.baseInventory;
     const removed = [];
     for (const entry of check.recipe.cost) {
@@ -139,20 +135,28 @@ export class ResearchSystem {
       }
       removed.push(entry);
     }
-    const stone = runeSystem.createStone({
+    // 走无卡的造石入口：放置检查（基地符文背包是否放得下）在那边统一做，
+    // 这里不再自己重复一遍容量判断。
+    const created = runeSystem.createEnchantmentStone?.({
       enchantmentId,
       level: 1,
       playerId: runeSystem.localSlot?.() ?? null
-    });
-    if (!stone) {
+    }) ?? null;
+    if (!created?.ok) {
       removed.forEach((done) => inventory.add(done.itemId, done.count));
-      return { ok: false, reason: 'create_failed', label: '制作失败', missing: [] };
+      return {
+        ok: false,
+        reason: created?.reason ?? 'create_failed',
+        label: created ? '基地符文背包已满' : '制作失败',
+        missing: []
+      };
     }
+    const stone = created.stone;
     this.stats.enchanted += 1;
     this.stats.spentOnEnchant += check.recipe.cost.reduce((sum, entry) => sum + entry.count, 0);
     this.game?.baseStorage?.markDirty?.();
-    this.game?.runeBackpack?.refresh?.();
-    this.game?.cardSystem?.setHintOnce?.(`制作完成：${stone.enchantmentId} 附魔石`, `enchant:${stone.id}`);
+    this.game?.backpack?.refresh?.();
+    this.game?.hints?.setHintOnce?.(`制作完成：${stone.enchantmentId} 附魔石`, `enchant:${stone.id}`);
     return { ok: true, reason: 'none', stone };
   }
 

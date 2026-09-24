@@ -7,6 +7,7 @@
 //   4. 换下来的原配武器**物化回背包**——物品守恒，不会换一次少一把。
 import { writeFileSync, mkdirSync } from 'node:fs';
 import WebSocket from 'ws';
+import { enterSurvivalGame } from './lib/enter-game.mjs';
 
 const CDP_PORT = Number(process.env.ISLAND_CDP_PORT || 9235);
 const BASE = process.env.ISLAND_URL || 'http://127.0.0.1:3000/';
@@ -56,24 +57,7 @@ const ev = async (expr) => {
 
 await send('Page.navigate', { url: BASE });
 const report = { page: BASE, levelId: LEVEL_ID, started: false, result: null, problems };
-for (let i = 0; i < 60; i += 1) {
-  await sleep(400);
-  if (await ev(`!!document.querySelector('[data-action="levels"]')`)) break;
-}
-await ev(`document.querySelector('[data-action="levels"]')?.click(); true`);
-await sleep(1200);
-await ev(`(() => {
-  const btn = [...document.querySelectorAll('[data-action="select-level"]')]
-    .find((e) => e.offsetParent !== null && (e.dataset.levelId || '').includes(${JSON.stringify(LEVEL_ID)}));
-  if (btn) btn.click();
-  return true;
-})()`);
-await sleep(500);
-await ev(`(()=>{const b=[...document.querySelectorAll('[data-action="start-level"]')].find(e=>e.offsetParent!==null);if(b)b.click();return true;})()`);
-for (let i = 0; i < 60; i += 1) {
-  await sleep(400);
-  if (await ev(`!!window.__VILLAGE_WAR_DEBUG__?.game`)) { report.started = true; break; }
-}
+report.started = await enterSurvivalGame(ev, sleep);
 
 if (report.started) {
   await sleep(500);
@@ -106,17 +90,26 @@ if (report.started) {
     await step(4);
 
     const inventory = game.baseInventory;
-    const openPanel = async () => {
-      if (!game.baseStorage.isOpen()) game.baseStorage.open();
-      game.baseStorage.setTab('unit');
-      game.baseStorage.lastSignature = '';
-      game.baseStorage.refresh();
+    // 统一的背包面板：左边永远是"要看的那个背包"（基地或某个单位），
+    // 所以"打开单位的背包"= openForUnit(unit)，不再有独立的单位背包段。
+    const openPanel = async (unit = null) => {
+      if (unit) game.backpack.openForUnit(unit);
+      else if (!game.backpack.isOpen()) game.backpack.openBase();
+      game.backpack.setTab('craft');
+      game.backpack.lastSignature = '';
+      game.backpack.refresh();
       await step(1);
     };
     const bagOf = (unit) => unit?.workerInventory ?? unit?.itemBag ?? null;
+    /** 面板里那一格上的「装备」按钮（单位视图下武器格才有）。 */
+    const equipButton = (index) => document.querySelector('#backpack [data-backpack-equip="' + index + '"]');
 
-    // ---- 0) 找一个近战战斗单位（出生护卫是蛮兵 + 弓手，没有剑士）----
-    const fighter = (game.friendlyUnits ?? []).find((unit) => unit?.alive && unit.type === 'raider') ?? null;
+    // ---- 0) 找一个近战战斗单位 ----
+    // ⚠️ 必须**自己造一个**：用户已要求「玩家一开始没有任何战斗单位」，
+    // 开局只有一支木傀儡，早期版本依赖的"出生护卫（蛮兵 + 弓手）"已经没有了。
+    // 验证的内容（武器换装规则）与单位从哪来无关，所以直接走 summonUnits。
+    game.summonUnits('raider', 1, game.playerBase.position.clone().add({ x: 4.2, y: 0, z: 4.0 }), 0.7, { select: false });
+    const fighter = (game.friendlyUnits ?? []).find((unit) => unit?.alive && unit.type === 'raider' && unit.isWorker !== true) ?? null;
     out.fighterFound = Boolean(fighter);
     out.fighterType = fighter?.type ?? null;
     out.fighterNativeFamily = fighter?.definition?.weapon?.family ?? null;
@@ -144,22 +137,35 @@ if (report.started) {
     out.bowMovedToBag = movedForeign.ok === true;
     out.bagCounts = bagOf(fighter)?.countsByItem?.() ?? null;
 
-    // ---- 2) 面板上：同族显示「装备」可用，异族不可用并给出原因 ----
-    await openPanel();
-    const unitChips = [...document.querySelectorAll('[data-storage-unit-items] .base-storage-item')];
-    out.unitChipCount = unitChips.length;
-    const swordChip = unitChips.find((chip) => chip.textContent.includes('狼牙棒'));
-    const bowChip = unitChips.find((chip) => chip.textContent.includes('精钢剑'));
-    out.swordEquipButtonFound = Boolean(swordChip?.querySelector('[data-equip-weapon]'));
-    out.swordEquipEnabled = swordChip?.querySelector('[data-equip-weapon]')?.disabled === false;
-    out.bowEquipDisabled = bowChip?.querySelector('[data-equip-weapon]')?.disabled === true;
-    out.bowBlockedReason = bowChip?.querySelector('.base-storage-blocked')?.textContent ?? null;
+    // ---- 2) 面板上：两把武器都画出了「装备」按钮 ----
+    // 新面板不再把"装不上"的武器置灰：按钮只负责派发，能不能装由
+    // equipWeaponFromBag 判定并把原因写进反馈条（[data-backpack-feedback]）。
+    // 所以这里既验按钮在，也验点异族那把**真的被拒**且原因可读。
+    await openPanel(fighter);
+    const unitCells = [...document.querySelectorAll('#backpack [data-backpack-grid] [data-backpack-slot]')];
+    out.unitCellCount = unitCells.length;
+    const swordIndex = bagOf(fighter)?.slots?.findIndex((slot) => slot?.itemId === similarItem) ?? -1;
+    const foreignIndex = bagOf(fighter)?.slots?.findIndex((slot) => slot?.itemId === foreignItem) ?? -1;
+    out.swordSlotIndex = swordIndex >= 0 ? swordIndex : null;
+    out.foreignSlotIndex = foreignIndex >= 0 ? foreignIndex : null;
+    const swordButton = swordIndex >= 0 ? equipButton(swordIndex) : null;
+    const foreignButton = foreignIndex >= 0 ? equipButton(foreignIndex) : null;
+    out.swordEquipButtonFound = Boolean(swordButton);
+    out.swordEquipEnabled = swordButton?.disabled === false;
+    out.foreignEquipButtonFound = Boolean(foreignButton);
+    // 点异族那把：被拒 + 反馈条给出原因 + 战斗数值与手上武器都没变
+    const damageBeforeForeign = fighter?.physicalAttack ?? null;
+    foreignButton?.click();
+    await step(1);
+    out.bowBlockedReason = document.querySelector('#backpack [data-backpack-feedback]')?.textContent ?? null;
+    out.foreignClickKeptDamage = (fighter?.physicalAttack ?? null) === damageBeforeForeign;
+    out.foreignClickKeptWeapon = (fighter?.weaponItemId ?? null) === null;
 
     // ---- 3) 点击装备：伤害与耐久真的变了，原配武器回到背包 ----
-    const swordIndex = Number(swordChip?.querySelector('[data-equip-weapon]')?.dataset.equipWeapon);
-    out.swordSlotIndex = Number.isFinite(swordIndex) ? swordIndex : null;
+    // 每次点击后 markDirty() 都会重建整个网格，旧节点已经脱离文档——
+    // 再点它不会有任何事发生，所以这里必须**重新查询**按钮。
     const bagBefore = bagOf(fighter)?.countsByItem?.() ?? {};
-    swordChip?.querySelector('[data-equip-weapon]')?.click();
+    equipButton(swordIndex)?.click();
     await step(2);
     out.damageAfterEquip = fighter?.physicalAttack ?? null;
     out.durabilityAfterEquip = fighter?.weapon?.maxDurability ?? null;
@@ -171,9 +177,9 @@ if (report.started) {
     // 物品守恒：少了升级件，多了原配的旧武器
     out.swordLeftBag = (bagBefore[similarItem] ?? 0) - (bagAfter[similarItem] ?? 0);
     out.baselineSwordReturned = (bagAfter.wornClub ?? 0) - (bagBefore.wornClub ?? 0);
-    out.feedback = document.querySelector('[data-storage-feedback]')?.textContent ?? null;
+    out.feedback = document.querySelector('#backpack [data-backpack-feedback]')?.textContent ?? null;
 
-    // ---- 4) 跨族装备被拒，且什么都不变 ----
+    // ---- 4) 跨族装备被拒，且什么都不变（直接走 API，确认拒绝理由本身） ----
     const foreignIndexBefore = bagOf(fighter)?.slots?.findIndex((slot) => slot?.itemId === foreignItem) ?? -1;
     const direct = game.equipWeaponFromBag(fighter, foreignIndexBefore);
     out.crossFamilyRejected = direct.ok === false && direct.reason === 'family_mismatch';
@@ -182,17 +188,33 @@ if (report.started) {
     out.bowStillInBag = (bagOf(fighter)?.countOf?.(foreignItem) ?? 0) === 1;
 
     // ---- 5) 真的打起来：装上升级武器之后打一次，敌人确实掉血 ----
+    //
+    // ⚠️ 靶子每帧都会被"钉住"（清掉移动目标、清掉 wanderGoal/索敌，并把移动速度钉成 0）。
+    // 这是为了让**测量**可复现，不是因为有"追不上"的问题：
+    //   - 野生动物默认在出生点附近游荡（updateWildlifeWander），靶子会自己走开，
+    //     于是"这次有没有打中"变成运气问题；
+    //   - 而这游戏里**所有野怪与敌人都不会逃跑**，它们只会迎上来或原地还手，
+    //     所以"追不追得到"根本不是战斗的问题——不需要为它做任何设计。
+    // 钉住之后，这条断言量的就只剩"伤害有没有落到目标身上"。
     const foe = (game.enemyUnits ?? []).find((unit) => unit?.alive && unit.isWildlife === true) ?? null;
     out.foeFound = Boolean(foe);
+    const pinFoe = () => {
+      if (!foe?.alive) return;
+      foe.moveGoal = null;
+      foe.commandMoveGoal = null;
+      foe.wanderGoal = null;
+      foe.attributes?.setBase?.('moveSpeed', 0);
+      foe.attributes?.setBase?.('aggroRange', 0);
+    };
     if (foe && fighter) {
       foe.position.set(fighter.position.x + 1.1, foe.position.y, fighter.position.z + 1.1);
       foe.health = foe.maxHealth;
-      foe.moveGoal = null;
-      foe.commandMoveGoal = null;
+      pinFoe();
       fighter.position.set(foe.position.x + 1.0, fighter.position.y, foe.position.z + 1.0);
       const foeHealthBefore = foe.health;
       let guard = 0;
       while (foe.health >= foeHealthBefore && guard < 400) {
+        pinFoe();
         await step(1);
         guard += 1;
       }
@@ -231,11 +253,13 @@ report.verdict = r && !r.error ? {
     && r.bagCapacity > 0
     && r.swordMovedToBag === true
     && r.bowMovedToBag === true,
-  // 面板：同族可装备、异族禁用并给原因
+  // 面板：两把武器都有「装备」入口；点异族那把被拒、原因可读，且什么都没被换掉
   panelShowsEquipState: r.swordEquipButtonFound === true
     && r.swordEquipEnabled === true
-    && r.bowEquipDisabled === true
-    && String(r.bowBlockedReason ?? '').includes('同类武器'),
+    && r.foreignEquipButtonFound === true
+    && String(r.bowBlockedReason ?? '').includes('同类武器')
+    && r.foreignClickKeptDamage === true
+    && r.foreignClickKeptWeapon === true,
   // 装备真的改战斗数值（原始 6 伤害 / 32 耐久 → 11 / 46）
   equipChangesCombatStats: r.fighterNativeDamage === 6
     && r.fighterNativeDurability === 32

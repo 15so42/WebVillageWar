@@ -2,13 +2,17 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 
-function applyGroundShader(material, { storybookSnow = false } = {}) {
+function applyGroundShader(material, { storybookSnow = false, flatTerrain = false } = {}) {
   // 雪谷地面不做全局暖色染：冷暖对比交给方向光（暖）与半球光（冷），
   // 全场乘暖色会让阴影面也变橙，丢失参考图的向阳/背光层次
   const warmTintChunk = '';
-  // 雪谷的道路与雪面高度已经由 CPU 地形统一生成。再次在顶点着色器中
-  // 位移会让低机位下的主路出现连续横向褶皱；其他地图仍保留微位移。
-  const heightDisplacementChunk = storybookSnow
+  // 顶点着色器里的这层微位移在两种情况下必须关掉：
+  //   - 雪谷：道路与雪面高度已经由 CPU 地形统一生成，再位移会让低机位下的主路
+  //     出现连续横向褶皱；
+  //   - **平坦地形**（本轮的海岛）：CPU 高度是逐点相等的常数，而着色器还在按噪声
+  //     起伏 0.12。玩法高度是平的、画面却在抖，两者会当场对不上——
+  //     单位看起来悬空或陷进地里，而且瞄准圈、范围提示全都跟地形错位。
+  const heightDisplacementChunk = (storybookSnow || flatTerrain)
     ? ''
     : `
       float noiseHeight = snoise(vWorldPos * 0.08);
@@ -2090,19 +2094,19 @@ const WORLD_PRESETS = {
     sceneKey: 'island-survival',
     theme: 'island',
     seed: 20260921,
-    ground: { width: 200, depth: 184 },
+    ground: { width: 400, depth: 368 },
     // 海面本身不可走，只把导航网格铺到岛和沙滩外缘，省掉大片无效海域采样
-    navigationBounds: { minX: -58, maxX: 58, minZ: -54, maxZ: 54 },
+    navigationBounds: { minX: -116, maxX: 116, minZ: -108, maxZ: 108 },
     sky: {
       background: '#8fc9e6',
       skyGradient: { top: '#2f6fb0', middle: '#7dc0e8', horizon: '#dff0f5' },
       fog: '#bcdcea',
-      fogNear: 130,
-      fogFar: 420,
+      fogNear: 260,
+      fogFar: 840,
       sun: '#fff2d5',
       sunIntensity: 3.35,
       shadowIntensity: 0.88,
-      sunPosition: { x: -54, y: 76, z: 62 },
+      sunPosition: { x: -108, y: 152, z: 124 },
       sunTarget: { x: 0, y: 0, z: 0 },
       hemiSky: '#bfe4ff',
       hemiGround: '#43593a',
@@ -2111,7 +2115,7 @@ const WORLD_PRESETS = {
       ambientIntensity: 0.56,
       shadowMapSize: 2048,
       shadowRadius: 4,
-      shadowExtent: 118,
+      shadowExtent: 236,
       realtimeShadows: true,
       bakedShadows: false
     },
@@ -2136,19 +2140,24 @@ const WORLD_PRESETS = {
       rock: '#8b8577',
       tree: '#3f6b3a'
     },
-    pathWidth: 2.6,
+    pathWidth: 5.2,
+    // 不铺「基地 → 敌营」那条路（旧玩法的路网）。`pathPoints` 必须留着：
+    // `landmassMaskAt()` 的 roadReserve 与资源点让位都读它，见 createPath 调用点的注释。
+    paths: false,
     // 出生营地与敌营都必须落在陆地内侧：landmassMaskAt() 会围绕它们各自保留一块
-    // 强制陆地（基地 16m / 敌营 14m）。如果摆在岸边，这块保留区会把「陆地」推到
+    // 强制陆地（固定 16m / 14m，见 landmassMaskAt 里的 baseReserve / campReserve，
+    // **不是**按比例缩放的配置值）。如果摆在岸边，这块保留区会把「陆地」推到
     // 水面线以外，于是出现「寻路说可走、地形却是海底」的错位。
-    playerBasePosition: { x: 2, z: 20 },
-    enemyCampPosition: { x: 26, z: -12 },
+    // 岛放大一倍之后，两者的归一化位置与放大前一致，所以仍然落在内陆。
+    playerBasePosition: { x: 4, z: 40 },
+    enemyCampPosition: { x: 52, z: -24 },
     pathPoints: [
-      { x: 2, z: 20 },
-      { x: 8, z: 14 },
-      { x: 13, z: 7 },
-      { x: 18, z: 0 },
-      { x: 23, z: -7 },
-      { x: 26, z: -12 }
+      { x: 4, z: 40 },
+      { x: 16, z: 28 },
+      { x: 26, z: 14 },
+      { x: 36, z: 0 },
+      { x: 46, z: -14 },
+      { x: 52, z: -24 }
     ],
     landmass: {
       waterHeight: 0,
@@ -2159,20 +2168,27 @@ const WORLD_PRESETS = {
       shoreOuter: 1.0,
       // 四个重叠的椭圆拼出岛形：主岛 + 西北半岛 + 东岬 + 南岬。
       // 不用 bays 切湾，避免「地形说是陆地、寻路说是水面」的错位。
+      // 本轮把整张图在水平方向放大一倍，所以这里的每一个长度（含 x/z 偏移与 rx/rz）
+      // 都乘以 2：岛的实际海岸线从约 ±51/±47 变成约 ±102/±94。
       lobes: [
-        { x: 0, z: 0, rx: 46, rz: 40, rot: -0.06, irregularity: 0.12 },
-        { x: -26, z: -22, rx: 30, rz: 24, rot: 0.55, irregularity: 0.16 },
-        { x: 30, z: 13, rx: 28, rz: 22, rot: -0.32, irregularity: 0.16 },
-        { x: -8, z: 32, rx: 24, rz: 20, rot: 0.2, irregularity: 0.18 }
+        { x: 0, z: 0, rx: 92, rz: 80, rot: -0.06, irregularity: 0.12 },
+        { x: -52, z: -44, rx: 60, rz: 48, rot: 0.55, irregularity: 0.16 },
+        { x: 60, z: 26, rx: 56, rz: 44, rot: -0.32, irregularity: 0.16 },
+        { x: -16, z: 64, rx: 48, rz: 40, rot: 0.2, irregularity: 0.18 }
       ],
       bays: []
     },
     terrain: {
       ...DEFAULT_TERRAIN_PROFILE,
-      // 岛内没有走廊，南北抬升与谷底混合全部关掉，起伏只来自 hills / ridges
+      // 岛内没有走廊，南北抬升与谷底混合全部关掉。
       northRise: 0,
       sideRise: 0,
       sideNorthRise: 0,
+      // **平地开关**（本轮新增）：true 时 islandSurvivalHeightAt() 直接返回 baseHeight，
+      // 陆地是一整块等高台地，没有丘陵、山脊与粗糙噪声；海岸线之外照常下沉到海床
+      // （那是海，不是"起伏"）。下面那份 hills / ridges 数据保留着并同步放大过，
+      // 想恢复起伏只要把这一行改成 false。
+      flat: true,
       baseHeight: 1.35,
       beachHeight: 0.5,
       beachStart: 0.6,
@@ -2181,62 +2197,83 @@ const WORLD_PRESETS = {
       basePlatformHeight: 1.5,
       roughnessScale: 1.05,
       hills: [
-        { x: -2, z: -4, rx: 21, rz: 17, height: 11.6 },
-        { x: -18, z: 16, rx: 14, rz: 12, height: 4.2 },
-        { x: 18, z: -14, rx: 15, rz: 12, height: 3.8 },
-        { x: -24, z: -18, rx: 13, rz: 11, height: 3.4 },
-        { x: 22, z: 18, rx: 14, rz: 11, height: 3.2 },
-        { x: 6, z: 26, rx: 13, rz: 10, height: 2.6 }
+        { x: -4, z: -8, rx: 42, rz: 34, height: 11.6 },
+        { x: -36, z: 32, rx: 28, rz: 24, height: 4.2 },
+        { x: 36, z: -28, rx: 30, rz: 24, height: 3.8 },
+        { x: -48, z: -36, rx: 26, rz: 22, height: 3.4 },
+        { x: 44, z: 36, rx: 28, rz: 22, height: 3.2 },
+        { x: 12, z: 52, rx: 26, rz: 20, height: 2.6 }
       ],
       ridges: [
-        { x: -6, z: -6, rx: 7, rz: 18, height: 3.8 },
-        { x: 10, z: 8, rx: 16, rz: 6, height: 2 }
+        { x: -12, z: -12, rx: 14, rz: 36, height: 3.8 },
+        { x: 20, z: 16, rx: 32, rz: 12, height: 2 }
       ]
     },
     // 资源节点：岛上的树 / 石堆 / 矿脉都是能采空的实例，定义见 gameData.js 的
     // RESOURCE_NODE_DEFINITIONS。配了这张表就不再铺装饰性森林与巨石群，
     // 免得出现「这棵能砍、那棵砍不动」的歧义。
+    //
+    // 随岛放大做的两处调整，都是**比例决定**而不是手感决定：
+    //   - 坐标与半径 ×2（跟随岛形）；
+    //   - count ×2（岛的面积变成 4 倍，数量只翻倍意味着**密度减半**）。
+    //     count 是这一片能生成多少个节点，直接决定同屏网格与寻路阻挡的数量，
+    //     所以这里刻意不按面积 ×4——那会把节点总数从约 141 推到 564，
+    //     而放大后的导航网格本身已经从 145×135 涨到约 290×270 格。
+    //     密度是平衡旋钮：想让岛上更密就调这些 count。
+    //     spacing 是节点之间的**绝对**间距，不随缩放变化。
     resourceZones: [
       // 木材：橡树为主，松树补外围
-      { node: 'oak', x: -15, z: 18, rx: 12, rz: 10, count: 14 },
-      { node: 'oak', x: 19, z: -17, rx: 12, rz: 10, count: 14 },
-      { node: 'oak', x: 21, z: 21, rx: 11, rz: 9, count: 10 },
-      { node: 'pine', x: -24, z: -8, rx: 10, rz: 11, count: 12 },
-      { node: 'pine', x: -4, z: -26, rx: 12, rz: 8, count: 12 },
+      { node: 'oak', x: -30, z: 36, rx: 24, rz: 20, count: 28 },
+      { node: 'oak', x: 38, z: -34, rx: 24, rz: 20, count: 28 },
+      { node: 'oak', x: 42, z: 42, rx: 22, rz: 18, count: 20 },
+      { node: 'pine', x: -48, z: -16, rx: 20, rz: 22, count: 24 },
+      { node: 'pine', x: -8, z: -52, rx: 24, rz: 16, count: 24 },
       // 石料：四片石堆，采空后这一带会明显空出来
-      { node: 'stonePile', x: -14, z: -4, rx: 5, rz: 4.4, count: 8, spacing: 1.5 },
-      { node: 'stonePile', x: 20, z: -22, rx: 5, rz: 4.4, count: 8, spacing: 1.5 },
-      { node: 'stonePile', x: -24, z: 14, rx: 4.6, rz: 4, count: 7, spacing: 1.5 },
-      { node: 'stonePile', x: 8, z: -16, rx: 4.6, rz: 4, count: 7, spacing: 1.5 },
+      { node: 'stonePile', x: -28, z: -8, rx: 10, rz: 8.8, count: 16, spacing: 1.5 },
+      { node: 'stonePile', x: 40, z: -44, rx: 10, rz: 8.8, count: 16, spacing: 1.5 },
+      { node: 'stonePile', x: -48, z: 28, rx: 9.2, rz: 8, count: 14, spacing: 1.5 },
+      { node: 'stonePile', x: 16, z: -32, rx: 9.2, rz: 8, count: 14, spacing: 1.5 },
       // 铁矿：数量刻意少，留给中期
-      { node: 'ironVein', x: -18, z: -20, rx: 4, rz: 3.4, count: 5, spacing: 1.9 },
-      { node: 'ironVein', x: 22, z: 6, rx: 3.6, rz: 3.2, count: 4, spacing: 1.9 },
+      { node: 'ironVein', x: -36, z: -40, rx: 8, rz: 6.8, count: 10, spacing: 1.9 },
+      { node: 'ironVein', x: 44, z: 12, rx: 7.2, rz: 6.4, count: 8, spacing: 1.9 },
       // 食物与纤维：不需要工具，开局就能采
-      { node: 'berryBush', x: -8, z: 7, rx: 6, rz: 5, count: 10 },
-      { node: 'berryBush', x: 16, z: 4, rx: 5, rz: 4.4, count: 8 },
-      { node: 'fiberPlant', x: -2, z: 26, rx: 6, rz: 4.6, count: 12 },
-      { node: 'fiberPlant', x: 14, z: 14, rx: 5, rz: 4.4, count: 10 }
+      { node: 'berryBush', x: -16, z: 14, rx: 12, rz: 10, count: 20 },
+      { node: 'berryBush', x: 32, z: 8, rx: 10, rz: 8.8, count: 16 },
+      { node: 'fiberPlant', x: -4, z: 52, rx: 12, rz: 9.2, count: 24 },
+      { node: 'fiberPlant', x: 28, z: 28, rx: 10, rz: 8.8, count: 20 }
     ],
     forestPassages: [],
     clearings: [
-      { x: 2, z: 20, r: 11 },
-      { x: 26, z: -12, r: 8 },
-      { x: -16, z: -26, r: 6 }
+      { x: 4, z: 40, r: 22 },
+      { x: 52, z: -24, r: 16 },
+      { x: -32, z: -52, r: 12 }
     ],
     puddles: [],
     altars: [
-      { id: 'mana-altar-island-center', type: 'mana', position: { x: -6, z: -12 }, rotation: 0.2, clearingRadius: 6 },
-      { id: 'energy-altar-island-east', type: 'energy', position: { x: 16, z: 10 }, rotation: -0.5, clearingRadius: 5.6 }
+      { id: 'mana-altar-island-center', type: 'mana', position: { x: -12, z: -24 }, rotation: 0.2, clearingRadius: 12 },
+      { id: 'energy-altar-island-east', type: 'energy', position: { x: 32, z: 20 }, rotation: -0.5, clearingRadius: 11.2 }
     ],
     wildlife: [
-      { type: 'wolf', x: -20, z: -4, radius: 6 },
-      { type: 'bear', x: 20, z: -6, radius: 6.4 },
-      { type: 'wolf', x: -4, z: 28, radius: 6 },
-      { type: 'bear', x: -26, z: 16, radius: 5.6 }
+      { type: 'wolf', x: -40, z: -8, radius: 12 },
+      { type: 'bear', x: 40, z: -12, radius: 12.8 },
+      { type: 'wolf', x: -8, z: 56, radius: 12 },
+      { type: 'bear', x: -52, z: 32, radius: 11.2 }
     ],
-    monsterCamp: { x: -16, z: -26, rot: 0.42, scale: 1.1, offset: 0.24 },
+    monsterCamp: { x: -32, z: -52, rot: 0.42, scale: 1.1, offset: 0.24 },
+    // 岛放大一倍之后，默认的相机（距离 28.7 / 最远 78）只够看到岛的六分之一左右，
+    // 所以这张图单独给一组相机参数：初始目标落在基地旁边，最远拉到 160。
+    camera: {
+      target: { x: 4, y: 4, z: 40 },
+      distance: 57,
+      minDistance: 20,
+      maxDistance: 160
+    },
     // 岛上不放雪谷那种村舍：placeCottages 的默认坐标是按旧关卡摆的，会落到海里
     cottages: [],
+    // 也不放旧关卡的沿路小木屋（placeLegacyPathDecor）。它是岛上唯一真正生成的
+    // 「小房子」，用户要求去掉：看着像功能性建筑，实际只是装饰，令人疑惑。
+    // 以后要加的是**可修缮的功能性建筑**，不是这种摆件。
+    legacyPathDecor: [],
     snowfall: {
       enabled: false,
       countScale: 0,
@@ -2389,7 +2426,20 @@ export function createWorld(scene, worldOptions = {}) {
   }
   if (theme === 'dungeon') {
     createDungeonPath(scene, pathPoints);
-  } else {
+  } else if (config.paths !== false) {
+    // `paths: false` 的关卡不铺这条路。
+    //
+    // 这条路是「基地 → 敌营」的走廊，是**旧玩法**（沿线推进、打敌营）的路网。
+    // 海岛生存已经不是那个玩法了：基地在 (4,40)、敌营在 (52,-24)，而通关闭的是
+    // 清掉 4 个刷怪点，两者之间没有任何战术关系，一条把两地连起来的大路只会
+    // 误导玩家"沿着路走过去打敌营"。
+    //
+    // ⚠️ 只关**视觉**路面：`config.pathPoints` 必须保留。它还被两处真正吃：
+    //   1. `landmassMaskAt()` 里的 roadReserve —— 沿路 6.9m 内强制成陆，
+    //      删掉会改变可走区域与 `test-island-terrain` 的关键点结论；
+    //   2. `placeResourceNodes()` 用 `isDecorationClear(point, pathPoints, 1.6)`
+    //      让资源点避开路面。
+    // （`pathPoints: []` 也不行：CatmullRomCurve3 拿到空点集会直接抛异常。）
     createPath(scene, pathPoints);
   }
   if (theme === 'snow') {
@@ -3102,6 +3152,24 @@ function islandSurvivalHeightAt(x, z) {
   const terrain = config.terrain;
   const waterHeight = config.landmass?.waterHeight ?? 0;
   const distance = islandCoastDistanceAt(x, z);
+
+  // 平坦海岛（terrain.flat === true）：整块陆地是一个等高的台地。
+  //
+  // 为什么单独开一条分支而不是把 hills/ridges/roughnessScale 清零：
+  // 清零之后仍然留着三处"看起来没事"的高度变化——沙滩混合、基地平台混合、
+  // 以及靠海那一侧的粗糙度衰减——加起来依然是一层可感知的起伏。
+  // 这里直接返回一个常数，陆地内部**逐点相等**，是真正意义上的平地。
+  //
+  // 海岸线之外照常下沉到海床：那是海，不是"地形起伏"，
+  // 而且不这么做岛会变成一块悬在水面上的板，船的吃水线与沙滩都不成立。
+  if (terrain.flat === true) {
+    const flatHeight = terrain.baseHeight;
+    if (distance <= ISLAND_SHORELINE_DISTANCE) return flatHeight;
+    const shelfEnd = terrain.shelfEnd ?? 0.95;
+    const seaFloor = waterHeight - (terrain.seaDepth ?? 5);
+    return mix(flatHeight, seaFloor, smoothstep(ISLAND_SHORELINE_DISTANCE, shelfEnd, distance));
+  }
+
   const pathDistance = distanceToPath(x, z, rawPathPoints());
 
   // 内陆起伏：中央高地 + 丘陵 + 山脊，靠海一侧随 beachStart 平滑收平
@@ -3347,13 +3415,14 @@ function setRibbonUvFromWorldXZ(geometry, width, depth) {
 }
 
 function createGroundMaterial() {
-  const storybookSnow = worldConfig().sceneKey === 'snow-valley';
+  const config = worldConfig();
+  const storybookSnow = config.sceneKey === 'snow-valley';
   return applyGroundShader(new THREE.MeshStandardMaterial({
     vertexColors: true,
     roughness: storybookSnow ? 0.95 : 0.9,
     metalness: 0.0,
-    flatShading: worldConfig().ground?.flatShading === true
-  }), { storybookSnow });
+    flatShading: config.ground?.flatShading === true
+  }), { storybookSnow, flatTerrain: config.terrain?.flat === true });
 }
 
 function colorGroundGeometry(geometry) {
@@ -8103,8 +8172,18 @@ function placePathTotems(scene) {
   });
 }
 
+/**
+ * 旧关卡的沿路布景：3 座小木屋 + 3 面旗。
+ *
+ * 表改成从关卡配置读（`legacyPathDecor`），与 `placeCottages()` 的
+ * `worldConfig().cottages ?? [默认]` 完全同构。海岛预设写 `[]` 把它整块关掉——
+ * 用户明确要求「地图上去掉小房子装饰物，令人疑惑，之后会添加真的可修缮的功能性建筑」。
+ *
+ * 这些小屋不只是看着像房子：它们还各自注册了半径 `2.0 * scale` 的寻路阻挡，
+ * 所以关掉之后可走区域只会变大，不会出现"路被堵住"的新问题。
+ */
 function placeLegacyPathDecor(scene) {
-  const points = [
+  const points = worldConfig().legacyPathDecor ?? [
     { x: -5, z: 28, rot: 0.5, type: 'cottage', scale: 1.1, roof: '#d84b33' },
     { x: 8, z: 22, rot: -0.6, type: 'flag' },
     { x: -6, z: 7, rot: 0.2, type: 'cottage', scale: 0.9, roof: '#cc5030' },

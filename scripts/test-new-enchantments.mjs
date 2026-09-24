@@ -2,22 +2,17 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {
   BUFF_DEFINITIONS,
-  CARD_DEFINITIONS,
   ENCHANTMENTS
 } from '../src/data/gameData.js';
 import { AttributeSet } from '../src/systems/AttributeSet.js';
 import { BuffSystem } from '../src/systems/BuffSystem.js';
+import { Inventory } from '../src/systems/Inventory.js';
 import { RuneStoneSystem } from '../src/systems/RuneStoneSystem.js';
 import { EffectsSystem } from '../src/systems/EffectsSystem.js';
 import { UnitEntity } from '../src/entities/UnitEntity.js';
 
-const enchantmentCards = new Map(
-  CARD_DEFINITIONS.filter((card) => card.kind === 'enchant').map((card) => [card.enchantmentId, card])
-);
 for (const id of ['undying', 'triumph', 'assault', 'shockwave', 'solarFlare', 'fireworks']) {
   assert.equal(ENCHANTMENTS[id], BUFF_DEFINITIONS[id], `${id} must be a registered enchantment`);
-  assert.equal(enchantmentCards.get(id)?.effect?.buffId, id, `${id} must have a playable enchantment card`);
-  assert.equal(enchantmentCards.get(id)?.energyCost, 2);
 }
 
 {
@@ -294,6 +289,17 @@ function createGame() {
     }
   };
   game.buffs = new BuffSystem(game);
+  // 符文石现在就是背包里的一件物品（itemId === 'runeStone'），
+  // 假 game 也必须有真的存储：一块基地背包 + 按需创建的单位背包。
+  game.baseInventory = new Inventory({ id: 'base', capacity: 48 });
+  game.itemBagFor = (unit, { create = true } = {}) => {
+    if (!unit?.id) return null;
+    if (unit.workerInventory) return unit.workerInventory;
+    if (unit.itemBag) return unit.itemBag;
+    if (!create) return null;
+    unit.itemBag = new Inventory({ id: `unit:${unit.id}`, capacity: 16 });
+    return unit.itemBag;
+  };
   return game;
 }
 

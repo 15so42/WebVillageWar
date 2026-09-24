@@ -89,7 +89,6 @@ export class UnitRegistry {
     if (unit.team === 'player') {
       this.game.abilitiesFor?.(unit)?.onFriendlyUnitDeath?.(unit);
     } else if (!unit.isSilentRemoval) {
-      this.game.lootDrops?.handleUnitDeath(unit);
       this.game.score += 1;
     }
     this.game.buffs?.unitDeath(unit, source);

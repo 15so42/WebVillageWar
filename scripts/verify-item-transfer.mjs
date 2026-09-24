@@ -3,12 +3,20 @@
 // 为什么这件事重要：合成出来的工具原本**没有任何办法送到傀儡手里**——
 // 基地库存与单位背包之间没有搬运入口，所以"工具可制作"是句空话。
 // 这个脚本验的就是这条链真的通了：
-//   合成木斧 → 在面板里点一下交给傀儡 → 傀儡的工具缓存更新 → 它能去砍树。
+//   合成木斧 → 交给傀儡 → 傀儡的工具缓存更新 → 它能去砍树。
 //
 // 顺带守两条容易错的：
 //   1) 实例类物品搬运必须保持同一个 instanceId（换个 ID 就等于凭空复制一件）；
 //   2) 搬运之后必须通知作业系统重算背包缓存，否则"背包里明明有斧子，规划器还说缺工具"。
+//
+// 统一背包面板（v0.2.196）之后，单位视图同时画两块网格（单位背包 + 基地背包），
+// 跨容器搬运仍然可以点出来。本脚本的重心是**这条链的后果**——
+// 工具到了傀儡手里之后它能砍树、缓存会失效、instanceId 不变；
+// 而"两块网格之间点击互搬"这个界面路径由 `verify-backpack-transfer.mjs` 专门守着。
+// 所以这里那一步走 Game 的原子入口（`transferBaseSlotToUnit` / `transferUnitSlotToBase`），
+// 再把面板切到对应视图，断言面板里真的画出了那件东西。
 import WebSocket from 'ws';
+import { enterSurvivalGame } from './lib/enter-game.mjs';
 import { writeFileSync, mkdirSync } from 'node:fs';
 
 const CDP_PORT = Number(process.env.ISLAND_CDP_PORT || 9235);
@@ -59,24 +67,7 @@ const ev = async (expr) => {
 
 await send('Page.navigate', { url: BASE });
 const report = { page: BASE, levelId: LEVEL_ID, started: false, result: null, problems };
-for (let i = 0; i < 60; i += 1) {
-  await sleep(400);
-  if (await ev(`!!document.querySelector('[data-action="levels"]')`)) break;
-}
-await ev(`document.querySelector('[data-action="levels"]')?.click(); true`);
-await sleep(1200);
-await ev(`(() => {
-  const btn = [...document.querySelectorAll('[data-action="select-level"]')]
-    .find((e) => e.offsetParent !== null && (e.dataset.levelId || '').includes(${JSON.stringify(LEVEL_ID)}));
-  if (btn) btn.click();
-  return true;
-})()`);
-await sleep(500);
-await ev(`(()=>{const b=[...document.querySelectorAll('[data-action="start-level"]')].find(e=>e.offsetParent!==null);if(b)b.click();return true;})()`);
-for (let i = 0; i < 60; i += 1) {
-  await sleep(400);
-  if (await ev(`!!window.__VILLAGE_WAR_DEBUG__?.game`)) { report.started = true; break; }
-}
+report.started = await enterSurvivalGame(ev, sleep);
 
 if (report.started) {
   await sleep(500);
@@ -105,16 +96,31 @@ if (report.started) {
     if (!worker) return JSON.stringify({ ...out, error: 'no_worker' });
     out.workerId = worker.id;
 
-    // 打开面板，选中傀儡
-    game.toggleBaseStorage();
-    game.selectUnit(worker);
-    game.baseStorage.lastSignature = '';
-    game.baseStorage.refresh();
-    await step(2);
-    out.panelOpen = game.baseStorage.isOpen() === true;
-    out.unitSectionTitle = document.querySelector('[data-storage-unit-title]')?.textContent ?? null;
+    // 统一背包面板：openBase() = B 键，openForUnit(unit) = E 键 / 单位菜单的「背包」。
+    const panel = game.backpack;
+    const openBase = async () => {
+      if (!panel.isOpen() || panel.mode !== 'base') panel.openBase();
+      panel.setTab('craft');
+      panel.lastSignature = '';
+      panel.refresh();
+      await step(1);
+    };
+    const openUnit = async (unit) => {
+      panel.openForUnit(unit);
+      panel.setTab('craft');
+      panel.lastSignature = '';
+      panel.refresh();
+      await step(1);
+    };
+    const cells = () => [...document.querySelectorAll('#backpack [data-backpack-grid] [data-backpack-slot]')];
+    const filledCells = () => cells().filter((cell) => cell.classList.contains('is-filled'));
+    // 格子的 title 就是悬浮提示（物品名开头），用它把 DOM 格子和库存物品对上。
+    const cellTitled = (name) => cells().find((cell) => String(cell.title || '').startsWith(name)) ?? null;
 
-    // ---- 1) 合成一把木斧（此时基地材料由测试注入），确认产物是实例 ----
+    // ---- 1) 基地视图：合成木斧 —— 点配方 → 产物上手 → 点空格落下 ----
+    await openBase();
+    out.panelOpen = panel.isOpen() === true;
+    out.baseGridTitle = document.querySelector('#backpack [data-backpack-grid-title]')?.textContent ?? null;
     game.baseInventory.slots.fill(null);
     game.baseInventory.add('wood', 40);
     game.baseInventory.add('stone', 40);
@@ -122,14 +128,25 @@ if (report.started) {
     // 否则"它能砍树"可能只是启动工具在起作用，什么都证明不了。
     worker.workerInventory.slots.fill(null);
     game.work?.notifyInventoryChanged?.(worker);
-    game.baseStorage.lastSignature = '';
-    game.baseStorage.refresh();
-    const axeCard = document.querySelector('[data-recipe-id="axe"]');
-    out.axeRecipeListed = Boolean(axeCard);
-    axeCard?.querySelector('[data-craft-recipe]')?.click();
+    panel.lastSignature = '';
+    panel.refresh();
+    await step(1);
+    const axeTile = document.querySelector('[data-backpack-recipe="axe"]');
+    out.axeRecipeListed = Boolean(axeTile);
+    axeTile?.click();
+    // 产物已经**离开基地背包跟到鼠标上**（需求第 3 条），而不是原地留在库存里
+    out.cursorHoldsAxe = panel.cursor?.itemId === 'axe';
+    out.cursorGhostInBody = Boolean(document.body.querySelector('.backpack-cursor-ghost'));
+    out.axeLeftBaseWhileOnCursor = game.baseInventory.countOf('axe') === 0;
+    const emptyForAxe = game.baseInventory.slots.findIndex((slot) => !slot);
+    panel.handleSlotClick(emptyForAxe);
+    await step(1);
     out.axeInBase = game.baseInventory.instancesOf('axe').length;
     const craftedAxeId = game.baseInventory.instancesOf('axe')[0]?.instanceId ?? null;
     out.axeInstanceId = craftedAxeId;
+    out.cursorEmptiedAfterPlace = panel.cursor === null
+      && !document.body.querySelector('.backpack-cursor-ghost');
+    out.baseGridShowsAxe = Boolean(cellTitled('木斧'));
     out.workerToolsBefore = Object.keys(worker.workerInventory.countsByItem()).length;
 
     // ---- 2) 先证明"没有斧子就砍不动树" ----
@@ -158,15 +175,14 @@ if (report.started) {
       out.workerAliveAfterNoTool = worker.alive === true;
     }
 
-    // ---- 3) 点击基地里的木斧 → 交给傀儡 ----
+    // ---- 3) 基地 → 单位：把那把刚做出来的木斧交给傀儡 ----
+    // 搬的是**同一件**：搬完立刻在面板里切到这个单位的背包，确认它画出来了。
     await step(1);
-    game.baseStorage.lastSignature = '';
-    game.baseStorage.refresh();
-    const baseChips = [...document.querySelectorAll('[data-storage-items] [data-move-from="base"]')];
-    out.baseChipCount = baseChips.length;
-    const axeChip = baseChips.find((chip) => chip.textContent.includes('木斧'));
-    out.axeChipFound = Boolean(axeChip);
-    axeChip?.click();
+    await openBase();
+    const axeSlotIndex = game.baseInventory.slots.findIndex((slot) => slot?.itemId === 'axe');
+    out.axeSlotIndex = axeSlotIndex;
+    const movedToUnit = axeSlotIndex >= 0 ? game.transferBaseSlotToUnit(axeSlotIndex, worker) : null;
+    out.axeMovedToUnit = movedToUnit?.ok === true;
     await step(1);
     out.axeInBaseAfter = game.baseInventory.instancesOf('axe').length;
     out.workerAxeCount = (worker.workerInventory?.countsByItem?.() ?? {}).axe ?? 0;
@@ -174,7 +190,14 @@ if (report.started) {
     // 搬过去的必须是**同一件**：instanceId 一致，不是又造了一把
     out.instancePreserved = Boolean(craftedAxeId)
       && Boolean(worker.workerInventory?.findInstance?.(craftedAxeId));
-    out.feedbackAfterMove = document.querySelector('[data-storage-feedback]')?.textContent ?? null;
+    await openUnit(worker);
+    out.unitGridTitle = document.querySelector('#backpack [data-backpack-grid-title]')?.textContent ?? null;
+    out.unitGridShowsAxe = Boolean(cellTitled('木斧'));
+    // 木斧是工具不是武器，所以它没有「装备」按钮（那是单位视图里武器格才有的动作）；
+    // 这里只要求格子画出了物品美术，证明面板真的渲染了这个单位的背包。
+    const workerAxeSlot = worker.workerInventory.slots.findIndex((slot) => slot?.itemId === 'axe');
+    out.unitGridAxeHasArt = workerAxeSlot >= 0
+      && Boolean(document.querySelector('#backpack [data-backpack-slot="' + workerAxeSlot + '"] svg'));
     // 工具缓存必须被通知重算，否则规划器还当它没有工具
     const record = game.work?.records?.get?.(worker.id) ?? null;
     out.packRefreshWorks = record
@@ -184,6 +207,7 @@ if (report.started) {
     // ---- 4) 有了这把斧子之后必须砍得动 ----
     if (treeNode) {
       const beforeWithTool = treeNode.amount;
+      game.work.setDemands([]);
       game.work.assignNode(worker, treeNode.id);
       await step(80);   // 4 秒模拟时间
       out.harvestedWithTool = treeNode.amount < beforeWithTool;
@@ -191,40 +215,42 @@ if (report.started) {
       out.workerCarriedWood = (worker.workerInventory?.countsByItem?.() ?? {}).wood ?? 0;
     }
 
-    // ---- 5) 点击单位背包里的东西 → 搬回基地 ----
-    game.selectUnit(worker);
-    game.baseStorage.lastSignature = '';
-    game.baseStorage.refresh();
+    // ---- 5) 单位 → 基地：把傀儡背回来的木材收回基地，面板要少一格 ----
+    await openUnit(worker);
     await step(1);
-    const unitChips = [...document.querySelectorAll('[data-storage-unit-items] [data-move-from="unit"]')];
-    out.unitChipCount = unitChips.length;
-    const woodChip = unitChips.find((chip) => chip.textContent.includes('木材'))
-      ?? unitChips.find((chip) => chip.textContent.includes('木斧'));
-    out.unitWoodChipFound = Boolean(woodChip);
-    out.unitWoodChipLabel = woodChip?.textContent ?? null;
+    const unitWoodSlot = worker.workerInventory.slots.findIndex((slot) => slot?.itemId === 'wood');
+    out.unitWoodSlot = unitWoodSlot;
+    out.unitFilledCellsBeforeMove = filledCells().length;
     const baseWoodBefore = game.baseInventory.countOf('wood');
     const axeOnWorkerBefore = (worker.workerInventory?.countsByItem?.() ?? {}).axe ?? 0;
-    woodChip?.click();
+    const movedBack = unitWoodSlot >= 0 ? game.transferUnitSlotToBase(unitWoodSlot, worker) : null;
+    out.movedBackOk = movedBack?.ok === true;
     await step(1);
+    panel.lastSignature = '';
+    panel.refresh();
     out.baseWoodAfter = game.baseInventory.countOf('wood');
     out.axeOnWorkerAfter = (worker.workerInventory?.countsByItem?.() ?? {}).axe ?? 0;
-    out.goodsMovedBack = woodChip
-      ? (out.baseWoodAfter > baseWoodBefore || out.axeOnWorkerAfter < axeOnWorkerBefore)
-      : false;
+    out.unitFilledCellsAfterMove = filledCells().length;
+    out.goodsMovedBack = unitWoodSlot >= 0
+      && (out.baseWoodAfter > baseWoodBefore || out.axeOnWorkerAfter < axeOnWorkerBefore);
 
     // ---- 6) 战斗单位也有背包（方案第 4 节：可以把工具、武器和附魔石拖给单位） ----
     // 旧版本这里断言的是"战斗单位没有背包"——那是当时的限制，不是目标。
     // 现在战斗单位按需建背包，所以改成验它**能收东西**。
+    //
+    // ⚠️ 战斗单位必须**自己造一个**：用户已要求「玩家一开始没有任何战斗单位」，
+    // 开局只有一支木傀儡。早期版本靠"出生护卫"拿到蛮兵，那条路已经没有了。
+    // 这里直接走 summonUnits（招募/生产的最终入口也是它），
+    // 测的是"战斗单位的背包"，与"它从哪来"无关。
+    game.summonUnits('raider', 1, game.playerBase.position.clone().add({ x: 4.2, y: 0, z: 4.0 }), 0.7, { select: false });
     const fighter = (game.friendlyUnits ?? []).find((u) => u?.alive && !u.isWorker && !u.isBuilding) ?? null;
     out.fighterFound = Boolean(fighter);
     if (fighter) {
       game.selectUnit(fighter);
-      game.baseStorage.lastSignature = '';
-      game.baseStorage.refresh();
-      await step(1);
+      await openUnit(fighter);
       out.fighterBagCreated = Boolean(game.itemBagFor(fighter));
       out.fighterBagCapacity = game.itemBagFor(fighter)?.capacity ?? null;
-      out.fighterSectionText = document.querySelector('[data-storage-unit-count]')?.textContent ?? null;
+      out.fighterGridCells = cells().length;
       const slotIndex = game.baseInventory.slots.findIndex((slot) => slot);
       const direct = game.transferBaseSlotToUnit(slotIndex, fighter);
       out.fighterAcceptsItems = direct?.ok === true;
@@ -246,42 +272,47 @@ if (report.started) {
       definition: { canMove: false }
     }) === null;
 
-    // 截图前回到"傀儡 + 背包里有东西"的状态，让面板三段都非空
+    // 截图前回到"傀儡 + 背包里有东西"的状态
     game.selectUnit(worker);
     game.baseInventory.add('wood', 30, { allowPartial: true });
-    game.baseStorage.lastSignature = '';
-    game.baseStorage.refresh();
-    await step(1);
+    await openUnit(worker);
     out.screenshotState = {
-      unitTitle: document.querySelector('[data-storage-unit-title]')?.textContent ?? null,
-      baseChips: document.querySelectorAll('[data-storage-items] [data-move-from="base"]').length,
-      unitChips: document.querySelectorAll('[data-storage-unit-items] [data-move-from="unit"]').length
+      gridTitle: document.querySelector('#backpack [data-backpack-grid-title]')?.textContent ?? null,
+      filledCells: filledCells().length,
+      unitCells: cells().length
     };
-    // 面板必须整体落在视口内。切到「合成」段再看最后一条配方的按钮：
-    // 面板现在是标签页，没被选中的那一段是 hidden，按钮的矩形是 0×0，
-    // 不切过去就断言"够不着"是在测一个玩家根本不会遇到的状态。
-    document.querySelector('[data-storage-tab="craft"]')?.click();
+    document.querySelector('[data-backpack-tab="craft"]')?.click();
     await step(1);
-    const panelRect = document.querySelector('#base-storage')?.getBoundingClientRect?.() ?? null;
+    // 面板必须整体落在视口内（量的是 .backpack-panel：外层 #backpack 是 inset:0 的全屏遮罩）
+    const panelRect = document.querySelector('#backpack .backpack-panel')?.getBoundingClientRect?.() ?? null;
     out.panelFitsViewport = Boolean(panelRect)
       && panelRect.top >= -1
-      && panelRect.bottom <= window.innerHeight + 1;
+      && panelRect.bottom <= window.innerHeight + 1
+      && panelRect.left >= -1
+      && panelRect.right <= window.innerWidth + 1;
     out.panelRect = panelRect
-      ? { top: Math.round(panelRect.top), bottom: Math.round(panelRect.bottom), viewport: window.innerHeight }
+      ? {
+        top: Math.round(panelRect.top),
+        bottom: Math.round(panelRect.bottom),
+        left: Math.round(panelRect.left),
+        right: Math.round(panelRect.right),
+        viewport: [window.innerWidth, window.innerHeight]
+      }
       : null;
-    // 最后一条配方的合成按钮必须够得着。列表是可滚动的，所以判据是
+    // 最后一条配方的入口必须够得着。配方区是可滚动的，所以判据是
     // "滚进视野后落在面板内"，不是"不滚动就能看见"——后者对长列表是错的要求。
-    const craftButtons = [...document.querySelectorAll('[data-craft-recipe]')];
-    const lastCraft = craftButtons[craftButtons.length - 1] ?? null;
-    const body = document.querySelector('#base-storage .base-storage-body');
-    out.bodyScrollable = Boolean(body) && body.scrollHeight > body.clientHeight;
+    const recipePane = document.querySelector('#backpack [data-backpack-recipes]');
+    const craftTiles = [...document.querySelectorAll('#backpack [data-backpack-recipe]')];
+    const lastCraft = craftTiles[craftTiles.length - 1] ?? null;
+    out.recipeTileCount = craftTiles.length;
+    out.recipesScrollable = Boolean(recipePane) && recipePane.scrollHeight > recipePane.clientHeight;
     lastCraft?.scrollIntoView?.({ block: 'nearest' });
     const craftRect = lastCraft?.getBoundingClientRect?.() ?? null;
     out.lastCraftReachable = Boolean(craftRect) && Boolean(panelRect)
       && craftRect.top >= panelRect.top - 1
       && craftRect.bottom <= panelRect.bottom + 1;
     // 断言完把列表滚回顶部，截图看的是完整面板
-    if (body) body.scrollTop = 0;
+    if (recipePane) recipePane.scrollTop = 0;
 
     game.clock.getDelta = originalDelta;
     return JSON.stringify(out);
@@ -295,26 +326,34 @@ if (report.started) {
 const r = report.result;
 report.verdict = r && !r.error ? {
   booted: true,
-  // 合成工具
+  // 合成：点配方 → 产物上手（跟随光标）→ 点空格落回基地
+  craftGoesThroughCursor: r.cursorHoldsAxe === true
+    && r.cursorGhostInBody === true
+    && r.axeLeftBaseWhileOnCursor === true
+    && r.cursorEmptiedAfterPlace === true,
   axeRecipeListed: r.axeRecipeListed === true,
   axeCraftedAsInstance: r.axeInBase === 1 && Boolean(r.axeInstanceId),
+  baseGridShowsCraftedAxe: r.baseGridShowsAxe === true,
   // 先把傀儡清空，确认"没有工具就砍不动"——不然下面的"砍得动"什么都证明不了
   cleanWorkerCannotHarvest: r.workerToolsBefore === 0
     && r.harvestedWithoutTool === false
     && r.workerAliveAfterNoTool === true,
   // 基地 → 单位
-  baseShowsMovableChips: (r.baseChipCount ?? 0) > 0 && r.axeChipFound === true,
-  axeMovedToWorker: r.axeInBaseAfter === 0 && r.workerAxeCount === 1,
+  axeMovedToWorker: r.axeMovedToUnit === true && r.axeInBaseAfter === 0 && r.workerAxeCount === 1,
   instanceIdPreserved: r.instancePreserved === true,
-  moveShowsFeedback: String(r.feedbackAfterMove ?? '').includes('已把'),
+  // 面板真的画出这个单位的背包：标题 + 那把斧子的格子与美术
+  panelShowsUnitBag: r.unitGridShowsAxe === true
+    && r.unitGridAxeHasArt === true
+    && String(r.unitGridTitle ?? '').includes('背包'),
   packCacheNotified: r.packRefreshWorks === true,
   // 傀儡据此真的能干活（工具是唯一变量）
   workerHarvestsWithTool: r.harvestedWithTool === true
     && r.workerAliveAfterHarvest === true
     && r.workerCarriedWood > 0,
   // 单位 → 基地
-  unitShowsChips: (r.unitChipCount ?? 0) > 0 && r.unitWoodChipFound === true,
-  goodsMovedBack: r.goodsMovedBack === true,
+  unitShowsMovableGoods: r.unitWoodSlot >= 0 && r.movedBackOk === true,
+  goodsMovedBack: r.goodsMovedBack === true
+    && r.unitFilledCellsAfterMove < r.unitFilledCellsBeforeMove,
   // 战斗单位也有背包并真的能收东西；建筑没有背包时明确拒绝
   fighterHasBag: r.fighterFound === true
     && r.fighterBagCreated === true
@@ -325,7 +364,7 @@ report.verdict = r && !r.error ? {
     && r.baseIsUnit === false
     && r.buildingTransferRejected === true
     && r.realBuildingHasNoBag === true,
-  // 面板整体在视口内，最后一条配方的按钮够得着（切到合成段后滚动可达即可）
+  // 面板整体在视口内，最后一条配方的入口够得着（滚动可达即可）
   panelFitsViewport: r.panelFitsViewport === true,
   lastCraftReachable: r.lastCraftReachable === true
 } : null;

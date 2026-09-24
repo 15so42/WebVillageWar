@@ -68,6 +68,8 @@ export function normalizeSpawnPoint(definition, index = 0, rules = SPAWN_POINT_R
     // 必须同时在下面登记，否则运行时会静默丢掉（workerReward 就这么丢过一次）。
     drops: Array.isArray(definition.drops) ? definition.drops : [],
     workerReward: normalizeWorkerReward(definition.workerReward),
+    // 可招募单位的来源（需求：击破刷怪点时才生成在这个点上，不再开局散在野外）。
+    recruitReward: normalizeRecruitReward(definition.recruitReward),
     // 巢穴血量的按点覆盖：0/缺省表示用 unit 定义里的值。起始点靠它压低，
     // 保证出生部队打得掉第一座巢穴（否则招募链是死循环）。
     nestHealth: Number(definition.nestHealth) > 0 ? Number(definition.nestHealth) : 0,
@@ -89,6 +91,26 @@ function normalizeWorkerReward(raw) {
   };
 }
 
+/**
+ * 清点奖励：可招募单位的来源。
+ *
+ * 为什么不做随机池（不像 `enemyPool` 那样带权重）：奖励是玩家**打下来的结果**，
+ * 应该可预期、可断言。给哪一种、给几支，由数据直接写死；
+ * `count` 超过 `types` 长度时按顺序循环取，不会出现"要 3 支但只配了 1 种"的空洞。
+ */
+function normalizeRecruitReward(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const rawTypes = Array.isArray(raw.types) ? raw.types : [raw.type];
+  const types = rawTypes
+    .filter((type) => typeof type === 'string' && type)
+    .map((type) => String(type));
+  if (!types.length) return null;
+  return {
+    types,
+    count: Math.max(1, Math.min(4, Math.round(Number(raw.count) || 1)))
+  };
+}
+
 export function normalizeSpawnPoints(definitions = [], rules = SPAWN_POINT_RULES) {
   return definitions.map((definition, index) => normalizeSpawnPoint(definition, index, rules));
 }
@@ -99,33 +121,55 @@ export function spawnPointState(point) {
 
 // 这个点现在为什么不能生怪。返回 none 才表示可以生。
 // 顺序固定：先看是否已被摧毁，再看存活上限，最后看冷却——保证原因唯一。
-export function spawnBlockReason(point, aliveCount = 0) {
+export function spawnBlockReason(point, aliveCount = 0, { extraAlive = 0 } = {}) {
   if (!point) return SPAWN_BLOCK_REASON.cleared;
   if (point.cleared) return SPAWN_BLOCK_REASON.cleared;
-  if (aliveCount >= point.maxAlive) return SPAWN_BLOCK_REASON.atCapacity;
+  const cap = effectiveAliveCap(point, extraAlive);
+  if (aliveCount >= cap) return SPAWN_BLOCK_REASON.atCapacity;
   if ((point.timer ?? 0) > 0) return SPAWN_BLOCK_REASON.coolingDown;
   return SPAWN_BLOCK_REASON.none;
+}
+
+function effectiveAliveCap(point, extraAlive = 0) {
+  return Math.max(1, (point?.maxAlive ?? 1) + Math.max(0, Math.floor(Number(extraAlive) || 0)));
+}
+
+function effectivePerTick(point, extraPerTick = 0) {
+  return Math.max(1, (point?.maxPerTick ?? 1) + Math.max(0, Math.floor(Number(extraPerTick) || 0)));
 }
 
 // 推进一个点的时间轴，返回这一点本段该生成几个。
 // 关键点：冷却到点后**不会**因为「好久没生」而一口气补齐历史欠账，
 // 一次最多 maxPerTick 个，且不能超过存活上限。
-export function advanceSpawnPoint(point, { dt = 0, aliveCount = 0, rules = SPAWN_POINT_RULES } = {}) {
+export function advanceSpawnPoint(point, {
+  dt = 0,
+  aliveCount = 0,
+  rules = SPAWN_POINT_RULES,
+  extraAlive = 0,
+  extraPerTick = 0,
+  allowSpawn = true
+} = {}) {
   const resolved = spawnPointRules(rules);
   if (!point || point.cleared) {
     return { spawnCount: 0, reason: SPAWN_BLOCK_REASON.cleared, point };
   }
   const step = Math.max(0, dt);
   point.timer = Math.max(0, (point.timer ?? 0) - step);
-  if (aliveCount >= point.maxAlive) {
+  if (!allowSpawn) {
+    // 白天冻结出兵：冷却照走，但到点也不生。否则入夜会把白天攒下的欠账一次倒出来。
+    if (point.timer <= 0) point.timer = 0;
+    return { spawnCount: 0, reason: SPAWN_BLOCK_REASON.outOfRange, point };
+  }
+  const cap = effectiveAliveCap(point, extraAlive);
+  if (aliveCount >= cap) {
     // 满员时不重置计时器：否则一旦有人死掉就会立刻补齐，读起来像「杀一个补一个」
     return { spawnCount: 0, reason: SPAWN_BLOCK_REASON.atCapacity, point };
   }
   if (point.timer > 0) {
     return { spawnCount: 0, reason: SPAWN_BLOCK_REASON.coolingDown, point };
   }
-  const room = Math.max(0, point.maxAlive - aliveCount);
-  const spawnCount = Math.min(room, point.maxPerTick);
+  const room = Math.max(0, cap - aliveCount);
+  const spawnCount = Math.min(room, effectivePerTick(point, extraPerTick));
   if (spawnCount <= 0) {
     return { spawnCount: 0, reason: SPAWN_BLOCK_REASON.atCapacity, point };
   }
@@ -144,11 +188,25 @@ export function clearSpawnPoint(point) {
 }
 
 // 一批点的推进结果。aliveByPoint 是 { pointId: 存活数 }。
-export function planSpawns(points = [], { dt = 0, aliveByPoint = {}, rules = SPAWN_POINT_RULES } = {}) {
+export function planSpawns(points = [], {
+  dt = 0,
+  aliveByPoint = {},
+  rules = SPAWN_POINT_RULES,
+  extraAlive = 0,
+  extraPerTick = 0,
+  allowSpawn = true
+} = {}) {
   const results = [];
   points.forEach((point) => {
     const aliveCount = Math.max(0, aliveByPoint[point.id] ?? 0);
-    const advanced = advanceSpawnPoint(point, { dt, aliveCount, rules });
+    const advanced = advanceSpawnPoint(point, {
+      dt,
+      aliveCount,
+      rules,
+      extraAlive,
+      extraPerTick,
+      allowSpawn
+    });
     results.push({
       id: point.id,
       spawnCount: advanced.spawnCount,

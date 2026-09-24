@@ -405,14 +405,13 @@ export class SnapshotBuilder {
     if (!game.players) return [];
     return Object.keys(game.players).map((playerId) => {
       const run = game.players[playerId];
-      const cards = game.cardSystems?.[playerId] ?? (playerId === localPlayerId(game) ? game.cardSystem : null);
       const sessionPlayer = game.levelSession?.players?.[playerId];
       return {
         playerId,
         name: sessionPlayer?.name ?? '玩家',
-        energy: round(cards?.energy ?? 0),
+        energy: 0,
         silver: round(run?.silver ?? 0),
-        handCount: cards?.handCards?.length ?? 0,
+        handCount: 0,
         connected: run?.connected !== false,
         flowState: run?.flowState ?? 'playing'
       };
@@ -420,10 +419,8 @@ export class SnapshotBuilder {
   }
 
   buildPrivateState(playerId) {
-    const cards = this.game.cardSystems?.[playerId]
-      ?? (playerId === localPlayerId(this.game) ? this.game.cardSystem : null);
     const run = this.game.players?.[playerId];
-    if (!cards || !run) return null;
+    if (!run) return null;
     const isLocal = playerId === localPlayerId(this.game);
     const strategyEvent = run.strategyEvent;
     const shopRun = isLocal ? this.game : run;
@@ -455,16 +452,16 @@ export class SnapshotBuilder {
     const rewardSeconds = this.game.coopRewardSecondsRemaining?.() ?? null;
     return {
       playerId,
-      energy: round(cards.energy),
-      cooldowns: cards.serializeCooldowns?.() ?? [],
+      energy: 0,
+      cooldowns: [],
       zones: {
-        hand: serializeCardZone(cards.handCards),
-        drawPile: serializeCardZone(cards.drawPile),
-        discardPile: serializeCardZone(cards.discardPile),
-        exile: serializeCardZone(cards.exilePile),
-        reserve: serializeCardZone(cards.reservePile)
+        hand: [],
+        drawPile: [],
+        discardPile: [],
+        exile: [],
+        reserve: []
       },
-      cardRuntime: serializeCardRuntimeState(cards),
+      cardRuntime: { levelBonuses: [], upgrades: [] },
       waveRewardDeck: [...(run.waveRewardDeck ?? [])],
       silver: round(isLocal ? this.game.getSilver(playerId) : run.silver),
       coopRewardAutoSelectSecondsRemaining: rewardSeconds,

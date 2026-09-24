@@ -9,6 +9,7 @@
 // 第 3 条是这一轮的重点——不然"要魔力"就只是配置里的两个数字。
 import { writeFileSync, mkdirSync } from 'node:fs';
 import WebSocket from 'ws';
+import { enterSurvivalGame } from './lib/enter-game.mjs';
 
 const CDP_PORT = Number(process.env.ISLAND_CDP_PORT || 9235);
 const BASE = process.env.ISLAND_URL || 'http://127.0.0.1:3000/';
@@ -58,24 +59,7 @@ const ev = async (expr) => {
 
 await send('Page.navigate', { url: BASE });
 const report = { page: BASE, levelId: LEVEL_ID, started: false, result: null, problems };
-for (let i = 0; i < 60; i += 1) {
-  await sleep(400);
-  if (await ev(`!!document.querySelector('[data-action="levels"]')`)) break;
-}
-await ev(`document.querySelector('[data-action="levels"]')?.click(); true`);
-await sleep(1200);
-await ev(`(() => {
-  const btn = [...document.querySelectorAll('[data-action="select-level"]')]
-    .find((e) => e.offsetParent !== null && (e.dataset.levelId || '').includes(${JSON.stringify(LEVEL_ID)}));
-  if (btn) btn.click();
-  return true;
-})()`);
-await sleep(500);
-await ev(`(()=>{const b=[...document.querySelectorAll('[data-action="start-level"]')].find(e=>e.offsetParent!==null);if(b)b.click();return true;})()`);
-for (let i = 0; i < 60; i += 1) {
-  await sleep(400);
-  if (await ev(`!!window.__VILLAGE_WAR_DEBUG__?.game`)) { report.started = true; break; }
-}
+report.started = await enterSurvivalGame(ev, sleep);
 
 if (report.started) {
   await sleep(500);
@@ -128,7 +112,10 @@ if (report.started) {
       game.baseStorage.lastSignature = '';
       game.baseStorage.refresh();
       await step(1);
-      document.querySelector('[data-craft-recipe="' + itemId + '"]')?.click();
+      document.querySelector('[data-backpack-recipe="' + itemId + '"]')?.click();
+      // 产物跟鼠标走（需求第 3 条）：点一个空格把它放下，再读库存。
+      const emptySlot = inventory.slots.findIndex((slot) => !slot);
+      if (emptySlot >= 0) game.baseStorage.handleSlotClick(emptySlot);
       const inBag = inventory.countOf(itemId);
       game.baseStorage.close();
       await step(1);
@@ -292,6 +279,10 @@ if (report.started) {
     out.canteenManualRegister = Boolean(manual);
     out.canteenRegisteredAfterManual = game.facilities.facilities.has(canteen?.id) === true;
     out.canteenManualConfigId = manual?.config?.id ?? null;
+    // ⚠️ 伤员得**自己造一个**：用户已要求「玩家一开始没有任何战斗单位」，
+    // 开局只有一支木傀儡（而傀儡是工人，不能当这个"被治疗的战斗单位"）。
+    // 食堂治疗的对象与单位从哪来无关，所以直接走 summonUnits。
+    game.summonUnits('raider', 1, game.playerBase.position.clone().add({ x: 4.2, y: 0, z: 4.0 }), 0.7, { select: false });
     const patient = (game.friendlyUnits ?? []).find((unit) => (
       unit?.alive && unit.isBuilding !== true && unit.isWorker !== true
     )) ?? null;

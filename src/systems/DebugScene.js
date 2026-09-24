@@ -1,33 +1,25 @@
-import { CARD_DEFINITIONS, LEVEL_DEFINITIONS, TEAMS, UNIT_DEFINITIONS } from '../data/gameData.js';
+import { LEVEL_DEFINITIONS, TEAMS, UNIT_DEFINITIONS } from '../data/gameData.js';
 import { UnitEntity } from '../entities/UnitEntity.js';
 import { polarOffset } from '../utils/math.js';
 import { Game } from './Game.js';
 
 export function createDebugSession() {
-  const baseLevel = LEVEL_DEFINITIONS.find((level) => level.id === 'snow-valley')
+  const baseLevel = LEVEL_DEFINITIONS.find((level) => level.id === 'island-survival')
     ?? LEVEL_DEFINITIONS[0]
     ?? {};
-  const deck = CARD_DEFINITIONS
-    .filter((card) => !card.lootOnly && !card.retired)
-    .map((card, index) => ({
-      ...card,
-      level: card.level ?? 1,
-      instanceId: `debug-deck-${card.id}-${index}`
-    }));
-
   return {
     level: {
       ...baseLevel,
       id: 'debug-scene',
       name: 'Debug 场景',
-      subtitle: '任意卡牌、敌方单位与敌营测试场',
+      subtitle: '敌方单位与敌营测试场',
       baseReward: 0,
       targetTime: 99999,
       baseDifficulty: 1,
       enemyPool: []
     },
     difficulty: 1,
-    deck,
+    deck: [],
     debug: true,
     startedAt: Date.now()
   };
@@ -43,7 +35,6 @@ export class DebugScene extends Game {
     this.clearDebugEnemies();
     this.createDebugPanel();
     this.updateDebugPanelStatus('Debug 场景已准备好');
-    window.__VILLAGE_WAR_DEBUG__.addCard = (cardId, level = 1) => this.addDebugCard(cardId, level);
     window.__VILLAGE_WAR_DEBUG__.spawnEnemy = (unitType, count = 1) => this.spawnDebugEnemy(unitType, count);
   }
 
@@ -58,25 +49,9 @@ export class DebugScene extends Game {
     this.debugPanel.innerHTML = `
       <div class="debug-scene-panel__header">
         <strong>Debug 场景</strong>
-        <span data-debug-status>输入命令测试卡牌与敌人</span>
-      </div>
-      <label>
-        <span>卡牌</span>
-        <select data-debug-card-select>
-          ${CARD_DEFINITIONS.map((card) => `
-            <option value="${escapeHtml(card.id)}">${escapeHtml(card.name)} / ${escapeHtml(kindLabel(card.kind))}</option>
-          `).join('')}
-        </select>
-      </label>
-      <div class="debug-scene-row">
-        <label>
-          <span>等级</span>
-          <input data-debug-card-level type="number" min="1" max="20" step="1" value="1">
-        </label>
-        <button type="button" data-debug-action="add-card">加入可打出的牌</button>
+        <span data-debug-status>输入命令测试敌人与敌营</span>
       </div>
       <div class="debug-scene-row">
-        <button type="button" data-debug-action="max-energy">能量回满</button>
         <button type="button" data-debug-action="reset-camps">重置双方基地</button>
       </div>
       <label>
@@ -115,18 +90,6 @@ export class DebugScene extends Game {
     event.preventDefault();
     event.stopPropagation();
     const action = actionTarget.dataset.debugAction;
-    if (action === 'add-card') {
-      const cardId = this.debugPanel.querySelector('[data-debug-card-select]')?.value;
-      const level = Number(this.debugPanel.querySelector('[data-debug-card-level]')?.value) || 1;
-      this.addDebugCard(cardId, level);
-      return;
-    }
-    if (action === 'max-energy') {
-      const missingEnergy = 10 - (this.cardSystem?.energy ?? 0);
-      this.cardSystem?.addEnergy?.(missingEnergy);
-      this.updateDebugPanelStatus('能量已回满');
-      return;
-    }
     if (action === 'reset-camps') {
       this.resetDebugStructures();
       return;
@@ -141,24 +104,6 @@ export class DebugScene extends Game {
         difficulty
       });
     }
-  }
-
-  addDebugCard(cardId, level = 1) {
-    const definition = CARD_DEFINITIONS.find((card) => card.id === cardId);
-    if (!definition) {
-      this.updateDebugPanelStatus('没有找到这张卡牌');
-      return null;
-    }
-    const result = this.cardSystem.addDebugCard(definition, {
-      level
-    });
-    const locationLabel = result.location === 'temporary'
-      ? '临时牌位'
-      : result.location === 'draw'
-        ? '抽牌堆顶部'
-        : '手牌';
-    this.updateDebugPanelStatus(`${definition.name} 已加入${locationLabel}`);
-    return result.card;
   }
 
   spawnDebugEnemy(unitType, count = 1, options = {}) {
@@ -221,15 +166,6 @@ export class DebugScene extends Game {
     const status = this.debugPanel?.querySelector('[data-debug-status]');
     if (status) status.textContent = message;
   }
-}
-
-function kindLabel(kind) {
-  if (kind === 'summon') return '单位';
-  if (kind === 'spell') return '法术';
-  if (kind === 'building') return '建筑';
-  if (kind === 'tactic') return '战术';
-  if (kind === 'ability') return '能力';
-  return '附魔';
 }
 
 function stopDebugEvent(event) {

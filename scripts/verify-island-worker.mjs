@@ -7,6 +7,7 @@
 // 走的是和线上同一条 runStep 路径。
 // 只连自己起的 headless Edge（默认 9235 端口，独立 user-data-dir）。
 import WebSocket from 'ws';
+import { enterSurvivalGame } from './lib/enter-game.mjs';
 
 const CDP_PORT = Number(process.env.ISLAND_CDP_PORT || 9235);
 const BASE = process.env.ISLAND_URL || 'http://127.0.0.1:3000/';
@@ -45,33 +46,16 @@ const ev = async (expr) => (await send('Runtime.evaluate', { expression: expr, r
 
 await send('Page.navigate', { url: BASE });
 const report = { page: BASE, levelId: LEVEL_ID, started: false, result: null, problems };
-for (let i = 0; i < 40; i += 1) {
-  await sleep(500);
-  if (await ev(`!!document.querySelector('[data-action="levels"]')`)) break;
-}
-await ev(`document.querySelector('[data-action="levels"]')?.click(); true`);
-await sleep(1200);
-await ev(`(() => {
-  const btn = [...document.querySelectorAll('[data-action="select-level"]')]
-    .find((e) => e.offsetParent !== null && (e.dataset.levelId || '').includes(${JSON.stringify(LEVEL_ID)}));
-  if (btn) btn.click();
-  return true;
-})()`);
-await sleep(500);
-await ev(`(()=>{const b=[...document.querySelectorAll('[data-action="start-level"]')].find(e=>e.offsetParent!==null);if(b)b.click();return true;})()`);
-for (let i = 0; i < 60; i += 1) {
-  await sleep(500);
-  const ready = await ev(`JSON.stringify({
-    game: !!window.__VILLAGE_WAR_DEBUG__?.game,
-    work: typeof window.__VILLAGE_WAR_DEBUG__?.game?.work,
-    workKeys: window.__VILLAGE_WAR_DEBUG__?.game
-      ? Object.keys(window.__VILLAGE_WAR_DEBUG__.game).filter((k) => /work/i.test(k))
-      : [],
-    launchError: window.__VILLAGE_WAR_LAST_LAUNCH_ERROR__?.message ?? null
-  })`);
-  report.ready = JSON.parse(ready);
-  if (report.ready.game) { report.started = true; break; }
-}
+report.started = await enterSurvivalGame(ev, sleep);
+// 保留原有的启动诊断：进不去时要能区分"启动报错"和"没进场景"
+report.ready = JSON.parse(await ev(`JSON.stringify({
+  game: !!window.__VILLAGE_WAR_DEBUG__?.game,
+  work: typeof window.__VILLAGE_WAR_DEBUG__?.game?.work,
+  workKeys: window.__VILLAGE_WAR_DEBUG__?.game
+    ? Object.keys(window.__VILLAGE_WAR_DEBUG__.game).filter((k) => /work/i.test(k))
+    : [],
+  launchError: window.__VILLAGE_WAR_LAST_LAUNCH_ERROR__?.message ?? null
+})`));
 
 if (report.started) {
   report.result = JSON.parse(await ev(`(() => {
@@ -96,6 +80,24 @@ if (report.started) {
       ?? work.inventories?.get?.(worker.id)
       ?? null;
     if (!workerInventory) return JSON.stringify({ error: 'no_worker_inventory' });
+
+    // ---- 隔离威胁 ----
+    // 这一段测的是「采集 → 搬运 → 入库」这条链，**不是**"遇到敌人怎么办"。
+    // 岛上 4 处野生动物（狼/熊）会在基地附近游荡，而木傀儡现在会为了避险放下工作
+    // （需求 1：非战斗任务要挑威胁度低的地方执行），所以不隔离的话这条链会时通时断。
+    // 威胁规避本身由 verify-island-puppet-combat / test-puppet-arms 覆盖。
+    // 只把 alive 置假，不走 handleUnitDeath：死亡结算会掉物品、改库存，
+    // 那正好会污染这里要量的"基地收到多少货"。
+    let clearedThreats = 0;
+    (game.enemyUnits ?? []).slice().forEach((unit) => {
+      if (!unit?.alive || unit.isSpawnPointNest) return;
+      unit.alive = false;
+      unit.health = 0;
+      clearedThreats += 1;
+    });
+    // 巢穴也不会主动攻击，但它的"地标威胁"同样会把傀儡从近处的资源点赶走。
+    // 这一段不需要它存在，直接关掉出生。
+    (game.spawnPoints?.points ?? []).forEach((point) => { point.timer = 9999; });
 
     // 挑一个离基地最近的资源点派给它
     const basePosition = { x: worker.homePoint?.x ?? worker.x, z: worker.homePoint?.z ?? worker.z };
@@ -187,6 +189,9 @@ if (report.started) {
     const finalState = work.workerState?.(worker);
     return JSON.stringify({
       workerType: worker.type ?? worker.definition?.id ?? null,
+      // 隔离掉了几个威胁源：为 0 说明这一局本来就没有敌人，
+      // 采集链的结论就与"有没有被威胁打断"无关，可以放心看。
+      clearedThreats,
       // 活动魔力是否真的挂在供能系统上（站在基地旁魔力恒满，不能用「变没变」判断）
       powerTracked: (game.power?.receiverList?.() ?? []).some((entry) => entry.id === worker.id),
       autoAssign: autoAssignProbe,

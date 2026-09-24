@@ -39,8 +39,8 @@ const leveledOpeningSession = normalizeMultiplayerSession({
 });
 assert.equal(
   leveledOpeningSession.players.p1.deck.some((card) => card.id === 'swordsmen'),
-  false,
-  '单位卡仍不应进入初始牌组'
+  true,
+  '生存化后牌组只作兼容字段保留，不再按卡牌种类过滤'
 );
 assert.equal(leveledOpeningSession.players.p1.cardLevels.swordsmen, 6);
 assert.equal(leveledOpeningSession.players.p1.cardLevels.meteor, 3);

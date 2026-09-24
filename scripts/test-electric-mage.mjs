@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { CARD_DEFINITIONS, UNIT_DEFINITIONS } from '../src/data/gameData.js';
+import { UNIT_DEFINITIONS } from '../src/data/gameData.js';
 import { UNIT_SPECIAL_UPGRADES } from '../src/data/cardUpgrades.js';
 import { findNextChainLightningTarget } from '../src/systems/AttackSystem.js';
 import { EffectsSystem } from '../src/systems/EffectsSystem.js';
@@ -17,7 +17,6 @@ assert.equal(mage.specialAbilities?.lightningSiphon?.cooldown, 30);
 assert.equal(mage.specialAbilities?.lightningSiphon?.triggerDurability, 10);
 assert.equal(mage.specialAbilities?.lightningSiphon?.range, 9);
 assert.equal(mage.weapon.maxDurability, 18);
-assert.equal(CARD_DEFINITIONS.find((card) => card.id === 'lightning-mages')?.unitType, 'lightningMage');
 assert.deepEqual(
   UNIT_SPECIAL_UPGRADES.lightningMage.map((upgrade) => upgrade.trait),
   ['thunderCloud', 'lightningSiphon']

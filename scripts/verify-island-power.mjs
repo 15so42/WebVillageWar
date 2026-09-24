@@ -4,6 +4,7 @@
 // 供能分配挂在真实 update 循环上，不是拿纯函数自证。
 // 只连自己起的 headless Edge（默认 9235 端口，独立 user-data-dir）。
 import WebSocket from 'ws';
+import { enterSurvivalGame } from './lib/enter-game.mjs';
 
 const CDP_PORT = Number(process.env.ISLAND_CDP_PORT || 9235);
 const BASE = process.env.ISLAND_URL || 'http://127.0.0.1:3000/';
@@ -42,24 +43,7 @@ const ev = async (expr) => (await send('Runtime.evaluate', { expression: expr, r
 
 await send('Page.navigate', { url: BASE });
 const report = { page: BASE, levelId: LEVEL_ID, started: false, power: null, problems };
-for (let i = 0; i < 40; i += 1) {
-  await sleep(500);
-  if (await ev(`!!document.querySelector('[data-action="levels"]')`)) break;
-}
-await ev(`document.querySelector('[data-action="levels"]')?.click(); true`);
-await sleep(1200);
-await ev(`(() => {
-  const btn = [...document.querySelectorAll('[data-action="select-level"]')]
-    .find((e) => e.offsetParent !== null && (e.dataset.levelId || '').includes(${JSON.stringify(LEVEL_ID)}));
-  if (btn) btn.click();
-  return true;
-})()`);
-await sleep(500);
-await ev(`(()=>{const b=[...document.querySelectorAll('[data-action="start-level"]')].find(e=>e.offsetParent!==null);if(b)b.click();return true;})()`);
-for (let i = 0; i < 60; i += 1) {
-  await sleep(500);
-  if (await ev(`!!window.__VILLAGE_WAR_DEBUG__?.game?.power`)) { report.started = true; break; }
-}
+report.started = await enterSurvivalGame(ev, sleep);
 
 if (report.started) {
   report.power = JSON.parse(await ev(`(() => {

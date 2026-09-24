@@ -49,6 +49,25 @@ export function resourceItemId(resourceId) {
   return definition?.id ?? null;
 }
 
+/**
+ * 能不能"交给单位"——屏幕底部快捷栏与拖拽给单位用的判据。
+ *
+ * 只有**装备类**物品算：工具（斧/镐）、武器、符文石、魔力石。
+ * 木材石料这类堆叠材料不算：它们的作用是合成，单位背包只是中转，
+ * 让它们霸占快捷栏会把"能用的东西"挤掉。
+ * 判定看 `category` 而不是 `kind`：`kind` 只区分"能不能堆叠"，
+ * 而"能不能给单位用"是玩法语义，两者不是一回事。
+ */
+export const GIVABLE_ITEM_CATEGORIES = Object.freeze(['tool', 'weapon', 'rune', 'manaStone']);
+
+export function itemIsGivable(itemId) {
+  const definition = ITEM_DEFINITIONS[itemId];
+  if (!definition) return false;
+  // 可放置的建筑不是"给单位"的，它走放置流程
+  if (definition.placeable?.unitType) return false;
+  return GIVABLE_ITEM_CATEGORIES.includes(definition.category);
+}
+
 let instanceCounter = 0;
 
 // 生成唯一实例 ID。只用于本地；联机时由 Host 下发，客户端不自行发放。

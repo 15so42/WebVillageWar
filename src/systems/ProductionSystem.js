@@ -49,6 +49,7 @@ export class ProductionSystem {
     this.producers.set(unit.id, record);
     // 供电：容量与"干活时"的消耗先给上，真正的开关在 update 里按有没有料来切
     unit.kind = 'building';
+    unit.baseManaCapacity = resolved.manaCapacity;
     unit.manaCapacity = resolved.manaCapacity;
     if (!Number.isFinite(unit.activityMana)) unit.activityMana = resolved.manaCapacity;
     unit.activityMana = Math.min(Math.max(0, unit.activityMana), resolved.manaCapacity);

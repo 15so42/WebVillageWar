@@ -7,6 +7,7 @@
 //   2. 「采集效率」：傀儡一次采集动作取 5 → 研究后取 7（走真实作业链路，不是直接调 harvest）。
 import { writeFileSync, mkdirSync } from 'node:fs';
 import WebSocket from 'ws';
+import { enterSurvivalGame } from './lib/enter-game.mjs';
 
 const CDP_PORT = Number(process.env.ISLAND_CDP_PORT || 9235);
 const BASE = process.env.ISLAND_URL || 'http://127.0.0.1:3000/';
@@ -56,24 +57,7 @@ const ev = async (expr) => {
 
 await send('Page.navigate', { url: BASE });
 const report = { page: BASE, levelId: LEVEL_ID, started: false, result: null, problems };
-for (let i = 0; i < 60; i += 1) {
-  await sleep(400);
-  if (await ev(`!!document.querySelector('[data-action="levels"]')`)) break;
-}
-await ev(`document.querySelector('[data-action="levels"]')?.click(); true`);
-await sleep(1200);
-await ev(`(() => {
-  const btn = [...document.querySelectorAll('[data-action="select-level"]')]
-    .find((e) => e.offsetParent !== null && (e.dataset.levelId || '').includes(${JSON.stringify(LEVEL_ID)}));
-  if (btn) btn.click();
-  return true;
-})()`);
-await sleep(500);
-await ev(`(()=>{const b=[...document.querySelectorAll('[data-action="start-level"]')].find(e=>e.offsetParent!==null);if(b)b.click();return true;})()`);
-for (let i = 0; i < 60; i += 1) {
-  await sleep(400);
-  if (await ev(`!!window.__VILLAGE_WAR_DEBUG__?.game`)) { report.started = true; break; }
-}
+report.started = await enterSurvivalGame(ev, sleep);
 
 if (report.started) {
   await sleep(500);
@@ -117,7 +101,7 @@ if (report.started) {
       game.baseStorage.setTab('craft');
       game.baseStorage.lastSignature = '';
       game.baseStorage.refresh();
-      return document.querySelector('[data-craft-recipe="' + recipeId + '"]');
+      return document.querySelector('[data-backpack-recipe="' + recipeId + '"]');
     };
     const place = async (itemId, offsetX, offsetZ, buildTicks = 200) => {
       craftRecipe(itemId)?.click();
@@ -187,11 +171,16 @@ if (report.started) {
     const station = await place('researchStation', -6.5, -3.5);
     out.stationPlaced = Boolean(station);
     out.stationReady = game.research.stationReady();
+    // 科技已经不在背包面板里了（需求 7 前半条）：从科研站的扇形菜单打开它的界面。
+    // 这里走的是面板自己的 openForUnit（扇形菜单最后也是调它），
+    // "菜单里有没有入口"由 verify-island-research 覆盖。
+    const openStationPanel = () => {
+      game.facilityPanel.openForUnit(station);
+      game.facilityPanel.lastSignature = '';
+      game.facilityPanel.refresh();
+    };
     const fuelTechCard = () => {
-      game.baseStorage.open();
-      game.baseStorage.setTab('tech');
-      game.baseStorage.lastSignature = '';
-      game.baseStorage.refresh();
+      openStationPanel();
       return document.querySelector('[data-tech-id="efficientFuel"]');
     };
     const card = fuelTechCard();
@@ -214,7 +203,7 @@ if (report.started) {
     out.inventoryDeltaOnResearch = delta;
     out.charcoalSpent = (beforeClick.charcoal ?? 0) - (afterClick.charcoal ?? 0);
     await step(2);
-    game.baseStorage.close();
+    game.facilityPanel.close();
     out.efficientFuelResearched = game.research.has('efficientFuel') === true;
     // 注意：这里**不要再**用"60 - 当前数量"重算消耗——
     // 熔炉一直在产木炭，那种算法量到的是"净变化"而不是"这次研究花了多少"。
@@ -283,16 +272,15 @@ if (report.started) {
         inventory.add('fiber', 100);
         await step(2);
         const harvestCard = (() => {
-          game.baseStorage.open();
-          game.baseStorage.setTab('tech');
-          game.baseStorage.lastSignature = '';
-          game.baseStorage.refresh();
+          game.facilityPanel.openForUnit(station);
+          game.facilityPanel.lastSignature = '';
+          game.facilityPanel.refresh();
           return document.querySelector('[data-tech-id="harvesting"]');
         })();
         out.harvestingListed = Boolean(harvestCard);
         harvestCard?.querySelector('[data-research-tech]')?.click();
         await step(2);
-        game.baseStorage.close();
+        game.facilityPanel.close();
         out.harvestingResearched = game.research.has('harvesting') === true;
         out.harvestBonus = game.research.harvestBonus();
         const second = await measureOneAction();

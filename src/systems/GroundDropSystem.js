@@ -221,20 +221,26 @@ export class GroundDropSystem {
     }
     if (taken > 0) {
       this.game?.effects?.spawnRing?.(entry.group.position, entry.color, 0.5, 0.34);
+      // 拾取可能改变背包里的魔力石数量，也可能让"缺工具"变成"有工具"：
+      // 统一走这一个入口，别在掉落系统里重复实现收尾逻辑。
+      this.game?.onUnitBackpackChanged?.(unit);
     }
     return { ok: taken > 0, taken, reason: taken > 0 ? 'none' : (blocked.length ? 'target_full' : 'no_space') };
   }
 
-  /** 谁能拿普通货物：目前只有登记过的傀儡有物品背包（战斗兵种的背包还没做）。 */
+  /** 谁能拿普通货物：傀儡背包，或战斗单位按需创建的物品背包。 */
   inventoryFor(unit) {
-    return unit?.workerInventory ?? null;
+    return unit?.workerInventory
+      ?? unit?.itemBag
+      ?? this.game?.itemBagFor?.(unit, { create: false })
+      ?? null;
   }
 
   hintBlocked(entry, unit, runeFull) {
     const text = runeFull
       ? '符文背包已满，这块符文石先留在地上。'
       : '背包放不下了，剩下的东西留在地上。';
-    this.game?.cardSystem?.setHintOnce?.(text, `ground-drop:${entry.drop.id}:${unit.id}`);
+    this.game?.hints?.setHintOnce?.(text, `ground-drop:${entry.drop.id}:${unit.id}`);
   }
 
   createEntry(drop, position) {

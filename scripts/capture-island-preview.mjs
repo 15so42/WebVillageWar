@@ -105,12 +105,14 @@ if (report.ready) {
     });
   })()`));
 
-  // 地形与可走性采样：露在水面之上的陆地必须是可走的，反之不能出现「可走的水面」
+  // 地形与可走性采样：露在水面之上的陆地必须是可走的，反之不能出现「可走的水面」。
+  // 采样窗口随岛一起放大（原来是 ±80 / ±70，岛放大一倍后那只能采到中心一小块，
+  // 报告出来的 min/max 高度会变成"只看了岛心"的结论）。
   report.samples = JSON.parse(await ev(`(() => {
     const w = window.worldPreview.world;
     const rows = [];
-    for (let x = -80; x <= 80; x += 8) {
-      for (let z = -70; z <= 70; z += 8) {
+    for (let x = -160; x <= 160; x += 10) {
+      for (let z = -150; z <= 150; z += 10) {
         const h = w.heightAt(x, z);
         rows.push([x, z, Number(h.toFixed(2)), w.isWalkable(x, z) ? 1 : 0]);
       }

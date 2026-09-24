@@ -8,7 +8,6 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { createSelectionRing } from '../art/lowpoly.js';
 import {
   BALANCE,
-  CARD_DEFINITIONS,
   COOP_ENEMY_SCALING,
   ISLAND_SPAWN_POINTS,
   ITEM_DEFINITIONS,
@@ -21,19 +20,13 @@ import {
   UNIT_DEFINITIONS,
   WAVE_BOSS_TYPES,
   WAVE_MONSTER_TYPES,
-  isTerrainCard,
   enemyManaFactor,
-  manaValueForEnemy,
-  openingEnergyForLevel,
-  openingUnitCardCount
+  manaValueForEnemy
 } from '../data/gameData.js';
 import {
   UNIT_GENERIC_UPGRADES,
-  UNIT_SPECIAL_UPGRADES,
-  runtimeUpgradeSummaryForCard,
-  runtimeUpgradeTitleForCard
+  UNIT_SPECIAL_UPGRADES
 } from '../data/cardUpgrades.js';
-import { pickAltarSpecializationChoices } from './altarRewardChoices.js';
 import { UnitEntity } from '../entities/UnitEntity.js';
 import {
   createUnitModel,
@@ -46,15 +39,8 @@ import { createWorld } from '../world/createWorld.js';
 import { createCoopPlayerStates, isCoopSession } from '../coop/CoopSession.js';
 import { BuffSystem } from './BuffSystem.js';
 import { BuildingSystem } from './BuildingSystem.js';
-import { CardEffectSystem } from './CardEffectSystem.js';
-import {
-  CardSystem,
-  cardEnergyCost,
-  cardThemeColor,
-  createCardArtMarkup,
-  createForgedCardMarkup,
-  fitStrategyRewardCards
-} from './CardSystem.js';
+import { BattleHintSystem } from './BattleHintSystem.js';
+import { createCardArtMarkup } from './cardArt.js';
 import { CombatSystem } from './CombatSystem.js';
 import { AttackSystem } from './AttackSystem.js';
 import { EffectsSystem } from './EffectsSystem.js';
@@ -63,7 +49,7 @@ import { EnemyEnchantmentSystem } from './EnemyEnchantmentSystem.js';
 import { eliteOrBossInitialAttackModifiers } from './enemyForceRules.js';
 import { standardEnemyStatFactors } from './difficultyRules.js';
 import { LevelMechanicSystem } from './LevelMechanicSystem.js';
-import { LootDropSystem } from './LootDropSystem.js';
+
 import { AttributeSet, bindAttributeGetter } from './AttributeSet.js';
 import { AreaEffectSystem } from './AreaEffectSystem.js';
 import { AbilitySystem } from './AbilitySystem.js';
@@ -76,38 +62,6 @@ import { PathfindingSystem } from './PathfindingSystem.js';
 import { TargetingSystem } from './TargetingSystem.js';
 import { UnitLogicSystem } from './UnitLogicSystem.js';
 import { UnitRegistry } from './UnitRegistry.js';
-import {
-  isRunShopPrepBlockingWaveAdvance,
-  shouldPauseRunShop,
-  shouldRestoreFreeRunShopUi
-} from './runShopUiState.js';
-import {
-  RUN_SHOP_ACTION_BUY_ENERGY,
-  RUN_SHOP_ACTION_SPECIALIZATION_FALLBACK,
-  RUN_SHOP_ACTION_SPECIALIZATION_UNIT,
-  RUN_SHOP_BACK_TO_UNIT_LABEL,
-  RUN_SHOP_CATEGORIES,
-  RUN_SHOP_CONTINUE_LABEL,
-  RUN_SHOP_ENERGY_CARD_ID,
-  RUN_SHOP_FREE_LABEL,
-  RUN_SHOP_SOLD_OUT_LABEL,
-  RUN_SHOP_SPECIALIZATION_STEPS,
-  RUN_SHOP_SPECIALIZATION_TITLE,
-  RUN_SHOP_STEP_SPECIALIZATION_TYPE,
-  RUN_SHOP_STEP_SPECIALIZATION_UPGRADE,
-  RUN_SHOP_STEP_SUPPLY,
-  RUN_SHOP_SUPPLY_KIND_ICONS,
-  RUN_SHOP_SUPPLY_KIND_LABELS,
-  RUN_SHOP_SUPPLY_KINDS,
-  RUN_SHOP_SUPPLY_TITLE,
-  isRunShopCategoryRetired,
-  runShopSupplyConfig,
-  runShopSupplyEnergyAmount,
-  runShopSupplyFallbackSilver,
-  runShopSupplyItemCount,
-  runShopSupplyKindPrice,
-  runShopSupplyKindSequence
-} from './runShopCatalog.js';
 import {
   performSelfDestructAttacks,
   performSelfDestructExplosion,
@@ -145,11 +99,6 @@ import {
 } from './playerBaseRules.js';
 import { scaleResourceAfterMaximumChange } from './unitResourceSync.js';
 import { NetworkAnalysisUi } from './NetworkAnalysisUi.js';
-import {
-  createWaveRewardDeckIds,
-  shouldConsumeWaveRewardCard,
-  waveRewardUnitCards
-} from './waveRewardPool.js';
 import { RuneStoneSystem } from './RuneStoneSystem.js';
 import { ResourceNodeSystem } from './ResourceNodeSystem.js';
 import { Inventory } from './Inventory.js';
@@ -162,10 +111,26 @@ import {
   normalizeRecipe,
   recipeById
 } from './crafting.js';
-import { BaseStorageUi } from './BaseStorageUi.js';
+import { BackpackUi } from './BackpackUi.js';
+import { UnitActionMenu } from './UnitActionMenu.js';
+import { FacilityPanelUi } from './FacilityPanelUi.js';
+import { ThreatFieldSystem } from './ThreatFieldSystem.js';
+import {
+  clampPriority,
+  defaultPriorityFor,
+  demandsFromRows,
+  resourcePriorityRows
+} from './resourcePriority.js';
+import { itemIsGivable } from './items.js';
 import { isHostileEnemy } from './unitTeam.js';
 import { PowerSystem } from './PowerSystem.js';
 import { SpawnPointSystem } from './SpawnPointSystem.js';
+import {
+  advanceDayNight,
+  createDayNightState,
+  nightBlend,
+  nightRaidModifiers
+} from './dayNight.js';
 import { GroundDropSystem } from './GroundDropSystem.js';
 import { ProductionSystem } from './ProductionSystem.js';
 import { FuelPowerSystem } from './FuelPowerSystem.js';
@@ -181,8 +146,14 @@ import {
 import { HotbarUi } from './HotbarUi.js';
 import { planDeathDrop } from './drops.js';
 import { WorkSystem } from './WorkSystem.js';
-import { RuneBackpackUi } from './RuneBackpackUi.js';
-import { manaThresholdForLevel, runeDisplayName } from './runeStones.js';
+import { effectiveManaCapacity } from './manaStones.js';
+import {
+  RUNE_LOCATION_GROUND,
+  RUNE_STONE_ITEM_ID,
+  manaThresholdForLevel,
+  runeDisplayName,
+  stoneItemData
+} from './runeStones.js';
 import { autoRebirthDurationFor } from './rebirthRules.js';
 import {
   cameraFollowCenter,
@@ -214,6 +185,10 @@ const UNIT_MAX_FALL_SPEED = 18;
 const UNIT_CLIMB_SPEED = 3.4;
 const UNIT_MAX_SMOOTH_CLIMB_HEIGHT = 0.58;
 const UNIT_GROUND_EPSILON = 0.006;
+// 快捷栏拖拽时"落在哪个单位身上"的屏幕判定半径（像素）。
+// 取 48 与单位选中框选的兜底半径同一量级：图标是拖到单位**模型**上，
+// 模型本身很小，判定太紧会让人反复拖不中。
+const HOTBAR_DROP_UNIT_RADIUS = 48;
 const MAX_ACTIVE_WAVE_SPAWNS = 7;
 const MAX_LEVEL_DIFFICULTY = 10;
 const TOTAL_WAVES = 21;
@@ -224,54 +199,6 @@ const BOSS_HEALTH_MULTIPLIER = 0.6;
 const ELITE_WAVE_INTERVAL = 3;
 const WAVE_DIFFICULTY_STEP_WAVES = 3;
 const WAVE_DIFFICULTY_GROWTH_PER_SELECTED_DIFFICULTY = 0.16;
-const STRATEGY_CHOICE_COUNT = 3;
-const STRATEGY_REWARD_REROLL_SILVER_COST = 4;
-const SILVER_GAIN_MULTIPLIER = 0.6;
-const RUN_SHOP_PLAYER_ACCESS_ENABLED = false;
-const FORCED_CARD_CHOICE_UNTIL_WAVE = 3;
-const OPENING_COMBAT_UNIT_CHOICES = 2;
-// 开局步骤由关卡路线数驱动：每条路线一次单位卡三选一，之后各一次能力卡与地形卡。
-// 不再有开局附魔卡步骤——附魔卡改为一次性生成符文石（见 docs/RUNE_STONE_GAMEPLAY_PLAN.md 第 2～3 节）。
-// 第一步（首个单位卡三选一）在开局时直接打开，其余步骤由 pendingStrategyRewards 依次串行推进（联机按全员等待）。
-const OPENING_REWARD_STEP_DEFINITIONS = {
-  unit: {
-    type: 'opening-unit',
-    kind: 'summon',
-    title: '选择你的起始单位卡',
-    summary: '从所有战斗单位中三选一，获得该单位卡后自行部署。'
-  },
-  ability: {
-    type: 'opening-ability',
-    kind: 'ability',
-    title: '选择起始能力卡',
-    summary: '从能力卡中三选一，加入抽牌堆。'
-  },
-  terrain: {
-    type: 'opening-terrain',
-    kind: 'spell',
-    terrainOnly: true,
-    title: '选择起始地形卡',
-    summary: '从地形卡中三选一，加入抽牌堆。'
-  }
-};
-const OPENING_REWARD_STEP_ORDER = ['unit', 'ability', 'terrain'];
-
-export function openingRewardStepsForLevel(level, opening = BALANCE.opening) {
-  const counts = {
-    unit: openingUnitCardCount(level, opening),
-    ability: Math.max(0, Math.floor(Number(opening?.abilityCards ?? 1))),
-    terrain: Math.max(0, Math.floor(Number(opening?.terrainCards ?? 1)))
-  };
-  const steps = [];
-  OPENING_REWARD_STEP_ORDER.forEach((key) => {
-    const definition = OPENING_REWARD_STEP_DEFINITIONS[key];
-    const count = counts[key] ?? 0;
-    for (let index = 0; index < count; index += 1) {
-      steps.push({ ...definition });
-    }
-  });
-  return steps;
-}
 const ENEMY_CAMP_IDLE_SCAN_SECONDS = 0.18;
 // 海岛生存：己方单位全灭后要连续这么多秒没有新单位，才算真的走投无路。
 // 单位死亡与替补入场可能落在相邻两帧，不设这个宽限会在"刚要有人"的瞬间误判失败。
@@ -875,6 +802,8 @@ export class Game {
     this.onRestart = onRestart;
     this.onExitToMenu = onExitToMenu;
     this.elapsedTime = 0;
+    this.dayNight = null;
+    this.dayNightHud = null;
     this.levelFinished = false;
     this.paused = false;
     this.networkTerminated = false;
@@ -891,6 +820,9 @@ export class Game {
       ...(this.levelSession.level.world ?? BALANCE.world)
     };
     this.worldConfig = applyRenderQualityToWorldConfig(this.worldConfig, this.renderQuality);
+    if ((this.worldConfig.sceneKey ?? this.levelSession?.level?.world?.sceneKey) === 'island-survival') {
+      this.dayNight = createDayNightState(BALANCE.world?.dayNight ?? {});
+    }
     this.renderTuning = null;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(35, 1, 0.1, 240);
@@ -1045,8 +977,6 @@ export class Game {
     this.strategyRewardRerollCount = 0;
     this.autoSkipWaveRewards = false;
     this.autoSkippedWaveRewardKey = null;
-    this.shopPrices = createInitialShopPrices();
-    this.waveRewardDeck = createWaveRewardDeckIds(this.levelSession.deck, CARD_DEFINITIONS);
     this.rebirthQueue = [];
     this.nextRebirthQueueId = 1;
     this.awaitingOpeningReward = false;
@@ -1101,6 +1031,7 @@ export class Game {
 
     this.world = createWorld(this.scene, this.worldConfig);
     this.worldConfig = this.world.config ?? this.worldConfig;
+    if (this.dayNight) this.applyDayNightLighting();
     // 基地实体的坐标必须跟随关卡预设，而不是停在 BALANCE 的全局默认值。
     // 上面那句在 createWorld 之前执行，此时 worldConfig 还只有关卡的 world 字段
     // （例如 { sceneKey: 'island-survival' }），拿不到预设里的 playerBasePosition，
@@ -1194,7 +1125,7 @@ export class Game {
     this.attacks = new AttackSystem(this);
     this.unitLogic = new UnitLogicSystem(this);
     this.spells = new SpellSystem(this);
-    this.cardEffects = new CardEffectSystem(this);
+    this.hints = new BattleHintSystem({ mount: typeof document !== 'undefined' });
     this.recovery = new RecoverySystem(this);
     // 基地库存：目前是资源节点的落点，后续合成、快捷栏、搬运都以它为准。
     this.baseInventory = new Inventory({ id: 'base', capacity: ITEM_RULES.baseInventorySlots });
@@ -1234,56 +1165,50 @@ export class Game {
     this.planting = new PlantingSystem(this);
     // 需要魔力的功能设施（箭塔 / 食堂）：魔力耗尽就停机。
     this.facilities = new FacilitySystem(this);
-    // 符文石背包权威：附魔卡一次性生成石头，石头放在单位背包里才生效。
+    // 符文石背包权威：符文石现在就是背包里的一件普通物品（itemId === 'runeStone'），
+    // 放在单位背包里才生效。
     this.runeStones = new RuneStoneSystem(this);
-    // 符文背包界面：常驻入口或 B 键打开；未选中己方单位时显示基地与阵亡单位背包。
+    // 统一背包界面（B 键 / 点单位下方的背包按钮）：
+    // 左侧是背包网格（基地 6x8，单位按自己的格数），右侧是已解锁的合成/科技/附魔台，
+    // 底部是物品快捷栏。符文石、魔力石、工具、材料共用同一批格子——所以不再有
+    // "符文背包"和"基地库存"两个面板，左下角也不再有常驻的符文背包按钮。
     if (typeof document !== 'undefined') {
-      this.runeBackpack = new RuneBackpackUi(this, {
+      this.backpack = new BackpackUi(this, {
         getSelectedUnit: () => (
           this.selectedUnit?.team === TEAMS.PLAYER && this.selectedUnit.alive
             ? this.selectedUnit
             : null
         )
       });
-      this.runeBackpack.ensureLauncher();
-    }
-    // 基地库存与合成面板：与符文背包分开，因为库存里是可堆叠材料、没有拖拽出售那套语义。
-    if (typeof document !== 'undefined') {
-      this.baseStorage = new BaseStorageUi(this);
-      // 必须在这里就把常驻入口建出来：入口按钮原本是在 ensureUi()（也就是第一次打开面板）时
-      // 才创建的，于是"不知道怎么开面板"的玩家永远看不到入口——符文背包当初也踩过这个鸡生蛋问题。
-      this.baseStorage.ensureLauncher();
-      // 物品快捷栏：基地里可放置建筑的快捷入口（数字键 1..9）。
+      // 兼容旧名字：验收脚本与其它系统仍会通过 game.baseStorage 找这个面板。
+      this.baseStorage = this.backpack;
+      // 点击单位后在其下方扇形展开的单位交互菜单（背包 / 招募 / 停止…）。
+      // 建筑也会有菜单——科研站 / 附魔台的界面入口就在那里（需求 7 前半条）。
+      this.unitActionMenu = new UnitActionMenu(this);
+      // 科研站 / 附魔台的独立界面。以前科技与附魔台是背包右侧的两个标签页，
+      // 现在改成"走到那栋建筑、点它、从扇形菜单打开"。
+      this.facilityPanel = new FacilityPanelUi(this);
+      // 物品快捷栏：屏幕底部常驻（不再是背包面板的页脚）。
       this.hotbar = new HotbarUi(this);
       this.hotbar.ensureUi();
+      // 威胁度二维数组：敌人每帧按自己的位置与半径叠进去，木傀儡据此避险。
+      // 建在 UI 之后、单位系统之前都无所谓——数组本身是惰性建的（ensureField）。
+      this.threat = new ThreatFieldSystem(this);
+      // 资源优先级（资源 tab 上点出来的那张表）。默认值在 setupSurvivalOpening
+      // 里按关卡需要初始化；这里只保证它一定存在，界面第一帧就有东西可读。
+      this.resourcePriorities = this.resourcePriorities ?? {};
     }
+    this.cardSystems = null;
+    this.cardSystem = null;
     if (isCoopSession(this.levelSession)) {
       const coopPlayers = this.levelSession.players ?? {};
       if (this.networkClientMode) {
-        const localDeck = coopPlayers[this.localPlayerSlot]?.deck ?? [];
-        this.cardSystems = null;
-        this.cardSystem = new CardSystem(this, {
-          deck: localDeck,
-          playerSlot: this.localPlayerSlot,
-          mountUi: true,
-          startWithEmptyDrawPile: true
-        });
         this.abilitySystems = null;
         this.abilities = new AbilitySystem(this, {
           playerSlot: this.localPlayerSlot,
           mountUi: true
         });
       } else {
-        this.cardSystems = Object.fromEntries(Object.entries(coopPlayers).map(([playerId, player]) => [
-          playerId,
-          new CardSystem(this, {
-            deck: player?.deck ?? [],
-            playerSlot: playerId,
-            mountUi: this.localPlayerSlot === playerId,
-            startWithEmptyDrawPile: true
-          })
-        ]));
-        this.cardSystem = this.cardSystems[this.localPlayerSlot];
         this.abilitySystems = Object.fromEntries(Object.keys(coopPlayers).map((playerId) => [
           playerId,
           new AbilitySystem(this, {
@@ -1294,18 +1219,10 @@ export class Game {
         this.abilities = this.abilitySystems[this.localPlayerSlot];
       }
     } else {
-      this.cardSystems = null;
-      this.cardSystem = new CardSystem(this, {
-        deck: this.levelSession.deck,
-        startWithEmptyDrawPile: true
-      });
       this.abilitySystems = null;
       this.abilities = new AbilitySystem(this);
     }
-    this.lootDrops = new LootDropSystem(this);
     this.altars = new AltarSystem(this, this.world.config?.altars ?? this.worldConfig.altars);
-    // 多路线关卡的开局能量：每多一条路线额外发放，具体增量由 BALANCE.opening 配置。
-    this.grantOpeningRouteEnergy();
     this.spawnWildlife();
     this.enemyEnchantment = new EnemyEnchantmentSystem(this);
     this.levelMechanics = new LevelMechanicSystem(this);
@@ -1352,9 +1269,8 @@ export class Game {
     });
     this.networkAnalysisUi.setEnabled(Boolean(this.coop?.enabled && this.networkBridge));
     if (this.dom.fpsMeter) this.dom.fpsMeter.hidden = false;
-    this.strategyEventUi = createStrategyEventUi();
-    this.runShopUi = createRunShopUi();
-    this.bindRunShopUi();
+    // 卡牌时代的两个界面（开局三选一的策略事件、军需铺）已删除，
+    // 不再创建它们的 UI，也不绑定事件。
     this.battleDebugPanel = this.levelSession.debug ? null : new BattleDebugPanel(this);
     this.syncSettingsControls();
     this.syncRenderTuningPanel();
@@ -1400,9 +1316,6 @@ export class Game {
     window.addEventListener('keyup', (event) => this.onKeyUp(event), { signal });
     window.addEventListener('resize', () => this.resize(), { signal });
     window.addEventListener('popstate', (event) => this.onReturnNavigation(event), { signal });
-    this.strategyEventUi.root.addEventListener('click', (event) => this.onStrategyEventClick(event), { signal });
-    this.strategyEventUi.root.addEventListener('pointerdown', stopUiPropagation, { signal });
-    this.strategyEventUi.root.addEventListener('contextmenu', stopUiEvent, { signal });
     this.dom.wavePreview?.addEventListener('change', (event) => this.onWavePreviewChange(event), { signal });
     this.dom.settingsButton?.addEventListener('click', (event) => {
       event.preventDefault();
@@ -1448,8 +1361,10 @@ export class Game {
     this.renderTuningUi.button.addEventListener('contextmenu', stopUiEvent, { signal });
     this.resize();
     document.body.classList.add('is-game-active');
+    // 生存玩法：把卡牌时代的界面（波次面板 / 银币 / 手牌区）整块压掉，
+    // 具体规则在 battleHud.css 里按这个类收敛。
+    document.body.classList.toggle('is-survival-level', this.isSurvivalLevel());
     if (this.dom.settingsButton) this.dom.settingsButton.hidden = false;
-    if (this.runShopUi?.toggle) this.runShopUi.toggle.hidden = true;
     this.armReturnNavigationTrap();
     prewarmUnitModelTemplates(unitModelPrewarmEntries());
 
@@ -1466,19 +1381,15 @@ export class Game {
       this.updateWavePreview();
       this.awaitingOpeningReward = false;
     } else {
-      this.updateWavePreview();
-      this.awaitingOpeningReward = true;
-      // 开局四次三选一：先排好后续三次（法术 / 附魔 / 能力），
-      // 每次选完由 continueAfterStrategyFlow 取出下一项，全部选完才开第一波。
-      // 联机 Client 走上面的分支、不排本地队列，步骤由 Host 权威推进。
-      this.queueOpeningRewardSteps();
-      // 孤岛求生：开局布置木傀儡与初始物资（在开局奖励流程之外，不占用三选一）
+      // 生存玩法（现在也是唯一玩法）：**没有开局三选一，也没有波次**。
+      // 开局就是基地 + 木傀儡 + 出生护卫，玩家的第一个决策发生在场景里
+      // （先去砍树还是先造工具），而不是在菜单/弹窗里点三下。
+      // 必须显式清空开局奖励状态：只要 awaitingOpeningReward 为真，
+      // 游戏会一直挂起等一个永远不会来的选择，表现成"进去就卡住"。
+      this.awaitingOpeningReward = false;
+      this.pendingStrategyRewards = [];
+      this.strategyEvent = null;
       this.setupSurvivalOpening();
-      if (this.coop?.enabled) {
-        this.openCoopStrategyEventForAll('opening-unit');
-      } else {
-        this.openStrategyEvent('opening-unit');
-      }
     }
 
     window.__VILLAGE_WAR_DEBUG__ = {
@@ -1527,12 +1438,13 @@ export class Game {
     this.activeTouchPointers.clear();
     this.setMobileBoxSelectMode(false);
     this.eventController.abort();
-    this.runeBackpack?.destroy?.();
-    this.baseStorage?.destroy?.();
+    this.backpack?.destroy?.();
+    this.unitActionMenu?.destroy?.();
     this.hotbar?.destroy?.();
-    this.cardSystem?.destroy?.();
+    this.facilityPanel?.destroy?.();
+    this.threat?.destroy?.();
+    this.hints?.destroy?.();
     this.buildings?.destroy?.();
-    this.lootDrops?.destroy?.();
     this.drops?.destroy?.();
     this.enemyEnchantment?.destroy?.();
     this.areaEffects?.destroy?.();
@@ -1549,25 +1461,19 @@ export class Game {
     this.networkAnalysisUi = null;
     this.battleDebugPanel?.destroy();
     this.battleDebugPanel = null;
-    this.clearCoopRewardAutoSelectTimer();
     this.disposeNavDebug();
     this.renderer.dispose();
     this.selectionBox?.remove();
-    this.strategyEventUi?.root?.remove();
-    this.runShopUi?.overlay?.remove();
     this.networkTerminatedOverlay?.remove();
     this.networkTerminatedOverlay = null;
     document.body.classList.remove(
       'is-game-active',
       'is-game-paused',
-      'is-strategy-event-open',
-      'is-run-shop-open',
       'is-battle-debug-open',
       'is-mobile-box-select-active'
     );
     this.canvas.classList.remove('is-camera-dragging');
     if (this.dom.settingsButton) this.dom.settingsButton.hidden = true;
-    if (this.runShopUi?.toggle) this.runShopUi.toggle.hidden = true;
     if (this.dom.fpsMeter) this.dom.fpsMeter.hidden = true;
     if (this.dom.pauseOverlay) this.dom.pauseOverlay.hidden = true;
     if (this.dom.perfPanel) this.dom.perfPanel.hidden = true;
@@ -1592,46 +1498,47 @@ export class Game {
     const dt = Math.min(rawDt, 0.05) * timeScale;
     this.updateFpsMeter(rawDt);
     this.networkAnalysisUi?.update();
-    this.syncCoopRewardPauseState();
     if (this.paused) {
-      // 联机暂停（波次奖励/军需铺）时仍要处理远端命令与私有状态推送
+      // 联机暂停时仍要处理远端命令与私有状态推送
       this.networkBridge?.beforeTick?.(0);
-      this.updateCoopRewardAutoResolve();
       this.updateCamera(0);
       this.world.update?.(0, this.cameraTarget, this.camera, { forceStaticCulling: true });
       this.updateHud(0);
+      this.syncUnitActionMenu();
       this.renderScene();
       return;
     }
     if (this.networkClientMode) {
       this.networkBridge?.updateClientFrame(dt);
-      this.cardSystem?.update?.(dt);
       this.updateCamera(dt);
       this.world.update?.(dt, this.cameraTarget, this.camera);
       this.effects.update(dt);
       this.updateSelection();
+      this.syncUnitActionMenu();
       this.updateHud(dt);
       this.renderScene();
       return;
     }
     this.networkBridge?.beforeTick(dt);
-    this.updateCoopRewardAutoResolve();
     const perf = this.perfTracker;
     if (perf) {
       perf.beginFrame(dt);
     }
     this.elapsedTime += dt;
+    this.updateDayNight(dt);
     this.routeSearchBudget = ROUTE_SEARCHES_PER_FRAME;
     const runStep = (name, action) => this.runFrameStep(name, action);
     const runPerfStep = (name, action) => runStep(name, () => this.measurePerf(name, action));
     if (perf) {
       runPerfStep('waveSpawn', () => this.updateWaveFlow());
-      runPerfStep('card', () => this.updateCardSystems(dt));
       runPerfStep('abilities', () => this.updateAbilitySystems(dt));
       runPerfStep('baseRecoveryPact', () => this.updateBaseRecoveryPact(dt));
       runPerfStep('playerBaseAttack', () => this.updatePlayerBaseAttack(dt));
       runPerfStep('enemyCampAttack', () => this.updateEnemyCampAttack(dt));
       runPerfStep('spiders', () => this.updateSpiderLifecycle(dt));
+      // 威胁度必须在单位逻辑**之前**更新：木傀儡这一帧做的"打/逃/干活"决定
+      // 读的就是刚写进去的威胁分布，否则永远慢一帧。
+      runPerfStep('threat', () => this.threat?.update(dt));
       runPerfStep('combat', () => this.unitLogic.update(dt));
       runPerfStep('buildings', () => this.buildings.update(dt));
       runPerfStep('recovery', () => this.recovery.update(dt));
@@ -1650,7 +1557,6 @@ export class Game {
       runPerfStep('drops', () => this.drops.update(dt));
       runPerfStep('mechanics', () => this.levelMechanics.update(dt));
       runPerfStep('areaEffects', () => this.areaEffects.update(dt));
-      runPerfStep('loot', () => this.lootDrops.update(dt));
       runPerfStep('rebirth', () => this.updateRebirthQueue(dt));
       runPerfStep('effects', () => this.effects.update(dt));
       runPerfStep('structure', () => this.updateStructureFeedback(dt));
@@ -1659,6 +1565,7 @@ export class Game {
       runPerfStep('selection', () => this.updateSelection());
       runPerfStep('unitVisuals', () => this.updateUnitVisuals(dt));
       runPerfStep('navDebug', () => this.updateNavDebug(dt));
+      runPerfStep('unitActionMenu', () => this.syncUnitActionMenu());
       runPerfStep('hud', () => this.updateHud(dt));
       runPerfStep('render', () => this.renderScene());
       perf.endFrame(this.createPerfCounters({ takeNavStats: true }));
@@ -1666,12 +1573,13 @@ export class Game {
       this.updatePerfPanel(dt);
     } else {
       runStep('waveSpawn', () => this.updateWaveFlow());
-      runStep('card', () => this.updateCardSystems(dt));
       runStep('abilities', () => this.updateAbilitySystems(dt));
       runStep('baseRecoveryPact', () => this.updateBaseRecoveryPact(dt));
       runStep('playerBaseAttack', () => this.updatePlayerBaseAttack(dt));
       runStep('enemyCampAttack', () => this.updateEnemyCampAttack(dt));
       runStep('spiders', () => this.updateSpiderLifecycle(dt));
+      // 威胁度必须在单位逻辑**之前**更新（理由同 perf 分支）
+      runStep('threat', () => this.threat?.update(dt));
       runStep('combat', () => this.unitLogic.update(dt));
       runStep('buildings', () => this.buildings.update(dt));
       runStep('recovery', () => this.recovery.update(dt));
@@ -1687,7 +1595,6 @@ export class Game {
       runStep('drops', () => this.drops.update(dt));
       runStep('mechanics', () => this.levelMechanics.update(dt));
       runStep('areaEffects', () => this.areaEffects.update(dt));
-      runStep('loot', () => this.lootDrops.update(dt));
       runStep('rebirth', () => this.updateRebirthQueue(dt));
       runStep('effects', () => this.effects.update(dt));
       runStep('structure', () => this.updateStructureFeedback(dt));
@@ -1696,6 +1603,7 @@ export class Game {
       runStep('selection', () => this.updateSelection());
       runStep('unitVisuals', () => this.updateUnitVisuals(dt));
       runStep('navDebug', () => this.updateNavDebug(dt));
+      runStep('unitActionMenu', () => this.syncUnitActionMenu());
       runStep('hud', () => this.updateHud(dt));
       runStep('render', () => this.renderScene());
     }
@@ -1703,23 +1611,15 @@ export class Game {
   }
 
   updateWaveFlow() {
-    if (this.levelSession.debug || this.levelFinished || this.strategyEvent) return;
-    if (!this.currentWave) {
-      // Boss 整备（免费专精 → 付费补给 → 继续战斗）是阻塞式状态：
-      // 只有玩家走完两步、整备结束后才允许推进下一波。
-      if (this.pendingWaveAdvance && !this.isRunShopPrepBlockingWaveAdvance()) {
-        this.continueAfterStrategyFlow(false);
-      }
-      return;
-    }
+    if (this.levelSession.debug || this.levelFinished) return;
+    // 卡牌时代的波次奖励流程（Boss 整备 → 军需铺 → 下一波）已删除。
+    // 这里只保留"波次敌人清空 → 结算这一波"；生存关根本不跑波次
+    // （`currentWave` 始终为 null，本函数直接返回），敌人来自刷怪点夜袭。
+    if (!this.currentWave) return;
     if (this.hasActiveWaveEnemies()) return;
     this.completeCurrentWave();
   }
 
-  /** Boss 整备进行中：禁止开始下一波（无尽自动跳过路径会提前结束整备再放行）。 */
-  isRunShopPrepBlockingWaveAdvance() {
-    return isRunShopPrepBlockingWaveAdvance({ freeReward: this.runShopFreeReward === true });
-  }
 
   hasActiveWaveEnemies() {
     const wave = this.currentWave;
@@ -1783,32 +1683,16 @@ export class Game {
     this.currentEnemyForce = null;
     this.ensureWaveConfig(this.waveIndex);
     this.updateWavePreview();
+    // 波次奖励（银币 → 军需铺 / 三选一）是卡牌时代的流程，已随卡牌一起删除。
+    // 这里只保留"打完 Boss 就算通关"这一条胜负推进；生存关不跑波次。
     if (wave.kind === 'boss') {
       this.bossesDefeated += 1;
-      this.grantWaveSilver(wave);
       if (!this.isEndlessMode() && this.bossesDefeated >= BOSS_WAVES_TO_WIN) {
-        // 标准战役最终 Boss：直接结算，不再弹出当局用不到的专精/补给流程。
         this.finishLevel(true, { endReason: 'waves_completed' });
         return;
       }
-      // 非最终 Boss：进入 Boss 整备（先免费专精，再明码标价补给）。
-      // 是否提供整备由“本局是否真的结束”决定，不按固定 Boss 序号硬编码，
-      // 因此无尽等仍有后续战斗的模式同样会继续提供。
-      this.pendingWaveAdvance = true;
-      if (this.coop?.enabled) {
-        this.openCoopRunShopForAll({ freeReward: true });
-      } else {
-        this.openRunShop({ freeReward: true });
-      }
-      return;
     }
-    this.grantWaveSilver(wave);
     this.pendingWaveAdvance = true;
-    if (this.coop?.enabled) {
-      this.openCoopStrategyEventForAll('wave-reward', { wave });
-    } else {
-      this.openStrategyEvent('wave-reward', { wave });
-    }
   }
 
   updateWavePreview() {
@@ -1853,67 +1737,13 @@ export class Game {
     this.autoSkipWaveRewards = this.isEndlessMode() && Boolean(input.checked);
     if (!this.autoSkipWaveRewards) {
       this.autoSkippedWaveRewardKey = null;
-      return;
     }
-    this.tryAutoSkipWaveReward();
+    // 自动跳过奖励是卡牌时代的波次奖励功能，已随波次奖励一起删除。
   }
 
-  isAutoSkippableWaveReward(event = this.strategyEvent) {
-    return Boolean(
-      this.isEndlessMode()
-      && this.autoSkipWaveRewards
-      && event?.type === 'wave-reward'
-    );
-  }
 
-  autoSkipWaveRewardKey(event = this.strategyEvent) {
-    if (!event) return null;
-    return event.networkInteractionId
-      ?? `${event.type}:${event.wave?.index ?? this.wave ?? this.waveIndex ?? 0}:${this.bossesDefeated ?? 0}`;
-  }
 
-  tryAutoSkipWaveReward() {
-    const event = this.strategyEvent;
-    if (!this.isAutoSkippableWaveReward(event)) return false;
-    const rewardKey = this.autoSkipWaveRewardKey(event);
-    if (!rewardKey || rewardKey === this.autoSkippedWaveRewardKey) return false;
 
-    if (this.networkBridge?.shouldRouteLocalCommands?.()) {
-      const sent = this.networkBridge.commandSender?.strategySkip?.();
-      if (!sent) return false;
-      this.autoSkippedWaveRewardKey = rewardKey;
-      if (this.networkClientMode || this.coopRewardWaitSlots?.size) {
-        this.showCoopRewardWaitingUi();
-      }
-      return true;
-    }
-
-    this.autoSkippedWaveRewardKey = rewardKey;
-    if (this.skipStrategyReward()) return true;
-    this.autoSkippedWaveRewardKey = null;
-    return false;
-  }
-
-  tryAutoSkipRunShopReward() {
-    if (!(this.isEndlessMode() && this.autoSkipWaveRewards && this.runShopFreeReward)) return false;
-    const slot = this.activeEconomySlot ?? this.localPlayerSlot ?? 'local';
-    const rewardKey = `run-shop:${this.bossesDefeated ?? 0}:${slot}`;
-    if (rewardKey === this.autoSkippedWaveRewardKey) return false;
-
-    if (this.networkBridge?.shouldRouteLocalCommands?.()) {
-      const sent = this.networkBridge.commandSender?.shopRewardSkip?.();
-      if (!sent) return false;
-      this.autoSkippedWaveRewardKey = rewardKey;
-      if (this.networkClientMode || this.coopRewardWaitSlots?.size) {
-        this.showCoopRunShopWaitingUi();
-      }
-      return true;
-    }
-
-    this.autoSkippedWaveRewardKey = rewardKey;
-    this.closeRunShop({ force: true });
-    return true;
-  }
 
   enemyEnchantCost(unit, level = 1) {
     const costs = this.enemyDirectorConfig.enchantCosts ?? {};
@@ -1942,1838 +1772,123 @@ export class Game {
     return Math.max(0, (this.enemyDirector.energy ?? 0) - reserve);
   }
 
-  updateStrategyPreview() {
-    this.updateWavePreview();
-  }
 
   spawnEnemyForce(force) {
     if (!force) return;
     this.spawnEnemyWave(force.index, { waveConfig: force });
   }
 
-  queueStrategyReward(type, options = {}) {
-    if (this.levelFinished || this.levelSession.debug) return false;
-    this.pendingStrategyRewards.push({ type, options });
-    return this.openNextStrategyReward();
-  }
 
-  // 开局三选一的其余步骤：排在奖励队列里，由 continueAfterStrategyFlow 依次打开。
-  // 联机时必须带 coop 标记，才能重新走“全员各自三选一”的共享流程。
-  queueOpeningRewardSteps() {
-    const coop = Boolean(this.coop?.enabled);
-    // 第一步（首个单位卡三选一）在开局时直接打开，这里只排它之后的步骤。
-    this.openingRewardSteps().slice(1).forEach((step) => {
-      this.pendingStrategyRewards.push({ type: step.type, options: {}, coop });
-    });
-  }
 
-  /** 开局步骤：路线数 × 单位卡三选一，之后各一次能力卡与地形卡。 */
-  openingRewardSteps() {
-    return openingRewardStepsForLevel(this.levelSession?.level ?? null);
-  }
 
-  /** 每多一条路线额外发放开局能量；单路线时增量为 0，不影响现有数值。 */
-  grantOpeningRouteEnergy() {
-    const extra = openingEnergyForLevel(this.levelSession?.level ?? null)
-      - Math.max(0, Number(BALANCE.playerEnergy?.initial) || 0);
-    if (!(extra > 0)) return 0;
-    this.playerSlotsWithCardSystems().forEach((slot) => {
-      this.cardSystemForSlot(slot)?.addEnergy?.(extra);
-    });
-    return extra;
-  }
 
-  playerSlotsWithCardSystems() {
-    if (this.cardSystems) return Object.keys(this.cardSystems);
-    return [this.localPlayerSlot ?? this.cardSystem?.playerSlot ?? 'p1'];
-  }
 
-  cardSystemForSlot(slot) {
-    if (this.cardSystems?.[slot]) return this.cardSystems[slot];
-    if (slot === (this.activeEconomySlot ?? this.localPlayerSlot)) return this.cardSystem ?? null;
-    if (slot === this.cardSystem?.playerSlot) return this.cardSystem ?? null;
-    return null;
-  }
 
-  hasPendingOpeningReward() {
-    return (this.pendingStrategyRewards ?? []).some((entry) => isOpeningRewardType(entry?.type));
-  }
-
-  openNextStrategyReward() {
-    if (this.levelFinished || this.strategyEvent) return false;
-    const next = this.pendingStrategyRewards.shift();
-    if (!next) return false;
-    // Co-op queue entries must reopen the shared all-players flow; the solo
-    // path would generate a reward for this machine only.
-    if (next.coop && this.players) {
-      if (next.type === 'run-shop') return this.openCoopRunShopForAll(next.options);
-      return this.openCoopStrategyEventForAll(next.type, next.options);
-    }
-    return this.openStrategyEvent(next.type, next.options);
-  }
-
-  finishStrategyReward() {
-    if (this.coop?.enabled && this.coopRewardWaitSlots?.size) {
-      this.finishCoopStrategyReward(this.activeEconomySlot ?? this.localPlayerSlot);
-      return;
-    }
-    const shouldStartFirstWave = this.awaitingOpeningReward;
-    this.closeStrategyEvent();
-    this.continueAfterStrategyFlow(shouldStartFirstWave);
-  }
-
-  hasBlockingCoopRewardWait() {
-    return Boolean(
-      this.coop?.enabled
-      && !this.networkClientMode
-      && this.coopRewardWaitSlots?.size
-    );
-  }
-
-  syncCoopRewardPauseState() {
-    if (!this.hasBlockingCoopRewardWait()) return false;
-    this.paused = true;
-    document.body.classList.add('is-game-paused');
-    return true;
-  }
 
   isCoopPlayerConnected(slot) {
     return this.players?.[slot]?.connected !== false;
   }
 
-  startCoopRewardAutoSelectTimer() {
-    if (!this.coop?.enabled || this.networkClientMode) return;
-    const now = globalThis.performance?.now?.() ?? Date.now();
-    this.coopRewardDeadlineAtMs = now + COOP_REWARD_AUTO_SELECT_SECONDS * 1000;
-    this.coopRewardLastPublishedSecond = null;
-    this.publishCoopRewardCountdown(true);
-  }
 
-  clearCoopRewardAutoSelectTimer() {
-    this.coopRewardDeadlineAtMs = null;
-    this.coopRewardLastPublishedSecond = null;
-    this.setCoopRewardCountdownSeconds(null, { force: true, render: true });
-  }
 
-  coopRewardSecondsRemaining() {
-    if (!Number.isFinite(this.coopRewardDeadlineAtMs) || !this.coopRewardWaitSlots?.size) return null;
-    const now = globalThis.performance?.now?.() ?? Date.now();
-    return Math.max(0, Math.ceil((this.coopRewardDeadlineAtMs - now) / 1000));
-  }
 
-  setCoopRewardCountdownSeconds(seconds, options = {}) {
-    const normalized = Number.isFinite(seconds) ? Math.max(0, Math.ceil(seconds)) : null;
-    if (!options.force && this.coopRewardAutoSelectSecondsRemaining === normalized) return false;
-    this.coopRewardAutoSelectSecondsRemaining = normalized;
-    this.runShopAutoSelectSecondsRemaining = normalized;
-    if (this.strategyEvent) {
-      this.strategyEvent.autoSelectSecondsRemaining = normalized;
-    }
-    if (options.render) {
-      this.updateCoopRewardCountdownUi();
-    }
-    return true;
-  }
 
-  updateCoopRewardCountdownUi() {
-    if (this.strategyEvent && this.strategyEventUi?.root && !this.strategyEventUi.root.hidden) {
-      const summary = appendCoopRewardCountdown(
-        this.strategyEvent.summary ?? '',
-        this.strategyEvent.autoSelectSecondsRemaining ?? this.coopRewardAutoSelectSecondsRemaining,
-        '超时将自动选择一项。'
-      );
-      if (this.strategyEventUi.summary) {
-        this.strategyEventUi.summary.textContent = summary;
-        this.strategyEventUi.summary.hidden = !summary;
-      }
-    }
-    this.updateCoopRewardWaitingSummary();
-    if (this.runShopOpen && this.runShopFreeReward && this.runShopUi?.kicker) {
-      this.runShopUi.kicker.textContent = this.runShopKickerText();
-    }
-  }
 
-  publishCoopRewardCountdown(force = false) {
-    const seconds = this.coopRewardSecondsRemaining();
-    this.setCoopRewardCountdownSeconds(seconds, { force, render: true });
-    if (!force && this.coopRewardLastPublishedSecond === seconds) return false;
-    this.coopRewardLastPublishedSecond = seconds;
-    this.networkBridge?.markPrivateStateDirty?.();
-    return true;
-  }
 
-  updateCoopRewardAutoResolve() {
-    if (this.networkClientMode || !this.coop?.enabled || !this.coopRewardWaitSlots?.size) return;
-    if (!Number.isFinite(this.coopRewardDeadlineAtMs)) {
-      this.startCoopRewardAutoSelectTimer();
-    }
-    this.resolveDisconnectedCoopRewardSlots();
-    if (!this.coopRewardWaitSlots?.size) return;
-    const seconds = this.coopRewardSecondsRemaining();
-    this.publishCoopRewardCountdown();
-    if (seconds > 0) return;
-    [...this.coopRewardWaitSlots].forEach((slot) => {
-      if (this.coopRewardWaitSlots?.has(slot)) this.autoCompleteCoopRewardSlot(slot, 'timeout');
-    });
-  }
 
-  resolveDisconnectedCoopRewardSlots() {
-    if (this.networkClientMode || !this.coopRewardWaitSlots?.size) return false;
-    let changed = false;
-    [...this.coopRewardWaitSlots].forEach((slot) => {
-      if (this.players?.[slot]?.connected !== false) return;
-      changed = this.autoCompleteCoopRewardSlot(slot, 'disconnect') || changed;
-    });
-    return changed;
-  }
 
-  autoCompleteCoopRewardSlot(slot, reason = 'timeout') {
-    if (!this.coopRewardWaitSlots?.has(slot)) return false;
-    if (this.coopRewardKind === 'strategy') {
-      return this.autoChooseCoopStrategyReward(slot);
-    }
-    if (this.coopRewardKind === 'run-shop') {
-      if (reason === 'disconnect' || this.players?.[slot]?.connected === false) {
-        return this.skipCoopRunShopForSlot(slot);
-      }
-      return this.autoChooseCoopRunShop(slot);
-    }
-    return false;
-  }
 
-  autoChooseCoopStrategyReward(slot) {
-    this.withPlayerContext(slot, () => {
-      const choices = Array.isArray(this.strategyEvent?.choices)
-        ? this.strategyEvent.choices
-        : [];
-      for (const choice of choices) {
-        if (choice && this.applyStrategyChoice(choice)) break;
-      }
-    });
-    this.finishCoopStrategyReward(slot);
-    return true;
-  }
 
-  autoChooseCoopRunShop(slot) {
-    this.withPlayerContext(slot, () => {
-      this.completeRunShopAutoSelection();
-    });
-    this.finishCoopRunShop(slot);
-    return true;
-  }
 
-  skipCoopRunShopForSlot(slot) {
-    this.withPlayerContext(slot, () => {
-      this.runShopFreeReward = false;
-      this.runShopActiveCategory = null;
-      this.runShopChoices = [];
-      this.runShopItems = null;
-    });
-    this.finishCoopRunShop(slot);
-    return true;
-  }
 
-  /**
-   * 超时自动处理：由 Host 代打第一步——领取一项仍可用的兵种专精（全部获得时改领补偿），
-   * 但绝不代买需要银币的补给商品。断线玩家走 skipCoopRunShopForSlot，不补发专精。
-   */
-  completeRunShopAutoSelection() {
-    if (!this.runShopFreeReward) return false;
-    this.ensureRunShopPrep();
-    this.autoClaimRunShopSpecialization();
-    return true;
-  }
 
-  /** 自动领取第一项可用专精；没有可用专精时领取补偿。 */
-  autoClaimRunShopSpecialization() {
-    if (this.runShopSpecializationClaimed) return true;
-    const specialization = this.buildRunShopSpecializationState();
-    const option = specialization.options[0];
-    if (option) {
-      const upgrade = option.available[0];
-      if (upgrade && this.claimRunShopSpecialization(option.unitType, upgrade, { render: false })) {
-        return true;
-      }
-    }
-    return this.claimRunShopSpecializationFallback({ render: false });
-  }
 
-  openCoopStrategyEventForAll(type, options = {}) {
-    type = normalizeStrategyEventType(type);
-    if (!this.players) {
-      return this.openStrategyEvent(type, options);
-    }
-    // Re-entrancy guard: a second reward source (e.g. an altar capture landing
-    // in the same frame as a wave clear) must not clobber an in-progress
-    // reward. Queue it instead; the completion path drains the queue.
-    if (this.coopRewardWaitSlots?.size || this.coopRewardKind) {
-      this.pendingStrategyRewards.push({ type, options, coop: true });
-      return true;
-    }
-    this.coopRewardWaitSlots = new Set();
-    this.coopRewardKind = 'strategy';
-    this.coopPlayerSlots().forEach((slot) => {
-      let hasEvent = false;
-      this.withPlayerContext(slot, () => {
-        let event = this.createStrategyEvent(type, options);
-        if (!event?.choices?.length && type === 'wave-reward') {
-          // 发牌池耗尽：仍进入奖励阶段并显示"牌已发光"，等待其他玩家选完
-          //（30 秒倒计时超时或手动跳过由 Host 自动完成）。
-          event = {
-            type,
-            kicker: '波次奖励',
-            title: '牌已发光',
-            summary: '本局波次奖励的发牌池已用完。',
-            choices: [],
-            exhausted: true
-          };
-        } else {
-          if (!event?.choices?.length && type !== 'card-choice' && type !== 'wave-reward') {
-            event = this.createStrategyEvent('card-choice', {
-              ...options,
-              fallbackFrom: type
-            });
-          }
-          if (!event?.choices?.length && type !== 'wave-reward') {
-            event = this.createFallbackCardChoiceEvent(options);
-          }
-        }
-        this.strategyEvent = event?.choices?.length || event?.exhausted ? event : null;
-        hasEvent = Boolean(this.strategyEvent);
-      });
-      if (hasEvent) this.coopRewardWaitSlots.add(slot);
-    });
-    if (!this.coopRewardWaitSlots.size) {
-      this.coopRewardWaitSlots = null;
-      this.coopRewardKind = null;
-      this.clearCoopRewardAutoSelectTimer();
-      this.continueAfterStrategyFlow(false);
-      return false;
-    }
-    this.startCoopRewardAutoSelectTimer();
-    this.resolveDisconnectedCoopRewardSlots();
-    if (!this.coopRewardWaitSlots?.size) return true;
-    this.syncCoopRewardPauseState();
-    this.showLocalCoopStrategyUi();
-    this.networkBridge?.markPrivateStateDirty?.();
-    return true;
-  }
 
-  showLocalCoopStrategyUi() {
-    const local = this.players?.[this.localPlayerSlot];
-    this.strategyEvent = local?.strategyEvent ?? null;
-    if (!this.strategyEvent) {
-      this.showCoopRewardWaitingUi();
-      return;
-    }
-    this.syncNetworkStrategyEventUi();
-  }
 
-  showCoopRewardWaitingUi() {
-    this.paused = true;
-    this.cancelCameraDrag();
-    this.cancelSelectionDrag();
-    document.body.classList.add('is-game-paused', 'is-strategy-event-open');
-    this.strategyEventUi.root.hidden = false;
-    this.strategyEventUi.root.dataset.eventType = 'waiting';
-    this.strategyEventUi.root.setAttribute('aria-label', '等待其他玩家');
-    this.strategyEventUi.kicker.textContent = '联机奖励';
-    this.strategyEventUi.kicker.hidden = false;
-    this.strategyEventUi.title.textContent = '等待其他玩家';
-    this.strategyEventUi.summary.textContent = this.coopRewardWaitingSummary();
-    this.strategyEventUi.summary.hidden = false;
-    this.strategyEventUi.choices.innerHTML = '';
-    this.strategyEventUi.actions.hidden = true;
-    this.strategyEventUi.actions.innerHTML = '';
-    this.cardSystem?.setHint?.('等待其他玩家选择奖励…', 'coop-wait-reward');
-  }
 
-  hideCoopRewardWaitingUi() {
-    this.strategyEventUi.root.hidden = true;
-    this.strategyEventUi.choices.innerHTML = '';
-    this.strategyEventUi.actions.hidden = true;
-    this.strategyEventUi.actions.innerHTML = '';
-    delete this.strategyEventUi.root.dataset.eventType;
-    document.body.classList.remove('is-strategy-event-open');
-    this.cardSystem?.clearHint?.('coop-wait-reward');
-  }
 
-  showCoopRunShopWaitingUi() {
-    this.paused = true;
-    this.cancelCameraDrag();
-    this.cancelSelectionDrag();
-    if (this.runShopUi?.overlay) {
-      this.runShopUi.overlay.hidden = true;
-      this.runShopUi.overlay.setAttribute('hidden', '');
-    }
-    document.body.classList.remove('is-run-shop-open');
-    document.body.classList.add('is-game-paused', 'is-strategy-event-open');
-    this.strategyEventUi.root.hidden = false;
-    this.strategyEventUi.root.dataset.eventType = 'run-shop-waiting';
-    this.strategyEventUi.root.setAttribute('aria-label', '等待队友完成 Boss 整备');
-    this.strategyEventUi.kicker.textContent = '联机军需铺';
-    this.strategyEventUi.kicker.hidden = false;
-    this.strategyEventUi.title.textContent = '等待队友完成 Boss 整备';
-    this.strategyEventUi.summary.textContent = this.coopRunShopWaitingSummary();
-    this.strategyEventUi.summary.hidden = false;
-    this.strategyEventUi.choices.innerHTML = '';
-    this.strategyEventUi.actions.hidden = true;
-    this.strategyEventUi.actions.innerHTML = '';
-    this.cardSystem?.clearHint?.('boss-shop');
-    this.cardSystem?.setHint?.('等待队友完成 Boss 整备…', 'coop-wait-shop');
-  }
 
-  hideCoopRunShopWaitingUi() {
-    if (this.strategyEventUi.root.dataset.eventType !== 'run-shop-waiting') return false;
-    this.strategyEventUi.root.hidden = true;
-    this.strategyEventUi.choices.innerHTML = '';
-    this.strategyEventUi.actions.hidden = true;
-    this.strategyEventUi.actions.innerHTML = '';
-    delete this.strategyEventUi.root.dataset.eventType;
-    document.body.classList.remove('is-strategy-event-open');
-    this.cardSystem?.clearHint?.('coop-wait-shop');
-    return true;
-  }
 
-  coopRewardWaitingSummary() {
-    return appendCoopRewardCountdown(
-      '你的奖励已经选择完成，所有玩家完成选择后将继续游戏。',
-      this.coopRewardAutoSelectSecondsRemaining,
-      '超时将自动为未选择玩家选择一项。'
-    );
-  }
 
-  coopRunShopWaitingSummary() {
-    return appendCoopRewardCountdown(
-      '你已完成 Boss 整备（免费专精与补给），所有玩家完成后会继续战斗。',
-      this.coopRewardAutoSelectSecondsRemaining,
-      '超时将自动为未完成玩家领取可用专精。'
-    );
-  }
 
-  updateCoopRewardWaitingSummary() {
-    const eventType = this.strategyEventUi?.root?.dataset?.eventType;
-    if (eventType === 'waiting' && this.strategyEventUi?.summary) {
-      this.strategyEventUi.summary.textContent = this.coopRewardWaitingSummary();
-      this.strategyEventUi.summary.hidden = false;
-    } else if (eventType === 'run-shop-waiting' && this.strategyEventUi?.summary) {
-      this.strategyEventUi.summary.textContent = this.coopRunShopWaitingSummary();
-      this.strategyEventUi.summary.hidden = false;
-    }
-  }
 
-  syncNetworkStrategyEventUi() {
-    const waitingForNetwork = Boolean(
-      this.networkBridge
-      && !this.networkBridge.canShowStrategyInteraction?.()
-    );
-    if (!this.strategyEvent || waitingForNetwork) {
-      this.paused = true;
-      this.strategyEventUi.root.hidden = true;
-      document.body.classList.add('is-game-paused');
-      document.body.classList.remove('is-strategy-event-open');
-      if (waitingForNetwork) {
-        this.cardSystem?.setHint?.('等待所有玩家载入…', 'coop-loading');
-      }
-      return false;
-    }
-    this.cardSystem?.clearHint?.('coop-loading');
-    this.paused = true;
-    this.cancelCameraDrag();
-    this.cancelSelectionDrag();
-    document.body.classList.add('is-game-paused', 'is-strategy-event-open');
-    this.strategyEventUi.root.hidden = false;
-    this.renderStrategyEvent();
-    if (this.tryAutoSkipWaveReward()) return true;
-    return true;
-  }
 
   onNetworkMatchPhaseChanged(phase) {
-    if (this.strategyEvent) {
-      this.syncNetworkStrategyEventUi();
-      return;
-    }
-    if (this.syncCoopRewardPauseState()) return;
-    if (phase === 'RUNNING' && !this.runShopFreeReward) {
+    // 开局三选一 / 军需铺 / 联机奖励等待都已随卡牌删除，
+    // 这里只剩"对局进入 RUNNING 就恢复推进"这一件事。
+    if (phase === 'RUNNING') {
       this.paused = false;
       this.hudUpdateTimer = 0;
       document.body.classList.remove('is-game-paused', 'is-strategy-event-open');
-      this.cardSystem?.clearHint?.('coop-loading');
-      this.cardSystem?.clearHint?.('coop-wait-reward');
+      this.hints?.clearHint?.('coop-loading');
+      this.hints?.clearHint?.('coop-wait-reward');
       this.clock.getDelta();
       this.updateHud(0);
     }
   }
 
-  finishCoopStrategyReward(slot) {
-    const resolvedSlot = slot ?? this.localPlayerSlot;
-    if (this.activeEconomySlot === resolvedSlot) {
-      this.strategyEvent = null;
-    } else {
-      this.withPlayerContext(resolvedSlot, () => {
-        this.strategyEvent = null;
-      });
-    }
-    if (this.players?.[resolvedSlot]) {
-      this.players[resolvedSlot].strategyEvent = null;
-    }
-    this.coopRewardWaitSlots?.delete(resolvedSlot);
-    if (resolvedSlot === this.localPlayerSlot) {
-      this.strategyEvent = null;
-      if (this.coopRewardWaitSlots?.size) {
-        this.showCoopRewardWaitingUi();
-      } else {
-        this.hideCoopRewardWaitingUi();
-      }
-    }
-    this.networkBridge?.markPrivateStateDirty?.();
-    if (this.coopRewardWaitSlots?.size) {
-      this.syncCoopRewardPauseState();
-      return;
-    }
-    this.coopRewardWaitSlots = null;
-    this.coopRewardKind = null;
-    this.clearCoopRewardAutoSelectTimer();
-    // The final choice may come from a remote player. In that case the Host's
-    // local waiting dialog is still open and must be closed here as part of
-    // the shared completion path, not only in the local-player branch above.
-    this.hideCoopRewardWaitingUi();
-    document.body.classList.remove('is-game-paused');
-    this.paused = false;
-    this.clock.getDelta();
-    const shouldStartFirstWave = this.awaitingOpeningReward;
-    // 开局有四次三选一：只有队列里再没有开局步骤时才算选完，否则联机对局
-    // 会在第一次选牌后就被标记为“开局选择完成”。
-    if (shouldStartFirstWave && !this.hasPendingOpeningReward()) {
-      this.networkBridge?.notifyOpeningSelectionComplete?.();
-    }
-    this.continueAfterStrategyFlow(shouldStartFirstWave);
-  }
 
-  openCoopRunShopForAll(options = {}) {
-    if (!this.players) {
-      return this.openRunShop(options);
-    }
-    // Re-entrancy guard: never replace an in-progress co-op reward/shop with
-    // a new one; defer it to the queue drained by continueAfterStrategyFlow.
-    if (this.coopRewardWaitSlots?.size || this.coopRewardKind) {
-      this.pendingStrategyRewards.push({ type: 'run-shop', options, coop: true });
-      return true;
-    }
-    this.coopRewardWaitSlots = new Set();
-    this.coopRewardKind = 'run-shop';
-    this.coopPlayerSlots().forEach((slot) => {
-      const run = this.players[slot];
-      const canUseShop = this.isCoopPlayerConnected(slot);
-      run.runShopFreeReward = options.freeReward === true && canUseShop;
-      run.runShopActiveCategory = null;
-      run.runShopChoices = [];
-      run.runShopItems = null;
-      run.runShopPendingOffers = options.freeReward === true && canUseShop ? {} : (run.runShopPendingOffers ?? {});
-      if (run.runShopFreeReward) {
-        // 每位玩家各自生成一套专精候选与补给商品；同一节点重复进入不会重建
-        // （断线重连不刷新已领专精，也不重置已售罄商品）。
-        this.withPlayerContext(slot, () => this.ensureRunShopPrep());
-      }
-      if (run.runShopFreeReward) this.coopRewardWaitSlots.add(slot);
-    });
-    if (!this.coopRewardWaitSlots.size) {
-      this.coopRewardWaitSlots = null;
-      this.coopRewardKind = null;
-      this.clearCoopRewardAutoSelectTimer();
-      this.networkBridge?.markPrivateStateDirty?.();
-      this.continueAfterStrategyFlow(false);
-      return false;
-    }
-    this.startCoopRewardAutoSelectTimer();
-    this.syncCoopRewardPauseState();
-    if (this.coopRewardWaitSlots.has(this.localPlayerSlot)) {
-      this.openRunShop(options);
-    } else {
-      this.showCoopRunShopWaitingUi();
-    }
-    this.networkBridge?.markPrivateStateDirty?.();
-    return true;
-  }
 
-  finishCoopRunShop(slot) {
-    const resolvedSlot = slot ?? this.localPlayerSlot;
-    const closeShopState = () => {
-      // 记录本节点整备已完成：之后即使收到重复/滞后命令也不会重建商品或再发专精。
-      this.markRunShopPrepCompleted();
-      this.runShopFreeReward = false;
-      this.runShopActiveCategory = null;
-      this.runShopChoices = [];
-      this.runShopPendingOffers = {};
-      this.runShopItems = null;
-      this.runShopAutoSelectSecondsRemaining = null;
-    };
-    if (this.activeEconomySlot === resolvedSlot) closeShopState();
-    else this.withPlayerContext(resolvedSlot, closeShopState);
-    const run = this.players?.[resolvedSlot];
-    if (run) {
-      run.runShopFreeReward = false;
-      run.runShopActiveCategory = null;
-      run.runShopChoices = [];
-      run.runShopPendingOffers = {};
-      run.runShopItems = null;
-      run.runShopAutoSelectSecondsRemaining = null;
-    }
-    this.coopRewardWaitSlots?.delete(resolvedSlot);
-    if (resolvedSlot === this.localPlayerSlot) {
-      if (this.runShopUi?.overlay) {
-        this.runShopUi.overlay.hidden = true;
-        this.runShopUi.overlay.setAttribute('hidden', '');
-      }
-      if (this.runShopUi?.choices) this.runShopUi.choices.hidden = true;
-      this.runShopUi?.root?.classList.remove('is-free-reward');
-      this.runShopUi?.toggle?.classList.remove('is-active');
-      document.body.classList.remove('is-run-shop-open');
-      this.runShopOpen = false;
-      this.runShopFreeReward = false;
-      this.runShopCausedPause = false;
-      this.cardSystem?.clearHint?.('boss-shop');
-      if (this.coopRewardWaitSlots?.size) {
-        this.showCoopRunShopWaitingUi();
-      }
-    }
-    this.networkBridge?.markPrivateStateDirty?.();
-    if (this.coopRewardWaitSlots?.size) {
-      this.syncCoopRewardPauseState();
-      return;
-    }
-    this.coopRewardWaitSlots = null;
-    this.coopRewardKind = null;
-    this.clearCoopRewardAutoSelectTimer();
-    this.hideCoopRunShopWaitingUi();
-    this.cardSystem?.clearHint?.('coop-wait-shop');
-    document.body.classList.remove('is-game-paused', 'is-run-shop-open');
-    this.paused = false;
-    this.clock.getDelta();
-    this.continueAfterStrategyFlow(false);
-  }
 
-  applyNetworkStrategyChoice(slot, index) {
-    const applied = this.withPlayerContext(slot, () => {
-      const choice = this.strategyEvent?.choices?.[index];
-      if (!choice) return false;
-      if (!this.applyStrategyChoice(choice)) return false;
-      return true;
-    });
-    if (!applied) return false;
-    this.finishCoopStrategyReward(slot);
-    return true;
-  }
 
-  applyNetworkStrategyReroll(slot) {
-    const shouldRenderLocalUi = slot === this.localPlayerSlot;
-    return this.withPlayerContext(slot, () => this.rerollStrategyRewardChoices({
-      render: shouldRenderLocalUi
-    }));
-  }
 
-  applyNetworkStrategySkip(slot) {
-    const canSkip = this.withPlayerContext(slot, () => Boolean(this.strategyEvent));
-    if (!canSkip) return false;
-    this.finishCoopStrategyReward(slot);
-    return true;
-  }
 
-  applyNetworkShopCategory(slot, category) {
-    // 新版军需铺不再有“先选服务类别”这一步：所有旧类别都被判定为下架，
-    // 即使客户端伪造 shopCategory 命令也无法重新打开复制/删牌/升级等服务。
-    void slot;
-    void category;
-    return false;
-  }
 
-  applyNetworkShopChoice(slot, index) {
-    // 一次选择只处理一件事：选兵种、领专精、买一件商品。
-    // 补给购买不会结束整备——只有 shopRewardSkip（继续战斗）才结束。
-    return this.withPlayerContext(slot, () => {
-      const choice = this.runShopChoices?.[index];
-      if (!choice || choice.disabled) return false;
-      const applied = this.completeRunShopPurchase(choice);
-      if (applied) this.networkBridge?.markPrivateStateDirty?.(slot);
-      return applied;
-    });
-  }
 
-  applyNetworkShopRewardSkip(slot) {
-    const canSkip = this.withPlayerContext(slot, () => Boolean(this.runShopFreeReward));
-    if (!canSkip) return false;
-    this.finishCoopRunShop(slot);
-    return true;
-  }
 
-  applyNetworkShopEnergy(slot) {
-    // 保底路径（旧 SHOP_ENERGY 命令）：按配置价购买能量补给，同样不结束整备。
-    return this.withPlayerContext(slot, () => this.purchaseRunShopEnergy());
-  }
 
-  applyNetworkShopBack(slot) {
-    return this.withPlayerContext(slot, () => {
-      this.clearRunShopSelection();
-      return true;
-    });
-  }
 
-  isLocalCoopRunShopWaiting() {
-    if (!this.coop?.enabled || this.runShopFreeReward) return false;
-    if (this.strategyEventUi?.root?.dataset?.eventType === 'run-shop-waiting') return true;
-    return Boolean(
-      this.coopRewardKind === 'run-shop'
-      && this.coopRewardWaitSlots?.size
-      && !this.coopRewardWaitSlots.has(this.localPlayerSlot)
-    );
-  }
 
-  applyNetworkPrivateUi(state) {
-    if (!this.networkClientMode || !state) return;
-    let receivedRewardCountdown = false;
-    if ('strategySelectionRequired' in state) {
-      this.networkStrategySelectionRequired = Boolean(state.strategySelectionRequired);
-    }
-    if ('coopRewardAutoSelectSecondsRemaining' in state) {
-      const seconds = Number(state.coopRewardAutoSelectSecondsRemaining);
-      const normalizedSeconds = Number.isFinite(seconds) ? Math.max(0, Math.ceil(seconds)) : null;
-      this.coopRewardAutoSelectSecondsRemaining = normalizedSeconds;
-      this.runShopAutoSelectSecondsRemaining = normalizedSeconds;
-      if (this.strategyEvent) this.strategyEvent.autoSelectSecondsRemaining = normalizedSeconds;
-      receivedRewardCountdown = true;
-    }
-    if (state.strategyWaiting) {
-      this.strategyEvent = null;
-      this.showCoopRewardWaitingUi();
-    } else if (
-      'strategyWaiting' in state
-      && !state.strategyUi
-      && !this.strategyEvent
-      && this.strategyEventUi.root.dataset.eventType === 'waiting'
-    ) {
-      this.hideCoopRewardWaitingUi();
-      this.onNetworkMatchPhaseChanged(this.networkBridge?.phase);
-    }
-    if ('strategyUi' in state) {
-      if (state.strategyUi?.choices?.length || state.strategyUi?.exhausted) {
-        // 刷新次数随奖励状态同步：每波第一次免费，之后从 8 金币开始递增。
-        this.strategyRewardRerollCount = Math.max(0, Number(state.strategyUi.rerollCount) || 0);
-        this.strategyEvent = {
-          networkInteractionId: state.strategyUi.rewardId,
-          networkRevision: state.strategyUi.revision,
-          type: state.strategyUi.type,
-          kicker: state.strategyUi.kicker,
-          title: state.strategyUi.title,
-          summary: state.strategyUi.summary,
-          autoSelectSecondsRemaining: state.strategyUi.autoSelectSecondsRemaining
-            ?? this.coopRewardAutoSelectSecondsRemaining,
-          rerollCount: this.strategyRewardRerollCount,
-          exhausted: Boolean(state.strategyUi.exhausted),
-          wave: state.strategyUi.wave,
-          choices: state.strategyUi.choices.map((choice) => ({
-            ...choice,
-            card: choice.card ? { ...choice.card } : null
-          }))
-        };
-        this.syncNetworkStrategyEventUi();
-        this.cardSystem?.clearHint?.('coop-wait-reward');
-      } else if (!state.strategyWaiting && (this.strategyEvent || !this.strategyEventUi.root.hidden)) {
-        this.strategyEvent = null;
-        this.strategyEventUi.root.hidden = true;
-        this.strategyEventUi.choices.innerHTML = '';
-        document.body.classList.remove('is-strategy-event-open');
-        this.onNetworkMatchPhaseChanged(this.networkBridge?.phase);
-      }
-    }
 
-    if ('runShopState' in state || 'runShopUi' in state) {
-      const shopState = state.runShopState ?? state.runShopUi ?? {};
-      const wasFreeReward = this.runShopFreeReward;
-      this.runShopFreeReward = Boolean(shopState.freeReward);
-      if (shopState.prices && typeof shopState.prices === 'object') {
-        this.shopPrices = { ...this.shopPrices, ...shopState.prices };
-        const localRun = this.players?.[this.localPlayerSlot];
-        if (localRun) localRun.shopPrices = this.shopPrices;
-      }
-      this.runShopActiveCategory = shopState.activeCategory ?? null;
-      this.runShopChoices = (shopState.choices ?? []).map((choice) => ({
-        ...choice,
-        card: choice.card ? { ...choice.card } : null
-      }));
-      this.runShopNetworkOfferId = shopState.offerId ?? null;
-      this.runShopNetworkRevision = shopState.revision ?? null;
-      this.runShopAutoSelectSecondsRemaining = shopState.autoSelectSecondsRemaining
-        ?? this.coopRewardAutoSelectSecondsRemaining;
-      if (shouldRestoreFreeRunShopUi({
-        freeReward: this.runShopFreeReward,
-        runShopOpen: this.runShopOpen,
-        ui: this.runShopUi
-      })) {
-        this.openRunShop({ freeReward: true, preserveState: true });
-      } else if (wasFreeReward && !this.runShopFreeReward && this.runShopOpen) {
-        this.closeRunShop({ localUiOnly: true });
-      } else if (this.runShopOpen) {
-        this.renderRunShop();
-      }
-    }
-    if ('runShopWaiting' in state) {
-      if (state.runShopWaiting) {
-        this.showCoopRunShopWaitingUi();
-      } else {
-        if (this.hideCoopRunShopWaitingUi()) {
-          this.onNetworkMatchPhaseChanged(this.networkBridge?.phase);
-        }
-      }
-    }
-    if (receivedRewardCountdown) {
-      // 倒计时每秒变化时只更新文字。重建 choices.innerHTML 会替换正在接收
-      // pointer/click 的按钮节点，导致波次奖励和免费军需铺偶发点击失效。
-      this.updateCoopRewardCountdownUi();
-    }
-  }
 
-  continueAfterStrategyFlow(shouldStartFirstWave = false) {
-    if (this.openNextStrategyReward()) return;
-    if (shouldStartFirstWave) {
-      this.awaitingOpeningReward = false;
-      if (this.cardSystems) {
-        Object.values(this.cardSystems).forEach((system) => {
-          system.drawToFullHand?.({ animate: system.mountUi !== false });
-        });
-      } else {
-        this.cardSystem?.drawToFullHand?.({ animate: true });
-      }
-      this.updateWavePreview();
-      this.startNextWave();
-      return;
-    }
-    if (this.pendingWaveAdvance) {
-      this.pendingWaveAdvance = false;
-      this.updateWavePreview();
-      this.startNextWave();
-    }
-  }
 
-  // ---------------------------------------------------------------------------
-  // Boss 整备（免费兵种专精 → 明码标价的军需补给铺 → 继续战斗）
-  // 规则见 docs/RUNE_STONE_GAMEPLAY_PLAN.md 第 10 节。
-  // ---------------------------------------------------------------------------
 
-  /** 军需补给铺配置（可配置数据段；BALANCE.runCurrency.supply 可覆盖默认值）。 */
-  runShopSupplyConfig() {
-    return runShopSupplyConfig(BALANCE.runCurrency);
-  }
 
-  runShopRouteCount() {
-    return Math.max(1, Math.floor(Number(this.levelSession?.level?.routeCount) || 1));
-  }
 
-  /** 商品类别价格（明码标价，购买前可见）。 */
-  shopPrice(kind) {
-    return runShopSupplyKindPrice(kind, this.runShopSupplyConfig());
-  }
-
-  /** 本局第 N 个 Boss 的整备节点标识；同一节点不会重复初始化。 */
-  runShopPrepKey() {
-    return `boss:${Math.max(0, Math.floor(Number(this.bossesDefeated) || 0))}`;
-  }
-
-  /**
-   * 旧版“先选服务类别再进入详情”的入口已全部下架。
-   * 新版通过 shopChoice 命令选择具体专精或具体商品，这里只保留兼容占位。
-   */
-  canRunShopCategory(category) {
-    if (isRunShopCategoryRetired(category)) {
-      return { ok: false, reason: '该军需服务已从新版军需铺下架' };
-    }
-    return { ok: false, reason: '新版军需铺直接展示具体商品' };
-  }
 
   isLocalEconomyContext() {
     return (this.activeEconomySlot ?? this.localPlayerSlot) === this.localPlayerSlot;
   }
 
-  /** 当前整备步骤：'specialization-type' | 'specialization-upgrade' | 'supply' | null。 */
-  runShopPrepMode() {
-    const mode = this.runShopActiveCategory;
-    if (RUN_SHOP_SPECIALIZATION_STEPS.includes(mode)) return mode;
-    if (mode === RUN_SHOP_STEP_SUPPLY) return mode;
-    return null;
-  }
 
-  /**
-   * 初始化（或恢复）本节点整备：先展示“选择兵种”，商品列表一次性生成后保持稳定。
-   * 幂等：同一节点重复调用不会重建商品、不会重置已领专精与售罄状态，
-   * 因此断线重连或重复打开都不会刷出新商品或补发专精。
-   */
-  ensureRunShopPrep() {
-    // 联机客户端只渲染 Host 同步过来的状态，绝不自己生成商品。
-    if (this.networkClientMode) return false;
-    const nodeKey = this.runShopPrepKey();
-    if (this.runShopCompletedNodeKey && this.runShopCompletedNodeKey === nodeKey) return false;
-    if (
-      this.runShopPrepNodeKey === nodeKey
-      && Array.isArray(this.runShopItems)
-      && this.runShopChoices?.length
-    ) {
-      return true;
-    }
-    this.runShopPrepNodeKey = nodeKey;
-    this.runShopItems = this.createRunShopSupplyItems(nodeKey);
-    this.runShopSpecializationClaimed = false;
-    this.runShopSpecializationUnitType = null;
-    this.runShopPrepCompleted = false;
-    this.runShopPendingOffers = {};
-    this.runShopActiveCategory = RUN_SHOP_STEP_SPECIALIZATION_TYPE;
-    this.runShopChoices = this.createRunShopSpecializationTypeChoices();
-    return true;
-  }
 
-  /** 整备是否已走完两步（商品购买不阻塞结束，专精必须先领取或明确放弃）。 */
-  markRunShopPrepCompleted() {
-    if (!this.runShopSpecializationClaimed) {
-      // 未领取就结束整备视为放弃本次免费专精，记录在案防止重复领取。
-      this.runShopSpecializationClaimed = true;
-    }
-    this.runShopPrepCompleted = true;
-    this.runShopCompletedNodeKey = this.runShopPrepNodeKey ?? this.runShopPrepKey();
-  }
 
-  /**
-   * 已获得兵种中仍可用专精：只列本局已获得兵种（acquiredUnitTypes），
-   * 并且过滤掉该兵种已拥有的专精；全部获得时返回空列表，由补偿选项兜底。
-   */
-  buildRunShopSpecializationState() {
-    const options = [];
-    this.acquiredUnitTypes().forEach((unitType) => {
-      const owned = this.teamSpecialUpgrades?.get?.(unitType) ?? new Set();
-      const available = (UNIT_SPECIAL_UPGRADES[unitType] ?? [])
-        .filter((upgrade) => !owned.has(upgrade.id));
-      if (!available.length) return;
-      options.push({
-        unitType,
-        unitName: UNIT_DEFINITIONS[unitType]?.name ?? unitType,
-        available
-      });
-    });
-    options.sort((left, right) => left.unitName.localeCompare(right.unitName, 'zh-Hans-CN'));
-    return { options, hasAny: options.length > 0 };
-  }
 
-  /** 第一步：选择要获得专精的兵种（无可用专精时只给一个补偿选项）。 */
-  createRunShopSpecializationTypeChoices() {
-    const specialization = this.buildRunShopSpecializationState();
-    if (!specialization.hasAny) return [this.createRunShopSpecializationFallbackChoice()];
-    return specialization.options.map((option) => ({
-      action: RUN_SHOP_ACTION_SPECIALIZATION_UNIT,
-      actionLabel: '选择兵种',
-      unitType: option.unitType,
-      title: option.unitName,
-      description: `可解锁 ${option.available.length} 项专精：${option.available.map((upgrade) => upgrade.name).join('、')}`,
-      card: {
-        id: `run-shop-specialization-${option.unitType}`,
-        name: option.unitName,
-        kind: 'ability',
-        label: '专',
-        artKey: option.unitType,
-        summary: `可解锁 ${option.available.length} 项专精`,
-        energyCost: 0,
-        color: specializationIconColor(option.unitType),
-        level: 1
-      }
-    }));
-  }
 
-  createRunShopSpecializationFallbackChoice() {
-    const silver = runShopSupplyFallbackSilver(this.runShopSupplyConfig());
-    return {
-      action: RUN_SHOP_ACTION_SPECIALIZATION_FALLBACK,
-      actionLabel: '领取补偿',
-      title: '专精已满 · 领取补偿',
-      description: `本局已获得兵种的全部专精均已解锁，改领 ${formatSilverAmount(silver)} 银币补偿。`,
-      fallbackSilver: silver,
-      card: {
-        id: 'run-shop-specialization-fallback',
-        name: '专精补偿',
-        kind: 'tactic',
-        label: '补',
-        artKey: 'tacticUpgrade',
-        summary: `改领 ${formatSilverAmount(silver)} 银币`,
-        energyCost: 0,
-        color: '#ffd166',
-        level: 1
-      }
-    };
-  }
 
-  /** 第二步：展示所选兵种尚未获得的专精，选定后直接生效。 */
-  createRunShopSpecializationUpgradeChoices(unitType) {
-    const owned = this.teamSpecialUpgrades?.get?.(unitType) ?? new Set();
-    return (UNIT_SPECIAL_UPGRADES[unitType] ?? [])
-      .filter((upgrade) => !owned.has(upgrade.id))
-      .map((upgrade) => this.createTeamSpecialUpgradeChoice(unitType, upgrade));
-  }
 
-  /** 点击兵种：进入该兵种的专精列表。 */
-  selectRunShopSpecializationUnit(unitType) {
-    if (!this.isRunShopPrepEditable()) return false;
-    if (this.runShopSpecializationClaimed) return false;
-    if (this.runShopActiveCategory !== RUN_SHOP_STEP_SPECIALIZATION_TYPE) return false;
-    const choices = this.createRunShopSpecializationUpgradeChoices(unitType);
-    if (!choices.length) return false;
-    this.runShopSpecializationUnitType = unitType;
-    this.runShopActiveCategory = RUN_SHOP_STEP_SPECIALIZATION_UPGRADE;
-    this.runShopChoices = choices;
-    this.renderRunShop();
-    this.networkBridge?.markPrivateStateDirty?.(this.activeEconomySlot ?? this.localPlayerSlot);
-    return true;
-  }
 
-  /** 专精奖励只能在真正的 Boss 整备期间领取：滞后命令不能凭空补发专精。 */
-  isRunShopPrepEditable() {
-    return this.runShopFreeReward === true && Boolean(this.runShopPrepNodeKey);
-  }
 
-  /** 领取一项专精：免费、立即对该兵种现有与后续单位生效，不生成卡牌、不消耗能量。 */
-  claimRunShopSpecialization(unitType, upgrade, options = {}) {
-    if (!this.isRunShopPrepEditable()) return false;
-    if (this.runShopSpecializationClaimed) return false;
-    if (!unitType || !upgrade?.id) return false;
-    const owned = this.teamSpecialUpgrades?.get?.(unitType);
-    if (owned?.has(upgrade.id)) return false;
-    if (!this.applyTeamSpecialUpgrade(unitType, upgrade)) return false;
-    this.runShopSpecializationClaimed = true;
-    this.runShopSpecializationUnitType = null;
-    this.enterRunShopSupplyStep({ render: options.render !== false });
-    this.cardSystem?.setHint?.(
-      `已获得专精：${UNIT_DEFINITIONS[unitType]?.name ?? unitType}·${upgrade.name}`,
-      'run-shop'
-    );
-    return true;
-  }
 
-  /** 所有专精都已获得时的替代奖励：少量银币，保证流程永远可以继续。 */
-  claimRunShopSpecializationFallback(options = {}) {
-    if (!this.isRunShopPrepEditable()) return false;
-    if (this.runShopSpecializationClaimed) return false;
-    const silver = runShopSupplyFallbackSilver(this.runShopSupplyConfig());
-    this.runShopSpecializationClaimed = true;
-    this.runShopSpecializationUnitType = null;
-    if (silver > 0) this.addSilver(silver);
-    this.enterRunShopSupplyStep({ render: options.render !== false });
-    this.cardSystem?.setHint?.(`专精已满，改领 ${formatSilverAmount(silver)} 银币补偿`, 'run-shop');
-    this.updateHud(0);
-    return true;
-  }
 
-  /** 专精步骤结束：切到明码标价的军需补给铺。 */
-  enterRunShopSupplyStep(options = {}) {
-    this.runShopActiveCategory = RUN_SHOP_STEP_SUPPLY;
-    this.runShopChoices = this.createRunShopSupplyChoices();
-    this.networkBridge?.markPrivateStateDirty?.(this.activeEconomySlot ?? this.localPlayerSlot);
-    if (options.render !== false) this.renderRunShop();
-    return true;
-  }
 
-  /**
-   * 生成 4～6 件具体商品：数量、类别配额与价格全部来自 runShopCatalog 的配置。
-   * 每件商品有独立实例 id；购买一次后售罄，不退场、不自动补货。
-   */
-  createRunShopSupplyItems(nodeKey = this.runShopPrepKey()) {
-    const config = this.runShopSupplyConfig();
-    const itemCount = runShopSupplyItemCount(config, this.runShopRouteCount() - 1);
-    const kinds = runShopSupplyKindSequence(config, itemCount);
-    const context = {
-      config,
-      nodeKey,
-      cardPool: this.waveRewardCardPool(),
-      usedCardIds: new Set(),
-      usedUpgradeIds: new Set(),
-      energyOffered: false,
-      index: 0
-    };
-    const items = [];
-    const tryAdd = (kind) => {
-      const item = this.createRunShopSupplyItem(kind, context);
-      if (!item) return false;
-      if (kind === 'energy') context.energyOffered = true;
-      context.index += 1;
-      items.push(item);
-      return true;
-    };
-    kinds.forEach(tryAdd);
-    // 波次奖励牌组耗尽时仍要凑够最少商品数：优先补不同项的属性集训，再补其余类别，
-    // 保证玩家永远看得到可购买的具体商品，而不是空列表。
-    const minimum = Math.max(1, Math.min(config.minItemCount, itemCount));
-    const fillOrder = ['attribute', 'energy', ...RUN_SHOP_SUPPLY_KINDS.filter((kind) => kind !== 'attribute')];
-    let attempts = 0;
-    while (items.length < minimum && attempts < fillOrder.length * 4) {
-      tryAdd(fillOrder[attempts % fillOrder.length]);
-      attempts += 1;
-    }
-    return items;
-  }
 
-  /** 单位卡 / 附魔卡 / 能力地形卡 / 属性集训 / 能量补给各取一件具体商品。 */
-  createRunShopSupplyItem(kind, {
-    config,
-    nodeKey,
-    index = 0,
-    cardPool = [],
-    usedCardIds = new Set(),
-    usedUpgradeIds = new Set(),
-    energyOffered = false
-  } = {}) {
-    const itemId = `run-shop-item:${nodeKey}:${index}:${kind}`;
-    const price = runShopSupplyKindPrice(kind, config);
-    if (kind === 'energy') {
-      if (energyOffered) return null;
-      const amount = runShopSupplyEnergyAmount(config);
-      return {
-        itemId,
-        kind,
-        price,
-        sold: false,
-        energyAmount: amount,
-        cardId: RUN_SHOP_ENERGY_CARD_ID,
-        title: `${RUN_SHOP_SUPPLY_KIND_LABELS.energy} +${amount}`,
-        effectSummary: `立即获得 ${amount} 点能量。`,
-        choice: {
-          action: RUN_SHOP_ACTION_BUY_ENERGY,
-          actionLabel: '购买能量',
-          title: `${RUN_SHOP_SUPPLY_KIND_LABELS.energy} +${amount}`,
-          description: `立即获得 ${amount} 点能量。`,
-          card: {
-            id: RUN_SHOP_ENERGY_CARD_ID,
-            name: `${RUN_SHOP_SUPPLY_KIND_LABELS.energy} +${amount}`,
-            kind: 'tactic',
-            label: '能',
-            artKey: 'tacticUpgrade',
-            summary: `立即获得 ${amount} 点能量`,
-            energyCost: 0,
-            color: '#8ad6ff',
-            level: 1
-          }
-        }
-      };
-    }
-    if (kind === 'attribute') {
-      const pool = this.buildAttributeUpgradeChoicePool()
-        .filter((choice) => !usedUpgradeIds.has(choice.upgrade?.id));
-      const picked = pickRandomItems(pool, 1)[0];
-      if (!picked) return null;
-      if (picked.upgrade?.id) usedUpgradeIds.add(picked.upgrade.id);
-      return {
-        itemId,
-        kind,
-        price,
-        sold: false,
-        upgradeId: picked.upgrade?.id ?? null,
-        cardId: picked.card?.id ?? null,
-        title: picked.card?.name ?? picked.title ?? RUN_SHOP_SUPPLY_KIND_LABELS.attribute,
-        effectSummary: picked.card?.summary ?? picked.description ?? '',
-        choice: {
-          action: picked.action,
-          actionLabel: '购买集训',
-          title: picked.title,
-          description: picked.description,
-          upgrade: picked.upgrade,
-          card: picked.card
-        }
-      };
-    }
-    const matchesKind = (card) => {
-      if (kind === 'unitCard') return card?.kind === 'summon';
-      if (kind === 'enchant') return card?.kind === 'enchant';
-      return card?.kind === 'spell' || card?.kind === 'ability';
-    };
-    const candidates = (cardPool ?? []).filter((card) => card?.id && matchesKind(card));
-    const repeatable = kind === 'enchant' && config?.allowDuplicateEnchant !== false;
-    let card = candidates.find((entry) => !usedCardIds.has(entry.id)) ?? null;
-    if (!card && repeatable) card = candidates[0] ?? null;
-    if (!card) return null;
-    usedCardIds.add(card.id);
-    const kindLabel = RUN_SHOP_SUPPLY_KIND_LABELS[kind];
-    return {
-      itemId,
-      kind,
-      price,
-      sold: false,
-      cardId: card.id,
-      title: card.name,
-      effectSummary: card.summary ?? '',
-      choice: {
-        action: 'add-card',
-        actionLabel: '购买卡牌',
-        // 单位卡等同剩余波次奖励牌组中的同名卡：购买后同样会消耗该定义（附魔卡除外）。
-        rewardSource: 'wave-reward-deck',
-        title: card.name,
-        description: `${kindLabel} · ${card.summary ?? ''}`.trim(),
-        card
-      }
-    };
-  }
 
-  /** 商品实例 → 可渲染/可选择的选择项（含售价与售罄状态）。 */
-  runShopItemToChoice(item, silver) {
-    if (!item) return null;
-    const soldOut = item.sold === true;
-    const affordable = soldOut || silver + 0.001 >= item.price;
-    return {
-      ...item.choice,
-      itemId: item.itemId,
-      itemKind: item.kind,
-      itemPrice: item.price,
-      soldOut,
-      disabled: soldOut || !affordable,
-      actionLabel: soldOut ? RUN_SHOP_SOLD_OUT_LABEL : `${formatSilverAmount(item.price)} 银币`
-    };
-  }
 
-  createRunShopSupplyChoices() {
-    const silver = Math.max(0, Number(this.getSilver()) || 0);
-    return (this.runShopItems ?? [])
-      .map((item) => this.runShopItemToChoice(item, silver))
-      .filter(Boolean);
-  }
 
-  /** 购买后刷新商品列表（保留顺序与实例身份，只更新售价标签与售罄状态）。 */
-  refreshRunShopSupplyChoices() {
-    if (this.runShopActiveCategory === RUN_SHOP_STEP_SUPPLY) {
-      this.runShopChoices = this.createRunShopSupplyChoices();
-    }
-    if (this.isLocalEconomyContext()) this.renderRunShop();
-  }
 
-  /**
-   * 购买一件商品：Host 权威校验（银币、价格、是否已售罄、商品是否属于本节点），
-   * 先扣款再应用，应用失败立刻退款；任何一步失败都不改变世界状态。
-   */
-  purchaseRunShopSupplyItem(item) {
-    if (!item || item.sold) {
-      this.cardSystem?.setHint?.('该商品已经售罄', 'run-shop');
-      return false;
-    }
-    if (this.runShopActiveCategory !== RUN_SHOP_STEP_SUPPLY || !this.isRunShopPrepEditable()) return false;
-    if (!(this.runShopItems ?? []).includes(item)) return false;
-    const price = Math.max(0, Number(item.price) || 0);
-    if (this.getSilver() + 0.001 < price) {
-      this.cardSystem?.setHint?.('银币不足', 'run-shop');
-      return false;
-    }
-    // 银币走玩家独立经济助手，联机各自扣款；银币支出与符文石出售基准完全无关。
-    this.setSilver(this.getSilver() - price);
-    if (!this.applyRunShopSupplyItemEffect(item)) {
-      this.setSilver(this.getSilver() + price);
-      this.cardSystem?.setHint?.('购买失败，请重试', 'run-shop');
-      return false;
-    }
-    item.sold = true;
-    this.refreshRunShopSupplyChoices();
-    this.cardSystem?.setHint?.(
-      `${item.title} 已获得，-${formatSilverAmount(price)} 银币`,
-      'run-shop'
-    );
-    this.updateHud(0);
-    this.networkBridge?.markPrivateStateDirty?.(this.activeEconomySlot ?? this.localPlayerSlot);
-    return true;
-  }
 
-  /** 商品效果：加卡 / 全队属性集训 / 能量补给。 */
-  applyRunShopSupplyItemEffect(item) {
-    if (!item) return false;
-    if (item.kind === 'energy') return this.grantRunShopEnergy(item.energyAmount);
-    if (item.upgrade) return this.applyTeamGenericUpgrade(item.upgrade);
-    if (item.choice?.card) return this.applyStrategyChoice(item.choice);
-    return false;
-  }
 
-  grantRunShopEnergy(amount) {
-    const gained = this.cardSystem?.addEnergy?.(Math.max(1, Math.floor(Number(amount) || 1))) ?? 0;
-    return gained > 0;
-  }
 
-  /**
-   * 明码标价的能量补给：必须支付银币（Boss 整备期间也不免费）。
-   * 免费机会只属于兵种专精，不与补给竞争。
-   */
-  purchaseRunShopEnergy(options = {}) {
-    const config = this.runShopSupplyConfig();
-    const amount = Math.max(1, Math.floor(Number(options.amount ?? runShopSupplyEnergyAmount(config))));
-    const price = Math.max(0, Number(options.price ?? runShopSupplyKindPrice('energy', config)));
-    if (this.getSilver() + 0.001 < price) {
-      this.cardSystem?.setHint?.('银币不足', 'run-shop');
-      return false;
-    }
-    if (!this.grantRunShopEnergy(amount)) return false;
-    this.setSilver(this.getSilver() - price);
-    this.cardSystem?.setHint?.(`已购买 ${amount} 点能量，-${formatSilverAmount(price)} 银币`, 'run-shop');
-    this.updateHud(0);
-    this.renderRunShop();
-    return true;
-  }
 
-  /** “继续战斗”：结束整个 Boss 整备（两步都算完成），由调用方推进下一波。 */
-  finishRunShopPrep() {
-    if (!this.runShopFreeReward) return false;
-    this.closeRunShop({ force: true });
-    return true;
-  }
 
-  bindRunShopUi() {
-    const ui = this.runShopUi;
-    if (!ui?.overlay) return;
-    if (ui.overlay === this.runShopUiBoundOverlay) return;
-    this.runShopUiBoundOverlay = ui.overlay;
-    const signal = this.eventController.signal;
-    ui.overlay.addEventListener('click', (event) => this.onRunShopClick(event), { signal });
-    ui.overlay.addEventListener('pointerdown', stopUiPropagation, { signal });
-    ui.overlay.addEventListener('contextmenu', stopUiEvent, { signal });
-    ui.cardScaleInput?.addEventListener('input', (event) => {
-      event.stopPropagation();
-      const percent = clamp(Number(event.currentTarget.value) || 100, 55, 100);
-      this.runShopCardScale = percent / 100;
-      this.syncRunShopCardScaleUi(true);
-    }, { signal });
-    ui.cardScaleInput?.addEventListener('pointerdown', stopUiPropagation, { signal });
-    ui.toggle?.addEventListener('click', (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      this.toggleRunShop();
-    }, { signal });
-    ui.toggle?.addEventListener('pointerdown', stopUiPropagation, { signal });
-  }
 
-  syncRunShopCardScaleUi(visible = false) {
-    const scale = clamp(Number(this.runShopCardScale) || 1, 0.55, 1);
-    const percent = Math.round(scale * 100);
-    if (this.runShopUi.cardScaleControl) this.runShopUi.cardScaleControl.hidden = !visible;
-    if (this.runShopUi.cardScaleInput) this.runShopUi.cardScaleInput.value = String(percent);
-    if (this.runShopUi.cardScaleValue) {
-      this.runShopUi.cardScaleValue.value = `${percent}%`;
-      this.runShopUi.cardScaleValue.textContent = `${percent}%`;
-    }
-    const choiceList = this.runShopUi.choiceList;
-    if (!choiceList) return;
-    choiceList.classList.toggle('is-scalable-card-picker', visible);
-    choiceList.style?.setProperty?.('--run-shop-card-scale', String(scale));
-    choiceList.style?.setProperty?.('--run-shop-card-width', `${184 * scale}px`);
-    choiceList.style?.setProperty?.('--run-shop-card-height', `${290 * scale}px`);
-    choiceList.style?.setProperty?.('--run-shop-mobile-card-width', `${145 * scale}px`);
-    choiceList.style?.setProperty?.('--run-shop-mobile-card-height', `${229 * scale}px`);
-    choiceList.style?.setProperty?.('--run-shop-card-column-gap', `${10 * scale}px`);
-    choiceList.style?.setProperty?.('--run-shop-card-row-gap', `${12 * scale}px`);
-  }
 
-  toggleRunShop() {
-    if (!RUN_SHOP_PLAYER_ACCESS_ENABLED && !this.runShopFreeReward) return false;
-    if (this.levelFinished || this.levelSession.debug) return;
-    if (this.strategyEvent) return;
-    if (!this.runShopFreeReward && this.isLocalCoopRunShopWaiting()) {
-      this.showCoopRunShopWaitingUi();
-      return;
-    }
-    if (this.runShopFreeReward) {
-      if (shouldRestoreFreeRunShopUi({
-        freeReward: true,
-        runShopOpen: this.runShopOpen,
-        ui: this.runShopUi
-      })) {
-        this.openRunShop({ freeReward: true, preserveState: true });
-      } else if (this.runShopOpen) {
-        if (this.networkBridge?.shouldRouteLocalCommands?.()) {
-          this.networkBridge.commandSender?.shopRewardSkip?.();
-        } else {
-          this.closeRunShop({ force: true });
-        }
-      }
-      return;
-    }
-    if (this.runShopOpen) {
-      this.closeRunShop();
-      return;
-    }
-    this.openRunShop();
-  }
 
-  openRunShop(options = {}) {
-    if (!RUN_SHOP_PLAYER_ACCESS_ENABLED && options.freeReward !== true) return false;
-    if (!options.freeReward && this.isLocalCoopRunShopWaiting()) {
-      this.showCoopRunShopWaitingUi();
-      return false;
-    }
-    this.runShopUi = ensureRunShopUi(this.runShopUi);
-    this.bindRunShopUi();
-    if (this.strategyEventUi?.root) {
-      this.strategyEventUi.root.hidden = true;
-    }
-    this.runShopOpen = true;
-    if (!options.preserveState) {
-      this.runShopFreeReward = options.freeReward === true;
-      if (this.runShopFreeReward) {
-        // 打开（或恢复）Boss 整备：先给免费专精选择，再进入补给铺。
-        // 同一整备节点不会重建商品，也不会重置已领专精。
-        if (!this.ensureRunShopPrep()) {
-          this.runShopOpen = false;
-          this.runShopFreeReward = false;
-          return false;
-        }
-      } else {
-        this.runShopActiveCategory = null;
-        this.runShopChoices = [];
-        this.runShopPendingOffers = {};
-      }
-      const run = this.players?.[this.activeEconomySlot ?? this.localPlayerSlot];
-      if (run) this.mirrorRunShopPrepStateTo(run);
-    }
-    if (this.tryAutoSkipRunShopReward()) return true;
-    if (this.runShopUi.overlay) {
-      this.runShopUi.overlay.hidden = false;
-      this.runShopUi.overlay.removeAttribute('hidden');
-    }
-    this.runShopUi.toggle?.classList.add('is-active');
-    this.runShopUi.root?.classList.toggle('is-free-reward', this.runShopFreeReward);
-    document.body.classList.add('is-run-shop-open');
-    if (shouldPauseRunShop({
-      coopEnabled: this.coop?.enabled === true,
-      alreadyPaused: this.paused
-    })) {
-      this.runShopCausedPause = true;
-      this.paused = true;
-      this.cancelCameraDrag();
-      this.cancelSelectionDrag();
-      document.body.classList.add('is-game-paused');
-      this.clock.getDelta();
-    } else {
-      this.runShopCausedPause = false;
-    }
-    if (this.runShopFreeReward) {
-      this.cardSystem?.setHint?.(this.runShopHintText(), 'boss-shop');
-    } else {
-      this.cardSystem?.setHint?.('军需铺已打开，按 Esc 关闭', 'run-shop');
-    }
-    this.renderRunShop();
-    this.runShopUi.root?.focus?.();
-    return true;
-  }
 
-  /** 把当前整备状态同步到该玩家的 run 状态（断线重连与联机私有状态都以 run 为准）。 */
-  mirrorRunShopPrepStateTo(container) {
-    if (!container) return;
-    container.runShopFreeReward = this.runShopFreeReward;
-    container.runShopActiveCategory = this.runShopActiveCategory;
-    container.runShopChoices = this.runShopChoices;
-    container.runShopPendingOffers = this.runShopPendingOffers;
-    container.runShopItems = this.runShopItems;
-    container.runShopPrepNodeKey = this.runShopPrepNodeKey;
-    container.runShopSpecializationClaimed = this.runShopSpecializationClaimed;
-    container.runShopSpecializationUnitType = this.runShopSpecializationUnitType;
-    container.runShopPrepCompleted = this.runShopPrepCompleted;
-    container.runShopCompletedNodeKey = this.runShopCompletedNodeKey;
-  }
 
-  closeRunShop(options = {}) {
-    if (this.runShopFreeReward && !options.force && !options.afterFreeReward) {
-      return;
-    }
-    if (!options.localUiOnly && this.coop?.enabled && this.coopRewardKind === 'run-shop' && this.coopRewardWaitSlots?.size) {
-      const wasFreeReward = this.runShopFreeReward;
-      if (wasFreeReward || options.afterFreeReward || options.force) {
-        this.finishCoopRunShop(this.activeEconomySlot ?? this.localPlayerSlot);
-        return;
-      }
-    }
-    const wasFreeReward = this.runShopFreeReward;
-    if (wasFreeReward && !options.localUiOnly) {
-      // 整备结束（无论是否买了商品）都记录完成，防止滞后命令重新开启或重复领取专精。
-      this.markRunShopPrepCompleted();
-    }
-    const causedPause = this.runShopCausedPause;
-    this.runShopOpen = false;
-    if (wasFreeReward && !options.localUiOnly) {
-      this.runShopFreeReward = false;
-      this.runShopActiveCategory = null;
-      this.runShopChoices = [];
-      this.runShopItems = null;
-    }
-    if (this.runShopUi?.overlay) {
-      this.runShopUi.overlay.hidden = true;
-      this.runShopUi.overlay.setAttribute('hidden', '');
-    }
-    if (this.runShopUi?.choices) this.runShopUi.choices.hidden = true;
-    this.runShopUi?.root?.classList.remove('is-free-reward');
-    this.runShopUi?.toggle?.classList.remove('is-active');
-    document.body.classList.remove('is-run-shop-open');
-    this.runShopCausedPause = false;
-    this.cardSystem?.clearHint?.('run-shop');
-    this.cardSystem?.clearHint?.('boss-shop');
-    if (causedPause) {
-      this.paused = false;
-      document.body.classList.remove('is-game-paused');
-      if (this.dom.pauseOverlay) this.dom.pauseOverlay.hidden = true;
-      this.clock.getDelta();
-    }
-    if (!options.localUiOnly && (wasFreeReward || options.afterFreeReward)) {
-      if (this.paused) {
-        this.paused = false;
-        document.body.classList.remove('is-game-paused');
-        this.clock.getDelta();
-      }
-      this.continueAfterStrategyFlow(false);
-    }
-  }
 
-  /** 返回上一步：专精列表 → 兵种列表。领取后不可回退，补给铺也不回退。 */
-  clearRunShopSelection() {
-    if (
-      this.runShopActiveCategory !== RUN_SHOP_STEP_SPECIALIZATION_UPGRADE
-      || this.runShopSpecializationClaimed
-    ) {
-      return false;
-    }
-    this.runShopSpecializationUnitType = null;
-    this.runShopActiveCategory = RUN_SHOP_STEP_SPECIALIZATION_TYPE;
-    this.runShopChoices = this.createRunShopSpecializationTypeChoices();
-    this.renderRunShop();
-    this.networkBridge?.markPrivateStateDirty?.(this.activeEconomySlot ?? this.localPlayerSlot);
-    return true;
-  }
 
-  /** 整备中按 Esc：专精列表先返回；其余情况视为跳过本次整备继续战斗。 */
-  escapeRunShop() {
-    if (this.runShopActiveCategory === RUN_SHOP_STEP_SPECIALIZATION_UPGRADE) {
-      if (this.networkBridge?.shouldRouteLocalCommands?.()) {
-        this.networkBridge.commandSender?.shopBack?.();
-      } else {
-        this.clearRunShopSelection();
-      }
-      return;
-    }
-    if (this.runShopFreeReward) {
-      if (this.networkBridge?.shouldRouteLocalCommands?.()) {
-        this.networkBridge.commandSender?.shopRewardSkip?.();
-      } else {
-        this.finishRunShopPrep();
-      }
-      return;
-    }
-    this.closeRunShop();
-  }
 
-  /**
-   * 处理一次军需铺选择：可能是选择兵种、领取专精、领取补偿，或购买一件具体商品。
-   * 所有校验都在 Host 侧完成；被拒绝的请求不改变任何状态。
-   */
-  completeRunShopPurchase(choice, options = {}) {
-    void options;
-    if (!choice || choice.disabled) return false;
-    const mode = this.runShopPrepMode();
-    if (mode === RUN_SHOP_STEP_SPECIALIZATION_TYPE) {
-      if (choice.action === RUN_SHOP_ACTION_SPECIALIZATION_FALLBACK) {
-        return this.claimRunShopSpecializationFallback();
-      }
-      if (choice.action === RUN_SHOP_ACTION_SPECIALIZATION_UNIT) {
-        return this.selectRunShopSpecializationUnit(choice.unitType);
-      }
-      return false;
-    }
-    if (mode === RUN_SHOP_STEP_SPECIALIZATION_UPGRADE) {
-      if (choice.action !== 'apply-team-special-upgrade') return false;
-      return this.claimRunShopSpecialization(choice.unitType, choice.upgrade);
-    }
-    if (mode !== RUN_SHOP_STEP_SUPPLY) return false;
-    const item = this.runShopItemForChoice(choice);
-    return this.purchaseRunShopSupplyItem(item);
-  }
 
-  /** 选择项 → 商品实例：Host 用实例 id 定位，客户端不参与应用。 */
-  runShopItemForChoice(choice) {
-    const items = this.runShopItems ?? [];
-    if (!items.length) return null;
-    if (choice?.itemId) {
-      return items.find((item) => item.itemId === choice.itemId) ?? null;
-    }
-    const index = (this.runShopChoices ?? []).indexOf(choice);
-    return index >= 0 ? items[index] ?? null : null;
-  }
 
-  renderRunShop() {
-    if (!this.isLocalEconomyContext() || !this.runShopOpen || !this.runShopUi?.root) return;
-    const ui = this.runShopUi;
-    const previousMode = ui.renderedCategory ?? null;
-    const mode = this.runShopPrepMode();
-    if (ui.silver) ui.silver.textContent = formatSilverAmount(this.getSilver());
-    if (ui.kicker) ui.kicker.textContent = this.runShopKickerText(mode);
-    if (ui.title) ui.title.textContent = this.runShopTitleText(mode);
-    if (ui.back) {
-      ui.back.hidden = mode !== RUN_SHOP_STEP_SPECIALIZATION_UPGRADE;
-      ui.back.textContent = RUN_SHOP_BACK_TO_UNIT_LABEL;
-    }
-    if (ui.skip) {
-      // “继续战斗”只在补给铺出现：专精还没领时不允许误触结束整备。
-      ui.skip.hidden = mode !== RUN_SHOP_STEP_SUPPLY;
-      ui.skip.textContent = RUN_SHOP_CONTINUE_LABEL;
-      ui.skip.disabled = mode !== RUN_SHOP_STEP_SUPPLY;
-    }
-    if (ui.close) ui.close.hidden = this.runShopFreeReward === true;
-    ui.root.classList.toggle('is-free-reward', mode !== RUN_SHOP_STEP_SUPPLY);
-    ui.root.classList.toggle('is-detail', mode === RUN_SHOP_STEP_SPECIALIZATION_UPGRADE);
-    ui.root.classList.toggle('is-wave-card-picker', mode === RUN_SHOP_STEP_SPECIALIZATION_UPGRADE);
-    ui.renderedCategory = mode;
 
-    if (mode === RUN_SHOP_STEP_SPECIALIZATION_UPGRADE) {
-      if (ui.services) ui.services.hidden = true;
-      if (ui.choices) ui.choices.hidden = false;
-      ui.choiceList?.classList.toggle('is-card-picker', true);
-      ui.choiceList?.classList.toggle('is-catalog-picker', false);
-      ui.choiceList?.classList.toggle('is-horizontal-row', true);
-      ui.choiceList?.classList.toggle('is-training-card-picker', false);
-      ui.choiceList?.classList.toggle('is-specialization-card-picker', true);
-      ui.choiceList?.classList.toggle('is-temporary-card-picker', false);
-      ui.choiceList?.classList.toggle('is-compact-three-choice-picker', true);
-      this.syncRunShopCardScaleUi(false);
-      if (ui.choiceList) {
-        ui.choiceList.innerHTML = (this.runShopChoices ?? [])
-          .map((choice, index) => runShopChoiceMarkup(choice, index, {
-            game: this,
-            useSpecializationStyle: true
-          }))
-          .join('');
-        fitStrategyRewardCards(ui.choiceList);
-      }
-    } else {
-      if (ui.choices) ui.choices.hidden = true;
-      if (ui.choiceList) {
-        ui.choiceList.innerHTML = '';
-        ui.choiceList.classList.remove(
-          'is-card-picker',
-          'is-catalog-picker',
-          'is-horizontal-row',
-          'is-training-card-picker',
-          'is-specialization-card-picker',
-          'is-temporary-card-picker',
-          'is-compact-three-choice-picker',
-          'is-scalable-card-picker'
-        );
-      }
-      this.syncRunShopCardScaleUi(false);
-      if (ui.services) {
-        ui.services.hidden = false;
-        if (mode === RUN_SHOP_STEP_SUPPLY) {
-          ui.services.innerHTML = (this.runShopChoices ?? [])
-            .map((choice, index) => runShopSupplyItemMarkup(choice, index))
-            .join('');
-        } else if (mode === RUN_SHOP_STEP_SPECIALIZATION_TYPE) {
-          ui.services.innerHTML = (this.runShopChoices ?? [])
-            .map((choice, index) => runShopServiceOptionMarkup(choice, index, {
-              icon: choice.action === RUN_SHOP_ACTION_SPECIALIZATION_FALLBACK
-                ? '补'
-                : (UNIT_DEFINITIONS[choice.unitType]?.name ?? '专').slice(0, 1),
-              priceLabel: RUN_SHOP_FREE_LABEL
-            }))
-            .join('');
-        } else {
-          ui.services.innerHTML = '<p class="run-shop-balance">当前没有可用的军需补给。</p>';
-        }
-      }
-    }
-    if (previousMode !== mode) {
-      ui.root.scrollTop = 0;
-      if (ui.choiceList) ui.choiceList.scrollTop = 0;
-    }
-  }
 
-  runShopKickerText(mode = this.runShopPrepMode()) {
-    const countdown = formatCoopRewardCountdownSuffix(this.runShopAutoSelectSecondsRemaining);
-    if (mode === RUN_SHOP_STEP_SUPPLY) {
-      return `Boss 战利 #${this.bossesDefeated} · 军需补给${countdown}`;
-    }
-    if (mode) {
-      return `Boss 战利 #${this.bossesDefeated} · 免费兵种专精${countdown}`;
-    }
-    return this.runShopFreeReward ? `Boss 战利 #${this.bossesDefeated}${countdown}` : '营地军需';
-  }
 
-  runShopTitleText(mode = this.runShopPrepMode()) {
-    if (mode === RUN_SHOP_STEP_SUPPLY) return RUN_SHOP_SUPPLY_TITLE;
-    if (mode === RUN_SHOP_STEP_SPECIALIZATION_UPGRADE) {
-      const unitType = this.runShopSpecializationUnitType;
-      const unitName = UNIT_DEFINITIONS[unitType]?.name ?? '兵种';
-      return `${unitName} · 选择专精`;
-    }
-    if (mode === RUN_SHOP_STEP_SPECIALIZATION_TYPE) return RUN_SHOP_SPECIALIZATION_TITLE;
-    return this.runShopFreeReward ? 'Boss 整备' : '军需铺';
-  }
 
-  runShopHintText() {
-    return this.runShopPrepMode() === RUN_SHOP_STEP_SUPPLY
-      ? 'Boss 战利：军需补给铺已开放，可购买或直接继续战斗'
-      : 'Boss 战利：请选择一项免费兵种专精';
-  }
 
-  onRunShopClick(event) {
-    if (this.networkBridge?.shouldRouteLocalCommands?.()) {
-      if (event.target === this.runShopUi.overlay) {
-        if (!this.runShopFreeReward) this.closeRunShop();
-        return;
-      }
-      const closeButton = event.target.closest('#run-shop-close');
-      if (closeButton) {
-        event.preventDefault();
-        if (!this.runShopFreeReward) this.closeRunShop();
-        return;
-      }
-      const backButton = event.target.closest('#run-shop-back');
-      if (backButton && !backButton.hidden) {
-        event.preventDefault();
-        const sent = this.networkBridge?.commandSender?.shopBack?.();
-        if (!sent) this.cardSystem?.setHint?.('返回请求未发送，请等待军需铺状态同步后重试', 'network-command');
-        return;
-      }
-      const continueButton = event.target.closest('#run-shop-skip');
-      if (continueButton && !continueButton.hidden) {
-        event.preventDefault();
-        if (this.runShopFreeReward) {
-          const sent = this.networkBridge?.commandSender?.shopRewardSkip?.();
-          if (!sent) this.cardSystem?.setHint?.('继续请求未发送，请等待军需铺状态同步后重试', 'network-command');
-        }
-        return;
-      }
-      const choiceButton = event.target.closest('[data-run-shop-choice-index]');
-      if (choiceButton && !choiceButton.disabled) {
-        event.preventDefault();
-        const sent = this.networkBridge?.commandSender?.shopChoice?.(Number(choiceButton.dataset.runShopChoiceIndex));
-        if (!sent) this.cardSystem?.setHint?.('军需请求未发送，请等待军需铺状态同步后重试', 'network-command');
-      }
-      return;
-    }
-    if (event.target === this.runShopUi.overlay) {
-      if (!this.runShopFreeReward) this.closeRunShop();
-      return;
-    }
-    const closeButton = event.target.closest('#run-shop-close');
-    if (closeButton) {
-      event.preventDefault();
-      if (!this.runShopFreeReward) this.closeRunShop();
-      return;
-    }
-    const backButton = event.target.closest('#run-shop-back');
-    if (backButton && !backButton.hidden) {
-      event.preventDefault();
-      this.clearRunShopSelection();
-      return;
-    }
-    const continueButton = event.target.closest('#run-shop-skip');
-    if (continueButton && !continueButton.hidden) {
-      event.preventDefault();
-      this.finishRunShopPrep();
-      return;
-    }
-    const choiceButton = event.target.closest('[data-run-shop-choice-index]');
-    if (choiceButton && !choiceButton.disabled) {
-      event.preventDefault();
-      const index = Number(choiceButton.dataset.runShopChoiceIndex);
-      const choice = this.runShopChoices[index];
-      if (!choice || choice.disabled) return;
-      this.completeRunShopPurchase(choice);
-    }
-  }
 
-  grantSilver(amount, position = null, slot = this.activeEconomySlot ?? this.localPlayerSlot) {
-    if (amount <= 0.001) return 0;
-    const gained = amount * SILVER_GAIN_MULTIPLIER;
-    if (gained <= 0.001) return 0;
-    this.addSilver(gained, slot);
-    if (position && this.effects?.spawnEnergyNumber) {
-      this.effects.spawnEnergyNumber(position, gained, {
-        text: `+${formatSilverAmount(gained)} 银币`,
-        color: '#f6e7a8',
-        stroke: '#4a3818',
-        height: 2.45,
-        duration: 0.88,
-        fontSize: 82
-      });
-    }
-    this.updateHud(0);
-    if (this.runShopOpen && slot === (this.activeEconomySlot ?? this.localPlayerSlot)) {
-      this.renderRunShop();
-    }
-    return gained;
-  }
 
-  grantWaveSilver(wave) {
-    if (!wave) return 0;
-    const rewards = BALANCE.runCurrency ?? {};
-    let amount = Number(rewards.waveNormal) || 3;
-    if (wave.kind === 'elite') amount = Number(rewards.waveElite) || 6;
-    if (this.coop?.enabled && this.players) {
-      let total = 0;
-      this.coopPlayerSlots().forEach((slot) => {
-        total += this.grantSilver(amount, this.playerBase?.position, slot);
-      });
-      return total;
-    }
-    return this.grantSilver(amount, this.playerBase?.position);
-  }
-
-  grantKillSilver(unit, source = null) {
-    if (!unit || unit.team !== TEAMS.ENEMY || unit.isSilentRemoval) return 0;
-    const rewards = BALANCE.runCurrency?.killRewards ?? {};
-    let amount = Number(rewards.normal) || 0.35;
-    if (unit.isBoss) amount = Number(rewards.boss) || 3.5;
-    else if (unit.isElite) amount = Number(rewards.elite) || 1.1;
-    else if (unit.isWildlife) amount = Number(rewards.wildlife) || 0.1;
-
-    if (this.coop?.enabled && this.players) {
-      // PvE 击杀是全队事件：每位玩家的独立经济各自获得同额基础奖励。
-      let total = 0;
-      this.coopPlayerSlots().forEach((slot) => {
-        const showLocalFx = slot === this.localPlayerSlot;
-        total += this.grantSilver(amount, showLocalFx ? unit.position : null, slot);
-        const pouchStacks = this.abilitiesFor(slot)?.getStacks?.('lootPouch') ?? 0;
-        if (pouchStacks > 0) {
-          const pouchSilver = pouchStacks * 0.35;
-          this.addSilver(pouchSilver, slot);
-          total += pouchSilver;
-          if (showLocalFx && unit.position && this.effects?.spawnEnergyNumber) {
-            this.effects.spawnEnergyNumber(unit.position, pouchSilver, {
-              text: `+${formatSilverAmount(pouchSilver)} 银币`,
-              color: '#f6e7a8',
-              stroke: '#4a3818',
-              height: 2.2,
-              duration: 0.82,
-              fontSize: 76
-            });
-          }
-        }
-      });
-      this.updateHud(0);
-      return total;
-    }
-
-    const ownerSlot = resolveKillOwnerSlot(this, source);
-    const slot = ownerSlot ?? this.localPlayerSlot;
-    const gained = this.grantSilver(amount, unit.position, slot);
-    const pouchStacks = this.abilitiesFor(slot)?.getStacks?.('lootPouch') ?? 0;
-    if (pouchStacks > 0) {
-      const pouchSilver = pouchStacks * 0.35;
-      this.addSilver(pouchSilver, slot);
-      if (unit.position && this.effects?.spawnEnergyNumber) {
-        this.effects.spawnEnergyNumber(unit.position, pouchSilver, {
-          text: `+${formatSilverAmount(pouchSilver)} 银币`,
-          color: '#f6e7a8',
-          stroke: '#4a3818',
-          height: 2.2,
-          duration: 0.82,
-          fontSize: 76
-        });
-      }
-      this.updateHud(0);
-      if (this.runShopOpen) this.renderRunShop();
-      return gained + pouchSilver;
-    }
-    return gained;
-  }
 
   getSpellAreaRadiusBonus(slot = this.activeEconomySlot ?? this.localPlayerSlot) {
     const stacks = this.getAbilityStacks('tacticalMaster', slot);
@@ -3784,475 +1899,12 @@ export class Game {
     return Math.max(0.5, radius * this.getSpellAreaRadiusBonus(slot));
   }
 
-  // 旧版“按服务类别生成候选”的 createShopChoicesForCategory 已随八类服务一起下架；
-  // 新版军需铺的商品候选由 createRunShopSupplyItems 一次性生成。
 
-  openStrategyEvent(type, options = {}) {
-    if (this.levelFinished || this.levelSession.debug) return;
-    type = normalizeStrategyEventType(type);
-    let event = this.createStrategyEvent(type, options);
-    if (!event?.choices?.length && type === 'wave-reward') {
-      // 发牌池已耗尽：提示后直接继续（单机无等待）
-      this.cardSystem?.setHint?.('牌已发光：本局波次奖励的发牌池已用完', 'wave-reward-exhausted');
-      this.continueAfterStrategyFlow(false);
-      return false;
-    }
-    if (!event?.choices?.length && type !== 'card-choice') {
-      event = this.createStrategyEvent('card-choice', {
-        ...options,
-        fallbackFrom: type
-      });
-    }
-    if (!event?.choices?.length) {
-      event = this.createFallbackCardChoiceEvent(options);
-    }
-    if (!event?.choices?.length) {
-      this.continueAfterStrategyFlow(false);
-      return false;
-    }
-    this.strategyEvent = event;
-    if (this.tryAutoSkipWaveReward()) return true;
-    this.paused = true;
-    this.cancelCameraDrag();
-    this.cancelSelectionDrag();
-    document.body.classList.add('is-game-paused', 'is-strategy-event-open');
-    this.strategyEventUi.root.hidden = false;
-    this.renderStrategyEvent();
-    this.clock.getDelta();
-    return true;
-  }
 
-  closeStrategyEvent() {
-    this.strategyEvent = null;
-    this.strategyEventUi.root.hidden = true;
-    this.strategyEventUi.choices.innerHTML = '';
-    document.body.classList.remove('is-game-paused', 'is-strategy-event-open');
-    this.paused = false;
-    this.clock.getDelta();
-  }
-
-  createStrategyEvent(type, options = {}) {
-    type = normalizeStrategyEventType(type);
-    this.resetStrategyRewardRerollForEvent(type);
-    if (isOpeningRewardType(type)) {
-      const step = openingRewardStep(type);
-      if (type === 'opening-unit') {
-        const summonPool = CARD_DEFINITIONS.filter((card) => isOpeningCombatSummon(card));
-        return {
-          type,
-          kicker: '开局准备',
-          title: step?.title ?? '选择你的起始单位卡',
-          summary: step?.summary ?? '从所有战斗单位中三选一，获得该单位卡后自行部署。',
-          choices: this.openingUnitChoices({
-            pool: summonPool,
-            action: 'grant-opening-unit-card',
-            actionLabel: '获得单位卡'
-          })
-        };
-      }
-      const terrainOnly = step?.terrainOnly === true;
-      return {
-        type,
-        kicker: '开局准备',
-        title: step?.title ?? '开局选牌',
-        summary: step?.summary ?? '从本局可选卡牌中三选一，加入抽牌堆。',
-        choices: this.openingKindChoices({
-          kind: step?.kind ?? null,
-          terrainOnly,
-          pool: this.openingKindPool(step?.kind ?? null, { terrainOnly }),
-          action: 'add-card',
-          actionLabel: '加入牌堆'
-        })
-      };
-    }
-    if (type === 'wave-reward') {
-      const eliteNote = options.wave?.kind === 'elite'
-        ? '本波为精英：已额外获得银币。'
-        : '';
-      return {
-        type,
-        wave: options.wave ?? null,
-        kicker: waveEventKicker(options.wave),
-        title: options.wave?.kind === 'elite' ? '精英波奖励' : '选择卡牌奖励',
-        summary: eliteNote || '从出战牌组随机出现 3 张卡牌，选一张加入抽牌堆。',
-        choices: this.createCardWaveRewardChoices()
-      };
-    }
-    if (type === 'card-kind-choice') {
-      return {
-        type,
-        kicker: waveEventKicker(options.wave),
-        title: options.title ?? '选择一张新卡',
-        summary: options.summary ?? '从本局出战牌组中选择一张加入抽牌堆。',
-        choices: this.randomCardChoices({
-          pool: this.selectedCardPool({ kind: options.cardKind }),
-          action: 'add-card',
-          actionLabel: '加入牌堆'
-        })
-      };
-    }
-    if (type === 'existing-card-copy') {
-      return {
-        type,
-        kicker: waveEventKicker(options.wave),
-        title: '复制一张已有卡',
-        summary: '复制一张同等级卡牌并加入抽牌堆。',
-        choices: this.createExistingCardCopyChoices()
-      };
-    }
-    if (type === 'card-maintenance') {
-      return {
-        type,
-        kicker: waveEventKicker(options.wave),
-        title: '选择属性强化',
-        summary: '三选一：全队属性训练，立即对现有与后续单位生效，可重复叠加。',
-        choices: this.createAttributeUpgradeChoices()
-      };
-    }
-    if (type === 'card-copy') {
-      return {
-        type,
-        kicker: waveEventKicker(options.wave),
-        title: '复制一张卡牌',
-        summary: '复制会保留等级，并加入抽牌堆。',
-        choices: this.createCopyChoices()
-      };
-    }
-    const isOpening = options.opening === true;
-    const isOpeningSupport = options.openingSupport === true;
-    return {
-      type: 'card-choice',
-      kicker: isOpening || isOpeningSupport ? '开局准备' : waveEventKicker(options.wave),
-      title: isOpeningSupport ? '选择一张支援卡' : isOpening ? '选择第一张卡' : '选择一张新卡',
-      summary: isOpeningSupport
-        ? '再从本局出战牌组中选择一张卡，降低前期压力。'
-        : isOpening
-          ? '开局抽牌堆为空，从本局出战牌组中选择第一张牌。'
-          : options.fallbackFrom
-            ? '当前事件没有可用目标，改为选择一张新卡作为本次奖励。'
-            : '候选牌只来自本局出战牌组，会作为新实例加入抽牌堆。',
-      choices: isOpeningSupport
-        ? this.randomCardChoices({
-            pool: this.selectedCardPool(),
-            action: 'add-card',
-            actionLabel: '加入牌堆'
-          })
-        : this.randomCardChoices({
-            pool: this.selectedCardPool(),
-            action: 'add-card',
-            actionLabel: '加入牌堆'
-          })
-    };
-  }
-
-  createFallbackCardChoiceEvent(options = {}) {
-    return {
-      type: 'card-choice',
-      kicker: waveEventKicker(options.wave),
-      title: '选择一张新卡',
-      summary: '当前奖励事件没有可用目标，改为从全部可用卡牌中选择一张。',
-      choices: this.randomCardChoices({
-        pool: this.selectedCardPool({ allowAllFallback: true }),
-        action: 'add-card',
-        actionLabel: '加入牌堆'
-      })
-    };
-  }
-
-  selectedCardPool(options = {}) {
-    const seen = new Set();
-    const slot = this.activeEconomySlot ?? this.localPlayerSlot;
-    const coopDeck = this.levelSession?.players?.[slot]?.deck;
-    const hasCoopDeck = Array.isArray(coopDeck) && coopDeck.length > 0;
-    const hasSessionDeck = Array.isArray(this.levelSession.deck);
-    const sourceDeck = hasCoopDeck
-      ? coopDeck
-      : hasSessionDeck
-        ? this.levelSession.deck
-        : CARD_DEFINITIONS;
-    const source = sourceDeck
-      .filter((card) => !card.lootOnly && !card.retired)
-      .filter((card) => !options.kind || card.kind === options.kind)
-      .filter((card) => !options.excludeKinds?.includes(card.kind))
-      .filter((card) => {
-        if (!card?.id || seen.has(card.id)) return false;
-        seen.add(card.id);
-        return true;
-      });
-    if (source.length) {
-      return source.map((card) => ({
-        ...(this.cardSystem?.applyRuntimeCardLevel?.(card) ?? card),
-        instanceId: undefined
-      }));
-    }
-    if ((hasSessionDeck || hasCoopDeck) && options.allowAllFallback !== true) return [];
-    return CARD_DEFINITIONS
-      .filter((card) => !card.lootOnly && !card.retired)
-      .filter((card) => !options.kind || card.kind === options.kind)
-      .filter((card) => !options.excludeKinds?.includes(card.kind))
-      .map((card) => this.cardSystem?.applyRuntimeCardLevel?.(card) ?? card);
-  }
-
-  waveRewardDeckIds(slot = this.activeEconomySlot ?? this.localPlayerSlot) {
-    const run = this.players?.[slot];
-    if (run) {
-      if (!Array.isArray(run.waveRewardDeck)) {
-        run.waveRewardDeck = createWaveRewardDeckIds(run.deck, CARD_DEFINITIONS);
-      }
-      return run.waveRewardDeck;
-    }
-    if (!Array.isArray(this.waveRewardDeck)) {
-      this.waveRewardDeck = createWaveRewardDeckIds(this.levelSession.deck, CARD_DEFINITIONS);
-    }
-    return this.waveRewardDeck;
-  }
-
-  waveRewardCardPool(options = {}) {
-    const slot = this.activeEconomySlot ?? this.localPlayerSlot;
-    const remaining = this.waveRewardDeckIds(slot);
-    if (!remaining.length) return [];
-    const remainingIds = new Set(remaining);
-    const selectedCards = this.selectedCardPool({
-      ...options,
-      allowAllFallback: false
-    });
-    const unitCards = waveRewardUnitCards(CARD_DEFINITIONS).map((card) => {
-      const leveledCard = {
-        ...card,
-        level: this.openingUnitCardLevel(card.id)
-      };
-      return this.cardSystem?.applyRuntimeCardLevel?.(leveledCard) ?? leveledCard;
-    });
-    // 波次奖励不再发放单位专精卡牌（兵种专精仅经由祭坛三选一获取）。
-    const seen = new Set();
-    return [...selectedCards, ...unitCards].filter((card) => {
-      if (!card?.id || seen.has(card.id) || !remainingIds.has(card.id)) return false;
-      seen.add(card.id);
-      return true;
-    });
-  }
-
-  unitSpecializationRewardCards(slot = this.activeEconomySlot ?? this.localPlayerSlot) {
-    // 已从波次奖励移除：单位专精卡牌不再进入波次奖励牌池。
-    void slot;
-    return [];
-  }
-
-  unlockUnitSpecializationRewardCards(unitType, slot = this.activeEconomySlot ?? this.localPlayerSlot) {
-    // 已从波次奖励移除：获得单位卡不再解锁单位专精奖励卡。
-    void unitType;
-    void slot;
-    return 0;
-  }
-
-  consumeWaveRewardCard(card) {
-    const cardId = card?.cardDefinitionId ?? card?.id;
-    if (!cardId) return false;
-    const remaining = this.waveRewardDeckIds();
-    const index = remaining.indexOf(cardId);
-    if (index < 0) return false;
-    remaining.splice(index, 1);
-    const cachedUnitOffers = this.runShopPendingOffers?.unit;
-    if (cachedUnitOffers?.some((choice) => (
-      (choice?.card?.id ?? choice?.card?.cardDefinitionId) === cardId
-    ))) {
-      // 免费军需奖励会保留当前三选一。若其他奖励先消耗了其中一张，
-      // 必须废弃整组报价，避免仍选到已经离池的卡牌。
-      delete this.runShopPendingOffers.unit;
-    }
-    const slot = this.activeEconomySlot ?? this.localPlayerSlot;
-    this.networkBridge?.markPrivateStateDirty?.(slot);
-    return true;
-  }
-
-  randomCardChoices({ pool, action, actionLabel }) {
-    return pickRandomItems(pool, STRATEGY_CHOICE_COUNT).map((card) => ({
-      action,
-      actionLabel,
-      card,
-      title: card.name,
-      description: card.summary
-    }));
-  }
-
-  openingUnitChoices({ pool, action, actionLabel }) {
-    const combatPool = pool.filter((card) => isOpeningCombatSummon(card));
-    const sourcePool = combatPool.length >= STRATEGY_CHOICE_COUNT ? combatPool : pool;
-    return this.openingRewardChoices(sourcePool, { action, actionLabel });
-  }
-
-  // 开局指定种类（能力 / 地形）的三选一候选池：优先本局出战牌组里的该类卡；
-  // 牌组里该类不足三张时用全部同名卡补足，保证开局永远是三选一。
-  // terrainOnly 时按地形牌规则筛选（isTerrainCard），不能把所有法术都当成地形卡。
-  openingKindPool(kind, { terrainOnly = false } = {}) {
-    const matches = (card) => {
-      if (kind && card.kind !== kind) return false;
-      if (terrainOnly && !isTerrainCard(card)) return false;
-      return true;
-    };
-    const deckPool = this.selectedCardPool({ kind, allowAllFallback: false }).filter(matches);
-    if (deckPool.length >= STRATEGY_CHOICE_COUNT) return deckPool;
-    const catalogue = CARD_DEFINITIONS
-      .filter((card) => !card.lootOnly && !card.retired)
-      .filter(matches)
-      .map((card) => this.cardSystem?.applyRuntimeCardLevel?.(card) ?? card);
-    return catalogue.length > deckPool.length ? catalogue : deckPool;
-  }
-
-  openingKindChoices({ kind, terrainOnly = false, pool, action, actionLabel }) {
-    const sourcePool = (pool ?? []).filter((card) => {
-      if (kind && card.kind !== kind) return false;
-      if (terrainOnly && !isTerrainCard(card)) return false;
-      return true;
-    });
-    return this.openingRewardChoices(sourcePool, { action, actionLabel });
-  }
-
-  openingRewardChoices(pool, { action = 'add-card', actionLabel = '加入牌堆' } = {}) {
-    if (!pool?.length) return [];
-    return pickRandomItems(pool, STRATEGY_CHOICE_COUNT).map((card) => {
-      // 开局奖励沿用玩家在该卡上的升级等级（无尽模式统一 Lv.1）。
-      const leveledCard = {
-        ...card,
-        level: Math.max(
-          1,
-          Math.floor(Number(card?.level) || 1),
-          this.openingUnitCardLevel(card.id)
-        )
-      };
-      const resolvedCard = this.cardSystem?.applyRuntimeCardLevel?.(leveledCard) ?? leveledCard;
-      return {
-        action,
-        actionLabel,
-        card: resolvedCard,
-        title: resolvedCard.name,
-        description: resolvedCard.summary
-      };
-    });
-  }
-
-  openingUnitCardLevel(cardId) {
-    if (!cardId || this.isEndlessMode()) return 1;
-    const sharedPlayerLevel = Object.values(this.levelSession?.players ?? {}).reduce(
-      (highest, player) => Math.max(
-        highest,
-        Math.floor(Number(player?.cardLevels?.[cardId]) || 1)
-      ),
-      1
-    );
-    const localLevel = Math.floor(Number(this.levelSession?.cardLevels?.[cardId]) || 1);
-    return Math.max(1, sharedPlayerLevel, localLevel);
-  }
-
-  genericTrainingRewardChoices() {
-    return UNIT_GENERIC_UPGRADES.map((upgrade) => this.createTeamGenericUpgradeChoice(upgrade));
-  }
-
-  createCardWaveRewardChoices() {
-    const trainingChoices = this.genericTrainingRewardChoices().map((choice) => (
-      this.createPlayableTrainingCardChoice(choice)
-    ));
-    const candidates = createWaveRewardCandidateEntries(
-      this.waveRewardCardPool(),
-      trainingChoices
-    );
-    return pickRandomItems(candidates, STRATEGY_CHOICE_COUNT);
-  }
-
-  createPlayableTrainingCardChoice(choice) {
-    if (choice.action === 'apply-team-upgrade') {
-      return {
-        action: 'add-card',
-        actionLabel: '获得训练卡',
-        title: choice.title,
-        description: choice.description,
-        card: {
-          ...choice.card,
-          target: 'none',
-          exhaust: true,
-          effect: {
-            type: 'apply-team-generic-upgrade',
-            upgrade: choice.upgrade
-          }
-        }
-      };
-    }
-    if (choice.action === 'apply-team-special-upgrade') {
-      return {
-        action: 'add-card',
-        actionLabel: '获得专精卡',
-        title: choice.title,
-        description: choice.description,
-        card: {
-          ...choice.card,
-          unitType: choice.unitType,
-          target: 'none',
-          exhaust: true,
-          effect: {
-            type: 'apply-team-special-upgrade',
-            unitType: choice.unitType,
-            upgrade: choice.upgrade
-          }
-        }
-      };
-    }
-    return choice;
-  }
-
-  createWaveRewardOptionChoices() {
-    return this.createCardWaveRewardChoices();
-  }
-
-  buildRuntimeUpgradeChoicePool() {
-    return [
-      ...this.buildAttributeUpgradeChoicePool(),
-      ...this.buildTraitUpgradeChoicePool()
-    ];
-  }
-
-  buildAttributeUpgradeChoicePool() {
-    return UNIT_GENERIC_UPGRADES.map((upgrade) => this.createTeamGenericUpgradeChoice(upgrade));
-  }
-
-  buildTraitUpgradeChoicePool({ includeAllUnitTypes = false } = {}) {
-    const choices = [];
-    const acquiredTypes = this.acquiredUnitTypes();
-    const deckTypes = this.deckUnitTypes();
-    const allTypes = includeAllUnitTypes ? Object.keys(UNIT_SPECIAL_UPGRADES) : [];
-    const orderedTypes = [...new Set([...acquiredTypes, ...deckTypes, ...allTypes])];
-    orderedTypes.forEach((unitType) => {
-      const owned = this.teamSpecialUpgrades.get(unitType) ?? new Set();
-      (UNIT_SPECIAL_UPGRADES[unitType] ?? []).forEach((upgrade) => {
-        if (owned.has(upgrade.id)) return;
-        choices.push(this.createTeamSpecialUpgradeChoice(unitType, upgrade));
-      });
-    });
-    return choices;
-  }
-
-  deckUnitTypes() {
-    const types = new Set();
-    this.selectedCardPool().forEach((card) => {
-      if (card?.unitType) types.add(card.unitType);
-    });
-    this.cardSystem.allDeckCards().forEach((card) => {
-      if (card?.unitType) types.add(card.unitType);
-    });
-    return [...types];
-  }
 
   acquiredUnitTypes() {
     const slot = this.activeEconomySlot ?? this.localPlayerSlot;
     const types = new Set(this.acquiredUnitCardTypesFor(slot));
-    const addCardUnitType = (card) => {
-      if (card?.kind !== 'summon' || !card.unitType) return;
-      types.add(card.unitType);
-      this.recordAcquiredUnitCard(card, slot);
-    };
-    // Persist unit cards while they are still visible, before one-use summons
-    // leave the deck. Living units remain valid altar-specialization candidates,
-    // but only actually acquired summon cards unlock wave-reward specializations.
-    this.cardSystem?.activeRunCards?.().forEach(addCardUnitType);
     this.friendlyUnits?.forEach((unit) => {
       if (!unit?.alive || unit.isWildlife || !unit.type) return;
       if (!this.unitBelongsToPlayer(unit, slot)) return;
@@ -4269,11 +1921,6 @@ export class Game {
     }
     if (!(this.acquiredUnitCardTypes instanceof Set)) this.acquiredUnitCardTypes = new Set();
     return this.acquiredUnitCardTypes;
-  }
-
-  recordAcquiredUnitCard(card, slot = this.activeEconomySlot ?? this.localPlayerSlot) {
-    if (card?.kind !== 'summon') return false;
-    return this.recordAcquiredUnitType(card?.unitType, slot);
   }
 
   recordAcquiredUnitType(unitType, slot = this.activeEconomySlot ?? this.localPlayerSlot) {
@@ -4314,53 +1961,6 @@ export class Game {
     return icons;
   }
 
-  createTeamGenericUpgradeChoice(upgrade) {
-    const stacks = this.teamGenericUpgradeCounts.get(upgrade.id) ?? 0;
-    return {
-      action: 'apply-team-upgrade',
-      actionLabel: '己方强化',
-      title: upgrade.name,
-      description: upgrade.summary,
-      upgrade,
-      card: {
-        id: `team-upgrade-${upgrade.id}`,
-        name: upgrade.name,
-        kind: 'tactic',
-        label: '队',
-        artKey: 'tacticUpgrade',
-        summary: stacks > 0
-          ? `${upgrade.summary}（已叠加 ${stacks} 次，立即对己方部队生效）`
-          : `${upgrade.summary}（立即对己方现有与后续单位生效）`,
-        energyCost: 0,
-        color: '#9eeedb',
-        level: stacks + 1
-      }
-    };
-  }
-
-  createTeamSpecialUpgradeChoice(unitType, upgrade) {
-    const unitName = UNIT_DEFINITIONS[unitType]?.name ?? unitType;
-    return {
-      action: 'apply-team-special-upgrade',
-      actionLabel: '兵种专精',
-      title: `${unitName}·${upgrade.name}`,
-      description: upgrade.summary,
-      unitType,
-      upgrade,
-      card: {
-        id: unitSpecializationRewardCardId(unitType, upgrade.id),
-        name: `${unitName}·${upgrade.name}`,
-        kind: 'ability',
-        label: '专',
-        artKey: unitType,
-        summary: `己方所有${unitName}获得：${upgrade.summary}`,
-        energyCost: 0,
-        color: '#ffd166',
-        level: 1
-      }
-    };
-  }
-
   applyTeamGenericUpgrade(upgrade) {
     if (!upgrade?.id || upgrade.kind !== 'unit-generic') return false;
     const nextIndex = this.teamGenericUpgradeCounts.get(upgrade.id) ?? 0;
@@ -4385,9 +1985,6 @@ export class Game {
     const owned = this.teamSpecialUpgrades.get(unitType);
     if (owned.has(upgrade.id)) return false;
     owned.add(upgrade.id);
-    this.consumeWaveRewardCard({
-      id: unitSpecializationRewardCardId(unitType, upgrade.id)
-    });
     const slot = this.activeEconomySlot ?? this.localPlayerSlot;
     const feedback = {
       text: upgrade.name,
@@ -4483,362 +2080,9 @@ export class Game {
     });
   }
 
-  isWaveRewardOptionAvailable(option) {
-    if (option.action === 'open-card-kind-choice') {
-      return this.selectedCardPool({ kind: option.cardKind }).length > 0;
-    }
-    if (option.action === 'open-card-upgrade-choice' || option.action === 'open-card-copy-choice') {
-      return this.uniqueRuntimeCards().length > 0;
-    }
-    return true;
-  }
 
   nextUpcomingWave() {
     return this.waveSchedule[this.waveIndex] ?? this.currentWave ?? null;
-  }
-
-  createAttributeUpgradeChoices() {
-    const pool = this.buildAttributeUpgradeChoicePool();
-    if (!pool.length) {
-      return this.createWaveRewardOptionChoices(this.nextUpcomingWave());
-    }
-    return pickRandomItems(pool, Math.min(STRATEGY_CHOICE_COUNT, pool.length));
-  }
-
-  createTraitUpgradeChoices() {
-    const pool = this.buildTraitUpgradeChoicePool();
-    if (!pool.length) {
-      return this.createAttributeUpgradeChoices();
-    }
-    return pickAltarSpecializationChoices(
-      pool,
-      this.acquiredUnitTypes(),
-      Math.min(STRATEGY_CHOICE_COUNT, pool.length)
-    );
-  }
-
-  createMaintenanceChoices() {
-    return this.createAttributeUpgradeChoices();
-  }
-
-  activeRunCardInstances() {
-    return this.cardSystem?.activeRunCards?.() ?? [];
-  }
-
-  runShopOwnedCards() {
-    const seen = new Set();
-    return (this.cardSystem?.runShopCards?.() ?? []).filter((card) => {
-      if (!card?.id || seen.has(card.id)) return false;
-      seen.add(card.id);
-      return true;
-    }).sort((a, b) => cardSortKey(a).localeCompare(cardSortKey(b), 'zh-Hans-CN'));
-  }
-
-  createRunShopOwnedPickerChoices(action, actionLabel, descriptionSuffix) {
-    return this.runShopOwnedCards().map((card) => {
-      return {
-        action,
-        actionLabel,
-        compactActionLabel: actionLabel.replace('卡牌', ''),
-        title: card.name,
-        compactPicker: true,
-        description: card.summary ?? descriptionSuffix ?? '',
-        card,
-        targetCard: card
-      };
-    });
-  }
-
-  uniqueRuntimeCards() {
-    const seen = new Set();
-    return this.cardSystem.allDeckCards().filter((card) => {
-      if (!card?.id || seen.has(card.id)) return false;
-      seen.add(card.id);
-      return true;
-    }).sort((a, b) => cardSortKey(a).localeCompare(cardSortKey(b), 'zh-Hans-CN'));
-  }
-
-  createUnitUpgradeChoices() {
-    return this.createTraitUpgradeChoices();
-  }
-
-  createCopyChoices() {
-    const selectedIds = new Set(this.selectedCardPool().map((card) => card.id));
-    const cards = this.cardSystem.allDeckCards().filter((card) => selectedIds.has(card.id));
-    if (!cards.length) {
-      return this.randomCardChoices({
-        pool: this.selectedCardPool({ allowAllFallback: true }),
-        action: 'add-card',
-        actionLabel: '加入牌堆'
-      });
-    }
-    return pickRandomItems(cards, STRATEGY_CHOICE_COUNT).map((card) => ({
-      action: 'copy-card',
-      actionLabel: '复制',
-      title: `复制 ${card.name}`,
-        description: '加入一张同等级复制牌。',
-      card,
-      targetCard: card
-    }));
-  }
-
-  createExistingCardCopyChoices() {
-    return pickRandomItems(this.uniqueRuntimeCards(), STRATEGY_CHOICE_COUNT).map((card) => ({
-      action: 'copy-card',
-      actionLabel: '复制',
-      title: `复制 ${card.name}`,
-        description: '加入一张同等级复制牌。',
-      card,
-      targetCard: card
-    }));
-  }
-
-  renderStrategyEvent() {
-    const event = this.strategyEvent;
-    if (!event) return;
-    event.choices = Array.isArray(event.choices) ? event.choices.filter(Boolean) : [];
-    if (event.choices.length > STRATEGY_CHOICE_COUNT) {
-      event.choices = event.choices.slice(0, STRATEGY_CHOICE_COUNT);
-    }
-    const typeMeta = strategyEventTypeMeta(event.type);
-    this.strategyEventUi.root.dataset.eventType = typeMeta.key;
-    this.strategyEventUi.root.setAttribute('aria-label', event.title ?? '选择奖励');
-    if (this.strategyEventUi.kicker) {
-      this.strategyEventUi.kicker.textContent = event.kicker ?? '';
-      this.strategyEventUi.kicker.hidden = !event.kicker;
-    }
-    if (this.strategyEventUi.title) {
-      this.strategyEventUi.title.textContent = event.title ?? '选择奖励';
-    }
-    if (this.strategyEventUi.summary) {
-      const summary = appendCoopRewardCountdown(
-        event.summary ?? '',
-        event.autoSelectSecondsRemaining ?? this.coopRewardAutoSelectSecondsRemaining,
-        '超时将自动选择一项。'
-      );
-      this.strategyEventUi.summary.textContent = summary;
-      this.strategyEventUi.summary.hidden = !summary;
-    }
-    if (event.exhausted) {
-      this.strategyEventUi.choices.innerHTML = '<p class="strategy-event-exhausted">牌已发光：本局波次奖励的发牌池已用完。</p>';
-    } else {
-      this.strategyEventUi.choices.innerHTML = event.choices
-        .map((choice, index) => strategyRewardMarkup(choice, index))
-        .join('');
-    }
-    fitStrategyRewardCards(this.strategyEventUi.choices);
-    this.renderStrategyEventActions(event);
-  }
-
-  getStrategyRewardRerollCost() {
-    return STRATEGY_REWARD_REROLL_SILVER_COST;
-  }
-
-  resetStrategyRewardRerollForEvent(type) {
-    if (type === 'wave-reward') this.strategyRewardRerollCount = 0;
-  }
-
-  rerollStrategyRewardChoices(options = {}) {
-    const shouldRender = options.render !== false;
-    const event = this.strategyEvent;
-    if (!event || event.type !== 'wave-reward') return false;
-    const cost = this.getStrategyRewardRerollCost();
-    if (this.getSilver() + 0.001 < cost) return false;
-    const choices = this.createCardWaveRewardChoices();
-    if (!choices.length) return false;
-    this.setSilver(this.getSilver() - cost);
-    this.strategyRewardRerollCount = Math.max(0, (this.strategyRewardRerollCount ?? 0) + 1);
-    event.choices = choices;
-    if (shouldRender) {
-      this.renderStrategyEvent();
-      this.updateHud(0);
-    }
-    return true;
-  }
-
-  skipStrategyReward() {
-    if (!this.strategyEvent) return false;
-    this.finishStrategyReward();
-    return true;
-  }
-
-  renderStrategyEventActions(event) {
-    const actions = this.strategyEventUi.actions;
-    if (!actions) return;
-    if (event?.type !== 'wave-reward') {
-      actions.hidden = true;
-      actions.innerHTML = '';
-      return;
-    }
-    if (event.exhausted) {
-      // 牌已发光：无需重新随机，仅保留放弃奖励（等待其他玩家/继续）。
-      actions.hidden = false;
-      actions.innerHTML = `
-        <button class="strategy-event-action is-skip" type="button" data-strategy-action="skip">
-          <span class="strategy-event-action-label">放弃奖励</span>
-          <strong>直接进入下一波</strong>
-        </button>
-      `;
-      return;
-    }
-    const rerollCost = this.getStrategyRewardRerollCost();
-    const currentSilver = Math.max(0, this.getSilver());
-    const canAffordReroll = currentSilver + 0.001 >= rerollCost;
-    const rerollCount = Math.max(0, this.strategyRewardRerollCount ?? 0);
-    const rerollCostLabel = `${rerollCost} 银币`;
-    const rerollLabel = rerollCount === 0 ? '重新随机' : `重新随机 · 已刷新 ${rerollCount} 次`;
-    const remainingSilverLabel = `当前剩余 ${formatSilverAmount(currentSilver)} 银币`;
-    actions.hidden = false;
-    actions.innerHTML = `
-      <button
-        class="strategy-event-action is-reroll${canAffordReroll ? '' : ' is-disabled'}"
-        type="button"
-        data-strategy-action="reroll"
-        ${canAffordReroll ? '' : 'disabled aria-disabled="true"'}
-      >
-        <span class="strategy-event-action-label">${rerollLabel}</span>
-        <strong>${rerollCostLabel}</strong>
-        <small class="strategy-event-reroll-balance">${remainingSilverLabel}</small>
-      </button>
-      <button class="strategy-event-action is-skip" type="button" data-strategy-action="skip">
-        <span class="strategy-event-action-label">放弃奖励</span>
-        <strong>直接进入下一波</strong>
-      </button>
-    `;
-  }
-
-  onStrategyEventClick(event) {
-    const actionButton = event.target.closest('[data-strategy-action]');
-    if (actionButton && this.strategyEvent) {
-      event.preventDefault();
-      event.stopPropagation();
-      const action = actionButton.dataset.strategyAction;
-      if (this.networkBridge?.shouldRouteLocalCommands?.()) {
-        if (action === 'reroll' && !actionButton.disabled) {
-          const cost = this.getStrategyRewardRerollCost();
-          if (this.getSilver() + 0.001 < cost) {
-            this.cardSystem?.setHint?.('银币不足，无法刷新波次奖励', 'network-command');
-            return;
-          }
-          const sent = this.networkBridge?.commandSender?.strategyReroll?.();
-          if (!sent) this.cardSystem?.setHint?.('刷新请求未发送，请等待联机状态同步后重试', 'network-command');
-        } else if (action === 'skip') {
-          const sent = this.networkBridge?.commandSender?.strategySkip?.();
-          if (sent) {
-            // 本地乐观反馈：立即进入等待，不等 Host 回执
-            this.showCoopRewardWaitingUi();
-          } else {
-            this.cardSystem?.setHint?.('跳过请求未发送，请等待联机状态同步后重试', 'network-command');
-          }
-        }
-        return;
-      }
-      if (action === 'reroll' && !actionButton.disabled) {
-        this.rerollStrategyRewardChoices();
-      } else if (action === 'skip') {
-        this.skipStrategyReward();
-      }
-      return;
-    }
-    const button = event.target.closest('[data-strategy-choice-index]');
-    if (!button || !this.strategyEvent) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const index = Number(button.dataset.strategyChoiceIndex);
-    if (this.networkBridge?.shouldRouteLocalCommands?.()) {
-      const sent = this.networkBridge?.commandSender?.strategyChoose?.(index);
-      if (sent) {
-        // 本地乐观反馈：选完立即进入等待，不等 Host 回执（Host 确认后由
-        // ui_state 同步最终状态；若命令被拒会收到提示并可重新选择）。
-        this.showCoopRewardWaitingUi();
-      } else {
-        this.cardSystem?.setHint?.('选择请求未发送，请等待联机状态同步后重试', 'network-command');
-      }
-      return;
-    }
-    const choice = this.strategyEvent.choices[index];
-    if (!choice || button.disabled) return;
-    if (!this.applyStrategyChoice(choice)) return;
-    this.finishStrategyReward();
-  }
-
-  applyStrategyChoice(choice) {
-    let applied = false;
-    if (choice.action === 'grant-opening-unit-card') {
-      const unitType = choice.card?.unitType;
-      if (!unitType) return false;
-      const result = this.cardSystem.addCardToDrawPile(choice.card, {
-        prefix: `opening-${choice.card.id}-${Date.now()}`
-      });
-      if (result.added) this.heroUnitType = unitType;
-      applied = result.added;
-    } else if (choice.action === 'add-card') {
-      const result = this.cardSystem.addCardToDrawPile(choice.card, {
-        prefix: `event-${choice.card.id}-${Date.now()}`
-      });
-      applied = result.added;
-    } else if (choice.action === 'upgrade-card') {
-      applied = this.cardSystem.upgradeCardFamily(choice.targetCard ?? choice.card, 1);
-    } else if (choice.action === 'apply-team-upgrade') {
-      applied = this.applyTeamGenericUpgrade(choice.upgrade);
-    } else if (choice.action === 'apply-team-special-upgrade') {
-      applied = this.applyTeamSpecialUpgrade(choice.unitType, choice.upgrade);
-    } else if (choice.action === 'apply-card-upgrade') {
-      if (choice.upgrade?.kind === 'unit-special') {
-        applied = this.applyTeamSpecialUpgrade(choice.targetCard?.unitType, choice.upgrade);
-      } else {
-        applied = this.applyTeamGenericUpgrade(choice.upgrade);
-      }
-    } else if (choice.action === 'copy-card') {
-      const targetCard = choice.targetCard ?? choice.card;
-      if (targetCard?.instanceId && this.cardSystem.allDeckCards().includes(targetCard)) {
-        applied = this.cardSystem.copyCardInstance(targetCard, {
-          prefix: `copy-${targetCard.id}-${Date.now()}`
-        }).added;
-      }
-    } else if (choice.action === 'remove-card') {
-      const targetCard = choice.targetCard ?? choice.card;
-      applied = this.cardSystem.removeCardFamily(targetCard?.id);
-    } else if (choice.action === 'grant-temporary-card') {
-      applied = this.cardSystem.addTemporaryCard(choice.temporaryCard ?? choice.card, {
-        prefix: `event-temporary-${choice.temporaryCard?.id ?? choice.card?.id}-${Date.now()}`,
-        applyRuntimeLevelBonus: false,
-        energyCost: 0
-      }).added;
-    } else if (choice.action === 'acquire-ability') {
-      applied = this.cardEffects.resolve({
-        card: choice.card,
-        point: null,
-        targetUnit: null,
-        targetCard: null
-      }) !== false;
-    }
-    if (!applied) return false;
-    const rewardEventType = this.strategyEvent?.type ?? null;
-    if (choice.rewardSource === 'wave-reward-deck' || rewardEventType === 'wave-reward') {
-      const remainingWaveRewardIds = this.waveRewardDeckIds();
-      if (shouldConsumeWaveRewardCard(choice, rewardEventType, remainingWaveRewardIds)) {
-        this.consumeWaveRewardCard(choice.card);
-      }
-    }
-    this.applyStrategyChoiceCost(choice);
-    return true;
-  }
-
-  applyDirectCardUpgrade(card) {
-    return this.cardSystem.applyRuntimeUpgrade(card, {
-      id: `${card.id}:runtime-level:${Date.now()}`,
-      kind: `${card.kind}-level`,
-      name: runtimeUpgradeTitleForCard(card),
-      summary: runtimeUpgradeSummaryForCard(card),
-      levelBonus: 1
-    });
-  }
-
-  applyStrategyChoiceCost(choice) {
-    if (choice.baseDamagePercent > 0) {
-      this.damagePlayerBase(this.playerBase.maxHealth * choice.baseDamagePercent);
-    }
   }
 
   measurePerf(name, action) {
@@ -5447,14 +2691,6 @@ export class Game {
     return PLAYER_VISUAL_COLORS[this.playerColorIndexFor(playerId, explicitIndex)] ?? PLAYER_VISUAL_COLORS[0];
   }
 
-  updateCardSystems(dt) {
-    if (this.cardSystems) {
-      Object.values(this.cardSystems).forEach((system) => system.update(dt));
-      return;
-    }
-    this.cardSystem.update(dt);
-  }
-
   updateAbilitySystems(dt) {
     if (this.abilitySystems) {
       Object.values(this.abilitySystems).forEach((system) => system.update(dt));
@@ -5529,7 +2765,6 @@ export class Game {
     const run = this.players[slot];
     const previous = {
       activeEconomySlot: this.activeEconomySlot,
-      cardSystem: this.cardSystem,
       abilities: this.abilities,
       strategyEvent: this.strategyEvent,
       shopPrices: this.shopPrices,
@@ -5554,7 +2789,6 @@ export class Game {
       heroUnitType: this.heroUnitType
     };
     this.activeEconomySlot = slot;
-    if (this.cardSystems?.[slot]) this.cardSystem = this.cardSystems[slot];
     if (this.abilitySystems?.[slot]) this.abilities = this.abilitySystems[slot];
     this.strategyEvent = run.strategyEvent;
     this.shopPrices = run.shopPrices;
@@ -5620,7 +2854,6 @@ export class Game {
       run.teamSupportModifiersApplied = this.teamSupportModifiersApplied;
       run.heroUnitType = this.heroUnitType;
       this.activeEconomySlot = previous.activeEconomySlot;
-      this.cardSystem = previous.cardSystem;
       this.abilities = previous.abilities;
       this.strategyEvent = previous.strategyEvent;
       this.shopPrices = previous.shopPrices;
@@ -5698,14 +2931,6 @@ export class Game {
     return (unit.controllerPlayerId ?? unit.ownerPlayerId) === slot;
   }
 
-  updateSilverHud() {
-    if (this.dom.silverCount) {
-      this.dom.silverCount.textContent = formatSilverAmount(this.getSilver());
-    }
-    if (this.runShopUi?.silver) {
-      this.runShopUi.silver.textContent = formatSilverAmount(this.getSilver());
-    }
-  }
 
   canControlUnit(unit) {
     if (!unit?.alive) return false;
@@ -5740,8 +2965,7 @@ export class Game {
 
     if (unit?.team === TEAMS.ENEMY) {
       this.grantKillEnergy(unit, source);
-      this.grantKillSilver(unit, source);
-      // 魔力与能量是两种资源：只有单位击杀才结算，且均分给击杀者携带的符文石。
+      // 银币（军需铺货币）与卡牌能量都不再存在，只保留符文石的击杀成长。
       this.grantKillMana(unit, source);
       // 敌方单位若真有背包或符文石，同样按方案第 7 节掉落；没有则什么也不发生。
       // 这里不是"给所有装饰武器模型自动生成战利品"——只有真实持有物才会落地。
@@ -5750,8 +2974,10 @@ export class Game {
       // 死亡掉落（方案第 7 节）：背包里的东西与身上的符文石一起落地。
       // 不再是"石头留在阵亡单位档案里"，也不自动传回基地。
       this.dropUnitBelongingsOnDeath(unit);
-      // 单位阵亡时必须关掉它的符文背包，避免面板停在一个已经不存在的单位上。
-      this.runeBackpack?.closeIfUnit?.(unit);
+      // 单位阵亡时必须关掉它的背包，避免面板停在一个已经不存在的单位上。
+      this.backpack?.closeIfUnit?.(unit);
+      // 科研站 / 附魔台被拆掉时同理：界面不能停在一栋不存在的建筑上。
+      this.facilityPanel?.closeIfUnit?.(unit);
     }
 
     return true;
@@ -5781,6 +3007,7 @@ export class Game {
     // 符文石：石头是成长数据的唯一持有者，掉落搬运的是同一块实例。
     const stoneStacks = this.runeStones?.detachStonesOnDeath?.(unit, { x, z, dropId }) ?? [];
     stoneStacks.forEach((stack) => stacks.push(stack));
+    this.rollWildlifeEnchantmentDrops(unit).forEach((stack) => stacks.push(stack));
 
     // 傀儡背包里的货物与工具：已经搬进背包的跟着背包掉落，
     // 尚未取出的留在源容器（资源节点的剩余量归 ResourceNodeSystem）。
@@ -5801,6 +3028,40 @@ export class Game {
     return { drop, stacks: stacks.length, inventoryCleared: planned.dropped === true };
   }
 
+  /**
+   * 野生动物不再掉卡牌：按原掉落表的附魔 id 造石头，直接落到遗物包里。
+   * 石头归属拾取者所在玩家，进不了单位背包时会留在地上。
+   */
+  rollWildlifeEnchantmentDrops(unit) {
+    if (!unit?.isWildlife) return [];
+    const entries = unit.definition?.wildlife?.drops ?? [];
+    const stacks = [];
+    for (const entry of entries) {
+      const chance = Math.max(0, Math.min(1, Number(entry.chance) || 0));
+      if (Math.random() > chance) continue;
+      const enchantmentId = entry.enchantmentId ?? null;
+      if (!enchantmentId) continue;
+      const stone = this.runeStones?.createStone?.({
+        enchantmentId,
+        level: Math.max(1, Math.floor(Number(entry.level) || 1)),
+        playerId: this.localPlayerSlot ?? this.runeStones.localSlot?.(),
+        location: {
+          kind: RUNE_LOCATION_GROUND,
+          x: unit.position?.x ?? 0,
+          z: unit.position?.z ?? 0
+        }
+      });
+      if (!stone) continue;
+      stacks.push({
+        itemId: RUNE_STONE_ITEM_ID,
+        count: 1,
+        instanceId: stone.id,
+        data: stoneItemData(stone)
+      });
+    }
+    return stacks;
+  }
+
   /** 鼠标当前指向的己方单位（不含建筑），用于 E 键直接开背包。 */
   hoveredFriendlyUnitForBackpack() {
     const point = this.pointerScreen;
@@ -5815,35 +3076,43 @@ export class Game {
   }
 
   /**
-   * E 键：给鼠标指向的己方单位打开符文背包；鼠标没指向单位时用当前选中单位。
+   * E 键：给鼠标指向的己方单位打开背包；鼠标没指向单位时用当前选中单位。
    * 既没指向也没选中单位时不打开——否则玩家不知道开的是谁的背包，只给一句提示。
-   * 已经打开时再按一次 E 关闭（两个背包一起关闭）。
+   * 已经打开时再按一次 E 关闭。
+   *
+   * 主入口其实是"点击单位后在其下方展开的交互菜单"，E 只是给键盘玩家的快捷方式。
    */
-  toggleUnitRuneBackpack() {
-    if (!this.runeBackpack) return false;
-    if (this.runeBackpack.isOpen()) {
-      this.runeBackpack.close();
+  toggleUnitBackpack() {
+    if (!this.backpack) return false;
+    if (this.backpack.isOpen()) {
+      this.backpack.close();
       return true;
     }
+    // 两个面板都是居中的模态，同时开着会互相盖住：开一个就关掉另一个。
+    this.facilityPanel?.close?.();
     const hovered = this.hoveredFriendlyUnitForBackpack();
     const selected = this.selectedUnit;
     const unit = hovered
       ?? (selected?.team === TEAMS.PLAYER && selected.alive ? selected : null);
     if (!unit) {
-      this.cardSystem?.setHintOnce?.(
-        '把鼠标对准己方单位，或先选中一个单位，再按 E 打开它的符文背包。',
-        'rune-backpack'
+      this.hints?.setHintOnce?.(
+        '把鼠标对准己方单位，或先选中一个单位，再按 E 打开它的背包。',
+        'unit-backpack'
       );
       return false;
     }
-    this.runeBackpack.openForUnit(unit);
+    this.backpack.openForUnit(unit);
     return true;
   }
 
-  /** B 键：打开基地背包（居中显示，只展示基地存储）。 */
-  toggleBaseRuneBackpack() {
-    if (!this.runeBackpack) return false;
-    this.runeBackpack.toggleBase();
+  /**
+   * B 键：打开基地背包（左侧 6x8 网格 + 右侧「合成 / 资源」两个标签页）。
+   * 科技与附魔台**不在这里**了——它们改由科研站/附魔台的扇形菜单打开（FacilityPanelUi）。
+   */
+  toggleBaseBackpack() {
+    if (!this.backpack) return false;
+    if (!this.backpack.isOpen()) this.facilityPanel?.close?.();
+    this.backpack.toggleBase();
     return true;
   }
 
@@ -5879,7 +3148,7 @@ export class Game {
     }
     const result = this.runeStones?.moveStone(stoneId, target, { playerId });
     if (!result?.ok) return false;
-    this.runeBackpack?.refresh?.();
+    this.backpack?.markDirty?.();
     return true;
   }
 
@@ -5887,7 +3156,7 @@ export class Game {
   applyNetworkRuneStoneSell(playerId, payload) {
     const result = this.runeStones?.sellStone(payload?.stoneId, { playerId });
     if (!result?.ok) return false;
-    this.runeBackpack?.refresh?.();
+    this.backpack?.markDirty?.();
     return true;
   }
 
@@ -6358,7 +3627,7 @@ export class Game {
         team: TEAMS.PLAYER,
         position
       });
-      unit.ownerPlayerId = options.ownerPlayerId ?? this.cardSystem?.playerSlot ?? this.localPlayerSlot;
+      unit.ownerPlayerId = options.ownerPlayerId ?? this.localPlayerSlot;
       unit.controllerPlayerId = unit.ownerPlayerId;
       assignUnitSourceCard(unit, options.sourceCard);
       this.applySummonCardLevel(unit, options.sourceCard);
@@ -6424,27 +3693,29 @@ export class Game {
     this.summonUnits('woodPuppet', 1, spawnPoint, 0.7, { select: false });
     const worker = this.findNewestFriendlyUnit('woodPuppet');
     if (!worker) return null;
-    // 出生护卫。没有它这个模式走不通：招募链是「招募令 ← 深邃核心 ← 摧毁巢穴」，
-    // 战斗单位本身来自巢穴——只给傀儡的话整条链是死循环（见 BALANCE.world.survivalOpening）。
+    // 出生护卫：**现在是空表**（`survivalOpening.escorts: []`）。
+    // 用户要求「玩家一开始应该没有任何战斗单位」，所以这段只保留了开关本身，
+    // 一格护卫都不会生成。替代路径是：傀儡拿斧/镐能勉强自保 → 合成傀儡武器 →
+    // 装上之后才能推进。别再往 escorts 里加回战斗单位来"修开局"。
     this.spawnSurvivalEscorts();
     // 工具放进背包而不是单独挂一个列表：工具所有权只有一个来源（背包实例），
     // 规划器判断「缺工具」时读的就是这份背包。
     const workerInventory = this.createWorkerBootstrapInventory(worker.id);
     this.work.registerWorker(worker, { inventory: workerInventory });
-    // 默认采集需求：前期以木材为主、石料次之，食物只占一小份。
-    // 这里只给权重与库存目标，具体派谁、去哪棵树由调度器按可执行性与距离决定。
-    this.work.setDemands([
-      { id: 'auto-wood', resource: 'wood', weight: 50, targetStock: 400 },
-      { id: 'auto-stone', resource: 'stone', weight: 30, targetStock: 300 },
-      { id: 'auto-food', resource: 'food', weight: 20, targetStock: 60 }
-    ]);
+    // 默认采集需求：交给资源优先级那张表算（需求 8：「Ai 根据优先级去做相关任务」）。
+    // 这里只给一组默认优先级，具体派谁、去哪棵树仍然由调度器按可执行性与距离决定，
+    // 但那一步的权重与目标库存现在完全来自"玩家在资源 tab 上点出来的优先级"，
+    // 不再是写死的一份数组——否则界面调完了后台还在按旧表派活。
+    this.resourcePriorities = this.resourcePriorities ?? {};
+    this.refreshWorkDemands();
     // 海岛不跑波次，敌人由这 4 个刷怪点持续产生，全部摧毁才通关。
     this.spawnPoints.attach(ISLAND_SPAWN_POINTS);
     // 巢穴用惰性建筑类型 spawnPointNest：早前拿 spiderEgg 当占位，
     // 它其实是会孵化的活单位，会衍生出不带点位归属的敌人（验收 20→24）。
     this.spawnSpawnPointNests();
-    // 野外中立战斗单位：点开详情面板花一张招募令就能归队。
-    this.spawnFieldRecruits();
+    // 可招募的战斗单位**不再开局摆在野外**：它们的唯一来源是打掉刷怪点，
+    // 打掉哪个点就在那个点位上留下一支（见 grantSpawnPointRecruitReward）。
+    // 需求原文：「可招募敌人改成击破刷怪点时生成在刷怪点，不默认到处都有」。
     // 启动物资：够搭第一座工作台与一段栅栏，但不够跳过采集阶段。
     this.baseInventory.add('wood', 20);
     this.baseInventory.add('stone', 12);
@@ -6468,7 +3739,7 @@ export class Game {
       team: TEAMS.PLAYER,
       position
     });
-    unit.ownerPlayerId = options.ownerPlayerId ?? this.cardSystem?.playerSlot ?? this.localPlayerSlot;
+    unit.ownerPlayerId = options.ownerPlayerId ?? this.localPlayerSlot;
     unit.controllerPlayerId = unit.ownerPlayerId;
     assignUnitSourceCard(unit, options.sourceCard);
     this.applySummonCardLevel(unit, options.sourceCard);
@@ -6570,7 +3841,18 @@ export class Game {
 
   updatePlayerBaseAttack(dt) {
     if (this.levelFinished || !this.playerBase?.alive) return;
-    if ((this.playerBase.structureDurability ?? 0) <= 0) return;
+    // 开火消耗的是基地的**结构耐久**（`attackDurabilityCost`）。而结构耐久在生存模式里
+    // 没有任何自然回复——只有「维修」类建筑的 `restoreDurability` 光环能补。
+    // 于是旧数值（每发 1 点 / 上限 49 点）会让基地**打满 37 发、约 25 秒之后永久哑火**：
+    // 敌人还在射程里（findPlayerBaseAttackTarget 照样返回目标），但 durability 卡在 0，
+    // 这一段 return 掉，玩家看到的就是「基地的激光攻击怎么没了」。
+    // 实测复现：5 秒块 8/7/7/7/5 发 → durability 归零 → 之后 30 秒 0 发。
+    //
+    // 现在：消耗为 0 时不再拿耐久当门槛（激光是基地的常驻防御手段，不能用一件
+    // 拿不回来的资源当弹药）；消耗 > 0 时仍然要求攒够。基地被打破耐久依旧会掉，
+    // 那是 `damagePlayerBase` 的事，与开火无关。
+    const durabilityCost = Math.max(0, BALANCE.playerBase.attackDurabilityCost ?? 1);
+    if (durabilityCost > 0 && (this.playerBase.structureDurability ?? 0) < durabilityCost) return;
     this.playerBaseAttackTimer = Math.max(0, (this.playerBaseAttackTimer ?? 0) - dt);
     if (this.playerBaseAttackTimer > 0) return;
     const target = this.findPlayerBaseAttackTarget();
@@ -6831,7 +4113,8 @@ export class Game {
   // SpawnPointSystem 靠它从注册表反算每个点还有多少存活。
   spawnEnemyAt(type, basePoint, options = {}) {
     if (!type || !basePoint) return null;
-    const difficulty = options.difficulty ?? this.effectiveDifficultyForWave(1);
+    const difficulty = options.difficulty
+      ?? (this.isSurvivalLevel() ? this.nightRaidDifficulty() : this.effectiveDifficultyForWave(1));
     const radius = options.radius ?? 1.6;
     const index = options.index ?? 0;
     const position = this.resolveWalkablePoint(
@@ -7175,25 +4458,35 @@ export class Game {
   }
 
   /**
-   * 野外可招募单位（方案第 6.1 条：原有战斗单位可在野外发现并招募）。
+   * 清点奖励之一：**在这个点位上**留下一支可招募的战斗单位。
    *
-   * 它们是**中立**单位。走 ENEMY 队伍只是为了复用现有的注册、索敌索引、
+   * 需求原文：「可招募敌人改成击破刷怪点时生成在刷怪点，不默认到处都有」。
+   * 所以可招募单位现在只有这一个来源——开局地图上一只都没有，
+   * 玩家必须先打下某个点，才能在那个点上遇到可以招募的单位。
+   * 数据在 `ISLAND_SPAWN_POINTS[].recruitReward`（`{ types, count }`）。
+   *
+   * 它们是**中立**单位：走 ENEMY 队伍只是为了复用现有的注册、索敌索引、
    * 状态条与死亡链路（野生动物也是这么做的）；`isRecruitable` 让索敌系统
    * 两边都跳过它们——既不主动打人，也不会被己方单位自动打。招募之后这个标记
    * 会被清掉，它就以普通战斗单位身份正常参战。
    */
-  spawnFieldRecruits() {
-    const entries = this.world?.config?.fieldRecruits
-      ?? this.worldConfig?.fieldRecruits
-      ?? BALANCE.world.fieldRecruits
-      ?? [];
-    entries.forEach((spawn) => {
-      if (!UNIT_DEFINITIONS[spawn.type]) return;
-      // 落点过一遍可走点：坐标是手写的，落到阻挡格或水里就会永远站着不动。
-      const position = this.resolveWalkablePoint(new THREE.Vector3(spawn.x, 0, spawn.z));
+  grantSpawnPointRecruitReward(point, x, z) {
+    const reward = point?.recruitReward;
+    if (!reward?.types?.length) return 0;
+    const count = Math.max(1, Math.min(4, Math.floor(Number(reward.count) || 1)));
+    let spawned = 0;
+    for (let i = 0; i < count; i += 1) {
+      // types 用尽就循环取：配了 1 种但要 3 支时也有明确行为，不留空洞。
+      const type = reward.types[i % reward.types.length];
+      if (!UNIT_DEFINITIONS[type]) continue;
+      // 落点绕点位排一圈：巢穴自身登记了寻路阻挡，直接落在点上会踩进阻挡格，
+      // 那支单位就会永远"想走但一步不动"（这个坑在开局傀儡上踩过一次）。
+      const angle = (i / Math.max(1, count)) * Math.PI * 2 + 0.7;
+      const spot = new THREE.Vector3(x + Math.cos(angle) * 3.6, 0, z + Math.sin(angle) * 3.6);
+      const position = this.resolveWalkablePoint(spot);
       position.y = this.groundHeightAt(position);
       const unit = new UnitEntity({
-        type: spawn.type,
+        type,
         team: TEAMS.ENEMY,
         position
       });
@@ -7202,8 +4495,10 @@ export class Game {
       // 不设 moveGoal / wanderGoal / homePoint：中立待招募单位应该守在原地，
       // 给它们 wanderGoal 会像野生动物那样自己走开，玩家就找不到了。
       this.registerUnit(unit);
-      this.effects.spawnRing(unit.position, '#ffd9a0', 0.7, 0.5);
-    });
+      this.effects?.spawnRing?.(unit.position, '#ffd9a0', 0.7, 0.5);
+      spawned += 1;
+    }
+    return spawned;
   }
 
   spawnWildlife() {
@@ -7742,7 +5037,7 @@ export class Game {
     if (!this.levelTestMode) {
       const input = window.prompt('输入关卡测试模式密码');
       if (input !== 'satest') {
-        this.cardSystem?.setHint?.('密码错误', 'test-mode');
+        this.hints?.setHint?.('密码错误', 'test-mode');
         return;
       }
       this.levelTestMode = true;
@@ -7756,7 +5051,7 @@ export class Game {
     if (this.levelTestMode) {
       this.setPlayerBaseInvincible(true);
       this.debugTimeScale = 1;
-      this.cardSystem?.setHint?.(
+      this.hints?.setHint?.(
         '关卡测试模式：基地无敌 / 玩家基地不消耗耐久 / 基地防御999攻（Z慢放 X常速 C快放，F6关闭）',
         'test-mode'
       );
@@ -7765,7 +5060,7 @@ export class Game {
     this.debugTimeScale = 1;
     this.setPlayerBaseInvincible(false);
     this.updateHud(0);
-    this.cardSystem?.setHint?.('关卡测试模式已关闭', 'test-mode');
+    this.hints?.setHint?.('关卡测试模式已关闭', 'test-mode');
   }
 
   setDebugTimeScale(scale) {
@@ -7776,7 +5071,7 @@ export class Game {
       : this.debugTimeScale < 1
         ? '慢放'
         : '快放';
-    this.cardSystem?.setHint?.(`测试${label} ×${this.debugTimeScale.toFixed(2)}`, 'test-mode');
+    this.hints?.setHint?.(`测试${label} ×${this.debugTimeScale.toFixed(2)}`, 'test-mode');
   }
 
   damagePlayerBase(amount, { isAttack = false } = {}) {
@@ -7843,11 +5138,6 @@ export class Game {
     const reward = rewardPerMilestone * result.milestones;
     if (reward <= 0) return;
 
-    this.coopPlayerSlots().forEach((slot) => {
-      const cards = this.cardSystems?.[slot]
-        ?? (slot === this.localPlayerSlot ? this.cardSystem : null);
-      cards?.addEnergy?.(reward);
-    });
     this.effects.spawnEnergyNumber(this.playerBase.position, reward, {
       height: 3.05,
       duration: 1.1,
@@ -7899,7 +5189,7 @@ export class Game {
       // 它照样会开火，所以打掉它仍然有意义——但要明确告诉玩家"这不是终点"，
       // 否则会出现"打完敌营什么都没发生"的困惑。
       if (this.isSurvivalLevel()) {
-        this.cardSystem?.setHintOnce?.(
+        this.hints?.setHintOnce?.(
           '敌营已摧毁。本关目标是清除全部刷怪点，并清掉它们已经放出来的敌人。',
           'enemy-camp-down'
         );
@@ -7912,6 +5202,105 @@ export class Game {
   /** 是否海岛生存关。这一关的胜负规则与旧关卡完全不同，见 checkSurvivalLevelEnd。 */
   isSurvivalLevel() {
     return this.worldConfig?.sceneKey === 'island-survival';
+  }
+
+  updateDayNight(dt) {
+    if (!this.dayNight) return;
+    const previous = this.dayNight.phase;
+    advanceDayNight(this.dayNight, dt);
+    if (this.dayNight.justChanged) this.onDayNightChanged(previous, this.dayNight.phase);
+    this.applyDayNightLighting();
+  }
+
+  onDayNightChanged(previous, next) {
+    if (!this.isSurvivalLevel()) return;
+    if (next === 'night') {
+      this.prepareNightRaid();
+      this.hints?.setHintOnce?.(
+        `第 ${this.dayNight.dayNumber} 夜来临。巢穴开始出兵。`,
+        'day-night'
+      );
+      return;
+    }
+    if (previous === 'night' && next === 'day') {
+      this.hints?.setHintOnce?.(
+        `第 ${this.dayNight.dayNumber} 天。白天巢穴休整，抓紧采集与建设。`,
+        'day-night'
+      );
+    }
+  }
+
+  prepareNightRaid() {
+    const delay = Math.max(0, Number(this.dayNight?.rules?.nightfallDelaySeconds) || 0);
+    this.spawnPoints?.points?.forEach((point) => {
+      if (point?.cleared) return;
+      const current = Math.max(0, Number(point.timer) || 0);
+      point.timer = current <= 0 ? delay : Math.min(current, delay);
+    });
+  }
+
+  canRaidSpawn() {
+    if (!this.dayNight) return true;
+    return this.dayNight.phase === 'night';
+  }
+
+  nightRaidModifiers() {
+    if (!this.dayNight || this.dayNight.phase !== 'night') {
+      return { extraAlive: 0, extraPerTick: 0, difficulty: this.effectiveDifficulty?.() ?? 1 };
+    }
+    return nightRaidModifiers(this.dayNight.dayNumber, this.dayNight.rules);
+  }
+
+  nightRaidDifficulty() {
+    return this.nightRaidModifiers().difficulty;
+  }
+
+  applyDayNightLighting() {
+    const lights = this.world?.lights;
+    if (!lights || !this.dayNight) return;
+    const blend = nightBlend(this.dayNight, 12);
+    const sun = lights.sun;
+    const hemi = lights.hemisphere;
+    const ambient = lights.ambient;
+    if (sun) {
+      const dayColor = new THREE.Color('#fff2d5');
+      const nightColor = new THREE.Color('#6f86c8');
+      sun.color.copy(dayColor).lerp(nightColor, blend);
+      sun.intensity = 3.35 * (1 - blend) + 0.55 * blend;
+      const dayPos = { x: -54, y: 76, z: 62 };
+      const nightPos = { x: 18, y: 22, z: -48 };
+      sun.position.set(
+        dayPos.x + (nightPos.x - dayPos.x) * blend,
+        dayPos.y + (nightPos.y - dayPos.y) * blend,
+        dayPos.z + (nightPos.z - dayPos.z) * blend
+      );
+    }
+    if (hemi) {
+      hemi.intensity = 1.12 * (1 - blend) + 0.28 * blend;
+      const daySky = new THREE.Color('#bfe4ff');
+      const nightSky = new THREE.Color('#1b2a4a');
+      hemi.color.copy(daySky).lerp(nightSky, blend);
+    }
+    if (ambient) {
+      ambient.intensity = 0.56 * (1 - blend) + 0.18 * blend;
+    }
+    if (this.scene?.fog) {
+      const dayFog = new THREE.Color('#bcdcea');
+      const nightFog = new THREE.Color('#12182a');
+      this.scene.fog.color.copy(dayFog).lerp(nightFog, blend);
+    }
+    if (this.scene) {
+      const dayBg = new THREE.Color('#8fc9e6');
+      const nightBg = new THREE.Color('#0d1524');
+      this.scene.background.copy(dayBg).lerp(nightBg, blend);
+    }
+    const sky = this.world?.lights ? this.scene?.getObjectByName?.('StylizedSunsetSky') : null;
+    if (sky?.material?.color) {
+      const daySkyMesh = new THREE.Color('#7dc0e8');
+      const nightSkyMesh = new THREE.Color('#152238');
+      sky.material.color.copy(daySkyMesh).lerp(nightSkyMesh, blend);
+    }
+    document.body.classList.toggle('is-survival-night', blend > 0.45);
   }
 
   checkLevelEnd() {
@@ -8024,10 +5413,12 @@ export class Game {
       : null;
 
     const workers = this.grantSpawnPointWorkerReward(point, x, z);
+    const recruits = this.grantSpawnPointRecruitReward(point, x, z);
 
     const label = [
       drop ? '遗物落地' : null,
-      workers ? `获得木傀儡 ×${workers}` : null
+      workers ? `获得木傀儡 ×${workers}` : null,
+      recruits ? `发现可招募单位 ×${recruits}` : null
     ].filter(Boolean).join(' · ');
     if (label) {
       const center = new THREE.Vector3(x, 0, z);
@@ -8043,7 +5434,7 @@ export class Game {
         baseHeight: 0.5
       });
     }
-    return { drop, workers };
+    return { drop, workers, recruits };
   }
 
   /**
@@ -8120,7 +5511,7 @@ export class Game {
       return result;
     }
     const label = CRAFT_ERROR_LABELS[result.reason] ?? '无法合成';
-    this.cardSystem?.setHintOnce?.(`${recipe?.name ?? '合成'}：${label}`, `crafting:${recipeId}`);
+    this.hints?.setHintOnce?.(`${recipe?.name ?? '合成'}：${label}`, `crafting:${recipeId}`);
     return result;
   }
 
@@ -8159,11 +5550,9 @@ export class Game {
     return maxCraftableTimes(this.baseInventory, recipeOrId, { limit });
   }
 
-  /** I 键 / 常驻入口：基地库存与合成面板。合成不暂停战斗。 */
+  /** B 键 / 常驻入口：基地背包。合成不暂停战斗。 */
   toggleBaseStorage() {
-    if (!this.baseStorage) return false;
-    this.baseStorage.toggle();
-    return true;
+    return this.toggleBaseBackpack();
   }
 
   /**
@@ -8241,7 +5630,7 @@ export class Game {
       const label = result.reason === 'no_order'
         ? '招募需要一张招募令'
         : '这个单位现在无法招募';
-      this.cardSystem?.setHintOnce?.(label, `recruit:${unit.id}`);
+      this.hints?.setHintOnce?.(label, `recruit:${unit.id}`);
       return result;
     }
     // 招募成功后立刻切到它，玩家能直接下令——不然还要再点一次才知道成了。
@@ -8293,6 +5682,48 @@ export class Game {
     return unit.itemBag;
   }
 
+  /**
+   * 单位背包内容变化后的统一收尾。
+   *
+   * 现在有两件事挂在"背包变了"上：
+   *   1. 最大活动魔力要按背包里的魔力石重算（魔力石是电池，占格、叠加）；
+   *   2. 作业系统的背包缓存（工具列表、卸货清单）要失效，
+   *      否则会出现"背包里明明有斧子，规划器还说缺工具"。
+   * 任何搬运、合成、拾取、装备的入口都必须调它一次。
+   */
+  onUnitBackpackChanged(unit) {
+    if (!unit) return null;
+    this.refreshUnitManaCapacity(unit);
+    this.work?.notifyInventoryChanged?.(unit);
+    this.backpack?.markDirty?.();
+    return unit;
+  }
+
+  /**
+   * 重算单位的最大活动魔力：基础上限 + 背包里魔力石的加成。
+   *
+   * `baseManaCapacity` 记的是**基础**值（傀儡 60、设施配方 24 之类），
+   * 每次重算都从它出发，所以反复调用不会把加成越堆越高。
+   * 先有 unit.manaCapacity 却没有 baseManaCapacity 的单位（早先的代码路径）
+   * 会把当前值当成基础值，等价于"没有魔力石时的容量"。
+   */
+  refreshUnitManaCapacity(unit) {
+    if (!unit) return 0;
+    const current = Math.max(0, Number(unit.manaCapacity) || 0);
+    const base = Number.isFinite(Number(unit.baseManaCapacity))
+      ? Math.max(0, Number(unit.baseManaCapacity))
+      : current;
+    unit.baseManaCapacity = base;
+    const bag = this.itemBagFor(unit, { create: false });
+    const capacity = effectiveManaCapacity(base, bag);
+    unit.manaCapacity = capacity;
+    if (Number.isFinite(Number(unit.activityMana))) {
+      unit.activityMana = Math.min(Math.max(0, Number(unit.activityMana)), capacity);
+    }
+    unit.statusUiDirty = true;
+    return capacity;
+  }
+
   /** 基地库存 → 单位背包。 */
   transferBaseSlotToUnit(slotIndex, unit) {
     if (!unit?.alive) return { ok: false, reason: 'no_unit' };
@@ -8302,8 +5733,7 @@ export class Game {
     if (result.ok) {
       // 背包缓存不会自己失效：工具列表与卸货清单都从缓存派生，
       // 不通知的话会出现"背包里明明有斧子，规划器还说缺工具"。
-      this.work?.notifyInventoryChanged?.(unit);
-      this.baseStorage?.markDirty?.();
+      this.onUnitBackpackChanged(unit);
     }
     return result;
   }
@@ -8314,8 +5744,7 @@ export class Game {
     if (!bag) return { ok: false, reason: 'unit_has_no_bag' };
     const result = this.transferInventoryEntry(bag, this.baseInventory, slotIndex);
     if (result.ok) {
-      this.work?.notifyInventoryChanged?.(unit);
-      this.baseStorage?.markDirty?.();
+      this.onUnitBackpackChanged(unit);
     }
     return result;
   }
@@ -8365,9 +5794,8 @@ export class Game {
     }
 
     this.applyWeaponToUnit(unit, slot.itemId);
-    this.work?.notifyInventoryChanged?.(unit);
-    this.baseStorage?.markDirty?.();
-    this.cardSystem?.setHintOnce?.(
+    this.onUnitBackpackChanged(unit);
+    this.hints?.setHintOnce?.(
       `${unit.name}换上了${ITEM_DEFINITIONS[slot.itemId]?.name ?? slot.itemId}`,
       `equip:${unit.id}`
     );
@@ -8442,7 +5870,7 @@ export class Game {
     this.cancelPlacement();
     this.placingItem = { itemId, unitType: definition.placeable.unitType };
     this.createPlacementGhost(definition.placeable.unitType);
-    this.cardSystem?.setHint?.(
+    this.hints?.setHint?.(
       `放置${definition.name}：左键落地，右键或 Esc 取消`,
       'placement'
     );
@@ -8458,7 +5886,7 @@ export class Game {
       disposeObject3D(this.placementGhost, { materials: true });
       this.placementGhost = null;
     }
-    this.cardSystem?.clearHint?.('placement');
+    this.hints?.clearHint?.('placement');
     return true;
   }
 
@@ -8548,7 +5976,7 @@ export class Game {
       : new THREE.Vector3(Number(point?.x) || 0, 0, Number(point?.z) || 0);
     const check = this.canPlaceAt(spot);
     if (!check.ok) {
-      this.cardSystem?.setHintOnce?.(check.label, 'placement-blocked');
+      this.hints?.setHintOnce?.(check.label, 'placement-blocked');
       return { ok: false, reason: check.reason, label: check.label };
     }
     const spent = this.baseInventory.remove(placing.itemId, 1);
@@ -8565,7 +5993,7 @@ export class Game {
     // 箭塔 / 食堂：注册成"要魔力的设施"（魔力耗尽就停机）
     const facility = this.facilities?.registerFacility?.(unit) ?? null;
     this.effects?.spawnRing?.(unit.position, '#a9f0d8', 1.3, 0.6);
-    this.cardSystem?.setHintOnce?.(
+    this.hints?.setHintOnce?.(
       producer ? `${UNIT_DEFINITIONS[placing.unitType].name}已动工，建成后开始生产`
         : (burner ? `${UNIT_DEFINITIONS[placing.unitType].name}已动工，建成后开始供能`
           : (plot ? `${UNIT_DEFINITIONS[placing.unitType].name}已动工，建成后开始种树`
@@ -8593,34 +6021,110 @@ export class Game {
     return true;
   }
 
-  /** 快捷栏槽位：基地里当前可放置的建筑（按物品定义里的 `placeable` 判定）。 */
+  /**
+   * 资源 tab 的数据行：木傀儡能采到的 + 能合成的全部物品，带优先级与库存。
+   *
+   * 换算是纯逻辑（`resourcePriority.js`）：这里只把"当前优先级字典 + 基地库存"
+   * 拼成入参。界面每 400ms 拉一次，所以它也必须是只读的、不能有副作用。
+   */
+  resourcePriorityRows() {
+    return resourcePriorityRows({
+      priorities: this.resourcePriorities ?? {},
+      stock: this.baseInventory?.countsByItem?.() ?? {}
+    });
+  }
+
+  /**
+   * 调一项的优先级（Δ），并把结果同步给作业系统。
+   *
+   * 需求：「玩家可以点击对应物品增加或者减少优先级。Ai 根据优先级去做相关任务」。
+   * 所以每次改动都必须立刻重算采集需求——只在"下一帧顺便读一下"是不行的，
+   * 玩家点完「＋」要马上看到傀儡改去采那种资源。
+   */
+  setResourcePriority(itemId, delta) {
+    if (!itemId) return { ok: false, reason: 'unknown_item', label: '没有这件物品' };
+    const current = this.resourcePriorities?.[itemId];
+    // 没见过这一项时按默认优先级起步：资源有各自的默认（木 3 / 石 2 / 食 1），
+    // 合成产物默认 0。这样"第一次点＋"不会把木材从默认 3 掉到 1。
+    const base = current == null ? defaultPriorityFor(itemId) : current;
+    const next = clampPriority(Number(base) + Number(delta));
+    this.resourcePriorities = { ...(this.resourcePriorities ?? {}), [itemId]: next };
+    this.refreshWorkDemands();
+    this.backpack?.markDirty?.();
+    return { ok: true, itemId, priority: next };
+  }
+
+  /** 把"优先级字典"重算成采集需求表并交给作业系统。 */
+  refreshWorkDemands() {
+    if (!this.work?.setDemands) return [];
+    const demands = demandsFromRows(this.resourcePriorityRows());
+    this.work.setDemands(demands);
+    return demands;
+  }
+
+  /**
+   * 快捷栏的取材：基地库存里"能在世界里用掉"的东西。
+   *
+   * 两类，顺序固定：
+   *   1. 可放置的建筑（熔炉 / 魔力炉 / 科研站 / 附魔台 …）
+   *      —— 点一下进入放置模式，拖到地上直接落地；
+   *   2. 能交给单位的装备（工具 / 武器 / 符文石 / 魔力石）
+   *      —— 拖到单位身上就转移过去（需求：「拖拽相关东西给单位」）。
+   *
+   * **顺序固定是硬要求，不是随手排的**：槽位序号同时就是数字键 1..9 的含义。
+   * 如果每次刷新顺序都变，"按 1 放下的东西"每次都不一样，数字键就没有意义了。
+   * 所以先按"建筑在前、装备在后"，再按 itemId 字典序，同一套库存永远得到同一顺序。
+   */
   hotbarItems() {
     const inventory = this.baseInventory;
     if (!inventory) return [];
-    const entries = [];
+    const totals = new Map();
     inventory.slots.forEach((slot) => {
       if (!slot?.itemId) return;
       const definition = ITEM_DEFINITIONS[slot.itemId];
-      if (!definition?.placeable?.unitType) return;
-      const existing = entries.find((entry) => entry.itemId === slot.itemId);
+      if (!definition) return;
+      const placeable = Boolean(definition.placeable?.unitType);
+      const givable = itemIsGivable(slot.itemId);
+      if (!placeable && !givable) return;
+      const existing = totals.get(slot.itemId);
       if (existing) {
         existing.count += slot.count;
         return;
       }
-      entries.push({ itemId: slot.itemId, name: definition.name, count: slot.count });
+      totals.set(slot.itemId, {
+        itemId: slot.itemId,
+        name: definition.name,
+        count: slot.count,
+        placeable,
+        // `givable` 决定"拖到单位身上"能不能生效；`placeable` 决定"拖到地上"。
+        givable
+      });
     });
-    return entries;
+    return [...totals.values()].sort((a, b) => {
+      if (a.placeable !== b.placeable) return a.placeable ? -1 : 1;
+      return String(a.itemId).localeCompare(String(b.itemId));
+    });
   }
 
   /**
-   * 数字键 / 点击快捷栏：进入该建筑的放置模式；再按同一个键取消。
-   * 槽位是按"库存里现在有什么"动态算的，所以按键与物品的对应关系随时可能变——
-   * 这也是为什么取消的条件是"当前正在放的就是这一件"，而不是记住槽位号。
+   * 数字键 / 点击快捷栏：建筑进入放置模式（再按一次取消），
+   * 装备则交给当前选中的那个己方单位——点一下和拖过去是同一件事的两种手势。
    */
   activateHotbarSlot(index) {
     const items = this.hotbarItems();
     const entry = items[index] ?? null;
     if (!entry) return { ok: false, reason: 'empty_slot' };
+    if (!entry.placeable) {
+      const unit = this.selectedUnit ?? null;
+      if (!unit || unit.team !== TEAMS.PLAYER) {
+        this.hints?.setHintOnce?.(
+          `${entry.name}：拖到单位身上就能交给它`,
+          `hotbar-give-hint:${entry.itemId}`
+        );
+        return { ok: false, reason: 'no_unit_target', itemId: entry.itemId };
+      }
+      return this.giveItemToUnit(entry.itemId, unit);
+    }
     if (this.placingItem?.itemId === entry.itemId) {
       this.cancelPlacement();
       this.hotbar?.refresh?.();
@@ -8629,6 +6133,84 @@ export class Game {
     const result = this.beginPlacement(entry.itemId);
     this.hotbar?.refresh?.();
     return result;
+  }
+
+  /**
+   * 把基地库存里的一件物品交给一个单位。
+   *
+   * 走 `transferBaseSlotToUnit`（按**格**搬）：快捷栏里的装备全是实例物品
+   * （工具 / 武器 / 符文石 / 魔力石，stackLimit 都是 1），一格就是一件，
+   * 所以"搬一格"与"给一件"在这里是同一件事。堆叠类物品不进快捷栏（见 items.itemIsGivable），
+   * 所以不存在"把 200 个木材一次性塞给傀儡"这种误操作。
+   */
+  giveItemToUnit(itemId, unit) {
+    if (!unit?.alive) return { ok: false, reason: 'no_unit' };
+    const bag = this.itemBagFor(unit, { create: true });
+    if (!bag) {
+      this.hints?.setHintOnce?.(`${unit.name}没有物品背包`, `hotbar-give-nobag:${unit.id}`);
+      return { ok: false, reason: 'unit_has_no_bag' };
+    }
+    const slotIndex = this.baseInventory?.slots?.findIndex((slot) => slot?.itemId === itemId) ?? -1;
+    if (slotIndex < 0) return { ok: false, reason: 'not_in_stock' };
+    const result = this.transferBaseSlotToUnit(slotIndex, unit);
+    const name = ITEM_DEFINITIONS[itemId]?.name ?? itemId;
+    if (result?.ok) {
+      this.hints?.setHint?.(
+        `${name} 已交给${unit.name}（在单位背包里点「装备」才会生效）`,
+        `hotbar-give:${unit.id}:${itemId}`
+      );
+      this.hotbar?.refresh?.();
+    } else {
+      this.hints?.setHintOnce?.(`${unit.name}的背包放不下${name}`, `hotbar-give-full:${unit.id}`);
+    }
+    return result ?? { ok: false, reason: 'unknown' };
+  }
+
+  /**
+   * 快捷栏拖拽的落点处理（需求：拖给单位 / 拖建筑建造）。
+   *
+   * 判定顺序是"先看有没有单位、再看能不能放地上"：
+   * 装备掉在单位身上才是给出去，掉在空地上什么都不做（不弹建筑放置）；
+   * 建筑掉在单位身上不生效，掉在地上才进入放置。
+   * 返回 `{ok, target, unit?, itemId?, reason?}`，UI 直接用它决定提示文案。
+   */
+  dropHotbarItemAt(index, clientX, clientY) {
+    const entry = this.hotbarItems()[index] ?? null;
+    if (!entry) return { ok: false, reason: 'empty_slot' };
+    const unit = typeof this.pickUnitFromList === 'function'
+      ? this.pickUnitFromList(this.friendlyUnits, clientX, clientY, {
+        // 拖拽的目标判定要宽松一点：图标是拖到单位**模型**上，
+        // 而模型很小、指针稍有偏差就会落空。48px 与选中单位的兜底半径同一量级。
+        screenRadius: HOTBAR_DROP_UNIT_RADIUS,
+        // 拖给自己人，不受"能不能操控"的影响（联机时也是这样：
+        // 你拖的是自己的单位，索敌白名单不该参与判定）。
+        ignoreOwnership: true
+      })
+      : null;
+    if (entry.givable && unit) {
+      const given = this.giveItemToUnit(entry.itemId, unit);
+      return given.ok
+        ? { ok: true, target: 'unit', unit, itemId: entry.itemId }
+        : { ok: false, target: 'unit', unit, itemId: entry.itemId, reason: given.reason };
+    }
+    if (entry.placeable) {
+      const started = this.beginPlacement(entry.itemId);
+      if (!started.ok) return { ok: false, itemId: entry.itemId, reason: started.reason };
+      const point = this.groundPointFromClient(clientX, clientY);
+      if (!point) {
+        // 指针不在可落地的地面上：留在放置模式，让玩家接着点
+        return { ok: true, target: 'ground', pending: true, itemId: entry.itemId };
+      }
+      const placed = this.confirmPlacement(point);
+      return {
+        ok: placed?.ok !== false,
+        target: 'ground',
+        itemId: entry.itemId,
+        reason: placed?.reason ?? null
+      };
+    }
+    if (unit) return { ok: false, target: 'unit', unit, itemId: entry.itemId, reason: 'not_givable' };
+    return { ok: false, itemId: entry.itemId, reason: 'no_target' };
   }
 
   finishLevel(victory, { endReason = null } = {}) {
@@ -8864,7 +6446,7 @@ export class Game {
     document.body.classList.add('is-game-paused');
     this.cancelCameraDrag();
     this.cancelSelectionDrag();
-    this.cardSystem?.cancelActiveDrag?.();
+
     if (this.dom.pauseOverlay) this.dom.pauseOverlay.hidden = true;
     if (this.strategyEventUi?.root) this.strategyEventUi.root.hidden = true;
     if (this.runShopUi?.overlay) this.runShopUi.overlay.hidden = true;
@@ -8963,8 +6545,7 @@ export class Game {
       return;
     }
 
-    if (event.button !== 0 || this.cardSystem.drag) return;
-    if (this.lootDrops?.tryOpenPickup(event)) return;
+    if (event.button !== 0) return;
     // 放置模式：左键落地。无论成功与否都吃掉这次点击，避免顺带拉出一个框选。
     if (this.tryPlaceAtPointer(event)) {
       event.preventDefault();
@@ -8975,7 +6556,7 @@ export class Game {
   }
 
   beginSelectionDrag(event) {
-    if (this.cardSystem.drag) return;
+    if (this.isPlacing()) return;
     this.selectionDrag = {
       pointerId: event.pointerId,
       startX: event.clientX,
@@ -9020,22 +6601,17 @@ export class Game {
     }
     if (event.repeat) return;
     const key = event.key.toLowerCase();
-    // E：给鼠标指向（其次当前选中）的己方单位打开符文背包；再按一次关闭两个背包。
+    // E：给鼠标指向（其次当前选中）的己方单位打开背包。背包界面只有一种，
+    // 左边是背包网格、右边是配方，所以 E 与 B 的差别只是"开谁的"。
     if (key === 'e' && !event.ctrlKey && !event.metaKey && !event.altKey) {
       event.preventDefault();
-      this.toggleUnitRuneBackpack();
+      this.toggleUnitBackpack();
       return;
     }
-    // B：打开基地背包，居中显示，只展示基地存储。
+    // B：基地背包。左侧 6x8=48 格，右侧是已解锁的合成配方，底部是快捷栏。
     if (key === 'b' && !event.ctrlKey && !event.metaKey && !event.altKey) {
       event.preventDefault();
-      this.toggleBaseRuneBackpack();
-      return;
-    }
-    // I：基地库存与合成面板。E/B 已经被符文背包占用，所以库存另给一个键。
-    if (key === 'i' && !event.ctrlKey && !event.metaKey && !event.altKey) {
-      event.preventDefault();
-      this.toggleBaseStorage();
+      this.toggleBaseBackpack();
       return;
     }
     // 数字键 1-9：物品快捷栏。放的是基地里可放置的建筑，按一次进入放置模式，
@@ -9071,21 +6647,18 @@ export class Game {
         this.cancelPlacement();
         return;
       }
-      // 符文背包：Esc 与再按一次 E 等价，两个背包一起关闭。
-      if (this.runeBackpack?.isOpen()) {
-        this.runeBackpack.close();
+      // 背包界面：Esc 与再按一次 B/E 等价。
+      if (this.backpack?.isOpen()) {
+        this.backpack.close();
         return;
       }
-      if (this.baseStorage?.isOpen()) {
-        this.baseStorage.close();
+      // 科研站 / 附魔台界面同理
+      if (this.facilityPanel?.isOpen()) {
+        this.facilityPanel.close();
         return;
       }
       if (this.battleDebugPanel?.isOpen()) {
         this.battleDebugPanel.close();
-        return;
-      }
-      if (this.runShopOpen) {
-        this.escapeRunShop();
         return;
       }
       this.setPaused(!this.paused, '设置');
@@ -9098,9 +6671,20 @@ export class Game {
         return;
       }
       this.setNavDebugEnabled(!this.navDebugEnabled);
-      this.cardSystem?.setHint?.(
+      this.hints?.setHint?.(
         this.navDebugEnabled ? '寻路网格：开启（Shift+N 关闭）' : '寻路网格：关闭（Shift+N 开启）',
         'nav-debug'
+      );
+      return;
+    }
+    if (key === 'g' && event.shiftKey) {
+      // Shift+G：威胁度热力叠加（调试用）。用户要求"加一个调试开关可叠加显示"。
+      // 默认关闭；开启后地面按威胁度着色（绿→黄→红），关掉立即隐藏。
+      event.preventDefault();
+      const enabled = this.threat?.toggleDebug?.() === true;
+      this.hints?.setHint?.(
+        enabled ? '威胁度叠加：开启（Shift+G 关闭）' : '威胁度叠加：关闭（Shift+G 开启）',
+        'threat-debug'
       );
       return;
     }
@@ -9218,7 +6802,7 @@ export class Game {
   }
 
   beginCameraDrag(event, options = {}) {
-    if (this.cardSystem.drag || this.selectionDrag || isGameUiTarget(event.target)) return;
+    if (this.selectionDrag || isGameUiTarget(event.target)) return;
     event.preventDefault();
     event.stopPropagation();
     this.cameraDrag = {
@@ -9543,10 +7127,6 @@ export class Game {
   }
 
   handleMobileTapCommand(event) {
-    if (this.lootDrops?.tryOpenPickup(event)) {
-      return;
-    }
-
     const hasCommandableSelection = this.hasMovablePlayerSelection();
     const unit = hasCommandableSelection
       ? this.pickSelectableUnit(event.clientX, event.clientY, {
@@ -9756,7 +7336,7 @@ export class Game {
     if (this.navDebugEnabled) {
       this.ensureNavDebugGrid();
     } else {
-      this.cardSystem?.clearHint?.('nav-debug');
+      this.hints?.clearHint?.('nav-debug');
     }
   }
 
@@ -9882,6 +7462,17 @@ export class Game {
       element.hidden = true;
       return;
     }
+    // 可招募的野外单位血条是**白色**（需求）。状态条元素在创建时只按队伍分了阵营色
+    // （它们是 ENEMY，所以默认是红的），而"可招募"是运行时标记、招募后还会被清掉，
+    // 所以在这里每帧同步一次类名。一次 classList.toggle 相对这个函数本来就有的
+    // transform 写入可以忽略。
+    element.classList.toggle('is-recruitable', unit.isRecruitable === true);
+    // 阵营类名同样要同步：单位会被**换队**（野外招募走的就是 changeTeam），
+    // 而状态条元素是在创建时按当时的队伍定类的。不同步的话，招募过来的自家兵
+    // 会一直挂着 `.is-enemy` —— 也就是"自己的部队显示红血条"。
+    const friendly = unit.team === TEAMS.PLAYER;
+    element.classList.toggle('is-friendly', friendly);
+    element.classList.toggle('is-enemy', !friendly);
     const screen = this.projectWorldUi(unit.position, unitStatusHeight(unit));
     element.hidden = !screen.visible;
     if (!element.hidden) {
@@ -10016,6 +7607,19 @@ export class Game {
     };
   }
 
+  /**
+   * 点选单位后在其下方扇形展开的交互菜单（背包 / 招募 / 停止）。
+   *
+   * 必须在**每帧**调用：菜单的位置是世界坐标投影出来的，单位在移动、镜头在平移时
+   * 每帧都会变。之前它挂在 updateHud() 里，而 updateHud 有 0.1s 节流
+   * （hudUpdateTimer），于是菜单只有 10Hz 的跟随——表现就是"扇形菜单跟着单位一顿
+   * 一顿地追"，手感像掉帧。按钮的 DOM 只在签名变化时重建（见 UnitActionMenu.sync），
+   * 每帧成本只有一次投影与两次 style 写入。
+   */
+  syncUnitActionMenu() {
+    this.unitActionMenu?.sync?.();
+  }
+
   updateHud(dt = 0) {
     this.hudUpdateTimer -= dt;
     if (this.hudUpdateTimer > 0) return;
@@ -10029,20 +7633,33 @@ export class Game {
       );
       this.dom.baseHealth.textContent = `${baseRatio}%`;
     }
-    const displayedWave = this.currentWave ?? this.waveSchedule[this.waveIndex] ?? null;
-    if (this.isEndlessMode()) {
-      this.dom.waveLabel.textContent = displayedWave
-        ? String(displayedWave.index)
-        : String(Math.max(1, this.wave || 1));
-    } else {
-      this.dom.waveLabel.textContent = displayedWave
-        ? `${displayedWave.index}/${this.waveSchedule.length}`
-        : `${this.waveSchedule.length}/${this.waveSchedule.length}`;
+    if (!this.isSurvivalLevel()) {
+      const displayedWave = this.currentWave ?? this.waveSchedule[this.waveIndex] ?? null;
+      if (this.isEndlessMode()) {
+        this.dom.waveLabel.textContent = displayedWave
+          ? String(displayedWave.index)
+          : String(Math.max(1, this.wave || 1));
+      } else {
+        this.dom.waveLabel.textContent = displayedWave
+          ? `${displayedWave.index}/${this.waveSchedule.length}`
+          : `${this.waveSchedule.length}/${this.waveSchedule.length}`;
+      }
     }
-    if (this.dom.silverCount) {
-      this.dom.silverCount.textContent = formatSilverAmount(this.getSilver());
-    }
-    if (this.isEndlessMode()) {
+    if (this.dom.silverCount) this.dom.silverCount.textContent = '0';
+    if (this.isSurvivalLevel() && this.dayNight) {
+      const isNight = this.dayNight.phase === 'night';
+      if (this.dom.battleTimeLabel) {
+        this.dom.battleTimeLabel.textContent = isNight
+          ? `第 ${this.dayNight.dayNumber} 夜`
+          : `第 ${this.dayNight.dayNumber} 天`;
+      }
+      const remaining = Math.max(0, (isNight
+        ? this.dayNight.rules.nightSeconds
+        : this.dayNight.rules.daySeconds) - (this.dayNight.phaseElapsed ?? 0));
+      this.dom.battleTime.textContent = formatBattleTime(remaining);
+      this.dom.battleTime.closest('.meter-time')?.classList.toggle('is-night', isNight);
+      this.dom.battleTime.closest('.meter-time')?.classList.remove('is-expired');
+    } else if (this.isEndlessMode()) {
       if (this.dom.battleTimeLabel) this.dom.battleTimeLabel.textContent = '难度';
       this.dom.battleTime.textContent = Number(this.endlessDifficulty || 0).toFixed(1);
       this.dom.battleTime.closest('.meter-time')?.classList.remove('is-expired');
@@ -10134,8 +7751,12 @@ export class Game {
       }
       this.dom.selectedStats.textContent =
         `HP ${hp}/${Math.round(unit.maxHealth)} / 护盾 ${shield}/${Math.round(unit.maxShield)} / 武器 ${unit.weapon.name} / 耐久 ${durability}/${maxDurability}`;
+      const bag = this.itemBagFor(unit, { create: false }) ?? unit.workerInventory ?? unit.itemBag ?? null;
+      const bagUsed = bag?.usedSlots?.() ?? 0;
+      const bagSize = bag?.capacity ?? 0;
+      const stoneCount = this.runeStones?.stonesForUnit?.(unit)?.length ?? 0;
       this.dom.selectedEnchants.textContent =
-        `物攻 ${physicalAttack} / 魔攻 ${magicAttack} / 护甲 ${armor} / 魔抗 ${magicResistance} / 闪避 ${dodgeChance}% / 抗击退 ${knockbackResistance}% / 符文背包 ${this.runeStones?.stonesForUnit?.(unit)?.length ?? 0}/${Math.max(0, Math.floor(unit.maxEnchantmentSlots ?? 5))} / 符文 ${this.formatRuneStoneList(unit) || '-'}`;
+        `物攻 ${physicalAttack} / 魔攻 ${magicAttack} / 护甲 ${armor} / 魔抗 ${magicResistance} / 闪避 ${dodgeChance}% / 抗击退 ${knockbackResistance}% / 背包 ${bagUsed}/${bagSize} / 最大魔力 ${Math.round(unit.manaCapacity ?? 0)} / 符文石 ${stoneCount} 块`;
     } else {
       if (this.dom.selectedPanel) {
         this.dom.selectedPanel.hidden = true;
@@ -10147,6 +7768,9 @@ export class Game {
       this.dom.selectedStats.textContent = 'HP - / 武器 -';
       this.dom.selectedEnchants.textContent = '附魔 -';
     }
+    // 注意：单位交互菜单**不在这里**同步。updateHud 有 0.1s 节流
+    // （hudUpdateTimer），菜单跟着它跑就只有 10Hz 的跟随——单位一走、镜头一推，
+    // 菜单会明显掉队再追上去。它改由 tick() 里的 syncUnitActionMenu() 每帧同步。
     this.syncCameraFollowUi();
     if (this.perfJsonEnabled && this.dom.debug) {
       this.dom.debug.hidden = false;
@@ -10468,14 +8092,7 @@ function normalizeLevelSession(session) {
     baseReward: 0,
     targetTime: 180
   };
-  const fallbackDeck = CARD_DEFINITIONS
-    .filter((card) => !card.lootOnly && !card.retired)
-    .slice(0, 5)
-    .map((card, index) => ({
-      ...card,
-      level: 1,
-      instanceId: `debug-${card.id}-${index}`
-    }));
+  const fallbackDeck = [];
   const level = session?.level ?? fallbackLevel;
   const challengeMode = normalizeChallengeMode(session?.challengeMode);
   const normalizeRuntimeDeck = (deck) => (
@@ -10787,15 +8404,6 @@ function waveKindLabel(wave) {
   return '普通';
 }
 
-function cardRunLocationLabel(game, card) {
-  const cs = game?.cardSystem;
-  if (!cs || !card) return '卡牌';
-  if (cs.handCards.includes(card)) return '手牌';
-  if (cs.drawPile.includes(card)) return '抽牌堆';
-  if (cs.discardPile.includes(card)) return '弃牌堆';
-  return '卡牌';
-}
-
 function waveAffixLabel(affixId) {
   const affix = WAVE_AFFIX_DEFINITIONS[affixId];
   if (!affix) return '无主题';
@@ -10820,27 +8428,6 @@ function pickRandomItems(items, count) {
     [pool[index], pool[swapIndex]] = [pool[swapIndex], pool[index]];
   }
   return pool.slice(0, Math.min(count, pool.length));
-}
-
-export function createWaveRewardCandidateEntries(cards, trainingChoices) {
-  const cardEntries = (Array.isArray(cards) ? cards : []).map((card) => ({
-    action: 'add-card',
-    actionLabel: '获得卡牌',
-    card,
-    title: card.name,
-    description: card.summary,
-    rewardSource: 'wave-reward-deck'
-  }));
-  const trainingEntries = Array.isArray(trainingChoices) ? trainingChoices : [];
-  return [...cardEntries, ...trainingEntries];
-}
-
-function isOpeningCombatSummon(card) {
-  if (card?.kind !== 'summon' || !card.unitType) return false;
-  const unit = UNIT_DEFINITIONS[card.unitType];
-  if (!unit || unit.isBuilding || unit.support) return false;
-  return Math.max(unit.physicalAttack ?? 0, unit.magicAttack ?? 0) >= 3 &&
-    (unit.attackRange ?? 0) > 0;
 }
 
 function runtimeUnitUpgradeDefinition(unitType, upgradeId) {
@@ -11095,42 +8682,6 @@ function applyBuildingCardUpgrade(unit, card) {
   }
 }
 
-function cardSortKey(card) {
-  const order = {
-    summon: '1',
-    building: '2',
-    spell: '3',
-    enchant: '4',
-    tactic: '5',
-    ability: '6'
-  }[card?.kind] ?? '9';
-  return `${order}:${card?.name ?? card?.id ?? ''}`;
-}
-
-function formatSilverAmount(amount) {
-  const value = Math.max(0, Number(amount) || 0);
-  if (Math.abs(value - Math.round(value)) < 0.05) return String(Math.round(value));
-  return value.toFixed(1);
-}
-
-function normalizeCoopRewardSeconds(seconds) {
-  if (seconds == null || seconds === '') return null;
-  const value = Number(seconds);
-  return Number.isFinite(value) ? Math.max(0, Math.ceil(value)) : null;
-}
-
-function formatCoopRewardCountdownSuffix(seconds) {
-  const value = normalizeCoopRewardSeconds(seconds);
-  return value === null ? '' : ` · 剩余 ${value} 秒`;
-}
-
-function appendCoopRewardCountdown(text, seconds, timeoutText) {
-  const value = normalizeCoopRewardSeconds(seconds);
-  const base = String(text ?? '').trim();
-  if (value === null) return base;
-  return [base, `剩余 ${value} 秒，${timeoutText}`].filter(Boolean).join(' ');
-}
-
 function formatDisplayedHealth(health) {
   const value = Number(health) || 0;
   if (value <= 0) return 0;
@@ -11139,513 +8690,6 @@ function formatDisplayedHealth(health) {
 
 function randomItem(items) {
   return items[Math.floor(Math.random() * items.length)] ?? items[0];
-}
-
-function strategyRewardMarkup(choice, index, options = {}) {
-  const visual = strategyRewardVisualMeta(choice);
-  const card = resolveStrategyChoiceCard(choice, index);
-  const directCard = choice.card ?? choice.targetCard ?? choice.temporaryCard ?? null;
-  const cardAccent = cardThemeColor(card);
-  const title = directCard?.name ?? choice.title ?? '奖励';
-  const description = directCard?.summary ?? choice.description ?? '';
-  const typeLabel = strategyChoiceCardTypeLabel(choice, card);
-  const disabledAttr = choice.disabled ? ' disabled aria-disabled="true"' : '';
-  const choiceIndexAttribute = options.choiceIndexAttribute ?? 'data-strategy-choice-index';
-  const extraClass = options.extraClass ? ` ${options.extraClass}` : '';
-  const actionLabel = choice.actionLabel ?? visual.actionLabel;
-  return `
-    <button
-      class="strategy-reward-option strategy-reward-card meta-card is-forged-reward is-${visual.kindKey}${extraClass}${choice.disabled ? ' is-disabled' : ''}"
-      type="button"
-      ${choiceIndexAttribute}="${index}"${disabledAttr}
-      style="--reward-accent:${visual.accent};--card-accent:${cardAccent};--card-color:${cardAccent}"
-      aria-label="${escapeHtml(actionLabel)}：${escapeHtml(title)}"
-    >
-      <div class="wave-reward-card-frame">
-        ${createForgedCardMarkup(card, {
-          title,
-          summary: description,
-          typeLabel
-        })}
-      </div>
-    </button>
-  `;
-}
-
-function strategyRewardVisualMeta(choice) {
-  if (choice.action === 'apply-team-upgrade' || choice.upgrade?.kind === 'unit-generic') {
-    return {
-      kindKey: 'attribute',
-      typeLabel: '属性强化',
-      actionLabel: '获得强化',
-      icon: '↑',
-      accent: '#9eeedb'
-    };
-  }
-  if (choice.action === 'apply-team-special-upgrade' || choice.upgrade?.kind === 'unit-special') {
-    return {
-      kindKey: 'trait',
-      typeLabel: '特性强化',
-      actionLabel: '获得特性',
-      icon: '★',
-      accent: '#ffd166'
-    };
-  }
-  if (choice.action === 'copy-card') {
-    const card = choice.card ?? choice.targetCard;
-    return {
-      kindKey: 'copy',
-      typeLabel: '复制奖励',
-      actionLabel: '复制卡牌',
-      icon: '⧉',
-      accent: cardThemeColor(card)
-    };
-  }
-  if (choice.action === 'remove-card') {
-    const card = choice.card ?? choice.targetCard;
-    return {
-      kindKey: 'remove',
-      typeLabel: '移除卡牌',
-      actionLabel: '移除卡牌',
-      icon: '✕',
-      accent: '#ff8a8a'
-    };
-  }
-  if (choice.action === 'upgrade-card') {
-    const card = choice.card ?? choice.targetCard;
-    return {
-      kindKey: 'upgrade',
-      typeLabel: '升级卡牌',
-      actionLabel: '升级卡牌',
-      icon: '⬆',
-      accent: cardThemeColor(card)
-    };
-  }
-  if (choice.action === 'grant-temporary-card') {
-    const card = choice.temporaryCard ?? choice.card;
-    return {
-      kindKey: 'temporary',
-      typeLabel: '特殊卡牌',
-      actionLabel: '获得特殊卡牌',
-      icon: '⏱',
-      accent: cardThemeColor(card)
-    };
-  }
-  if (choice.action === 'acquire-ability') {
-    const card = choice.card;
-    return {
-      kindKey: 'ability',
-      typeLabel: '能力卡',
-      actionLabel: '获得能力',
-      icon: '★',
-      accent: cardThemeColor(card)
-    };
-  }
-  if (choice.action === 'add-card') {
-    const card = choice.card;
-    return {
-      kindKey: 'card',
-      typeLabel: '卡牌奖励',
-      actionLabel: '获得卡牌',
-      icon: '▣',
-      accent: cardThemeColor(card)
-    };
-  }
-  return {
-    kindKey: 'reward',
-    typeLabel: strategyRewardKindLabel(choice, choice.card ?? {}),
-    actionLabel: choice.actionLabel ?? '选择',
-    icon: '✦',
-    accent: choice.color ?? '#9eeedb'
-  };
-}
-
-function strategyChoiceMarkup(choice, index) {
-  return strategyRewardMarkup(choice, index);
-}
-
-function resolveStrategyChoiceCard(choice, index) {
-  if (choice.card) return choice.card;
-  if (choice.targetCard) return choice.targetCard;
-  if (choice.temporaryCard) return choice.temporaryCard;
-  return {
-    id: `strategy-choice-${index}`,
-    name: choice.title ?? '奖励',
-    kind: rewardOptionCardKind(choice),
-    label: rewardOptionLabel(choice),
-    artKey: choice.artKey ?? 'tacticUpgrade',
-    summary: choice.description ?? '',
-    energyCost: 0,
-    color: choice.color ?? '#9eeedb',
-    level: 1
-  };
-}
-
-function strategyRewardKindLabel(choice, card) {
-  if (choice.action === 'apply-team-upgrade') return '全队训练';
-  if (choice.action === 'apply-team-special-upgrade') return '兵种专精';
-  if (choice.action === 'apply-card-upgrade') {
-    return choice.upgrade?.kind === 'unit-special' ? '兵种专精' : '全队训练';
-  }
-  if (choice.action === 'copy-card') return '复制';
-  if (choice.action === 'grant-temporary-card') return '特殊卡牌';
-  return strategyKindLabel(card.kind);
-}
-
-function strategyChoiceCardTypeLabel(choice, card) {
-  if (choice.action === 'apply-team-upgrade' || choice.upgrade?.kind === 'unit-generic') {
-    return '训练卡';
-  }
-  if (choice.action === 'apply-team-special-upgrade' || choice.upgrade?.kind === 'unit-special') {
-    return '专精卡';
-  }
-  return strategyKindLabel(card.kind);
-}
-
-function dedupeStrategyChoices(choices) {
-  const seen = new Set();
-  return choices.filter((choice) => {
-    const key = strategyChoiceDedupeKey(choice);
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-function strategyChoiceDedupeKey(choice) {
-  if (choice.action === 'apply-team-upgrade') {
-    return `team-upgrade:${choice.upgrade?.id}`;
-  }
-  if (choice.action === 'apply-team-special-upgrade') {
-    return `team-special:${choice.unitType}:${choice.upgrade?.id}`;
-  }
-  if (choice.action === 'apply-card-upgrade') {
-    return `upgrade:${choice.targetCard?.unitType ?? choice.targetCard?.id}:${choice.upgrade?.id}`;
-  }
-  if (choice.action === 'add-card') return `add:${choice.card?.id}`;
-  if (choice.action === 'copy-card') return `copy:${choice.card?.id}`;
-  if (choice.action === 'grant-temporary-card') return `temp:${choice.temporaryCard?.id ?? choice.card?.id}`;
-  return `${choice.action}:${choice.title}:${choice.description}`;
-}
-
-function strategyEventTypeMeta(type) {
-  if (isOpeningRewardType(type)) {
-    return { key: 'opening', mark: '初', label: '开局选牌' };
-  }
-  if (type === 'wave-reward') {
-    return { key: 'choice', mark: '奖', label: '战场奖励' };
-  }
-  if (type === 'card-kind-choice') {
-    return { key: 'choice', mark: '选', label: '选牌奖励' };
-  }
-  if (type === 'existing-card-copy') {
-    return { key: 'copy', mark: '复', label: '复制奖励' };
-  }
-  if (type === 'card-maintenance') {
-    return { key: 'upgrade', mark: '升', label: '升级事件' };
-  }
-  if (type === 'card-copy') {
-    return { key: 'copy', mark: '复', label: '复制事件' };
-  }
-  return { key: 'choice', mark: '选', label: '选牌奖励' };
-}
-
-function strategyChoiceActionMeta(choice) {
-  if (choice.action === 'open-card-kind-choice') return { key: 'select-upgrade', label: '选卡方向' };
-  if (choice.action === 'open-card-upgrade-choice') return { key: 'upgrade-card', label: '升级入口' };
-  if (choice.action === 'open-card-copy-choice') return { key: 'copy-card', label: '复制入口' };
-  if (choice.action === 'grant-temporary-card') return { key: 'restore-card', label: '特殊卡牌奖励' };
-  if (choice.action === 'add-card') return { key: 'add-card', label: '新卡奖励' };
-  if (choice.action === 'select-upgrade-card') return { key: 'select-upgrade', label: '选择升级对象' };
-  if (choice.action === 'apply-team-upgrade') return { key: 'team-upgrade', label: '全队训练' };
-  if (choice.action === 'apply-team-special-upgrade') return { key: 'team-special', label: '兵种专精' };
-  if (choice.action === 'apply-card-upgrade') return { key: 'apply-upgrade', label: '升级倾向' };
-  if (choice.action === 'upgrade-card') return { key: 'upgrade-card', label: '等级提升' };
-  if (choice.action === 'copy-card') return { key: 'copy-card', label: '复制奖励' };
-  return { key: choice.action ?? 'choice', label: choice.actionLabel ?? '奖励' };
-}
-
-function strategyKindLabel(kind) {
-  if (kind === 'summon') return '单位卡';
-  if (kind === 'building') return '建筑卡';
-  if (kind === 'spell') return '法术卡';
-  if (kind === 'tactic') return '战术卡';
-  if (kind === 'ability') return '能力卡';
-  return '附魔卡';
-}
-
-function rewardOptionCardKind(option) {
-  if (option.cardKind) return option.cardKind;
-  if (option.action === 'open-card-upgrade-choice') return 'tactic';
-  if (option.action === 'open-card-copy-choice') return 'ability';
-  return 'tactic';
-}
-
-function rewardOptionLabel(option) {
-  if (option.cardKind === 'summon') return '兵';
-  if (option.cardKind === 'spell') return '法';
-  if (option.cardKind === 'enchant') return '附';
-  if (option.cardKind === 'tactic') return '策';
-  if (option.cardKind === 'ability') return '能';
-  if (option.cardKind === 'building') return '建';
-  if (option.action === 'open-card-upgrade-choice') return '升';
-  if (option.action === 'open-card-copy-choice') return '复';
-  return '奖';
-}
-
-function rewardOptionMetaText(option) {
-  if (option.cardKind) return `${strategyKindLabel(option.cardKind)} / 三选一`;
-  if (option.action === 'open-card-upgrade-choice') return '已有卡牌 / 升级倾向';
-  if (option.action === 'open-card-copy-choice') return '已有卡牌 / 满次数复制';
-  return '特殊卡牌 / 本局限定';
-}
-
-function createInitialShopPrices() {
-  const basePrice = Number(BALANCE.runCurrency?.shop?.basePrice ?? RUN_SHOP_BASE_PRICE);
-  const prices = {};
-  RUN_SHOP_CATEGORIES.forEach((category) => {
-    prices[category.key] = basePrice;
-  });
-  return prices;
-}
-
-export function normalizeStrategyEventType(type) {
-  return type === 'unit-upgrade' ? 'wave-reward' : type;
-}
-
-// 开局三选一系列事件（单位卡 ×路线数 / 能力 / 地形）。
-export function isOpeningRewardType(type) {
-  return OPENING_REWARD_STEP_ORDER.some(
-    (key) => OPENING_REWARD_STEP_DEFINITIONS[key].type === type
-  );
-}
-
-function openingRewardStep(type) {
-  const key = OPENING_REWARD_STEP_ORDER.find(
-    (candidate) => OPENING_REWARD_STEP_DEFINITIONS[candidate].type === type
-  );
-  return key ? OPENING_REWARD_STEP_DEFINITIONS[key] : null;
-}
-
-function unitSpecializationRewardCardId(unitType, upgradeId) {
-  return `team-special-${unitType}-${upgradeId}`;
-}
-
-function createRunShopUi() {
-  return ensureRunShopUi(null);
-}
-
-function ensureRunShopUi(existing = null) {
-  const overlays = [...document.querySelectorAll('#run-shop-overlay')];
-  let overlay = overlays[0] ?? null;
-  for (let i = 1; i < overlays.length; i += 1) {
-    overlays[i].remove();
-  }
-  if (!overlay) {
-    overlay = document.createElement('div');
-    overlay.id = 'run-shop-overlay';
-    overlay.className = 'run-shop-overlay';
-    overlay.hidden = true;
-    overlay.setAttribute('role', 'dialog');
-    overlay.setAttribute('aria-modal', 'true');
-    overlay.innerHTML = RUN_SHOP_OVERLAY_INNER_HTML;
-    document.body.appendChild(overlay);
-  } else {
-    document.body.appendChild(overlay);
-  }
-  let root = overlay.querySelector('#run-shop-panel');
-  if (!root) {
-    overlay.innerHTML = RUN_SHOP_OVERLAY_INNER_HTML;
-    root = overlay.querySelector('#run-shop-panel');
-  }
-  if (!root?.querySelector('#run-shop-card-scale-control')) {
-    root?.querySelector('#run-shop-choice-list')?.insertAdjacentHTML(
-      'beforebegin',
-      RUN_SHOP_CARD_SCALE_CONTROL_HTML
-    );
-  }
-  return {
-    overlay,
-    root,
-    toggle: existing?.toggle ?? document.querySelector('#run-shop-toggle'),
-    kicker: root?.querySelector('.run-shop-kicker'),
-    title: root?.querySelector('.run-shop-title'),
-    silver: root?.querySelector('#run-shop-silver'),
-    services: root?.querySelector('#run-shop-services'),
-    skip: root?.querySelector('#run-shop-skip'),
-    close: root?.querySelector('#run-shop-close'),
-    back: root?.querySelector('#run-shop-back'),
-    choices: root?.querySelector('#run-shop-choices'),
-    cardScaleControl: root?.querySelector('#run-shop-card-scale-control'),
-    cardScaleInput: root?.querySelector('#run-shop-card-scale'),
-    cardScaleValue: root?.querySelector('#run-shop-card-scale-value'),
-    choiceList: root?.querySelector('#run-shop-choice-list')
-  };
-}
-
-const RUN_SHOP_CARD_SCALE_CONTROL_HTML = `
-  <label id="run-shop-card-scale-control" class="run-shop-card-scale-control" hidden>
-    <span>卡牌大小 <output id="run-shop-card-scale-value" for="run-shop-card-scale">100%</output></span>
-    <input id="run-shop-card-scale" type="range" min="55" max="100" step="5" value="100" aria-label="卡牌大小" />
-  </label>
-`;
-
-const RUN_SHOP_OVERLAY_INNER_HTML = `
-  <section id="run-shop-panel" class="run-shop-panel" aria-label="军需铺" tabindex="-1">
-    <header class="run-shop-header">
-      <div class="run-shop-heading">
-        <span class="run-shop-kicker">营地军需</span>
-        <h2 class="run-shop-title">军需铺</h2>
-      </div>
-      <button id="run-shop-close" class="run-shop-close" type="button" aria-label="关闭军需铺">×</button>
-    </header>
-    <p class="run-shop-balance">持有 <strong id="run-shop-silver">0</strong> 银币</p>
-    <div id="run-shop-services" class="run-shop-services"></div>
-    <button id="run-shop-skip" class="run-shop-skip" type="button" hidden>${RUN_SHOP_CONTINUE_LABEL}</button>
-    <div id="run-shop-choices" class="run-shop-choices" hidden>
-      <button id="run-shop-back" class="run-shop-back" type="button">${RUN_SHOP_BACK_TO_UNIT_LABEL}</button>
-      ${RUN_SHOP_CARD_SCALE_CONTROL_HTML}
-      <div id="run-shop-choice-list" class="run-shop-choice-list"></div>
-    </div>
-  </section>
-`;
-
-/**
- * 军需补给铺的一件具体商品：名称、效果、银币价格与售罄状态都直接可见。
- * 复用旧服务行的 DOM 结构与样式，点击同样走 data-run-shop-choice-index。
- */
-function runShopSupplyItemMarkup(choice, index) {
-  const kind = choice.itemKind ?? 'unitCard';
-  const icon = RUN_SHOP_SUPPLY_KIND_ICONS[kind] ?? '✦';
-  const label = RUN_SHOP_SUPPLY_KIND_LABELS[kind] ?? '';
-  const title = choice.title ?? choice.card?.name ?? label;
-  const summary = choice.card?.summary ?? choice.description ?? '';
-  const description = label ? `${label} · ${summary}` : summary;
-  const priceLabel = choice.actionLabel
-    ?? `${formatSilverAmount(choice.itemPrice ?? 0)} 银币`;
-  const disabled = choice.disabled === true;
-  return `
-    <button
-      class="run-shop-service run-shop-supply-item${disabled ? ' is-disabled' : ''}"
-      type="button"
-      data-run-shop-choice-index="${index}"
-      ${disabled ? 'disabled aria-disabled="true"' : ''}
-    >
-      <span class="run-shop-service-icon" aria-hidden="true">${escapeHtml(icon)}</span>
-      <span class="run-shop-service-body">
-        <strong class="run-shop-service-title">${escapeHtml(title)}</strong>
-        <span class="run-shop-service-desc">${escapeHtml(description)}</span>
-      </span>
-      <span class="run-shop-service-price">${escapeHtml(priceLabel)}</span>
-    </button>
-  `;
-}
-
-/** 兵种专精第一步（选择兵种 / 专精已满的补偿）使用同一套服务行样式。 */
-function runShopServiceOptionMarkup(choice, index, options = {}) {
-  const icon = options.icon ?? '专';
-  const priceLabel = options.priceLabel ?? RUN_SHOP_FREE_LABEL;
-  const disabled = choice.disabled === true;
-  return `
-    <button
-      class="run-shop-service${disabled ? ' is-disabled' : ''}"
-      type="button"
-      data-run-shop-choice-index="${index}"
-      ${disabled ? 'disabled aria-disabled="true"' : ''}
-    >
-      <span class="run-shop-service-icon" aria-hidden="true">${escapeHtml(icon)}</span>
-      <span class="run-shop-service-body">
-        <strong class="run-shop-service-title">${escapeHtml(choice.title ?? '兵种专精')}</strong>
-        <span class="run-shop-service-desc">${escapeHtml(choice.description ?? '')}</span>
-      </span>
-      <span class="run-shop-service-price">${escapeHtml(priceLabel)}</span>
-    </button>
-  `;
-}
-
-function runShopChoiceUsesCardFace(choice) {
-  const card = choice.targetCard ?? choice.card ?? choice.temporaryCard;
-  if (!card) return false;
-  return [
-    'add-card',
-    'copy-card',
-    'remove-card',
-    'upgrade-card',
-    'grant-temporary-card'
-  ].includes(choice.action);
-}
-
-function runShopChoiceMarkup(choice, index, options = {}) {
-  if (
-    options.useAttributeTrainingStyle
-    || options.useSpecializationStyle
-    || options.useWaveRewardStyle
-    || runShopChoiceUsesCardFace(choice)
-  ) {
-    return strategyRewardMarkup(choice, index, {
-      choiceIndexAttribute: 'data-run-shop-choice-index',
-      extraClass: 'run-shop-reward-option'
-    });
-  }
-  const visual = strategyRewardVisualMeta(choice);
-  const title = choice.title ?? choice.card?.name ?? '奖励';
-  const description = choice.description ?? choice.card?.summary ?? '';
-  const location = options.game ? cardRunLocationLabel(options.game, choice.targetCard ?? choice.card) : '';
-  const locationBadge = location && location !== '卡牌'
-    ? `<span class="run-shop-choice-location">${escapeHtml(location)}</span>`
-    : '';
-  return `
-    <button
-      class="run-shop-choice is-${visual.kindKey}${choice.disabled ? ' is-disabled' : ''}"
-      type="button"
-      data-run-shop-choice-index="${index}"
-      style="--reward-accent:${visual.accent}"
-      ${choice.disabled ? 'disabled aria-disabled="true"' : ''}
-    >
-      <span class="run-shop-choice-icon" aria-hidden="true">${escapeHtml(visual.icon)}</span>
-      ${locationBadge}
-      <strong class="run-shop-choice-title">${escapeHtml(title)}</strong>
-      <span class="run-shop-choice-desc">${escapeHtml(description)}</span>
-      <span class="run-shop-choice-action">${escapeHtml(choice.actionLabel ?? visual.actionLabel)}</span>
-    </button>
-  `;
-}
-
-function createStrategyEventUi() {
-  let root = document.querySelector('#strategy-event-overlay');
-  if (!root) {
-    root = document.createElement('section');
-    root.id = 'strategy-event-overlay';
-    root.className = 'strategy-event-overlay';
-    root.hidden = true;
-    root.setAttribute('role', 'dialog');
-    root.setAttribute('aria-modal', 'true');
-    document.querySelector('#app')?.appendChild(root);
-  }
-  if (!root.querySelector('.strategy-event-panel')) {
-    root.innerHTML = `
-      <div class="strategy-event-panel">
-        <div class="strategy-event-kicker"></div>
-        <h2 class="strategy-event-title">选择奖励</h2>
-        <p class="strategy-event-summary"></p>
-        <div class="strategy-event-choices"></div>
-        <div class="strategy-event-actions" hidden></div>
-      </div>
-    `;
-  } else if (!root.querySelector('.strategy-event-actions')) {
-    root.querySelector('.strategy-event-panel')?.appendChild(Object.assign(document.createElement('div'), {
-      className: 'strategy-event-actions',
-      hidden: true
-    }));
-  }
-  return {
-    root,
-    kicker: root.querySelector('.strategy-event-kicker'),
-    title: root.querySelector('.strategy-event-title'),
-    summary: root.querySelector('.strategy-event-summary'),
-    choices: root.querySelector('.strategy-event-choices'),
-    actions: root.querySelector('.strategy-event-actions')
-  };
 }
 
 function hashStringToSeed(value) {
@@ -12294,7 +9338,7 @@ function finiteNumber(value, fallback) {
 function assignUnitSourceCard(unit, card) {
   if (!unit || !card) return;
   unit.sourceCardId = card.cardDefinitionId ?? card.id ?? unit.sourceCardId ?? null;
-  unit.sourceCardEnergyCost = Math.max(0, finiteNumber(cardEnergyCost(card), 0));
+  unit.sourceCardEnergyCost = Math.max(0, finiteNumber(card.energyCost, 0));
 }
 
 function smoothstep01(value, edge0 = 0, edge1 = 1) {
@@ -13116,11 +10160,8 @@ function vectorFromSnapshot(snapshot) {
 }
 
 function rebirthUnitIconMarkup(type, name) {
-  const card = CARD_DEFINITIONS.find((definition) => (
-    definition.kind === 'summon' && definition.unitType === type
-  ));
-  if (card) {
-    return createCardArtMarkup(card);
+  if (type) {
+    return createCardArtMarkup({ id: type, artKey: type, kind: 'summon' });
   }
   const text = String(name ?? UNIT_DEFINITIONS[type]?.name ?? '?').trim();
   return `<span class="world-rebirth-avatar-fallback">${escapeHtml(Array.from(text)[0] ?? '?')}</span>`;

@@ -1,4 +1,4 @@
-import { CARD_DEFINITIONS, TEAMS, UNIT_DEFINITIONS } from '../data/gameData.js';
+import { TEAMS, UNIT_DEFINITIONS } from '../data/gameData.js';
 import { UnitEntity } from '../entities/UnitEntity.js';
 import { polarOffset } from '../utils/math.js';
 
@@ -105,25 +105,6 @@ export class BattleDebugPanel {
         <button class="battle-debug-panel__close" type="button" data-battle-debug-action="close" aria-label="关闭调试面板">×</button>
         <span data-battle-debug-status>${escapeHtml(isReadOnly ? '联机对局只读，避免破坏 Host 权威状态' : this.statusMessage)}</span>
       </div>
-      <label>
-        <span>测试卡牌</span>
-        <select data-battle-debug-card-select${disabledAttr}>
-          ${CARD_DEFINITIONS.filter((card) => !card.retired).map((card) => `
-            <option value="${escapeHtml(card.id)}">${escapeHtml(card.name)} / ${escapeHtml(kindLabel(card.kind))}</option>
-          `).join('')}
-        </select>
-      </label>
-      <div class="debug-scene-row">
-        <label>
-          <span>等级</span>
-          <input data-battle-debug-card-level type="number" min="1" max="20" step="1" value="1"${disabledAttr}>
-        </label>
-        <button type="button" data-battle-debug-action="add-card"${disabledAttr}>加入可打出的牌</button>
-      </div>
-      <div class="debug-scene-row battle-debug-panel__resource-row">
-        <button type="button" data-battle-debug-action="max-energy"${disabledAttr}>能量回满</button>
-        <button type="button" data-battle-debug-action="add-silver"${disabledAttr}>银币 +100</button>
-      </div>
       <div class="debug-scene-row battle-debug-panel__resource-row">
         <button type="button" data-battle-debug-action="reset-camps"${disabledAttr}>重置双方基地</button>
         <button type="button" data-battle-debug-action="clear-enemies"${disabledAttr}>清空敌军</button>
@@ -190,21 +171,6 @@ export class BattleDebugPanel {
       return;
     }
     if (!this.unlocked || this.game.coop?.enabled) return;
-    if (action === 'add-card') {
-      this.addCard();
-      return;
-    }
-    if (action === 'max-energy') {
-      this.game.cardSystem?.addEnergy?.(999);
-      this.updateStatus('能量已回满');
-      return;
-    }
-    if (action === 'add-silver') {
-      this.game.addSilver?.(100);
-      this.game.updateHud?.(0);
-      this.updateStatus('银币 +100');
-      return;
-    }
     if (action === 'reset-camps') {
       this.resetCamps();
       return;
@@ -218,27 +184,6 @@ export class BattleDebugPanel {
     if (action === 'spawn-enemy-camp' || action === 'spawn-enemy-camera') {
       this.spawnEnemies(action === 'spawn-enemy-camera' ? 'camera' : 'camp');
     }
-  }
-
-  addCard() {
-    const cardId = this.root.querySelector('[data-battle-debug-card-select]')?.value;
-    const definition = CARD_DEFINITIONS.find((card) => card.id === cardId);
-    if (!definition) {
-      this.updateStatus('没有找到这张卡牌');
-      return;
-    }
-    const level = clampInt(this.root.querySelector('[data-battle-debug-card-level]')?.value, 1, 20);
-    const result = this.game.cardSystem?.addDebugCard?.(definition, { level });
-    if (!result?.card) {
-      this.updateStatus('加入卡牌失败');
-      return;
-    }
-    const locationLabel = result.location === 'temporary'
-      ? '临时牌位'
-      : result.location === 'draw'
-        ? '抽牌堆顶部'
-        : '手牌';
-    this.updateStatus(`${definition.name} 已加入${locationLabel}`);
   }
 
   resetCamps() {
@@ -292,15 +237,6 @@ export class BattleDebugPanel {
 
 function clampInt(value, min, max) {
   return Math.max(min, Math.min(max, Math.floor(Number(value) || min)));
-}
-
-function kindLabel(kind) {
-  if (kind === 'summon') return '单位';
-  if (kind === 'spell') return '法术';
-  if (kind === 'building') return '建筑';
-  if (kind === 'tactic') return '战术';
-  if (kind === 'ability') return '能力';
-  return '附魔';
 }
 
 function stopDebugEvent(event) {

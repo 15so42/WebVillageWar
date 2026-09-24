@@ -10,11 +10,13 @@ import { readFileSync } from 'node:fs';
 const [
   { COMMAND, GAME_PROTOCOL_VERSION, MSG },
   { CommandValidator },
-  { RuneStoneSystem }
+  { RuneStoneSystem },
+  { Inventory }
 ] = await Promise.all([
   import('../src/network/protocol/messages.js'),
   import('../src/network/host/CommandValidator.js'),
-  import('../src/systems/RuneStoneSystem.js')
+  import('../src/systems/RuneStoneSystem.js'),
+  import('../src/systems/Inventory.js')
 ]);
 
 const OWNER = 'p1';
@@ -34,6 +36,18 @@ function makeGame() {
     networkBridge: { markPrivateStateDirty() {} },
     coopPlayerSlots: () => [OWNER, OTHER],
     map: null
+  };
+  // 符文石现在就是背包里的一件物品（itemId === 'runeStone'），
+  // 所以假 game 也必须真的有地方放它：一块基地背包 + 按需创建的单位背包。
+  // 少了这两个，createStone() 会因为"没地方落格"直接返回 null。
+  game.baseInventory = new Inventory({ id: 'base', capacity: 48 });
+  game.itemBagFor = (unit, { create = true } = {}) => {
+    if (!unit?.id) return null;
+    if (unit.workerInventory) return unit.workerInventory;
+    if (unit.itemBag) return unit.itemBag;
+    if (!create) return null;
+    unit.itemBag = new Inventory({ id: `unit:${unit.id}`, capacity: 16 });
+    return unit.itemBag;
   };
   game.runeStones = new RuneStoneSystem(game);
   return game;

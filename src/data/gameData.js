@@ -643,10 +643,30 @@ export const UNIT_DEFINITIONS = {
       clips: {
         idle: 'Idle',
         walk: 'Walk',
+        chop: 'Chop',
+        mine: 'Mine',
+        attack: 'Attack',
         hit: 'Hit',
         death: 'Death'
       },
+      // 采集动作的时间轴。`events.strike` 是**归一化进度**（0..1），
+      // 采集真正结算与打击特效都在这一帧发生——所以动作和产物是同一个节拍，
+      // 而不是"动画在挥、产物早就到手了"。
+      // 数值口径：砍树比挖矿长一点（斧子抡得开），命中点都落在动作前中段，
+      // 与"先快后慢"的爆发节奏一致：起手抬臂约占三成，命中约在四成半。
       timelines: {
+        chop: {
+          duration: 0.9,
+          events: { strike: 0.46 }
+        },
+        mine: {
+          duration: 0.75,
+          events: { strike: 0.42 }
+        },
+        attack: {
+          duration: 0.42,
+          events: { strike: 0.4 }
+        },
         hit: {
           duration: 0.22
         }
@@ -657,6 +677,13 @@ export const UNIT_DEFINITIONS = {
     speed: 2.85,
     canMove: true,
     // 非战斗：不造成任何伤害，也不主动索敌
+    //
+    // 这两个 0 现在不是"永远打不了架"，而是"不拿着东西就不打架"：
+    // 傀儡的实际战力由**手上拿的东西**决定（空手 0 / 斧镐 2 / 合成武器 4~9），
+    // 每帧由 WorkSystem 通过 attributes.setBase('physicalAttack'|'aggroRange', ...)
+    // 写到**这一个单位**身上（不改进共享的 definition），见 puppetArms.js。
+    // 空手时 physicalAttack 就是 0、aggroRange 就是 0，所以默认行为仍然是
+    // 「不索敌、不造成伤害」——与旧行为完全一致。
     physicalAttack: 0,
     magicAttack: 0,
     damage: 0,
@@ -673,11 +700,24 @@ export const UNIT_DEFINITIONS = {
     collisionRadius: 0.42,
     statusHeight: 1.72,
     traits: [],
+    // 武器块必须存在（UnitEntity.createUnitAttributes 要读 maxDurability /
+    // durabilityCost，缺了会在生成时抛错）。`family` 让傀儡**能装同类武器**：
+    // weapons.js 的 unitWeaponProfile 以 definition.weapon.family 为准，
+    // 没有 family 就永远返回 not_equippable（旧状态），傀儡武器也就无从谈起。
+    // profile.attackRange / attackAnimation 必须与单位自己的 attackRange（0.9）
+    // 与 art.clips.attack（'Attack'）一致，否则 canEquipWeapon 会以
+    // "攻击距离/动作不匹配"拒绝——这是换装校验的既有规则，不是这里能绕开的。
     weapon: {
       name: '木质手臂',
+      family: 'puppetArm',
+      profile: { attackRange: 0.9, projectileType: null, attackAnimation: 'Attack' },
+      // 空手伤害 0：装上武器后由 weaponStatPatch 覆写
+      damage: 0,
+      damageType: 'physical',
       maxDurability: 40,
-      // 非战斗单位不消耗耐久（与维修站/食堂一致）
-      durabilityCost: 0
+      // 非战斗单位不消耗耐久（与维修站/食堂一致）。装上真武器后会被换成该武器的消耗。
+      durabilityCost: 0,
+      attackRate: 1
     }
   },
   physician: {
@@ -2821,15 +2861,30 @@ export const UNIT_DEFINITIONS = {
         }
       }
     },
-    maxHealth: 24,
-    maxShield: 12,
-    speed: 3.55,
+    // 野狼：**快但脆**。
+    //
+    // 它原本是 24 血 + 12 护盾（有效血量 36）、伤害 5.4 / 攻速 1.15——比哥布林士兵
+    // （18+9、伤害 5.5/攻速 0.92）**更肉也更能打**，同时还快得多（3.55 vs 2.9）。
+    // 一只野生动物同时占满"最肉、最疼、最快"三项是不合理的，而且玩家拿斧头
+    // 根本打不过它（3 dps 打 36 血要 12 秒，而狼打死傀儡只要 7.7 秒），
+    // 体感就是"木傀儡明明拿着斧子却从不还手"。
+    //
+    // 现在按"快但脆"重排：血薄（13+4 = 17 有效血量）、速度 3.9（全场最快）、
+    // 伤害 4.5 / 攻速 1.2（dps 5.4，仍然疼）。
+    // 标定结果（见 puppetArms.js 的战力公式与 test-puppet-arms.mjs 的标定断言）：
+    //   拿斧/镐 → 能打赢一只狼（约 4 秒，剩六成血）
+    //   拿斧/镐 → **仍然打不过哥布林士兵**（有盾，8.54 > 斧 8.19）
+    // 这条界线是刻意的：野怪里只有狼能被工具解决，"想清点还得合成傀儡武器"。
+    maxHealth: 13,
+    maxShield: 4,
+    speed: 3.9,
     attackRange: 1.05,
-    attackRate: 1.15,
-    damage: 5.4,
+    attackRate: 1.2,
+    damage: 4.5,
     armor: 0,
     magicResistance: 1,
-    dodgeChance: 0.09,
+    // 0.09 的闪避等于"有效血量再 +10%"，与"脆"的定位相反，所以一起降下来
+    dodgeChance: 0.06,
     knockback: 1.8,
     aggroRange: 9.5,
     weapon: {
@@ -2840,7 +2895,7 @@ export const UNIT_DEFINITIONS = {
     wildlife: {
       drops: [
         {
-          cardId: 'wolf-instinct-enchant',
+          enchantmentId: 'wolfInstinct',
           chance: 0.55
         }
       ],
@@ -2896,7 +2951,7 @@ export const UNIT_DEFINITIONS = {
     wildlife: {
       drops: [
         {
-          cardId: 'ursine-spirit-enchant',
+          enchantmentId: 'ursineSpirit',
           chance: 0.65
         }
       ],
@@ -6546,129 +6601,6 @@ export const CARD_META = {
 
 export const LEVEL_DEFINITIONS = [
   {
-    id: 'snow-valley',
-    name: '雪谷营地',
-    subtitle: '教学关：在雪谷中熟悉出兵、附魔和基地推进',
-    baseReward: 45,
-    targetTime: 1080,
-    baseDifficulty: 1,
-    waveDifficultyGrowth: 1,
-    enemyPool: [
-      // 教学主力：哥布林三件套 + 蜘蛛，全程存在
-      { type: 'goblinSoldier', weight: 5, minWave: 1, minDifficulty: 1 },
-      { type: 'spider', weight: 1, minWave: 2, minDifficulty: 1 },
-      // 狼：高速突袭，教玩家用近战拦截/保护远程（第 2 波起）
-      { type: 'wolf', weight: 2, minWave: 2, minDifficulty: 1 },
-      { type: 'goblinArcher', weight: 2, minWave: 3, minDifficulty: 1 },
-      // 寒霜学徒：冰法远程，教玩家优先击杀施法者（第 4 波起）
-      { type: 'frostAcolyte', weight: 2, minWave: 4, minDifficulty: 1 },
-      { type: 'goblinHunter', weight: 1, minWave: 5, minDifficulty: 2 },
-      // 盾卫：前排肉盾，教玩家绕开正面/用附魔破甲（第 5 波起）
-      { type: 'shieldBearer', weight: 2, minWave: 5, minDifficulty: 1 },
-      // 熊：慢速重型冲撞，中期压迫感（第 7 波起）
-      { type: 'bear', weight: 1, minWave: 7, minDifficulty: 2 },
-      // 哥布林巨魔：后期普通波里的小 Boss 压迫感（第 9 波起）
-      { type: 'goblinTroll', weight: 1, minWave: 9, minDifficulty: 3 }
-    ],
-    elitePool: [
-      { type: 'frostScout', weight: 1, minWave: 3, minDifficulty: 1 },
-      { type: 'snowDuskShaman', weight: 1, minWave: 4, minDifficulty: 1 }
-    ],
-    bossPool: [
-      { type: 'frostTrollBoss', weight: 1, minWave: 4.8, minDifficulty: 1 },
-      { type: 'frostWolfBoss', weight: 1, minWave: 6.2, minDifficulty: 1 },
-      { type: 'frostOracleBoss', weight: 1, minWave: 7.4, minDifficulty: 1 }
-    ],
-    // 单方向关卡：开局单位卡选择次数与开局能量按此数值计算。
-    routeCount: 1,
-    world: {
-      sceneKey: 'snow-valley'
-    }
-  },
-  {
-    id: 'dungeon-halls',
-    name: '幽暗地牢',
-    subtitle: '地牢关：多个石台由狭窄通路连接，争夺平台之间的推进路线',
-    baseReward: 60,
-    targetTime: 1260,
-    baseDifficulty: 2,
-    waveDifficultyGrowth: 1.08,
-    enemyPool: [
-      { type: 'goblinSoldier', weight: 5, minWave: 1, minDifficulty: 1 },
-      { type: 'goblinArcher', weight: 3, minWave: 2, minDifficulty: 1 },
-      { type: 'spider', weight: 1, minWave: 2, minDifficulty: 1 },
-      { type: 'goblinHunter', weight: 2, minWave: 4, minDifficulty: 1 },
-      { type: 'goblinShaman', weight: 1, minWave: 5, minDifficulty: 2 },
-      { type: 'skeletonSoldier', weight: 2, minWave: 3, minDifficulty: 2 }
-    ],
-    elitePool: [
-      { type: 'tombLanternCrossbowman', weight: 1, minWave: 3.5, minDifficulty: 2 }
-    ],
-    bossPool: [
-      { type: 'boneVoicePriest', weight: 1, minWave: 5.6, minDifficulty: 2 }
-    ],
-    routeCount: 1,
-    world: {
-      sceneKey: 'dungeon-halls'
-    }
-  },
-  {
-    id: 'red-desert',
-    name: '赤岩沙漠',
-    subtitle: '沙漠关：阳光会灼烧友军，利用巨岩阴影推进',
-    baseReward: 80,
-    targetTime: 1440,
-    baseDifficulty: 3,
-    waveDifficultyGrowth: 1.16,
-    enemyPool: [
-      { type: 'goblinSoldier', weight: 4, minWave: 1, minDifficulty: 1 },
-      { type: 'goblinArcher', weight: 3, minWave: 2, minDifficulty: 1 },
-      { type: 'skeletonSoldier', weight: 3, minWave: 2, minDifficulty: 1 },
-      { type: 'spider', weight: 1, minWave: 2, minDifficulty: 1 },
-      { type: 'goblinHunter', weight: 2, minWave: 3, minDifficulty: 1 },
-      { type: 'goblinShaman', weight: 2, minWave: 4, minDifficulty: 1 },
-      { type: 'skeletonArcher', weight: 2, minWave: 4, minDifficulty: 2 },
-      { type: 'elfSniper', weight: 1, minWave: 7, minDifficulty: 3 }
-    ],
-    elitePool: [
-      { type: 'sandScorpionGuard', weight: 1, minWave: 3.8, minDifficulty: 3 }
-    ],
-    bossPool: [
-      { type: 'yellowSandOgre', weight: 1, minWave: 6.2, minDifficulty: 3 }
-    ],
-    routeCount: 1,
-    world: {
-      sceneKey: 'red-desert'
-    }
-  },
-  {
-    id: 'emerald-marsh',
-    name: '翡翠沼泽',
-    subtitle: '沿着沉木堤道穿过雾沼，摧毁腐根深处的敌营',
-    baseReward: 100,
-    targetTime: 1620,
-    baseDifficulty: 4,
-    waveDifficultyGrowth: 1.24,
-    enemyPool: [
-      { type: 'goblinSoldier', weight: 3, minWave: 1, minDifficulty: 1 },
-      { type: 'spider', weight: 3, minWave: 2, minDifficulty: 1 },
-      { type: 'goblinHunter', weight: 2, minWave: 3, minDifficulty: 2 },
-      { type: 'goblinShaman', weight: 2, minWave: 4, minDifficulty: 2 },
-      { type: 'venomArcher', weight: 2, minWave: 5, minDifficulty: 3 },
-      { type: 'ogre', weight: 1, minWave: 6, minDifficulty: 3 }
-    ],
-    elitePool: [
-      { type: 'mireHunter', weight: 1, minWave: 4.2, minDifficulty: 4 }
-    ],
-    bossPool: [
-      { type: 'rotrootColossus', weight: 1, minWave: 6.8, minDifficulty: 4 }
-    ],
-    routeCount: 1,
-    world: {
-      sceneKey: 'emerald-marsh'
-    }
-  },
-  {
     id: 'island-survival',
     name: '孤岛求生',
     subtitle: '海岛生存：环海岛链上采集、建造与防守，最终摧毁全部刷怪点',
@@ -6763,6 +6695,21 @@ export function resourceNodeHarvestSeconds(definitionId) {
   return RESOURCE_NODE_DEFINITIONS[definitionId]?.harvestSeconds ?? 1.2;
 }
 
+/**
+ * 采集打击反馈的"咬合高度"：工具落在节点上的那一点距地面的高度。
+ *
+ * 木傀儡的斧子砍在树干中段、镐子砸在石堆/矿脉的腰部，浆果与纤维草是齐膝的矮丛——
+ * 统一用 1 米会让灌木上的反馈飘在半空，也会让高树上的反馈砸在树根。
+ * 按 `model` 分类而不是逐个节点写死，加新节点时只要 model 对就自动合理。
+ */
+export function resourceNodeStrikeHeight(definitionId) {
+  const definition = RESOURCE_NODE_DEFINITIONS[definitionId];
+  if (!definition) return 0.8;
+  if (definition.model === 'tree') return 1.15;
+  if (definition.model === 'rock' || definition.model === 'ore') return 0.7;
+  return 0.4;
+}
+
 // 采集规则：一次采集动作取出多少、以及节点采空后是否再生。
 export const RESOURCE_NODE_RULES = {
   harvestPerAction: 5,
@@ -6825,6 +6772,17 @@ export const ITEM_DEFINITIONS = {  wood: { id: 'wood', name: '木材', kind: 'st
   // 附魔石也是实例物品：instanceId 就是石头自己的 id，掉落/拾取搬的是同一块。
   // 等级、魔力经验与累计成长都在 data 里跟随，绝不能按 itemId 合并成一块。
   runeStone: { id: 'runeStone', name: '符文石', kind: 'instance', stackLimit: 1, category: 'rune' },
+  // 魔力石：背包里的"电池"。同样是实例物品（不可堆叠、每块占一格），
+  // 放进单位背包就提高该单位的最大活动魔力，多块效果线性叠加——
+  // 想扩容就得占格子，这是它和"升级"最大的区别。
+  manaStone: {
+    id: 'manaStone',
+    name: '魔力石',
+    kind: 'instance',
+    stackLimit: 1,
+    category: 'manaStone',
+    manaBonus: 15
+  },
   // 深邃核心：只从刷怪点掉出来，是招募令的材料。做成可堆叠材料而不是实例，
   // 因为它没有需要跟随的个体数据，堆叠能省格子。
   deepCore: { id: 'deepCore', name: '深邃核心', kind: 'stack', stackLimit: 20, category: 'material' },
@@ -7008,6 +6966,58 @@ export const ITEM_DEFINITIONS = {  wood: { id: 'wood', name: '木材', kind: 'st
       durabilityCost: 1,
       attackRate: 0.72
     }
+  },
+  // ---------------------------------------------------------------------------
+  // 木傀儡可用的武器（family: 'puppetArm'）
+  //
+  // 玩家开局不再有任何战斗单位（需求），木傀儡是唯一的部队。它空手只会逃跑，
+  // 拿斧/镐能打但很弱，想要真正推进就得合成下面这两件。
+  //
+  // `profile` 三项必须与 woodPuppet 的定义严格对齐，否则 canEquipWeapon 会拒绝：
+  //   attackRange 0.9 == definition.attackRange
+  //   projectileType null == definition 没有 projectileType
+  //   attackAnimation 'Attack' == definition.art.clips.attack
+  // 数值口径与 `puppetArms.js` 的战力公式一起标定（power = 最大DPS × (1 + 有效血量/40)）：
+  //   空手      power 0    → 什么都不打
+  //   镐 / 斧   power 7.83 / 8.19 → 能打赢野狼（7.70），打不过哥布林士兵（8.54）
+  //   木棒      damage 8  → power ≈ 13.5，能单挑蛮兵/蜘蛛/盾卫，两只成群就逃
+  //   木刃      damage 13 → power ≈ 23.1，能清掉除食人魔外的一切
+  // 这几个数是标定出来的，改任何一个都要重跑 test-puppet-arms.mjs。
+  puppetCudgel: {
+    id: 'puppetCudgel',
+    name: '傀儡木棒',
+    kind: 'instance',
+    category: 'weapon',
+    weapon: {
+      family: 'puppetArm',
+      profile: { attackRange: 0.9, projectileType: null, attackAnimation: 'Attack' },
+      damage: 8,
+      damageType: 'physical',
+      maxDurability: 60,
+      durabilityCost: 0.6,
+      attackRate: 0.95
+      // 刻意**不写 `defaultFor`**：`defaultFor` 的语义是"这个单位一开始手里那把武器
+      // 对应的物品"，换装时靠它把旧武器物化回背包（见 weapons.js baselineWeaponItemFor）。
+      // 木傀儡一开始手里是"木质手臂"，那不是一个物品，也不该变成一根免费的傀儡木棒——
+      // 所以这里留空：卸下木刃时返回的是上一次装上去的那件（unit.weaponItemId），
+      // 第一次装的时候什么都不用还。其它三族（剑/棒/弓）有 defaultFor 是对的，
+      // 它们手里的确实是真实武器。
+    }
+  },
+  puppetGlaive: {
+    id: 'puppetGlaive',
+    name: '傀儡木刃',
+    kind: 'instance',
+    category: 'weapon',
+    weapon: {
+      family: 'puppetArm',
+      profile: { attackRange: 0.9, projectileType: null, attackAnimation: 'Attack' },
+      damage: 13,
+      damageType: 'physical',
+      maxDurability: 90,
+      durabilityCost: 0.9,
+      attackRate: 1
+    }
   }
 };
 
@@ -7146,6 +7156,40 @@ export const RECIPES = {
     ],
     output: { itemId: 'longBow', count: 1 },
     description: '弓手的升级武器。'
+  },
+  // 木傀儡的武器。开局只有傀儡、没有任何战斗单位，这两条是"从采集过渡到推进"的关键一步：
+  // 木材 + 少量石料就能让傀儡从"见到敌人就跑"变成"能打死杂兵"。
+  // 不需要科技，理由同上面的剑/棒/弓：材料本身就要靠镐子与熔炉才能凑齐。
+  puppetCudgel: {
+    id: 'puppetCudgel',
+    name: '傀儡木棒',
+    inputs: [
+      { itemId: 'wood', count: 12 },
+      { itemId: 'stone', count: 4 }
+    ],
+    output: { itemId: 'puppetCudgel', count: 1 },
+    description: '给木傀儡用的粗木棒。装上之后傀儡才肯迎战，但仍然打不过成群的敌人。'
+  },
+  puppetGlaive: {
+    id: 'puppetGlaive',
+    name: '傀儡木刃',
+    inputs: [
+      { itemId: 'wood', count: 16 },
+      { itemId: 'iron', count: 6 }
+    ],
+    output: { itemId: 'puppetGlaive', count: 1 },
+    description: '镶铁的傀儡武器，威力接近精钢剑。想让傀儡清掉刷怪点就得靠它。'
+  },
+  // 魔力石：把木炭里的魔力封进铁壳。产物是实例物品，每块占一格、效果叠加。
+  manaStone: {
+    id: 'manaStone',
+    name: '魔力石',
+    inputs: [
+      { itemId: 'iron', count: 4 },
+      { itemId: 'charcoal', count: 6 }
+    ],
+    output: { itemId: 'manaStone', count: 1 },
+    description: '把木炭里的魔力封进铁壳。放进单位背包即提高该单位的最大活动魔力，不可堆叠、多块叠加。'
   },
   arrowTower: {
     id: 'arrowTower',
@@ -7348,12 +7392,14 @@ export const PRODUCTION_RECIPES = {
 };
 
 export const ITEM_RULES = {
-  // 基地库存格数；傀儡背包更小，容量做成参数而不是写死
-  baseInventorySlots: 24,
-  workerInventorySlots: 8,
+  // 基地背包格数：B 键打开的那个 6x8 网格（6 行 × 8 列 = 48）。
+  // 符文石与普通物品共用同一批格子——背包就是背包，符文石只是其中一类物品。
+  baseInventorySlots: 48,
+  // 傀儡背包：既要放斧/镐，也要放符文石与魔力石，格子太少会让"扩容"没地方放。
+  workerInventorySlots: 16,
   // 战斗单位的背包：比傀儡小。它是按需创建的（见 Game.itemBagFor），
   // 所以每个战斗单位不会白白多一个 Inventory 对象。
-  combatInventorySlots: 6
+  combatInventorySlots: 10
 };
 
 // ---------------------------------------------------------------------------
@@ -7398,9 +7444,9 @@ export const ISLAND_SPAWN_POINTS = [
   {
     id: 'island-camp-north',
     name: '北岬巢穴',
-    x: -6, z: 30,
+    x: -13, z: 65,
     intervalSeconds: 16, maxAlive: 2, maxPerTick: 1,
-    leashRadius: 9,
+    leashRadius: 18,
     // 起始巢穴：blood 明显低于其余三个点，让出生护卫能打得下来。
     // 这是链条的起点（打掉它才拿到第一个深邃核心），必须先能打。
     nestHealth: 120,
@@ -7415,36 +7461,45 @@ export const ISLAND_SPAWN_POINTS = [
     // 方案第 6.2 条把「是否必掉、哪个点掉、掉成品还是制造核心」列为待定，
     // 这里选的是**每个点必掉一支成品傀儡**——理由是当前还没有工具/合成链，
     // 掉"制造核心"会让玩家拿到一个暂时用不上的东西。改动只需改这个字段。
+    // 清点奖励：除了傀儡，还会在这里留下一支**可招募**的战斗单位。
+    // 需求原文：「可招募敌人改成击破刷怪点时生成在刷怪点，不默认到处都有」——
+    // 所以可招募单位现在只有这一个来源，开局地图上一只都没有。
+    // types 按顺序取，count 超过 types 长度就循环（不做随机，奖励要可预期、可断言）。
+    recruitReward: { types: ['raider'], count: 1 },
     workerReward: { type: 'woodPuppet', count: 1 }
   },
   {
     id: 'island-west-ridge',
     name: '西岭哨站',
-    x: -26, z: -6,
+    x: -47, z: -5,
     intervalSeconds: 13, maxAlive: 5, maxPerTick: 2,
-    leashRadius: 12,
+    leashRadius: 24,
     enemyPool: [{ type: 'goblinSoldier', weight: 2 }, { type: 'goblinArcher', weight: 2 }, { type: 'wolf', weight: 1 }],
     drops: [{ itemId: 'deepCore', count: 1 }, { itemId: 'iron', count: 6 }],
+    recruitReward: { types: ['spearman'], count: 1 },
     workerReward: { type: 'woodPuppet', count: 1 }
   },
   {
     id: 'island-east-cape',
     name: '东岬营地',
-    x: 26, z: 6,
+    x: 56, z: 10,
     intervalSeconds: 13, maxAlive: 5, maxPerTick: 2,
-    leashRadius: 12,
+    leashRadius: 24,
     enemyPool: [{ type: 'goblinSoldier', weight: 2 }, { type: 'goblinArcher', weight: 2 }, { type: 'shieldBearer', weight: 1 }],
     drops: [{ itemId: 'deepCore', count: 1 }, { itemId: 'iron', count: 6 }],
+    recruitReward: { types: ['archer'], count: 1 },
     workerReward: { type: 'woodPuppet', count: 1 }
   },
   {
     id: 'island-south-woods',
     name: '南林深处',
-    x: 4, z: -26,
+    x: 3, z: -52,
     intervalSeconds: 11, maxAlive: 6, maxPerTick: 2,
-    leashRadius: 14,
+    leashRadius: 28,
     enemyPool: [{ type: 'goblinSoldier', weight: 2 }, { type: 'goblinHunter', weight: 2 }, { type: 'ogre', weight: 1 }],
     drops: [{ itemId: 'deepCore', count: 1 }, { itemId: 'iron', count: 8 }],
+    // 最难的一个点给两支（一支前排一支远程），作为「越往外越硬」的对应回报
+    recruitReward: { types: ['raider', 'archer'], count: 2 },
     workerReward: { type: 'woodPuppet', count: 1 }
   }
 ];
@@ -7532,6 +7587,12 @@ export const BALANCE = {
     terrainCards: 1,
     energyPerExtraRoute: 2
   },
+  // 魔力石：背包里的扩容电池（见 ITEM_DEFINITIONS.manaStone）。
+  // 加成写在物品定义里（每个物品自己的数值），这里只放跨物品的通用上限。
+  manaStones: {
+    // 单个单位最多能背几块；0 表示不额外限制，真正的限制是背包格数。
+    maxPerUnit: 0
+  },
   // 符文石：附魔卡一次性生成、可随时转移的培养资产。
   runes: {
     // 单位符文背包容量，沿用原附魔槽位上限语义。
@@ -7577,7 +7638,16 @@ export const BALANCE = {
     attackDamage: 7,
     attackKnockback: 1.35,
     attackInterval: 1,
-    attackDurabilityCost: 1
+    // 玩家基地激光**不消耗结构耐久**。
+    //
+    // 曾经是 1（每发 1 点 / 上限 49 点），而结构耐久在生存模式里没有自然回复
+    // （只有「维修」建筑的 restoreDurability 光环能补）。结果是基地打满 37 发、
+    // 约 25 秒后 durability 归零，激光**永久消失**——射程里还有敌人、目标也找得到，
+    // 玩家看到的就是「基地的激光攻击怎么没了」。这是用户第 5 轮报的那条。
+    //
+    // 敌营那条保持不变（1）：它的耐久同时是攻城进度，被打就掉，掉光就不再还击
+    // 对玩家是有利且合理的手感；玩家基地没有这个不对称的必要。
+    attackDurabilityCost: 0
   },
   enemyCamp: {
     position: { x: 0, y: 0, z: -30 },
@@ -7682,21 +7752,34 @@ export const BALANCE = {
     // 它们是**中立**的：不主动攻击，也不会被己方单位自动索敌；点开详情面板
     // 花一张招募令即可归队。位置铺在出生营地通往各刷怪点的路上，早期就能碰上。
     // 具体坐标不必是精确的可走点：生成时会过 resolveWalkablePoint 兜一层。
-    fieldRecruits: [
-      { type: 'raider', x: -8, z: 10 },
-      { type: 'archer', x: 12, z: 9 },
-      { type: 'spearman', x: -16, z: 2 }
-    ],
+    // 野外可招募的战斗单位**不再在地图生成时摆出来**（需求：
+    // 「可招募敌人改成击破刷怪点时生成在刷怪点，不默认到处都有」）。
+    // 现在唯一的来源是 `ISLAND_SPAWN_POINTS[].recruitReward`：
+    // 打掉哪个点，就在那个点位上留下可招募单位。
+    // 这一项（fieldRecruits）随之删除，别再往回加——它是旧设计的残留。
     // 海岛开局的初始部队。
     //
-    // 为什么必须有出生护卫：用户定稿的招募链是「招募令 ← 深邃核心 ← 摧毁巢穴」，
-    // 也就是**战斗单位本身来自巢穴**。只给一支木傀儡的话整条链是死循环——
-    // 实测（scripts/verify-island-opening.mjs 的前身探针）：只有傀儡时必定走到
-    // 「no_units_left」判负，加 4 个战斗单位才勉强打掉第一座巢穴。
-    // 方案第 6.2 条也要求出生区要撑得起第一轮推进（"战斗单位负责护卫进攻"）。
+    // **开局不带任何战斗单位**（用户需求：「玩家一开始应该没有任何战斗单位，
+    // 去掉现有的战斗单位」）。所以 escorts 是空表，`workers: 1` 那支木傀儡是
+    // 玩家唯一的部队。它空手只会逃跑，拿斧/镐能打但很弱，要真正推进必须
+    // 合成「傀儡木棒 / 傀儡木刃」（见 RECIPES.puppetCudgel / puppetGlaive）
+    // 并拖到傀儡背包里——这条链由 scripts/verify-island-opening.mjs 端到端验收。
+    //
+    // 保留 escorts 这个字段（而不是删掉 spawnSurvivalEscorts）是刻意的：
+    // 它是"要不要发开局护卫"的唯一开关，以后想做高难度开局或关卡变体时，
+    // 改这一行就能回退，不必去动 Game.js 的开局流程。
     survivalOpening: {
       workers: 1,
-      escorts: ['raider', 'raider', 'archer', 'archer']
+      escorts: []
+    },
+    // 昼夜：白天采集建设，黑夜才从刷怪点出兵。时长按用户定稿，增长按夜数可配。
+    dayNight: {
+      daySeconds: 5 * 60,
+      nightSeconds: 3 * 60,
+      nightfallDelaySeconds: 2,
+      extraAlivePerNight: 1,
+      difficultyPerNight: 0.4,
+      extraPerTickEveryNights: 2
     }
   }
 };

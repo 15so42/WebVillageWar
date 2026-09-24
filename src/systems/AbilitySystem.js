@@ -28,9 +28,7 @@ export class AbilitySystem {
     this.updateUi();
   }
 
-  get cardSystem() {
-    return this.game.cardSystems?.[this.playerSlot] ?? this.game.cardSystem;
-  }
+
 
   ownedFriendlyUnits({ includeBuildings = true } = {}) {
     return this.game.friendlyUnits.filter((unit) => {
@@ -364,42 +362,16 @@ export class AbilitySystem {
 
   triggerWarDrum(card) {
     void card;
-    if (this.getStacks('warDrum') <= 0) return;
-    this.warDrumCardCounter += 1;
-    if (this.warDrumCardCounter < WAR_DRUM_CARDS_PER_DRAW) return;
-    this.warDrumCardCounter = 0;
-    const before = this.cardSystem?.handCards?.length ?? 0;
-    this.cardSystem?.drawToFullHand?.({ animate: this.mountUi });
-    this.cardSystem?.renderHand?.();
-    const after = this.cardSystem?.handCards?.length ?? 0;
-    if (after <= before) return;
-    this.game.effects.spawnDamageNumber(this.game.playerBase.position, 1, {
-      text: '战鼓抽牌',
-      color: '#ffd166',
-      stroke: '#4a3010',
-      height: 3,
-      duration: 0.72,
-      fontSize: 76,
-      baseHeight: 0.48
-    });
   }
 
   gainEnergy(amount, position = null) {
-    const gained = this.cardSystem?.addEnergy?.(amount) ?? 0;
-    if (gained > 0 && position) {
-      this.game.effects.spawnEnergyNumber(position, gained, {
-        height: 2.72
-      });
-    }
-    return gained;
+    void amount;
+    void position;
+    return 0;
   }
 
   updateUi() {
     if (!this.mountUi) return;
-    this.cardSystem?.updateAbilityIcons?.(
-      this.getActiveAbilities().filter((ability) => this.getStacks(ability.id) > 0),
-      this.game.getEnergyPanelSpecializationIcons?.(this.playerSlot) ?? []
-    );
   }
 
   tickPeriodicEnergy(dt) {

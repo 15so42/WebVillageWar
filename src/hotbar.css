@@ -1,14 +1,31 @@
-/* 物品快捷栏：基地里可放置建筑的快捷入口。
-   替代"按 I 开面板 → 找到那件东西 → 点放置"的三步操作。
-   放在底部居中偏上，避开手牌区（.card-hand 在 bottom:30px，卡高 220px）。 */
+/* 屏幕底部的物品快捷栏。
+ *
+ * 需求：「快捷栏应该在屏幕下方，这样才能拖拽相关东西给单位或者拖拽建筑进行建造，
+ * 不应该在 b 键面板内部。」
+ *
+ * 所以它现在是**常驻屏幕底部**的 9 个固定格子（空槽也画），而不是背包面板的页脚。
+ * 固定 9 格有两个硬理由：
+ *   1. 槽位序号就是数字键 1..9 的含义，"有几件画几格"会让按键含义随库存滑动；
+ *   2. 空格子要能当**拖拽落点**（把东西从背包拖回快捷栏），没有空格子就没有落点。
+ *
+ * ⚠️ 为什么下面这些规则带 `body.is-game-active` 前缀和 `!important`：
+ * styles.css 里有一条全局的"桌游按钮"皮肤
+ *
+ *     body.is-game-active button { border: … !important; border-radius: 5px !important;
+ *                                  background: … !important }
+ *     body.is-game-active button:hover { transform: translateY(-2px) !important }
+ *
+ * 它给游戏内**每一个** <button> 强制了边框、圆角与底色。快捷栏格子是 <button>，
+ * 不覆盖就变成一排圆角小方块，而且悬停时会整体上浮 2px、把格子从原位挪开。
+ * 选择器写得比 `body.is-game-active button` 更具体（0,2,1 > 0,1,2）即可胜出。 */
 
 .item-hotbar {
   position: fixed;
   z-index: 7;
   left: 50%;
-  bottom: 268px;
+  bottom: 14px;
   display: flex;
-  gap: 8px;
+  gap: 6px;
   padding: 6px 8px;
   border: 2px solid rgba(96, 176, 168, 0.46);
   border-radius: 10px;
@@ -21,41 +38,68 @@
   transition: opacity 140ms ease;
 }
 
+/* 旧关卡的手牌区在 bottom:30px + 高 220px（styles.css），快捷栏要让开它。
+   海岛生存关里 `#card-hand` 是 display:none（survivalUi.css），所以直接贴底。 */
+body:not(.is-survival-level) .item-hotbar {
+  bottom: 268px;
+}
+
 .item-hotbar[hidden] {
   display: none;
 }
 
-.item-hotbar-slot {
+/* 拖拽时整条栏变淡，避免和跟手的图标互相干扰 */
+.item-hotbar.is-dragging {
+  opacity: 0.55;
+}
+
+body.is-game-active .item-hotbar-slot {
   position: relative;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 2px;
-  min-width: 62px;
-  padding: 6px 8px 5px;
-  border: 2px solid rgba(120, 178, 170, 0.4);
-  border-radius: 8px;
-  background: rgba(26, 42, 44, 0.9);
-  color: #d8f6ee;
+  justify-content: center;
+  width: 54px;
+  height: 54px;
+  padding: 0;
+  border: 2px solid rgba(120, 178, 170, 0.4) !important;
+  border-radius: 8px !important;
+  background: rgba(26, 42, 44, 0.9) !important;
+  color: #d8f6ee !important;
   font-family: inherit;
   font-size: 11.5px;
   font-weight: 700;
-  cursor: pointer;
+  cursor: grab;
+  /* 悬停时不要上浮：格子是拖拽落点，位置一动就会拖歪 */
+  transform: none !important;
   transition:
     border-color 130ms ease,
     background 130ms ease;
 }
 
-.item-hotbar-slot:hover:not(:disabled) {
-  border-color: rgba(190, 240, 228, 0.92);
-  background: rgba(40, 70, 66, 0.94);
+body.is-game-active .item-hotbar-slot:hover {
+  border-color: rgba(190, 240, 228, 0.92) !important;
+  background: rgba(40, 70, 66, 0.94) !important;
+  transform: none !important;
+}
+
+body.is-game-active .item-hotbar-slot:active {
+  cursor: grabbing;
+  transform: none !important;
 }
 
 /* 正在放置这一件：高亮，再按一次取消 */
-.item-hotbar-slot.is-active {
-  border-color: rgba(255, 230, 163, 0.95);
-  background: rgba(78, 66, 30, 0.94);
-  color: #fff3d0;
+body.is-game-active .item-hotbar-slot.is-active {
+  border-color: rgba(255, 230, 163, 0.95) !important;
+  background: rgba(78, 66, 30, 0.94) !important;
+  color: #fff3d0 !important;
+}
+
+/* 空槽：暗一格，但仍然存在，用作拖拽落点 */
+body.is-game-active .item-hotbar-slot.is-empty {
+  border-style: dashed !important;
+  border-color: rgba(96, 176, 168, 0.24) !important;
+  background: rgba(16, 26, 28, 0.7) !important;
+  cursor: default;
 }
 
 .item-hotbar-key {
@@ -70,26 +114,94 @@
   font-size: 10.5px;
   font-weight: 900;
   text-align: center;
+  pointer-events: none;
 }
 
-.item-hotbar-name {
-  white-space: nowrap;
+.item-hotbar-art {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+}
+
+.item-hotbar-art svg {
+  width: 100%;
+  height: 100%;
 }
 
 .item-hotbar-count {
+  position: absolute;
+  right: 2px;
+  bottom: 1px;
   font-size: 11px;
   font-weight: 900;
   color: #a9f0d8;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.75);
+  pointer-events: none;
 }
 
 .item-hotbar-slot.is-active .item-hotbar-count {
   color: #ffe6a3;
 }
 
+/* 拖到某个己方单位身上时，在快捷栏上方报出落点名字。
+   判定半径有 48px，"大概在这附近"就会被认成落点——没有这个反馈玩家不知道指到了谁。 */
+.item-hotbar[data-drop-target]:not([data-drop-target=""])::after {
+  content: "交给 " attr(data-drop-target);
+  position: absolute;
+  left: 50%;
+  top: -26px;
+  padding: 2px 10px;
+  border: 1px solid rgba(127, 240, 200, 0.7);
+  border-radius: 999px;
+  background: rgba(14, 36, 32, 0.92);
+  color: #c9ffe9;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+/* 跟手的拖拽图标 */
+.item-hotbar-drag-ghost {
+  position: fixed;
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  border: 2px solid rgba(190, 240, 228, 0.9);
+  border-radius: 8px;
+  background: rgba(22, 44, 40, 0.92);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.item-hotbar-drag-ghost svg {
+  width: 32px;
+  height: 32px;
+}
+
+/* 被指到的单位：状态条发光，提示"松手就交给他" */
+.world-status.is-hotbar-drop-target {
+  filter: drop-shadow(0 0 7px rgba(127, 240, 200, 0.95));
+}
+
 @media (pointer: coarse) {
   .item-hotbar {
-    bottom: calc(120px + env(safe-area-inset-bottom) + var(--mobile-hand-visual-height, 0px));
+    bottom: calc(14px + env(safe-area-inset-bottom));
     max-width: calc(100vw - 16px);
     overflow-x: auto;
+  }
+  body:not(.is-survival-level) .item-hotbar {
+    bottom: calc(120px + env(safe-area-inset-bottom) + var(--mobile-hand-visual-height, 0px));
+  }
+  body.is-game-active .item-hotbar-slot {
+    width: 58px;
+    height: 58px;
   }
 }

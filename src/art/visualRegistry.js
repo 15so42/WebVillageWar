@@ -71,7 +71,8 @@ import {
   createWizardModel,
   createWolfModel,
   createWoodPuppetModel,
-  createYellowSandOgreModel
+  createYellowSandOgreModel,
+  createToolModel
 } from './lowpoly.js';
 import * as THREE from 'three';
 
@@ -382,6 +383,41 @@ export function stopUnitAnimation(unit, name = null) {
   unit.visualRoot.userData.animation = null;
 }
 
+/**
+ * 让木傀儡手里握着某件采集工具（'axe' / 'pickaxe' / null 表示空手）。
+ *
+ * 两个细节值得写下来：
+ *   1. 两把工具模型都建好挂在手掌上，切换只改 `visible`——不新建也不销毁 GPU 资源。
+ *      傀儡每换一次任务就重建一次模型，在采集循环里是纯浪费。
+ *   2. 可见性要同时写进 `userData.bindPose`（若存在）。`resetAnimatedParts` 每帧
+ *      按 bindPose 还原 `visible`，只改节点上的 visible 会在同一帧被抹掉，
+ *      表现成"工具永远不出现"（树苗那件事就是这么踩的，见 PlantingSystem 的注释）。
+ */
+export function setUnitHeldTool(unit, kind = null) {
+  const socket = unit?.visualRoot?.userData?.parts?.toolSocket;
+  if (!socket) return false;
+  const wanted = kind === 'axe' || kind === 'pickaxe' ? kind : null;
+  const cache = socket.userData.heldTools ?? (socket.userData.heldTools = {});
+  const ensureModel = (toolKind) => {
+    if (cache[toolKind]) return cache[toolKind];
+    const model = createToolModel(toolKind);
+    model.name = `unitHeldTool:${toolKind}`;
+    socket.add(model);
+    cache[toolKind] = model;
+    return model;
+  };
+  if (wanted) ensureModel(wanted);
+  // 没建过的工具不必建：只把已有的那两把按需显示
+  Object.entries(cache).forEach(([toolKind, model]) => {
+    const visible = toolKind === wanted;
+    if (model.visible === visible) return;
+    model.visible = visible;
+    if (model.userData?.bindPose) model.userData.bindPose.visible = visible;
+  });
+  socket.userData.heldTool = wanted;
+  return true;
+}
+
 export function getAnimationDuration(unit, name) {
   return unit.definition.art?.timelines?.[name]?.duration ?? defaultDuration(name);
 }
@@ -460,7 +496,24 @@ function applyOneShot(unit, root, name, t, state = null) {
     }
     return;
   }
+  // 采集挥击：砍树 / 挖矿。这两个名字是给"有工具在干活"的单位用的，
+  // 目前只有木傀儡会播；别的单位万一被要求播，退化成一次普通挥击，
+  // 而不是静默什么都不做（那会表现成"命令没反应"）。
+  if (name === 'chop' || name === 'mine') {
+    if (unit.type === 'woodPuppet') {
+      applyWoodPuppetSwing(root, name, t);
+      return;
+    }
+    root.position.y = rootGroundOffset(root);
+    root.rotation.z = 0;
+    applySwordsmanAttack(root, t, pulse);
+    return;
+  }
   if (name === 'attack') {
+    if (unit.type === 'woodPuppet') {
+      applyWoodPuppetAttack(root, t);
+      return;
+    }
     if (unit.type === 'spearman') {
       root.position.y = rootGroundOffset(root) + pulse * 0.018;
       root.rotation.z = 0;
@@ -746,7 +799,11 @@ function applyWoodPuppetStance(root, time, walking, unitId = 0) {
     leftArmPivot,
     rightArmPivot,
     leftLegPivot,
-    rightLegPivot
+    rightLegPivot,
+    leftElbowPivot,
+    rightElbowPivot,
+    leftKneePivot,
+    rightKneePivot
   } = root.userData.parts ?? {};
   const bobRate = walking ? WALK_BOB_RATE * 0.9 : 1.7;
   const bobHeight = walking ? WALK_BOB_HEIGHT * 1.4 : IDLE_BOB_HEIGHT * 0.7;
@@ -763,6 +820,17 @@ function applyWoodPuppetStance(root, time, walking, unitId = 0) {
   if (rightLegPivot) rightLegPivot.rotation.x = -swing;
   if (leftArmPivot) leftArmPivot.rotation.x = -swing * 0.7;
   if (rightArmPivot) rightArmPivot.rotation.x = swing * 0.7;
+  // 膝与肘：只有胯/肩时，四肢是四根直木棍前后撬。膝盖在后摆那条腿上屈起来，
+  // 肘在手摆到身后时收一点，走起来才像"抬腿落脚、带着家伙走"。
+  // 站立时不弯到 0，留一点点常驻屈度，免得看着像被钉在地上的木桩。
+  const kneeBase = walking ? 0.07 : 0.02;
+  const kneeBend = walking ? 0.4 : 0.05;
+  if (leftKneePivot) leftKneePivot.rotation.x = kneeBase + Math.max(0, -swing) * kneeBend;
+  if (rightKneePivot) rightKneePivot.rotation.x = kneeBase + Math.max(0, swing) * kneeBend;
+  // 屈肘的方向：+X 把小臂往身后折，所以"手摆到身后"的那条臂收得更多
+  const elbowBend = walking ? 0.5 : 0.1;
+  if (leftElbowPivot) leftElbowPivot.rotation.x = Math.max(0, swing) * elbowBend;
+  if (rightElbowPivot) rightElbowPivot.rotation.x = Math.max(0, -swing) * elbowBend;
   if (upperBodyPivot) {
     upperBodyPivot.rotation.x += Math.abs(swing) * 0.08;
     upperBodyPivot.rotation.y = Math.sin(time * swingRate * 0.5 + unitId) * (walking ? 0.05 : 0.012);
@@ -770,6 +838,99 @@ function applyWoodPuppetStance(root, time, walking, unitId = 0) {
   if (headPivot) {
     headPivot.rotation.x = Math.sin(time * swingRate + unitId + 0.8) * (walking ? 0.06 : 0.02);
   }
+}
+
+/**
+ * 木傀儡的采集挥击：`chop`（斧，抡得开）与 `mine`（镐，短促下砸）。
+ *
+ * 这个动作的关键是**两段错拍**：肩部决定挥幅、肘部决定命中那一下的甩出。
+ * 于是工具尖端（`toolSocket`）的轨迹是「先被抬到最高 → 命中帧急速下落 → 收势回正」，
+ * 而不是一整根直臂匀速转过去。命中帧与 `timelines[*].events.strike` 对齐，
+ * 采集结算与打击特效都发生在那一帧，动作和产物才是同一个节拍。
+ *
+ * 关节方向（这三条是从模型坐标算出来的，不是猜的）：
+ *   - 肩枢轴 -X → 手臂向前上方抬起；+X → 向后下方摆。
+ *   - 肘枢轴 +X → 小臂往身后折（屈肘），所以起手用 +，命中时回 0 把它甩出去。
+ *   - 膝枢轴 +X → 小腿向后弯（正常屈膝），配合根节点下沉做出"蹲一下"。
+ */
+function applyWoodPuppetSwing(root, kind, t) {
+  const parts = root.userData.parts ?? {};
+  const isChop = kind === 'chop';
+  const strikeAt = isChop ? 0.46 : 0.42;
+  const holdEnd = Math.min(1, strikeAt + 0.22);
+  const raise = isChop ? 1.3 : 0.95;
+  const driveEnd = isChop ? 0.5 : 0.36;
+  const fold = isChop ? 0.95 : 0.7;
+
+  // 四段曲线。**顺序很讲究**：屈肘的"甩直"必须在命中帧**之前**完成，
+  // 否则命中那一刻手臂还是折着的，看起来像"用肘去撞树"。
+  const windup = smoothstep(0, strikeAt * 0.7, t);            // 抬臂并屈肘蓄力
+  const extend = smoothstep(strikeAt * 0.72, strikeAt, t);     // 命中前甩直小臂（鞭梢，尖端最高速来自这里）
+  const drive = smoothstep(strikeAt - 0.08, strikeAt + 0.14, t); // 肩部下砸，最快的一瞬落在命中帧附近
+  const recover = smoothstep(holdEnd, 1, t);                   // 收势回正
+
+  const shoulderX = -raise * windup + (raise + driveEnd) * drive - driveEnd * recover;
+  const elbowX = fold * windup * (1 - extend) + 0.16 * fold * recover;
+  // 屈膝下沉：命中前后整个身体压下去，力量才有落点（也是"蹲着砍"的来源）
+  const dip = bell(strikeAt - 0.16, strikeAt + 0.05, strikeAt + 0.4, t);
+  const kneeBend = dip * (isChop ? 0.32 : 0.26);
+
+  if (parts.rightArmPivot) parts.rightArmPivot.rotation.x = shoulderX;
+  // 左手扶在小臂上（双手持械）：幅度小一点、节奏晚一点
+  if (parts.leftArmPivot) parts.leftArmPivot.rotation.x = shoulderX * 0.6;
+  if (parts.rightElbowPivot) parts.rightElbowPivot.rotation.x = elbowX;
+  if (parts.leftElbowPivot) parts.leftElbowPivot.rotation.x = elbowX * 0.72;
+  if (parts.leftKneePivot) parts.leftKneePivot.rotation.x = kneeBend;
+  if (parts.rightKneePivot) parts.rightKneePivot.rotation.x = kneeBend;
+  // 髋部反向一点，让脚大致留在原地，不至于屈膝时看着整只脚飘起来
+  if (parts.leftLegPivot) parts.leftLegPivot.rotation.x = -kneeBend * 0.45;
+  if (parts.rightLegPivot) parts.rightLegPivot.rotation.x = -kneeBend * 0.45;
+  if (parts.upperBodyPivot) {
+    // +X 是前倾（驼背的基准就是 +0.14）：起手后仰蓄力、命中前倾发力
+    parts.upperBodyPivot.rotation.x += windup * (isChop ? 0.16 : 0.12) - drive * (isChop ? 0.44 : 0.3);
+    parts.upperBodyPivot.rotation.y = (isChop ? 0.1 : -0.13) * (windup - drive * 0.6);
+  }
+  if (parts.headPivot) {
+    parts.headPivot.rotation.x -= windup * 0.1 - drive * 0.16;
+  }
+  root.position.y = rootGroundOffset(root) - dip * 0.06;
+  root.rotation.x = 0;
+  root.rotation.y = 0;
+  root.rotation.z = 0;
+  root.scale.setScalar(1);
+}
+
+/**
+ * 木傀儡的攻击动作：一记短促的前挥。
+ *
+ * 说明：木傀儡按设计**不参战**（`physicalAttack: 0`、`aggroRange: 0`，
+ * 而且 `WorkSystem.updateWorker` 会接管它的整帧），所以这个动作在正常玩法里
+ * 不会被触发。它存在是为了两件事：被招募/换装成能打的单位时动作齐全，
+ * 以及"给任何单位播 attack"这条通用路径在傀儡身上不会退化成静止不动。
+ */
+function applyWoodPuppetAttack(root, t) {
+  const parts = root.userData.parts ?? {};
+  const windup = smoothstep(0, 0.32, t);
+  const strike = smoothstep(0.32, 0.62, t);
+  const recover = smoothstep(0.62, 1, t);
+  const shoulderX = -0.5 * windup + 1.15 * strike - 0.65 * recover;
+  const elbowX = 0.55 * windup - 0.55 * strike;
+  if (parts.rightArmPivot) parts.rightArmPivot.rotation.x = shoulderX;
+  if (parts.rightElbowPivot) parts.rightElbowPivot.rotation.x = elbowX;
+  if (parts.leftArmPivot) parts.leftArmPivot.rotation.x = -shoulderX * 0.35;
+  if (parts.leftElbowPivot) parts.leftElbowPivot.rotation.x = elbowX * 0.5;
+  if (parts.leftKneePivot) parts.leftKneePivot.rotation.x = 0.12 * strike;
+  if (parts.rightKneePivot) parts.rightKneePivot.rotation.x = 0.12 * strike;
+  if (parts.upperBodyPivot) {
+    parts.upperBodyPivot.rotation.x += 0.1 * windup - 0.28 * strike + 0.18 * recover;
+    parts.upperBodyPivot.rotation.y = -0.16 * (windup - strike * 0.5);
+  }
+  if (parts.headPivot) parts.headPivot.rotation.x -= 0.08 * strike;
+  root.position.y = rootGroundOffset(root) - 0.02 * strike;
+  root.rotation.x = 0;
+  root.rotation.y = 0;
+  root.rotation.z = 0;
+  root.scale.setScalar(1);
 }
 
 function applySpearmanAttack(root, t, pulse) {
@@ -1449,5 +1610,8 @@ function defaultDuration(name) {
   if (name === 'attack') return 0.34;
   if (name === 'hit') return 0.24;
   if (name === 'support') return 0.58;
+  // 采集挥击：具体时长按单位定义里的 timelines 走，这里只是缺省兜底
+  if (name === 'chop') return 0.9;
+  if (name === 'mine') return 0.75;
   return 0.5;
 }

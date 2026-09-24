@@ -2088,16 +2088,25 @@ export function createWoodPuppetModel(team = 'player') {
       new THREE.Vector3(0.18 * side, 0.055, 0.06),
       new THREE.Vector3(1, 1, 1)
     );
+    // 膝盖：小腿、膝轴与脚挂在一个独立枢轴上。只有一个胯枢轴时整条腿是根直木棍，
+    // 走路只能前后撬；有了膝，屈膝、踏步与"蹲下去挥"才成立。
+    const kneePivot = createPivot(
+      side < 0 ? 'woodPuppetLeftKneePivot' : 'woodPuppetRightKneePivot',
+      knee,
+      [shin, kneeJoint, foot]
+    );
     const pivot = createPivot(
       side < 0 ? 'woodPuppetLeftLegPivot' : 'woodPuppetRightLegPivot',
       hip,
-      [thigh, shin, kneeJoint, foot]
+      [thigh, kneePivot]
     );
     legDetails.push(pivot);
-    return pivot;
+    return { pivot, kneePivot };
   };
-  const leftLegPivot = buildLeg(-1);
-  const rightLegPivot = buildLeg(1);
+  const leftLeg = buildLeg(-1);
+  const rightLeg = buildLeg(1);
+  const leftLegPivot = leftLeg.pivot;
+  const rightLegPivot = rightLeg.pivot;
 
   // 躯干做在 upperBodyPivot 上，整体前倾一点形成驼背姿态
   const torsoCenter = new THREE.Vector3(0, 1.0, 0);
@@ -2200,14 +2209,34 @@ export function createWoodPuppetModel(team = 'player') {
       wrist.clone(),
       new THREE.Vector3(1, 1, 1)
     );
-    return createPivot(
-      side < 0 ? 'woodPuppetLeftArmPivot' : 'woodPuppetRightArmPivot',
-      shoulder,
-      [peg, upperArm, foreArm, hand]
+    // 工具挂点：贴在手掌位置。斧/镐的模型挂到这里，才会跟着小臂一起挥，
+    // 而不是"手臂在动、工具粘在肩膀上"。
+    const toolSocket = createPivot(
+      side < 0 ? 'woodPuppetLeftToolSocket' : 'woodPuppetRightToolSocket',
+      wrist,
+      []
     );
+    // 肘：小臂、手掌与工具挂点都归它。肩部枢轴只管大臂，于是"抬臂 + 屈肘"
+    // 可以分开控制——砍树那一下的力量感就来自这两段的错拍。
+    const elbowPivot = createPivot(
+      side < 0 ? 'woodPuppetLeftElbowPivot' : 'woodPuppetRightElbowPivot',
+      elbow,
+      [foreArm, hand, toolSocket]
+    );
+    return {
+      pivot: createPivot(
+        side < 0 ? 'woodPuppetLeftArmPivot' : 'woodPuppetRightArmPivot',
+        shoulder,
+        [peg, upperArm, elbowPivot]
+      ),
+      elbowPivot,
+      toolSocket
+    };
   };
-  const leftArmPivot = buildArm(-1);
-  const rightArmPivot = buildArm(1);
+  const leftArm = buildArm(-1);
+  const rightArm = buildArm(1);
+  const leftArmPivot = leftArm.pivot;
+  const rightArmPivot = rightArm.pivot;
 
   const upperBodyPivot = createPivot(
     'woodPuppetUpperBodyPivot',
@@ -2235,9 +2264,76 @@ export function createWoodPuppetModel(team = 'player') {
     offhandPivot: leftArmPivot,
     leftArmPivot,
     rightArmPivot,
+    // 四肢可动：肩与胯之外，再给出肘与膝。动作系统靠这四个关节
+    // 才能做出"屈肘下砍""屈膝踏步"，否则四肢只是四根直木棍。
+    leftElbowPivot: leftArm.elbowPivot,
+    rightElbowPivot: rightArm.elbowPivot,
+    leftKneePivot: leftLeg.kneePivot,
+    rightKneePivot: rightLeg.kneePivot,
+    // 工具挂点（手掌）：斧/镐的模型挂这里，跟着小臂动
+    toolSocket: rightArm.toolSocket,
+    offhandToolSocket: leftArm.toolSocket,
     leftLegPivot,
     rightLegPivot
   };
+  return enableShadows(group);
+}
+
+/**
+ * 木傀儡手里握的工具模型（木斧 / 木镐）。
+ *
+ * 它不是单位模型的一部分，而是运行时挂到 `userData.parts.toolSocket`（手掌）上的挂件，
+ * 由 `setUnitHeldTool()` 按"当前要采什么"切换可见性。所以这里只管一次建模：
+ * 握把沿 -Y 向下（手臂垂下时工具自然朝下）、刃/尖朝 +Z 前方，
+ * 这样挥砍时工具会跟着小臂划弧，而不是悬在手边。
+ *
+ * 只给木傀儡用：其它兵种手里拿的是武器（走 weapons 那套插槽），不是采集工具。
+ */
+export function createToolModel(kind = 'axe') {
+  const group = new THREE.Group();
+  const handleMat = mat('#8a6a45');
+  const headMat = mat(kind === 'pickaxe' ? '#9aa0a6' : '#b9c2c9');
+  const handle = mesh(
+    new THREE.BoxGeometry(0.045, 0.46, 0.045),
+    handleMat,
+    new THREE.Vector3(0, -0.2, 0.03),
+    new THREE.Vector3(1, 1, 1)
+  );
+  group.add(handle);
+  if (kind === 'pickaxe') {
+    // 镐：横在握把末端的双尖头
+    const bar = mesh(
+      new THREE.BoxGeometry(0.3, 0.055, 0.075),
+      headMat,
+      new THREE.Vector3(0, -0.4, 0.03),
+      new THREE.Vector3(1, 1, 1)
+    );
+    const tipLeft = mesh(
+      new THREE.ConeGeometry(0.045, 0.14, 4),
+      headMat,
+      new THREE.Vector3(-0.2, -0.4, 0.03),
+      new THREE.Vector3(1, 1, 1)
+    );
+    tipLeft.rotation.z = Math.PI / 2;
+    const tipRight = tipLeft.clone();
+    tipRight.position.x = 0.2;
+    group.add(bar, tipLeft, tipRight);
+  } else {
+    // 斧：一块楔形 + 一道亮刃，刃口朝 +Z
+    const head = mesh(
+      new THREE.BoxGeometry(0.07, 0.17, 0.19),
+      headMat,
+      new THREE.Vector3(0, -0.4, 0.08),
+      new THREE.Vector3(1, 1, 1)
+    );
+    const edge = mesh(
+      new THREE.BoxGeometry(0.05, 0.16, 0.055),
+      mat('#e8eef2'),
+      new THREE.Vector3(0, -0.4, 0.19),
+      new THREE.Vector3(1, 1, 1)
+    );
+    group.add(head, edge);
+  }
   return enableShadows(group);
 }
 

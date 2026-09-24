@@ -1,7 +1,6 @@
 import { LEVEL_DEFINITIONS } from '../data/gameData.js';
 import { GAME_VERSION } from '../version.js';
 import { CHALLENGE_MODE, isEndlessMode, normalizeChallengeMode } from './endlessMode.js';
-import { deckValidationMessage, validateDeckSelection } from './deckRules.js';
 
 export class CoopLobbySystem {
   constructor({ controller, getSelectedLevelId, getSelectedDifficulty, getSelectedChallengeMode, selectedLevel, getOwnedCardIds, cardWithLevel, availableDifficulty, renderDeckCard, onBack }) {
@@ -272,8 +271,8 @@ export class CoopLobbySystem {
             <label class="coop-level-field">
               <span>房主选择模式</span>
               <select id="coop-create-mode">
-                <option value="${CHALLENGE_MODE.STANDARD}" ${isEndlessMode(challengeMode) ? '' : 'selected'}>普通战役 · 21 波</option>
-                <option value="${CHALLENGE_MODE.ENDLESS}" ${isEndlessMode(challengeMode) ? 'selected' : ''}>无尽挑战 · 无限波次</option>
+                <option value="${CHALLENGE_MODE.STANDARD}" ${isEndlessMode(challengeMode) ? '' : 'selected'}>生存模式</option>
+                <option value="${CHALLENGE_MODE.ENDLESS}" ${isEndlessMode(challengeMode) ? 'selected' : ''}>无尽挑战</option>
               </select>
             </label>
             ${isEndlessMode(challengeMode) ? '' : `
@@ -322,42 +321,11 @@ export class CoopLobbySystem {
   }
 
   renderDeckBuilder({ selfReady, locked }) {
-    const deck = this.controller.getDeckSelection?.() ?? [];
-    const ownedIds = this.getOwnedCardIds?.() ?? [];
-    const selectedCount = deck.length;
-    const deckValidation = validateDeckSelection(deck);
+    void selfReady;
+    void locked;
     return `
-      <section class="coop-deck-builder" aria-label="选择自己的出战牌组">
-        <header class="coop-deck-builder-head">
-          <div>
-            <span>个人牌组</span>
-            <strong>已选 ${selectedCount} 张</strong>
-          </div>
-          <small>${selfReady ? '修改牌组会自动取消准备' : '只会发送你自己的牌组给 Host'}</small>
-          <div class="coop-deck-actions">
-            <button type="button" class="meta-menu-button" data-coop-action="deck-select-all" ${locked ? 'disabled' : ''}>全选</button>
-            <button type="button" class="meta-menu-button" data-coop-action="deck-clear-all" ${locked || selectedCount <= 0 ? 'disabled' : ''}>全部移除</button>
-          </div>
-        </header>
-        <p class="coop-lobby-hint">${deckValidation.valid
-          ? '牌组已满足出战要求。'
-          : escapeHtml(deckValidationMessage(deckValidation))} 开局会合并全员牌组并逐卡取最高等级；能量、银币和奖励选择仍各自独立。</p>
-        <div class="meta-card-grid coop-deck-card-grid">
-          ${ownedIds.map((id) => {
-            const card = this.cardWithLevel?.(id) ?? { id, name: id, kind: 'card', level: 1 };
-            const selectedIndex = deck.indexOf(id);
-            const isSelected = selectedIndex !== -1;
-            const disabled = locked;
-            return this.renderDeckCard?.(card, {
-              action: 'deck-card',
-              stateText: isSelected ? '移出牌组' : '加入出战',
-              statusText: isSelected ? `出战 #${selectedIndex + 1}` : '未入选',
-              deckState: isSelected ? 'in' : 'out',
-              selected: isSelected,
-              disabled
-            }) ?? '';
-          }).join('') || '<p class="coop-lobby-hint">当前没有可用卡牌。</p>'}
-        </div>
+      <section class="coop-deck-builder" aria-label="联机说明">
+        <p class="coop-lobby-hint">卡牌与牌组已从生存玩法中移除。联机入口暂时保留同步层，出战牌组不再需要配置。</p>
       </section>
     `;
   }

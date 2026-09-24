@@ -38,6 +38,7 @@ export class FacilitySystem {
     if (!resolved) return null;
     if (!this.rulesActive()) return null;
     unit.kind = 'building';
+    unit.baseManaCapacity = resolved.manaCapacity;
     unit.manaCapacity = resolved.manaCapacity;
     unit.activityMana = resolved.manaCapacity;
     unit.drainPerSecond = resolved.drainPerSecond;

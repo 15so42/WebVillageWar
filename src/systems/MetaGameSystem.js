@@ -1,31 +1,28 @@
 import {
-  CARD_DEFINITIONS,
-  LEVEL_DEFINITIONS,
-  STARTER_CARD_IDS
+  LEVEL_DEFINITIONS
 } from '../data/gameData.js';
-import { buildEnchantmentEncyclopediaSections } from '../data/enchantmentEncyclopedia.js';
 import { TEST_VERSION_LABEL } from '../version.js';
-import {
-  cardThemeColor,
-  createForgedCardMarkup
-} from './CardSystem.js';
 import { calculateLevelReward } from '../utils/levelRewards.js';
 import { CHALLENGE_MODE, isEndlessMode, normalizeChallengeMode } from './endlessMode.js';
-import { deckValidationMessage, validateDeckSelection } from './deckRules.js';
 
 const STORAGE_KEY = 'village-war-meta-v1';
 const STARTING_COINS = 10000;
 const STARTING_COINS_VERSION = 1;
 const MAX_LEVEL_DIFFICULTY = 10;
 const WAVE_DIFFICULTY_GROWTH_PER_SELECTED_DIFFICULTY = 0.16;
-const CARD_UPGRADE_INITIAL_COST = 100;
 const DEFAULT_PLAYER_NAME = '玩家';
 const MAX_PLAYER_NAME_LENGTH = 16;
+// 生存玩法只有一张地图，而且没有选关流程：点「开始游戏」直接进这里。
+const SURVIVAL_LEVEL_ID = 'island-survival';
 // 关卡 id 历史迁移：早期 pine-pass / frozen-ridge 已重做为地牢 / 沙漠场景，
 // 旧存档若仍以旧 id 记录难度与选中关卡，读取时映射到新 id，避免玩家进度回退。
 const LEGACY_LEVEL_ID_MIGRATIONS = {
-  'pine-pass': 'dungeon-halls',
-  'frozen-ridge': 'red-desert'
+  'pine-pass': 'island-survival',
+  'frozen-ridge': 'island-survival',
+  'snow-valley': 'island-survival',
+  'dungeon-halls': 'island-survival',
+  'red-desert': 'island-survival',
+  'emerald-marsh': 'island-survival'
 };
 // 保留开发期记录供内部追溯；玩家界面只展示下方整理后的版本纪要。
 const DEVELOPMENT_CHANGELOG_ARCHIVE = [
@@ -851,6 +848,121 @@ const DEVELOPMENT_CHANGELOG_ARCHIVE = [
 
 const CHANGELOG_ENTRIES = [
   {
+    date: '2026-09-22',
+    title: '木傀儡的脑子重写了一版：遇怪很干脆，也不再和狼互相拉扯',
+    items: [
+      '**基地的激光炮修好了。**它之前会打一会儿就永久哑火：开火要花基地自己的「结构耐久」（每发 1 点、上限 49），而结构耐久在生存模式里**没有任何自然恢复**——只有造了维修类建筑才有。于是基地打满约 37 发、25 秒之后就再也开不出火，射程里明明还有敌人。现在玩家基地开火**不再消耗结构耐久**（基地挨打照样掉耐久，那是另一回事）。',
+      '**木傀儡和狼不再"互相拉扯"了。**之前它每时每刻都在重新决定"打还是逃"，而且判断里掺了距离——狼跑得和它差不多快，距离在触发线上一进一出，结论就一帧一变：走过去、掉头、又回头。现在**一场仗是一个状态**：开打时判一次，之后只在"目标没了 / 来了新的敌人 / 我快不行了 / 退无可退"时才重判，打完才换目标。',
+      '**AI 的触发条件改了，行为干脆得多。**以前"附近有敌人"就会打断它干活（8 米外的狼也算），所以它会丢下工作朝狼走过去。现在分成两条：**它正在打我、而且够得着我**（当场接管），或者**它已经贴近到我一刀够得着的距离**（顺手清掉）。远处站着、没动手的敌人一律不管——它继续干自己的活。',
+      '**打完接着干原来那件活。**自卫只是"借用"它几秒，任务和采集进度一点都不动；打完会原地警戒约 2 秒（防止边界上的敌人反复触发），然后回去接着砍那棵树，而不是重新开始。开打**没有冷却**，也没有"打多久就放弃"的闹钟——终点只有一个：没人再追它了。',
+      '**逃跑重做了终点。**以前跑出 10 米、压力一小就判"跑掉了"、站住、被追上，于是走走停停。现在逃跑距离 14 米（比任何单位的索敌范围都远，跑出去就是真的甩掉了），终点是"身边没有追兵"，另外加了两个保险：追兵比它快时不会无限跑下去；被堵在墙角挪不动时会**转身硬打**（空手除外，那还是继续找路）。',
+      '顺手修掉一个和 AI 无关的老 bug：**换了资源点的木傀儡会走到上一棵树的停机位站着不动**（界面还显示"前往资源点"）。原因是指挥它走路的那个"停机位"在换目标时没有作废。现在它会正确地走向新目标。'
+    ]
+  },
+  {
+    date: '2026-09-21',
+    title: '木傀儡拿斧头终于敢打狼了，也不再"跑一段又回头"',
+    items: [
+      '**木傀儡拿着斧头或镐子现在打得过一只野狼了。**以前它拿着工具等于不还手：15 种常见敌人里只有哥布林弓手敢碰，别的全跑。原因是工具太弱、而野狼太强——狼当时有 36 点有效血量、每秒 6.2 伤害，比哥布林士兵还肉还能打，木傀儡拿斧子打它要 12 秒，而狼打死傀儡只要 7.7 秒。',
+      '**野狼改成了"快但脆"**：血量与护盾大幅下调（有效血量 36 → 17），但跑得更快（全场最快）、咬得更勤。现在拿斧/镐大约 4 秒能解决一只狼，还剩六成血。',
+      '同时**守住了"工具很弱"这条界线**：拿斧/镐仍然打不过哥布林士兵（它有盾），更打不过盾卫和食人魔——想清成建制的敌人还是得合成「傀儡木棒」和「傀儡木刃」。后者数值也一并上调，和工具拉开了明显差距。',
+      '**不再出现"朝敌人走过去、走到跟前又掉头跑、跑一段又回头"了。**原来有两个原因叠在一起：一是"打不打得过"用了带距离衰减的威胁值，同一只敌人在远处显得弱、走近了显得强，结论会随它逼近而翻面（于是先迎战追击、再改判逃跑）；二是逃开之后会被派回**同一个危险资源点**，走回去→再逃，循环往复。现在前者改成只看"对手多强、有几个"，与距离无关；后者改成危险区域里的资源点**不派活**，跑掉就是跑掉了。',
+      '逃跑本身也修了两处：现在**会绕路**（走和战斗单位同一套寻路），以前只会朝"哪个方向更安全"直着走，撞上树或墙就走不动、贴在那里被咬死；方向也改成在所有候选里挑**威胁最小**的那个，而不是"最近那一圈里随便一个安全格"。'
+    ]
+  },
+  {
+    date: '2026-09-21',
+    title: '修正：木傀儡的逃跑到不了安全的地方',
+    items: [
+      '木傀儡逃跑时**会绕路了**。以前它只会朝"哪个方向更安全"直着走，撞上一棵树或一堵墙就走不动了——威胁还在逼近，它却贴在那堵墙边上原地抽搐直到被咬死。现在它是**找路过去**的（和战斗单位走同一套寻路），只有实在拿不到路线的那一瞬间才退回直线，不会站着不动。',
+      '逃跑方向也改了：以前是"最近的那一圈里挑一个安全格"，于是左边 3 米处从"很危险"降到"有点危险"就够了，它会贴着敌人的边缘横着挪。现在它**在所有候选里挑威胁最小的那个方向**再跑，这才是真的躲开。',
+      '顺手更稳的一点：选落点时优先挑"能直线走过去"的地方，实在没有才挑需要绕的——绕过障碍交给寻路，但能不绕就不绕。'
+    ]
+  },
+  {
+    date: '2026-09-21',
+    title: '开局不再送兵：傀儡会看危险、会逃也会打',
+    items: [
+      '**开局没有任何战斗单位了。**以前开局白送四名护卫，现在你手上只有一支木傀儡。想有部队，得先让这支傀儡能打仗。',
+      '木傀儡现在**会看危险**：地图上有一层看不见的"威胁度"，每个敌人都会按自己的位置和威慑范围往里加分，傀儡读得到自己周围有多危险。按 **Shift+G** 可以把这层威胁度画在地面上（绿→黄→红），看清它平时在躲什么。',
+      '由此它有三种行为：**手无寸铁就逃跑**（一路跑到威胁消失为止，不会跑两步又回头）、**判断打得过就迎战**、**附近安全就照常干活**。判定用的是同一把尺子：双方都比"最大每秒伤害 × 血量"这个战力。所以成群敌人会显著更危险——它不会傻乎乎地冲进三个人里。',
+      '**斧头和镐子现在也能当武器用**，但很弱：拿斧子的傀儡只敢打哥布林弓手这种软目标，遇到蛮兵照样会逃。想真正推进，得给它造武器。',
+      '新增两件**木傀儡专用武器**，在合成面板里就能做：「傀儡木棒」（木材 12 + 石料 4）让它能单挑蛮兵、蜘蛛和狼；「傀儡木刃」（木材 16 + 铁矿 6）能清掉除食人魔以外的一切。造好之后拖到傀儡身上、在它的背包里点「装备」。',
+      '**非战斗任务会挑威胁低的地方做**：同样远近的两个资源点，它会先去安全的那个；刷新任务时也会避开巢穴和敌人常出没的区域。干活干到一半附近变危险，它会先躲开，威胁散了再回去接着干——不会把已经背上的货丢掉。',
+      '修掉一处手感问题：点击单位后下方扇形展开的菜单（背包 / 招募 / 停止）此前只有每秒 10 次的跟随频率，单位一走、镜头一推就会明显"掉队再追上去"。现在它每帧跟随。'
+    ]
+  },
+  {
+    date: '2026-09-21',
+    title: '快捷栏搬到屏幕下方，科技与附魔台搬进建筑里',
+    items: [
+      '**快捷栏移到屏幕底部**，常驻 9 格（空格子也留着），不再塞在背包面板里。理由很直接：以前一开 B 面板它就看不见了，而真正需要它的时候恰恰是"要往世界里拖东西"的时候。',
+      '快捷栏现在放两类东西：**能建造的设施**，以及**能交给单位的装备**（工具、武器、符文石、魔力石）。木材石料这类纯材料不占格子。',
+      '可以**拖**了：把装备拖到己方单位身上就交给他（松手前会提示"交给某某"），把设施拖到地上就直接开建。鼠标点一下的老用法也都还在——数字键 1~9、点击格子进入放置模式，再按一次取消。',
+      '**科技与附魔台不再是背包右侧的两个标签页**，而是科研站与附魔台这两栋建筑自己的界面：点那栋建筑，在它下方展开的扇形菜单里点「科研站」或「附魔台」就能打开。以前不需要建站也能翻到科技页、再被告知"需要先建好科研站"，能看见却不能用；现在没有那栋建筑就没有那个入口。',
+      '背包右侧新增 **「资源」标签页**：木傀儡能采到的和能合成的所有东西都列在这里，每一项带「−／＋」调优先级。采集类直接决定它去采什么；合成类**不会**让它去合成，而是自动折算成材料——比如给「魔力石」加优先级，等于让它多挖铁、多砍树（界面上会直接把折算到的材料写出来）。优先级调到 0 或更低就是不采，前期不想让它乱采纤维时很好用。',
+      '海岛地图上**去掉了那条通往敌营的大路**，也**去掉了三座小木屋**。那条路与那些房子都属于早先"沿路推进打敌营"的玩法，现在看着只会误导；以后上线的是真正能修缮的功能性建筑。'
+    ]
+  },
+  {
+    date: '2026-09-21',
+    title: '可招募单位改成打点产出，血条改成白色',
+    items: [
+      '可招募的战斗单位**不再开局散落在野外**：现在只有一条来源——打掉刷怪点。打掉哪个点，就在**那个点位上**留下它配置的兵种：北岬巢穴给 1 名蛮兵、西岭哨站给 1 名长矛手、东岬营地给 1 名弓手、南林深处给 2 支（一名前排一名远程，对应它是最难的点）。想扩军就得往外打。',
+      '可招募单位的血条改成**白色**，一眼就能和敌方红色的血条区分开；招募过来之后立刻变回友军颜色。',
+      '顺带修掉一处显示错误：招募过来的自家兵此前会一直显示**红色**血条——单位换队之后，血条上的阵营颜色没有跟着换。'
+    ]
+  },
+  {
+    date: '2026-09-21',
+    title: '修正：清光刷怪点后「有时不算通关」',
+    items: [
+      '修掉一处会让整局**永远赢不了**的问题：清光全部刷怪点、并把它放出来的敌人也清干净之后，通关判定有时不触发；而且一旦没触发，这局就再也不会赢了——玩家看到的只有「点位 4/4、残敌 0，关卡却一直不结束」。',
+      '原因很隐蔽：通关判定里有一个「已经判过一次」的锁存，而它在同一帧会被调用两次（刷怪点系统每 0.25 秒判一次、关卡结算每帧又判一次）。只要「最后一个敌人被清掉的那一帧」恰好撞上刷怪点的那次判定，第一次调用就把锁存置真、第二次直接返回"不满足"，通关就被静默吞掉了。',
+      '现在通关判定是**纯判定、可以重复调用**，不会记录"判过了"。重复结束的防护交给关卡结算本身（它本来就有完成标志）。'
+    ]
+  },
+  {
+    date: '2026-09-21',
+    title: '木傀儡会用手脚干活了：砍树、挖矿、走路、挥拳',
+    items: [
+      '木傀儡的四肢现在是**有关节的**：肩、肘、胯、膝四对都做出来了。以前它的胳膊和腿各是一根直木棍，走路只能整条腿前后撬；现在会屈肘、会屈膝，走路有抬腿落脚的样子，站着也不是一根钉在地上的木桩。',
+      '新增砍树与挖矿两套动作：砍树是抡斧子——先把斧子举到最高、命中前把小臂甩直、命中后收势回正；挖矿是短促下砸，幅度更小、更快。两个动作都会在**命中那一帧**顿一下、屈膝下沉，力量有落点。',
+      '砍/挖的**木屑、碎石、尘土与地面擦痕在命中的同一帧冒出来**，而且用的就是那块地的东西：砍树出木屑、挖石头出碎石、铁矿出带金属反光的碎屑、采浆果与纤维草是软的叶片碎屑。反馈的落点按对象取高度——树砍在树干中段、石堆砸在腰上、浆果丛齐膝，不会飘在半空或砸在树根。',
+      '木傀儡手里现在**真的握着工具**：要砍树就握着斧子、要挖矿就换成镐，工具不在背包里时就是空手（不会空手举着一把斧子）。工具挂在手掌上，所以挥砍时它跟着小臂划弧，而不是粘在肩膀上。',
+      '新增木傀儡的攻击动作。说明一下：傀儡按设计不参战（攻击力为 0、也不会主动索敌），所以正常玩不会看到它打人；这个动作是给"被招募或换装成战斗单位"留的，同时保证任何单位被要求播攻击动作时都不会僵在原地。',
+      '加动作**没有让采集变慢**：动作只管表现与结算时机，采集进度照旧按原来的节奏累积。实测两次产物之间的间隔是 1.65 秒，而这棵树的单次采集设定是 1.6 秒——差 3%，属于帧对齐误差。',
+      '顺带修掉一处会让采集速度凭空掉三分之一的隐患：一开始的写法是"挥砍期间不累积进度"，那样一次采集会变成「攒 1.6 秒 + 挥 0.9 秒」。现在两者并行，产物在动作的命中帧落地，节奏不变。'
+    ]
+  },
+  {
+    date: '2026-09-21',
+    title: '海岛放大一倍并改为平坦地形',
+    items: [
+      '海岛地图在水平方向放大一倍：海岸线、地面网格、寻路范围与镜头都按同样比例放大，相机最远可以拉到原来的两倍多，所以你能一眼看到更大的范围。',
+      '地形改成**平坦**：整块陆地是一个等高的台地，没有丘陵、山脊与坑洼，走位与判断距离都更直接。海岸线之外仍然是海，靠岸一圈照旧有沙滩过渡。',
+      '岛上的东西跟着一起搬过去并保持相对位置：基地、敌营、主路、四座巢穴、两座祭坛、资源区、野生动物与野外可招募单位都在对应的新位置上。',
+      '资源数量随岛翻倍（岛的面积是 4 倍，所以单位面积上的资源密度减半）。想让树和矿更密，改配表里的数量即可。',
+      '四个巢穴的巡逻范围也按同样比例放大，怪物的活动圈不会显得比岛小。',
+      '**修掉一条一直潜伏的移动边界问题**：单位的移动边界此前写死成最早那几张走廊小地图的固定框（左右 ±42、前后 −40..40），而镜头与落点早就是按地图自身范围算的。两者不一致的后果很隐蔽——单位会朝目标走一步、又立刻被拉回那条看不见的线上，表现为「一直在走、却一步不动」。旧地图的内容恰好都在那条线以内（基地位于 z=20），所以从没暴露；岛放大之后基地正好落在边界上，去北边巢穴的部队全部卡死、开局链直接断掉。现在移动边界与镜头用同一套，地图多大就能走多远。'
+    ]
+  },
+  {
+    date: '2026-09-21',
+    title: '统一背包、魔力石与单位圆形菜单',
+    items: [
+      '背包合并成一个：按 B 打开基地背包（左侧 6 行 × 8 列 = 48 格）；点单位后它脚下会展开一圈圆形按钮，点「背包」就打开那个单位的背包。此前的「符文背包」与「I 键基地库存」两个面板已经合并删除，屏幕左下角不再有常驻背包按钮。',
+      '符文石不再单独存放：它现在就是背包里的一件普通物品，和木材、工具、魔力石共用同一批格子。放进单位的背包就生效，搬回基地就失效。',
+      '打开单位的背包时**同时显示基地背包**：点一件物品拿起来、再点另一块的格子就搬过去了。左键拿整叠、右键拿一半、同类自动合并、不同类互换；关面板时手上还拿着的东西会自动放回原处，不会掉在地上也不会消失。',
+      '背包里的物品按「图片 + 右下角数量」显示。符文石不可堆叠，因此不显示数量，等级压在图片左上角。',
+      '新增材料「魔力石」：像电池一样提高单位的最大魔力，每块 +15。它不可堆叠、每块占一格，多块可以叠加，所以"想扩容就得多占格子"。配方：4 铁矿 + 6 木炭。',
+      '按 B 打开的背包右侧是已解锁的合成配方网格：材料不足的显示成灰色，鼠标悬浮能看清材料与缺口，点击合成后产物**跟着鼠标走**，再点背包里的空格放下。配方会在你拿到它的材料之后自动出现，不再一上来就列一堆做不了的东西。',
+      '合成网格旁边还有「科技」与「附魔台」两页，面板底部是一行物品快捷栏，点一下就能放置对应的建筑。',
+      '点击单位后会在它下方扇形展开一排圆形按钮（背包 / 招募 / 停止），不用再记按键，也不用去右上角找小按钮。',
+      '修正一处会让符文石突然失效的问题：此前把已经放在别人背包里的石头「捡起」时并不会真的搬动它，导致石头装不到单位身上；现在拾取是真正的搬运，并且原持有者的加成立刻撤销，不会出现"石头已经在你身上、原来的主人还在享受加成"。'
+    ]
+  },
+  {
     date: '2026-09-21',
     title: '海岛生存地图（开发中）',
     items: [
@@ -919,6 +1031,21 @@ const CHANGELOG_ENTRIES = [
       '至此海岛生存的生产与科技设施全部到位：熔炉、魔力炉、科研站、附魔台、树坑、箭塔、食堂。',
       '新增两项科技：「高效烧炭」（熔炉每个周期多出 1 个木炭，2 → 3）与「采集效率」（傀儡每次采集多拿 2 个资源，5 → 7）。科技现在能改**已经在运转**的设施与傀儡，不用拆掉重建。',
       '战斗单位现在也有物品背包了，可以把基地里的东西搬给它们。',
+      '游戏改为彻底的生存玩法：主菜单只保留「开始游戏」与「更新日志」，点开始游戏**直接进入海岛场景**——没有选关、没有难度选择、没有牌组配置。',
+      '移除主菜单上的炼金工坊、战术典籍与附魔图鉴入口；「多人联机」入口保留但标记为暂不可用（联机规则建立在双牌组双经济上，卡牌移除后需要重新改造）。',
+      '卡牌系统不再参与游戏：每帧的卡牌更新已移除，游戏在没有卡牌系统的状态下运行。场景、单位、采集、生产、招募、符文石全链路都验过。',
+      '符文石改走不经过卡牌的造石入口（附魔台与验收脚本共用同一个入口），为彻底删除卡牌文件做准备。',
+      '符文石生命周期的验收补上了真正的判定：这个脚本此前永远以成功退出（只打印报告），等于没有门槛。',
+      '生存关开局不再走卡牌时代的三选一：此前点开始游戏会立刻弹出开局选择并暂停游戏，现在进去就是基地、木傀儡与出生护卫。波次计数、手牌区与银币也不再显示。',
+      '移除附魔图鉴与炼金工坊：主菜单入口、两个视图、卡牌升级与升级费用规则一并删除（附魔百科的数据文件也已删掉）。',
+      '军需铺整个移除：界面、商品目录、结算流程、银币与它的联机同步全部删除。银币随军需铺一起消失——它没有别的来源，也没有别的用途。',
+      '移除开局三选一与波次奖励：现在进游戏不会再被"选一张卡"打断，打完一波也不会弹出奖励流程。敌人来自刷怪点夜袭，不跑卡牌时代的波次。',
+      '新增一条命令跑完整回归：npm run regression（单元测试 + 启动检查 + 悬空调用静态检查 + 21 项游戏内验收），失败会自动重试一次并把"重试才过"标出来，抖动不会被悄悄吞掉。',
+      '卡牌系统本体已删除：手牌、抽牌、出牌、卡面合成、卡牌掉落与牌组校验都不再存在。符文背包改用独立美术模块，战场提示改用独立提示条。',
+      '海岛加入昼夜循环：白天 5 分钟、黑夜 3 分钟。巢穴只在黑夜出兵，白天休整；第 2 夜起存活上限与敌人强度随天数上升。顶部时间改显示「第 N 天 / 第 N 夜」与本阶段剩余。',
+      '可玩关卡目录只保留「孤岛求生」。雪谷、地牢、沙漠、沼泽不再出现在开始游戏与联机建房的关卡列表里；旧存档里的这些关卡 id 会映射到海岛。',
+      '野生动物不再掉卡牌：狼与熊按原概率掉对应附魔石，石头落到遗物包里，走近即可捡起。',
+      '主菜单不再保留选关、牌组和玩法说明页面；点开始游戏直接进海岛。联机入口仍在，但牌组配置已去掉。',
       '新增武器与换装：精钢剑 / 狼牙棒 / 长弓可以在单位面板里装给对应的兵种，伤害与耐久当场生效。**武器只能换成同类**——剑不能给弓手，弓不能给剑士，装不上时会说明是哪一项不匹配。换下来的原配武器会放回背包，不会凭空少一把。',
       '修掉四个长期失败的回归测试：三个是断言没跟上后来有意做出的美术与规则改动（死亡白烟的分层数量与所在渲染层、建筑范围环新增的地面填充圆盘、雷云闪电的分段数、Boss 的配色与体型比例），一个是「牌组必须含单位卡」这条规则在单英雄流派改版里被移除之后测试没有同步。',
       '这张地图可以在选关界面直接进入。野外招募与科技链还没有接入。',
@@ -1584,7 +1711,7 @@ export class MetaGameSystem {
   }
 
   show(view = this.view, options = {}) {
-    const targetView = view === 'shop' ? 'upgrades' : view;
+    const targetView = view;
     if (!options.keepNotice && targetView !== this.view) {
       this.clearNotice();
     }
@@ -1669,32 +1796,16 @@ export class MetaGameSystem {
       this.show('menu');
       return;
     }
-    if (action === 'levels') {
-      this.show('levels');
+    if (action === 'start-game') {
+      this.startGame();
       return;
     }
     if (action === 'coop') {
       this.onOpenCoop?.();
       return;
     }
-    if (action === 'shop') {
-      this.show('upgrades');
-      return;
-    }
-    if (action === 'upgrades') {
-      this.show('upgrades');
-      return;
-    }
-    if (action === 'guide') {
-      this.show('guide');
-      return;
-    }
     if (action === 'changelog') {
       this.show('changelog');
-      return;
-    }
-    if (action === 'encyclopedia') {
-      this.show('encyclopedia');
       return;
     }
     if (action === 'clear-save') {
@@ -1709,68 +1820,7 @@ export class MetaGameSystem {
       this.enterAnimationPreview();
       return;
     }
-    if (action === 'select-level') {
-      this.persistPreferences();
-      this.selectedLevelId = actionTarget.dataset.levelId;
-      this.selectedDifficulty = this.selectedDifficultyForLevel(this.selectedLevelId);
-      this.persistPreferences();
-      this.show('levels');
-      return;
-    }
-    if (action === 'select-difficulty') {
-      const difficulty = clampDifficulty(actionTarget.dataset.difficulty);
-      if (difficulty <= this.availableDifficulty(this.selectedLevelId)) {
-        this.selectedDifficulty = difficulty;
-        this.persistPreferences();
-      }
-      this.show('levels');
-      return;
-    }
-    if (action === 'diff-down' || action === 'diff-up') {
-      const offset = action === 'diff-up' ? 1 : -1;
-      const available = this.availableDifficulty(this.selectedLevelId);
-      this.selectedDifficulty = Math.max(
-        1,
-        Math.min(available, clampDifficulty(this.selectedDifficulty) + offset)
-      );
-      this.persistPreferences();
-      this.show('levels');
-      return;
-    }
-    if (action === 'select-challenge-mode') {
-      this.selectedChallengeMode = normalizeChallengeMode(actionTarget.dataset.challengeMode);
-      this.persistPreferences();
-      this.show('levels');
-      return;
-    }
-    if (action === 'deck') {
-      this.ensureDeckSelection();
-      this.persistPreferences();
-      this.show('deck');
-      return;
-    }
-    if (action === 'toggle-deck-card') {
-      this.toggleDeckCard(actionTarget.dataset.cardId);
-      this.show('deck', { preserveScroll: true });
-      return;
-    }
-    if (action === 'deck-select-all') {
-      this.selectAllDeckCards();
-      this.show('deck', { preserveScroll: true });
-      return;
-    }
-    if (action === 'deck-clear-all') {
-      this.clearDeckCards();
-      this.show('deck', { preserveScroll: true });
-      return;
-    }
-    if (action === 'start-level') {
-      this.startLevel();
-      return;
-    }
-    if (action === 'upgrade-card') {
-      this.upgradeCard(actionTarget.dataset.cardId);
-    }
+
   }
 
   onInput(event) {
@@ -1895,12 +1945,7 @@ export class MetaGameSystem {
 
   renderView() {
     if (this.view === 'menu') return this.renderMainMenu();
-    if (this.view === 'levels') return this.renderLevels();
-    if (this.view === 'deck') return this.renderDeckBuilder();
-    if (this.view === 'guide') return this.renderGuide();
-    if (this.view === 'encyclopedia') return this.renderEnchantmentEncyclopedia();
     if (this.view === 'changelog') return this.renderChangelog();
-    if (this.view === 'upgrades') return this.renderUpgrades();
     if (this.view === 'result') return this.renderResult();
     return this.renderMainMenu();
   }
@@ -2100,8 +2145,8 @@ export class MetaGameSystem {
             </div>
             
             <nav class="med-menu-nav mw-menu-actions" aria-label="主菜单">
-              <!-- Embark as the only primary button -->
-              <button class="med-btn-epic-primary mw-menu-button mw-menu-button-primary" type="button" data-action="levels">
+              <!-- 唯一的主按钮：直接进入场景。没有选关、没有难度、没有牌组配置。 -->
+              <button class="med-btn-epic-primary mw-menu-button mw-menu-button-primary" type="button" data-action="start-game">
                   <!-- Metal Corners & Engraving -->
                   <svg class="btn-metal-corners" viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute; inset:0; width:100%; height:100%; pointer-events:none; border-radius: 4px;">
                       <!-- Golden Corners -->
@@ -2109,20 +2154,16 @@ export class MetaGameSystem {
                       <!-- Crest Engraving Watermark -->
                       <path d="M 40 20 L 60 20 L 60 70 L 50 85 L 40 70 Z" fill="none" stroke="#000" stroke-width="1.5" opacity="0.15"/>
                   </svg>
-                  <span class="btn-text-main">踏上征途</span> 
-                  <span class="btn-text-sub">Embark</span>
+                  <span class="btn-text-main">开始游戏</span>
+                  <span class="btn-text-sub">Survive</span>
               </button>
-              <button class="med-btn-epic mw-menu-button mw-menu-button-secondary" type="button" data-action="coop"><span class="mw-button-label">多人联机</span><span class="mw-button-caption">Co-op</span></button>
-              <button class="med-btn-epic mw-menu-button mw-menu-button-secondary" type="button" data-action="upgrades"><span class="mw-button-label">炼金工坊</span><span class="mw-button-caption">Workshop</span></button>
+              <!-- 联机入口保留但暂不可用：联机规则建立在双牌组双经济上，卡牌移除后需要改造 -->
+              <button class="med-btn-epic mw-menu-button mw-menu-button-secondary" type="button" data-action="coop" disabled title="卡牌与牌组移除后，联机需要重新改造">
+                  <span class="mw-button-label">多人联机</span><span class="mw-button-caption">暂不可用</span>
+              </button>
               <div class="med-menu-row mw-menu-utility-row">
-                  <button class="med-btn-epic-small mw-menu-button mw-menu-button-utility" type="button" data-action="guide">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg><span>战术<br>典籍</span>
-                  </button>
-                  <button class="med-btn-epic-small mw-menu-button mw-menu-button-utility" type="button" data-action="encyclopedia">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M19.1 4.9l-2.8 2.8M7.7 16.3l-2.8 2.8"/></svg><span>附魔<br>图鉴</span>
-                  </button>
                   <button class="med-btn-epic-small mw-menu-button mw-menu-button-utility" type="button" data-action="changelog">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h14v16H5z"/><path d="M9 2v4M15 2v4M8 10h8M8 14h8"/></svg><span>王国<br>纪要</span>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h14v16H5z"/><path d="M9 2v4M15 2v4M8 10h8M8 14h8"/></svg><span>更新<br>日志</span>
                   </button>
               </div>
               <button class="mw-menu-button mw-menu-button-clear" type="button" data-action="clear-save" title="清除全部本地存档">
@@ -2144,232 +2185,6 @@ export class MetaGameSystem {
           </div>
         </div>
         <div class="med-version-mark mw-menu-version">${TEST_VERSION_LABEL}</div>
-      </main>
-    `;
-  }
-
-  renderLevels() {
-    const selectedLevel = this.selectedLevel();
-    const availableDifficulty = this.availableDifficulty(selectedLevel.id);
-    const selectedDifficulty = Math.min(
-      clampDifficulty(this.selectedDifficulty),
-      availableDifficulty
-    );
-    const baseDifficulty = Math.max(1, Math.floor(selectedLevel.baseDifficulty ?? 1));
-    const endless = isEndlessMode(this.selectedChallengeMode);
-    // The battle director uses a fixed 21-wave schedule.  Deriving this from
-    // Keep the level-select description aligned with the actual campaign schedule.
-    const totalWaves = 21;
-
-    return `
-      <main class="med-map-book-container">
-        <button class="book-back-btn" type="button" data-action="menu">← 撤回营帐</button>
-        
-        <div class="med-map-book">
-          <!-- Leather binding in the middle -->
-          <div class="med-book-binding"></div>
-          
-          <!-- Metal Corners -->
-          <div class="med-corner top-left"></div>
-          <div class="med-corner top-right"></div>
-          <div class="med-corner bottom-left"></div>
-          <div class="med-corner bottom-right"></div>
-
-          <div class="med-book-page left-page">
-            <div class="med-page-heading">
-              <span>战役目录</span>
-              <h3 class="med-page-title">选择作战区域</h3>
-            </div>
-            <div class="med-chapter-list">
-              ${LEVEL_DEFINITIONS.map((level) => {
-                const unlockedDiff = this.availableDifficulty(level.id);
-                const isSelected = level.id === selectedLevel.id;
-                return `
-                  <button class="med-chapter-plaque ${isSelected ? 'is-selected' : ''}" 
-                          type="button" 
-                          data-action="select-level" 
-                          data-level-id="${level.id}">
-                    <div class="plaque-nail left-nail"></div>
-                    <div class="plaque-nail right-nail"></div>
-                    <div class="plaque-content">
-                        <span class="chapter-icon" aria-hidden="true">${unlockedDiff >= MAX_LEVEL_DIFFICULTY ? '旗' : '战'}</span>
-                        <div class="chapter-info">
-                            <span class="chapter-name">${level.name}</span>
-                            <span class="chapter-level">等级 ${unlockedDiff}</span>
-                        </div>
-                    </div>
-                  </button>
-                `;
-              }).join('')}
-            </div>
-          </div>
-
-          <div class="med-book-page right-page">
-             <div class="med-region-heading">
-                <span>当前战区</span>
-                <h2 class="med-region-title">${selectedLevel.name}</h2>
-             </div>
-             <div class="med-region-illustration">
-                <div class="med-region-map-placeholder">
-                    <svg viewBox="0 0 220 110" focusable="false" aria-hidden="true">
-                      <path class="region-map-panel" d="M18 18 74 8l72 18 56-12v78l-56 12-72-18-56 10z"></path>
-                      <path class="region-map-fold" d="M74 8v78m72-60v78"></path>
-                      <path class="region-map-route" d="M42 70c20-30 42 4 62-20s42-6 73 18"></path>
-                      <circle class="region-map-point" cx="42" cy="70" r="5"></circle>
-                      <circle class="region-map-point" cx="104" cy="50" r="5"></circle>
-                      <path class="region-map-target" d="m177 58 10 10-10 10-10-10z"></path>
-                    </svg>
-                </div>
-             </div>
-             <p class="med-region-desc">${selectedLevel.summary || selectedLevel.subtitle || '未知区域的战役。'}</p>
-             
-             <div class="med-region-stats">
-                <div class="med-stat-box">
-                    <span class="stat-label">基础环境难度</span>
-                    <span class="stat-value">${baseDifficulty}</span>
-                </div>
-                <div class="med-stat-box">
-                    <span class="stat-label">预计波次规模</span>
-                    <span class="stat-value">${endless ? '无限' : `${totalWaves} 波`}</span>
-                </div>
-             </div>
-
-             <div class="med-challenge-mode-selector" role="group" aria-label="挑战模式">
-                <button type="button" class="med-mode-btn ${endless ? '' : 'is-selected'}" data-action="select-challenge-mode" data-challenge-mode="${CHALLENGE_MODE.STANDARD}">
-                  <strong>普通战役</strong><small>21 波 · 传统胜负</small>
-                </button>
-                <button type="button" class="med-mode-btn ${endless ? 'is-selected' : ''}" data-action="select-challenge-mode" data-challenge-mode="${CHALLENGE_MODE.ENDLESS}">
-                  <strong>无尽挑战</strong><small>难度 0 · 无限波次</small>
-                </button>
-             </div>
-
-             ${endless ? `
-             <div class="med-endless-note">所有卡牌入场统一为 Lv.1，局外升级不生效。难度按敌人首次受伤到死亡的交战时间即时变化；任一基地被摧毁都会结束挑战并结算金币。</div>
-             ` : `
-             <div class="med-difficulty-book-selector">
-                <span class="diff-label">挑战刻度</span>
-                <div class="diff-controls">
-                    <button type="button" class="diff-btn" data-action="diff-down" ${selectedDifficulty <= 1 ? 'disabled' : ''}>◀</button>
-                    <span class="diff-display">Lv.${selectedDifficulty}</span>
-                    <button type="button" class="diff-btn" data-action="diff-up" ${selectedDifficulty >= availableDifficulty ? 'disabled' : ''}>▶</button>
-                </div>
-             </div>
-             `}
-
-             <button class="med-war-start-btn" type="button" data-action="start-level">
-                <span class="btn-inner-text">开始战斗</span>
-             </button>
-          </div>
-        </div>
-      </main>
-    `;
-  }
-
-  renderDeckBuilder() {
-    this.ensureDeckSelection();
-    const selectedCount = this.deckSelection.length;
-    const deckValidation = validateDeckSelection(this.deckSelection);
-    const deckReady = deckValidation.valid;
-    return `
-      <main class="meta-deck">
-        <section class="meta-panel meta-deck-summary">
-          <div>
-            <div class="meta-section-title">出战牌组</div>
-            <p>已选择 ${selectedCount} 张。牌组数量不再要求固定，但至少选择 1 张，并且必须包含单位卡；波次奖励会从已确认牌组中发放。</p>
-            ${deckReady ? '' : `<p class="meta-deck-note">${deckValidationMessage(deckValidation)}</p>`}
-            <p class="meta-deck-note">能量每秒自动恢复 0.1；普通击杀不再充能，“猎魂潮汐”除外。</p>
-          </div>
-          <div class="meta-deck-actions">
-            <button class="meta-primary-button" type="button" data-action="start-level" ${deckReady ? '' : 'disabled'}>
-              开始关卡
-            </button>
-            <button class="meta-secondary-button" type="button" data-action="deck-select-all">全选</button>
-            <button class="meta-secondary-button" type="button" data-action="deck-clear-all" ${selectedCount > 0 ? '' : 'disabled'}>全部移除</button>
-            <button class="meta-secondary-button" type="button" data-action="levels">返回选关</button>
-          </div>
-        </section>
-        <section class="meta-card-grid">
-          ${this.progress.ownedCards.map((id) => {
-            const card = this.cardWithLevel(id);
-            const selectedIndex = this.deckSelection.indexOf(id);
-            const isSelected = selectedIndex !== -1;
-            return this.renderMetaCard(card, {
-              action: 'toggle-deck-card',
-              stateText: isSelected ? '移出牌组' : '加入出战',
-              statusText: isSelected ? `出战 #${selectedIndex + 1}` : '未入选',
-              deckState: isSelected ? 'in' : 'out',
-              selected: isSelected,
-              disabled: false
-            });
-          }).join('')}
-        </section>
-      </main>
-    `;
-  }
-
-  renderGuide() {
-    return `
-      <main class="meta-page meta-guide-page">
-        <section class="meta-panel meta-guide-panel">
-          <div class="meta-section-title">核心流程</div>
-          <p>先在选关页面选择关卡和难度，再配置任意数量的出战卡牌（至少 1 张）。进入战斗后先完成开局选牌：每条路线各一次起始单位卡三选一，之后各一次能力卡与地形卡，选到的牌进入抽牌堆，全部选完才开始第一波。</p>
-        </section>
-        <section class="meta-guide-grid">
-          <article class="meta-panel">
-            <div class="meta-section-title">能量</div>
-            <p>能量每秒自动恢复 0.1，用于出牌与弃牌。普通击杀不再获得能量，“猎魂潮汐”等能力与能量祭坛仍可额外补充。</p>
-          </article>
-          <article class="meta-panel">
-            <div class="meta-section-title">魔力</div>
-            <p>魔力不是能量，也不能用来出牌。己方单位击杀敌人后获得魔力，数值由敌人出生时的难度档位决定；魔力会自动均分给这名单位携带的符文石，攒够阈值即提升石头等级。魔力祭坛会持续为范围内单位提供魔力。</p>
-          </article>
-          <article class="meta-panel">
-            <div class="meta-section-title">卡牌</div>
-            <p>单位卡会召唤部队；能力、战术、建筑卡会提供即时效果或阵地支援。局内获得的临时卡通常不会带回局外牌库。</p>
-          </article>
-          <article class="meta-panel">
-            <div class="meta-section-title">战斗</div>
-            <p>率领部队持续推进，争夺祭坛、击败精英与 Boss，最终击破敌营。不同关卡会有地形、天气或敌营规则差异。</p>
-          </article>
-          <article class="meta-panel">
-            <div class="meta-section-title">成长</div>
-            <p>全部局外可用卡牌默认解锁。通关后获得金币并解锁更高难度，金币可在炼金工坊中用于升级卡牌。</p>
-          </article>
-        </section>
-      </main>
-    `;
-  }
-
-  renderEnchantmentEncyclopedia() {
-    const sections = buildEnchantmentEncyclopediaSections();
-    return `
-      <main class="meta-page meta-encyclopedia-page">
-        <section class="meta-panel meta-encyclopedia-intro">
-          <div class="meta-section-title">附魔百科</div>
-          <p>附魔现在以「符文石」的形式存在：附魔卡使用一次即消耗，生成一块符文石，可以拖给单位（放进背包立即生效）也可以拖到空地（收进基地背包存储）。</p>
-          <p>符文石随时可以转移、永久保留、死亡不掉落；同名石头同一单位只能携带一块。等级只由魔力成长：单位击杀敌人获得的魔力会均分给它携带的符文石，魔力祭坛也会持续供给。</p>
-          <p class="meta-encyclopedia-note">元素类效果（燃烧、中毒、流血等）在命中后单独结算，不走攻击力修改器。</p>
-        </section>
-        ${sections.map((section) => `
-          <section class="meta-encyclopedia-section">
-            <div class="meta-panel meta-encyclopedia-section-head">
-              <div class="meta-section-title">${section.title}</div>
-              <p>${section.description}</p>
-            </div>
-            <div class="meta-encyclopedia-grid">
-              ${section.entries.map((entry) => `
-                <article class="meta-panel meta-encyclopedia-entry" style="--enchant-accent:${entry.color}">
-                  <div class="meta-encyclopedia-entry-head">
-                    <span class="meta-encyclopedia-swatch" aria-hidden="true"></span>
-                    <h2>${entry.name}</h2>
-                  </div>
-                  <p class="meta-encyclopedia-summary">${entry.summary}</p>
-                  <div class="meta-encyclopedia-note">${entry.note}</div>
-                </article>
-              `).join('')}
-            </div>
-          </section>
-        `).join('')}
       </main>
     `;
   }
@@ -2396,32 +2211,9 @@ export class MetaGameSystem {
     `;
   }
 
-  renderUpgrades() {
-    return `
-      <main class="meta-deck">
-        <section class="meta-panel">
-          <div class="meta-section-title">卡牌升级</div>
-          <p>全部局外可用卡牌均已解锁。升级消耗金币翻倍，并提高卡牌基础等级；局内事件升级只在当局生效，附魔牌的局内升级会提高施加的附魔等级。</p>
-        </section>
-        <section class="meta-card-grid">
-          ${this.progress.ownedCards.map((id) => {
-            const card = this.cardWithLevel(id);
-            const cost = upgradeCost(id, card.level);
-            return this.renderMetaCard(card, {
-              action: 'upgrade-card',
-              stateText: `升级 ${cost}`,
-              disabled: this.progress.coins < cost,
-              footer: `<span>下级费用 ${cost}</span>`
-            });
-          }).join('')}
-        </section>
-      </main>
-    `;
-  }
-
   renderResult() {
     const result = this.lastResult;
-    if (!result) return this.renderLevels();
+    if (!result) return this.renderMainMenu();
     const level = result.session.level;
     const endless = isEndlessMode(result.session.challengeMode);
     const endReasonText = result.endReason === 'player_base_destroyed'
@@ -2437,52 +2229,16 @@ export class MetaGameSystem {
           ${endReasonText ? `<p>${endReasonText}</p>` : ''}
           <div class="meta-result-grid">
             <span>用时 <strong>${formatTime(result.elapsedTime)}</strong></span>
-            <span>完成波次 <strong>${result.wave ?? 0}</strong></span>
             <span>获得金币 <strong>${result.reward}</strong></span>
             ${endless
               ? `<span>结束难度 <strong>${Number(result.endingDifficulty ?? 0).toFixed(1)}</strong></span>`
               : `<span>已解锁难度 <strong>${result.nextDifficulty}</strong></span>`}
           </div>
           <div class="meta-action-row">
-            ${result.returnToMenu
-              ? '<button class="meta-primary-button" type="button" data-action="menu">返回主菜单</button>'
-              : '<button class="meta-primary-button" type="button" data-action="levels">继续选关</button><button class="meta-secondary-button" type="button" data-action="upgrades">升级卡牌</button>'}
+            <button class="meta-primary-button" type="button" data-action="menu">返回主菜单</button>
           </div>
         </section>
       </main>
-    `;
-  }
-
-  renderMetaCard(card, options) {
-    const disabled = options.disabled ? 'disabled' : '';
-    const selected = options.selected ? ' is-selected' : '';
-    const deckState = options.deckState ? ` is-deck-${options.deckState}` : '';
-    const actionClass = options.action ? ` is-${options.action}` : '';
-    const actionAttribute = options.actionAttribute ?? 'data-action';
-    const statusMarkup = options.statusText
-      ? `<div class="meta-card-status">${options.statusText}</div>`
-      : '';
-    const deckMarkMarkup = options.deckState
-      ? '<div class="meta-card-deck-mark" aria-hidden="true"><span></span></div>'
-      : '';
-    return `
-      <article class="meta-card meta-forged-hand-card is-kind-${card.kind}${selected}${deckState}" style="--card-color:${cardThemeColor(card)}" aria-label="${card.name}">
-        <div class="meta-forged-card-shell">
-          ${createForgedCardMarkup(card)}
-        </div>
-        ${statusMarkup}
-        ${deckMarkMarkup}
-        ${options.footer ? `<div class="meta-forged-card-footer">${options.footer}</div>` : ''}
-        <button
-          class="meta-card-action${actionClass}"
-          type="button"
-          ${actionAttribute}="${options.action}"
-          data-card-id="${card.id}"
-          ${disabled}
-        >
-          ${options.stateText}
-        </button>
-      </article>
     `;
   }
 
@@ -2528,96 +2284,38 @@ export class MetaGameSystem {
     saveProgress(this.progress);
   }
 
-  cardWithLevel(id) {
-    const definition = CARD_DEFINITIONS.find((card) => card.id === id) ?? CARD_DEFINITIONS[0];
-    return {
-      ...definition,
-      level: Math.max(1, this.progress.cardLevels[id] ?? 1)
-    };
-  }
-
-  ensureDeckSelection() {
-    const previous = this.deckSelection.join('|');
-    this.deckSelection = normalizeDeckSelection(this.deckSelection, this.progress.ownedCards, {
-      defaultToOwned: false
-    });
-    if (this.deckSelection.join('|') !== previous) {
-      this.persistPreferences();
-    }
-  }
-
-  toggleDeckCard(id) {
-    if (!this.progress.ownedCards.includes(id)) return;
-    const index = this.deckSelection.indexOf(id);
-    if (index >= 0) {
-      this.deckSelection.splice(index, 1);
-      this.persistPreferences();
-      return;
-    }
-    this.deckSelection.push(id);
-    this.persistPreferences();
-  }
-
-  setDeckSelection(ids = []) {
-    this.deckSelection = normalizeDeckSelection(ids, this.progress.ownedCards, {
-      defaultToOwned: false
-    });
-    this.persistPreferences();
-  }
-
-  selectAllDeckCards() {
-    this.setDeckSelection(this.progress.ownedCards);
-  }
-
-  clearDeckCards() {
-    this.setDeckSelection([]);
-  }
-
-  upgradeCard(id) {
-    if (!this.progress.ownedCards.includes(id)) return;
-    const level = Math.max(1, this.progress.cardLevels[id] ?? 1);
-    const cost = upgradeCost(id, level);
-    if (this.progress.coins < cost) return;
-    this.progress.coins -= cost;
-    this.progress.cardLevels[id] = level + 1;
-    saveProgress(this.progress);
-    this.show('upgrades', { preserveScroll: true });
-  }
-
-  startLevel() {
-    // 出战牌组默认使用全部已拥有卡牌，不再需要手动配置。
-    // 单位卡不再进牌组：英雄由开局三选一直接召唤，整局唯一。
-    const deckIds = this.progress.ownedCards.filter((id) => (
-      CARD_DEFINITIONS.find((card) => card.id === id)?.kind !== 'summon'
-    ));
-    const deck = deckIds.map((id, index) => {
-      const card = this.cardWithLevel(id);
-      return {
-        ...card,
-        instanceId: `${id}-${index}-${Date.now()}-${Math.random().toString(36).slice(2)}`
-      };
-    });
-    if (!validateDeckSelection(deckIds).valid) {
-      this.setNotice('当前没有可出战的卡牌，请检查卡牌数据');
-      return;
-    }
-    const difficulty = Math.min(
-      clampDifficulty(this.selectedDifficulty),
-      this.availableDifficulty(this.selectedLevelId)
-    );
-    this.selectedDifficulty = difficulty;
+  /**
+   * 开始游戏：直接进唯一场景。
+   *
+   * 没有选关、没有难度选择、没有牌组配置——这三点都是卡牌玩法留下来的前置，
+   * 生存玩法里玩家的第一个决策应该发生在场景里（先去砍树还是先造工具），
+   * 而不是在菜单里点三次。
+   *
+   * 牌组留空：卡牌系统正在移除中，这里不再构造任何卡牌数据。
+   */
+  startGame() {
+    this.selectedLevelId = SURVIVAL_LEVEL_ID;
+    this.selectedDifficulty = 1;
+    this.selectedChallengeMode = CHALLENGE_MODE.STANDARD;
     this.persistPreferences();
     const session = {
-      level: this.selectedLevel(),
-      difficulty,
-      challengeMode: normalizeChallengeMode(this.selectedChallengeMode),
-      deck,
-      cardLevels: buildOwnedCardLevelMap(this.progress.ownedCards, this.progress.cardLevels),
+      level: this.survivalLevel(),
+      difficulty: 1,
+      challengeMode: CHALLENGE_MODE.STANDARD,
+      deck: [],
+      cardLevels: {},
       startedAt: Date.now()
     };
     this.hide();
     this.onStartLevel?.(session);
   }
+
+  /** 生存模式唯一的那张地图。 */
+  survivalLevel() {
+    return LEVEL_DEFINITIONS.find((level) => level.id === SURVIVAL_LEVEL_ID)
+      ?? LEVEL_DEFINITIONS[0];
+  }
+
 }
 
 function createMetaRoot() {
@@ -2662,11 +2360,6 @@ function restoreMetaScrollPositions(root, positions = []) {
 
 function pageTitleForView(view) {
   const titles = {
-    levels: '选关',
-    deck: '选择牌组',
-    upgrades: '升级卡牌',
-    guide: '玩法说明',
-    encyclopedia: '附魔百科',
     changelog: '更新日志',
     result: '战斗结算'
   };
@@ -2734,10 +2427,7 @@ function normalizePreferences(rawPreferences, ownedCards, levelDifficulties) {
   const savedDeckSelection = normalizeDeckSelection(rawPreferences?.deckSelection, ownedCards, {
     defaultToOwned: false
   });
-  const starterDeckSelection = normalizeDeckSelection(STARTER_CARD_IDS, ownedCards, {
-    defaultToOwned: false
-  });
-  const deckSelection = hasSavedDeckSelection ? savedDeckSelection : starterDeckSelection;
+  const deckSelection = hasSavedDeckSelection ? savedDeckSelection : [];
   return {
     selectedLevelId,
     selectedDifficulties,
@@ -2780,7 +2470,7 @@ function normalizeLevelId(levelId) {
   const migrated = migrateLegacyLevelId(levelId);
   return LEVEL_DEFINITIONS.some((level) => level.id === migrated)
     ? migrated
-    : LEVEL_DEFINITIONS[0]?.id ?? 'snow-valley';
+    : LEVEL_DEFINITIONS[0]?.id ?? 'island-survival';
 }
 
 function normalizeDeckSelection(rawDeckSelection, ownedCards, options = {}) {
@@ -2798,14 +2488,7 @@ function normalizeDeckSelection(rawDeckSelection, ownedCards, options = {}) {
 }
 
 function normalizeOwnedCards() {
-  return CARD_DEFINITIONS
-    .filter((card) => !card.lootOnly && !card.retired)
-    .map((card) => card.id);
-}
-
-export function upgradeCost(id, level) {
-  void id;
-  return CARD_UPGRADE_INITIAL_COST * 2 ** Math.max(0, level - 1);
+  return [];
 }
 
 export function buildOwnedCardLevelMap(ownedCards = [], cardLevels = {}) {

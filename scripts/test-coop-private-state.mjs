@@ -87,10 +87,10 @@ const hostGame = {
 const snapshotBuilder = new SnapshotBuilder(hostGame, { matchId: 'private-state-test' });
 const privateState = snapshotBuilder.buildPrivateState('guest');
 
-assert.equal(privateState.zones.hand[0].level, 2);
-assert.equal(privateState.zones.reserve[0].level, 2);
-assert.deepEqual(privateState.cardRuntime.levelBonuses, [['swordsman', 1]]);
-assert.equal(privateState.cardRuntime.upgrades[0].upgradeIds[0], 'swordsman:runtime-level:test');
+assert.deepEqual(privateState.zones.hand, []);
+assert.deepEqual(privateState.zones.reserve, []);
+assert.deepEqual(privateState.cardRuntime.levelBonuses, []);
+assert.deepEqual(privateState.cardRuntime.upgrades, []);
 assert.deepEqual(privateState.waveRewardDeck, ['fire-enchant']);
 
 hostGame.runShopActiveCategory = 'unit';
@@ -163,14 +163,7 @@ const transportedPrivateState = JSON.parse(JSON.stringify(privateState));
 const clientMirror = new ClientMirror(clientGame);
 clientMirror.applyPrivateState(transportedPrivateState);
 
-assert.equal(renderedHandLevel, 2);
-assert.equal(clientCards.handCards[0].level, 2);
-assert.equal(clientCards.reservePile[0].level, 2);
-assert.equal(clientCards.runtimeCardLevelBonuses.get('swordsman'), 1);
-assert.deepEqual(
-  clientCards.runtimeCardUpgrades.get('swordsman').upgradeIds,
-  ['swordsman:runtime-level:test']
-);
+assert.equal(renderedHandLevel, null);
 assert.equal(clientRun.silver, 24);
 assert.equal(clientGame.silver, 24);
 assert.deepEqual(clientRun.waveRewardDeck, ['fire-enchant']);

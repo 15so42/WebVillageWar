@@ -57,7 +57,17 @@ check('单位的武器家族来自定义（不靠名字字符串猜）', () => {
     assert.ok(profile.family, `${type} 必须有 weapon.family`);
     assert.ok(profile.attackAnimation, `${type} 必须有攻击动作`);
   });
-  assert.equal(unitWeaponProfile(UNIT_DEFINITIONS.woodPuppet.type ?? 'woodPuppet'), null);
+  // 木傀儡**现在有**武器档位了。它以前是 null（"傀儡不能装任何武器"），
+  // 那一版没有可合成的傀儡武器，玩家开局还有 4 个护卫。
+  // 现在开局没有战斗单位、傀儡是唯一部队，所以它必须能装自己的那一族武器，
+  // 否则「合成武器 → 拖给傀儡 → 打得动刷怪点」这条链根本走不通。
+  // 注意它仍然**只**能装 puppetArm 一族（见本文件后面的跨族断言）。
+  const puppetProfile = unitWeaponProfile('woodPuppet');
+  assert.ok(puppetProfile, '木傀儡必须有武器档位，否则一件武器也装不上');
+  assert.equal(puppetProfile.family, 'puppetArm');
+  assert.equal(puppetProfile.attackRange, UNIT_DEFINITIONS.woodPuppet.attackRange);
+  assert.equal(puppetProfile.attackAnimation, UNIT_DEFINITIONS.woodPuppet.art.clips.attack);
+  assert.equal(puppetProfile.projectileType, null, '傀儡是纯近战');
   assert.equal(unitWeaponProfile('nonexistent'), null);
   assert.equal(unitWeaponProfile(null), null);
 });

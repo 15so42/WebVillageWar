@@ -80,18 +80,15 @@ export class CoopPlayerStatusUi {
       const isLocal = playerId === localPlayerId;
       const publicRow = this.playersPublic.find((row) => (row.playerId ?? row.slot) === playerId) ?? {};
       const run = game.players?.[playerId];
-      const cards = game.cardSystems?.[playerId] ?? (isLocal ? game.cardSystem : null);
-      const localDetail = isLocal && cards
+      const localDetail = isLocal
         ? {
-          energy: cards.energy ?? 0,
+          energy: 0,
           silver: game.getSilver?.(playerId) ?? run?.silver ?? 0,
-          handCount: cards.handCards?.length ?? 0,
-          drawCount: cards.drawPile?.length ?? 0,
-          discardCount: cards.discardPile?.length ?? 0,
+          handCount: 0,
+          drawCount: 0,
+          discardCount: 0,
           connected: true,
-          strategyPending: Boolean(game.strategyEvent || run?.strategyEvent)
-            ? 1
-            : (run?.pendingStrategyRewards?.length ?? 0)
+          strategyPending: 0
         }
         : null;
       return {

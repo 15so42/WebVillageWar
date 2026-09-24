@@ -280,17 +280,8 @@ export class AltarSystem {
   }
 
   grantPlayerEnergy(amount) {
-    if (!this.game.coop?.enabled || !this.game.players) {
-      return this.game.cardSystem?.addEnergy?.(amount) ?? 0;
-    }
-    let localGained = 0;
-    this.game.coopPlayerSlots().forEach((slot) => {
-      const cards = this.game.cardSystems?.[slot]
-        ?? (slot === this.game.localPlayerSlot ? this.game.cardSystem : null);
-      const gained = cards?.addEnergy?.(amount) ?? 0;
-      if (slot === this.game.localPlayerSlot) localGained = gained;
-    });
-    return localGained;
+    void amount;
+    return 0;
   }
 
   isEffectReady(altar, effect, dt, index) {

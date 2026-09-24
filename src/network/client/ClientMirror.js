@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import {
-  CARD_DEFINITIONS,
   ENCHANTMENTS,
   PLAYER_ABILITY_DEFINITIONS,
   TEAMS,
@@ -24,7 +23,7 @@ export class ClientMirror {
 
   applyFullSnapshot(snapshot) {
     if (!snapshot?.world) return;
-    this.game.cardSystem?.cancelActiveDrag?.();
+    this.game.cancelCameraDrag?.();
     // Keep revisions already applied from patches that arrived before this
     // snapshot: rebuilding from the snapshot's own (possibly lower) values
     // would roll the baseline back and spuriously trigger a resync for the
@@ -371,43 +370,8 @@ export class ClientMirror {
   applyPrivateState(state) {
     const localPlayerId = this.game.localPlayerId ?? this.game.localPlayerSlot;
     if (!state || state.playerId !== localPlayerId) return;
-    const cards = this.game.cardSystem;
     if ('nextClientSeq' in state) {
       this.game.networkBridge?.commandSender?.restoreSequence?.(state.nextClientSeq);
-    }
-    if (cards && 'energy' in state) {
-      cards.energy = state.energy;
-      cards.updateEnergyUi?.(true);
-      cards.updateCardAffordability?.();
-    }
-    if (cards && state.cardRuntime) {
-      cards.runtimeCardLevelBonuses = new Map(
-        (state.cardRuntime.levelBonuses ?? [])
-          .filter((entry) => Array.isArray(entry) && entry.length >= 2)
-          .map(([cardId, level]) => [cardId, Math.max(0, Math.floor(Number(level) || 0))])
-      );
-      cards.runtimeCardUpgrades = new Map(
-        (state.cardRuntime.upgrades ?? [])
-          .filter((entry) => entry?.cardId)
-          .map((entry) => [entry.cardId, {
-            upgradeIds: [...(entry.upgradeIds ?? [])],
-            unitUpgradeIds: [...(entry.unitUpgradeIds ?? [])]
-          }])
-      );
-    }
-    if (cards && state.zones) {
-      cards.handCards = cloneCards(state.zones.hand);
-      cards.drawPile = cloneCards(state.zones.drawPile);
-      cards.discardPile = cloneCards(state.zones.discardPile);
-      cards.exilePile = cloneCards(state.zones.exile);
-      if (Array.isArray(state.zones.reserve)) {
-        cards.reservePile = cloneCards(state.zones.reserve);
-      }
-      cards.renderHand?.();
-      cards.updatePileUi?.();
-    }
-    if (cards && Array.isArray(state.cooldowns)) {
-      cards.applyCooldownSnapshot?.(state.cooldowns);
     }
     const run = this.game.players?.[localPlayerId];
     if (run) {
@@ -445,16 +409,12 @@ export class ClientMirror {
     if (Array.isArray(state.runeStones)) {
       // 符文石是权威数据：整体替换本地玩家那一份，客户端不自行推演生成/转移/出售。
       this.game.runeStones?.applyNetworkSnapshot?.(state.runeStones);
-      this.game.runeBackpack?.refresh?.();
+      this.game.backpack?.refresh?.();
     }
     if (Array.isArray(state.abilities)) this.applyAbilityState(state.abilities);
     if (Array.isArray(state.teamSpecialUpgrades)) {
       // 专精恢复后刷新能量条图标（专精与能力卡同排展示）
-      this.game.abilitiesFor?.(localPlayerId)?.updateUi?.()
-        ?? this.game.cardSystem?.updateAbilityIcons?.(
-          [],
-          this.game.getEnergyPanelSpecializationIcons?.(localPlayerId) ?? []
-        );
+      this.game.abilitiesFor?.(localPlayerId)?.updateUi?.();
     }
     this.game.applyNetworkPrivateUi?.(state);
     this.game.networkBridge?.coopStatusUi?.render?.();
@@ -549,7 +509,7 @@ export class ClientMirror {
       game_rule_rejected: '当前状态不能执行该操作'
     };
     const reason = labels[message.reasonCode] ?? message.reasonCode;
-    this.game.cardSystem?.setHint?.(`Host 拒绝操作：${reason}`, 'network-command');
+    this.game.hints?.setHint?.(`Host 拒绝操作：${reason}`, 'network-command');
   }
 
   applyPlayersPublic(rows) {
@@ -643,7 +603,6 @@ function cloneCard(card) {
   const id = card.id ?? card.cardDefinitionId;
   if (!id) return null;
   return {
-    ...(CARD_DEFINITIONS.find((definition) => definition.id === id) ?? {}),
     ...card,
     instanceId: card.instanceId ?? card.cardInstanceId,
     id

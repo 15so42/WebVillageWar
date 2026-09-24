@@ -11,6 +11,7 @@
 // elapsedTime 真的增长了。三个场景会各自重新加载一次关卡——一次 level 结束后
 // levelFinished 会把后续判定全部锁死，同一条会话里接着测等于测了个假的。
 import WebSocket from 'ws';
+import { enterSurvivalGame } from './lib/enter-game.mjs';
 
 const CDP_PORT = Number(process.env.ISLAND_CDP_PORT || 9235);
 const BASE = process.env.ISLAND_URL || 'http://127.0.0.1:3000/';
@@ -61,33 +62,16 @@ const report = { page: BASE, levelId: LEVEL_ID, scenarios: {}, problems };
  *  重载前的旧文档同时有 game 和菜单按钮，靠它区分不会误判成已就绪。 */
 async function startLevel() {
   await send('Page.navigate', { url: BASE });
-  await sleep(1200);
-  let ready = false;
-  for (let i = 0; i < 60; i += 1) {
-    await sleep(400);
+  for (let i = 0; i < 40; i += 1) {
+    await sleep(300);
     const state = await ev(`JSON.stringify({
-      hasGame: !!window.__VILLAGE_WAR_DEBUG__?.game,
-      hasMenu: !!document.querySelector('[data-action="levels"]')
+      menu: !!document.querySelector('[data-action="start-game"]'),
+      game: !!window.__VILLAGE_WAR_DEBUG__?.game
     })`);
-    const parsed = JSON.parse(state);
-    if (!parsed.hasGame && parsed.hasMenu) { ready = true; break; }
+    const v = JSON.parse(state);
+    if (v.menu && !v.game) break;
   }
-  if (!ready) return false;
-  await ev(`document.querySelector('[data-action="levels"]')?.click(); true`);
-  await sleep(1200);
-  await ev(`(() => {
-    const btn = [...document.querySelectorAll('[data-action="select-level"]')]
-      .find((e) => e.offsetParent !== null && (e.dataset.levelId || '').includes(${JSON.stringify(LEVEL_ID)}));
-    if (btn) btn.click();
-    return true;
-  })()`);
-  await sleep(500);
-  await ev(`(()=>{const b=[...document.querySelectorAll('[data-action="start-level"]')].find(e=>e.offsetParent!==null);if(b)b.click();return true;})()`);
-  for (let i = 0; i < 60; i += 1) {
-    await sleep(400);
-    if (await ev(`!!window.__VILLAGE_WAR_DEBUG__?.game`)) return true;
-  }
-  return false;
+  return enterSurvivalGame(ev, sleep);
 }
 
 // 每个场景都要走一遍真实 tick，所以先把公共的页内前置代码拼出来。
@@ -101,6 +85,15 @@ const PRELUDE = `
   game.paused = false;
   const elapsedBefore = game.elapsedTime;
   const tick = (n) => { for (let i = 0; i < n; i += 1) game.tick(); };
+  // 胜利/失败判定挂在刷怪点的**规划节拍**上（SpawnPointSystem.PLAN_INTERVAL_SECONDS
+  // = 0.25 秒一次）。"死 4 帧"只有 0.2 秒，**永远不够**触发一次判定——
+  // 之前它只在页面 rAF 恰好补了一帧时才通过，是这个脚本最主要的抖动来源
+  // （实测单独跑 3 次只过 1 次）。所以下面统一用 waitForFinish()：
+  // 一直 tick 到判定真的发生，或者明确等到 2 秒（足够跨过 8 个节拍）为止。
+  const waitForFinish = () => {
+    for (let i = 0; i < 40 && game.levelFinished !== true; i += 1) tick(1);
+    return game.levelFinished === true;
+  };
   tick(4);
   // 收掉开局三选一，否则 awaitingOpeningReward 会挡住判负逻辑
   game.pendingStrategyRewards = [];
@@ -151,19 +144,50 @@ if (await startLevel()) {
       spawned = made ? taggedEnemies().length : 0;
     }
     system.points.slice().forEach((point) => system.destroyPoint(point.id));
-    tick(4);
+    // 给判定足够的时间（见 waitForFinish 的注释）。这一步很关键：
+    // "残敌会阻止通关"这条断言只有在判定**确实有机会跑过**的时候才有意义，
+    // 否则它只是在测"时间还不够"。
+    waitForFinish();
     out.allPointsDestroyed = system.progress().allCleared === true;
     out.taggedAliveBeforeKill = taggedEnemies().length;
     out.wildlifeAlive = wildlife.length;
     out.finishedWithLeftover = game.levelFinished === true;
 
-    // 清掉残余敌人（野生动物保留）
-    taggedEnemies().forEach((unit) => {
-      unit.alive = false;
-      game.handleUnitDeath(unit, null);
-    });
-    out.taggedAliveAfterKill = taggedEnemies().length;
-    tick(4);
+    // 清掉残余敌人（野生动物保留）。
+    //
+    // 为什么是循环而不是"清一次"：蜘蛛卵会在点位被摧毁之后继续孵化，
+    // 孵出来的蜘蛛**带着原点位的归属**，于是"刚清完又冒出一只"。
+    // 单次清理会让通关判定时有时无——这个脚本此前 1/3 的通过率就是它。
+    // 循环里每轮之间留两帧，让孵化、生成与判定都有机会发生。
+    const clearTaggedEnemies = () => {
+      for (let round = 0; round < 30; round += 1) {
+        const alive = taggedEnemies();
+        if (!alive.length) return 0;
+        alive.forEach((unit) => {
+          unit.alive = false;
+          game.handleUnitDeath(unit, null);
+        });
+        tick(2);
+      }
+      return taggedEnemies().length;
+    };
+    out.taggedAliveAfterKill = clearTaggedEnemies();
+    const plansBefore = system.stats.plans;
+    waitForFinish();
+    out.plansDuringWait = system.stats.plans - plansBefore;
+    // 失败时能直接看出卡在哪一条上，而不是只知道"没判胜"。
+    out.finalTaggedAlive = taggedEnemies().length;
+    out.finalTaggedTypes = taggedEnemies().map((unit) => unit.type).slice(0, 8);
+    out.finalWildlifeAlive = (game.enemyUnits ?? []).filter((u) => u?.alive && u.isWildlife).length;
+    out.finalCleared = system.progress().allCleared === true;
+    out.finalAliveByPoint = system.aliveByPoint();
+    out.finalNestsAlive = (game.enemyUnits ?? []).filter((u) => u?.alive && u.isSpawnPointNest).length;
+    out.finalLevelFinished = game.levelFinished === true;
+    out.finalEndReason = game.levelEndReason ?? null;
+    // 通关判定必须是**纯判定、可重复调用**：它在同一帧会被调用两次
+    // （SpawnPointSystem.update() 一次、Game.checkSurvivalLevelEnd() 一次）。
+    // 这条断言直接钉住那个"带锁存就会把通关吞掉"的回归。
+    out.victoryIsNotLatched = system.checkVictory() === true && system.checkVictory() === true;
     out.hudText = document.querySelector('#spawn-point-count')?.textContent ?? null;
     ${TEARDOWN}
   })()`));
@@ -234,10 +258,12 @@ report.verdict = {
   leftoverBlocksVictory: s1?.allPointsDestroyed === true
     && s1?.taggedAliveBeforeKill > 0
     && s1?.finishedWithLeftover === false,
-  // 清掉残敌后判胜；野生动物活着不影响
+  // 清掉残敌后判胜；野生动物活着不影响。最后一条顺带钉住"判定不带锁存"：
+  // 同一帧会被调用两次，带锁存就会把通关吞掉（详见 SpawnPointSystem.checkVictory 的注释）。
   victoryOnClearance: s1?.finished === true
     && s1?.victory === true
-    && s1?.resultEndReason === 'spawn_points_cleared',
+    && s1?.resultEndReason === 'spawn_points_cleared'
+    && s1?.victoryIsNotLatched === true,
   wildlifeDoesNotBlock: s1?.wildlifeAlive > 0,
   // 2) 敌营被毁不算通关，基地被毁判负
   campDestroyedIsNotVictory: s2?.enemyCampAlive === false

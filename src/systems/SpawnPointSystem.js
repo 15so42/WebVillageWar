@@ -26,13 +26,11 @@ export class SpawnPointSystem {
     this.points = [];
     this.planAccumulator = 0;
     this.stats = { spawned: 0, destroyed: 0, plans: 0 };
-    this.victoryDeclared = false;
   }
 
   attach(definitions = []) {
     this.points = normalizeSpawnPoints(definitions, this.rules);
     this.planAccumulator = 0;
-    this.victoryDeclared = false;
     this.stats = { spawned: 0, destroyed: 0, plans: 0 };
     return this;
   }
@@ -70,7 +68,15 @@ export class SpawnPointSystem {
     this.stats.plans += 1;
 
     const alive = this.aliveByPoint();
-    const results = planSpawns(this.points, { dt: planDt, aliveByPoint: alive, rules: this.rules });
+    const raid = this.game?.nightRaidModifiers?.() ?? { extraAlive: 0, extraPerTick: 0 };
+    const results = planSpawns(this.points, {
+      dt: planDt,
+      aliveByPoint: alive,
+      rules: this.rules,
+      extraAlive: raid.extraAlive,
+      extraPerTick: raid.extraPerTick,
+      allowSpawn: this.game?.canRaidSpawn?.() !== false
+    });
     results.forEach((result) => {
       for (let i = 0; i < result.spawnCount; i += 1) {
         this.spawnOne(this.pointById(result.id), i);
@@ -89,7 +95,8 @@ export class SpawnPointSystem {
       spawnPointId: point.id,
       leashRadius: point.leashRadius,
       radius: 1.4 + (index % 3) * 0.45,
-      index
+      index,
+      difficulty: this.game?.nightRaidDifficulty?.()
     });
     if (unit) this.stats.spawned += 1;
     return unit ?? null;
@@ -149,15 +156,22 @@ export class SpawnPointSystem {
 
   // 胜负默认值（文档把这条列为待定）：全部点位被摧毁 **且** 没有残余敌人才算赢。
   // 只毁点不清场会让「最后一个点没了但怪还在打基地」永远结束不了。
+  //
+  // **这里刻意不带锁存**（曾经有一个 `victoryDeclared`）。
+  // 为什么不能带：这个方法在同一帧会被调用两次——`update()` 每 0.25 秒调用一次
+  // 并**丢掉返回值**，`Game.checkSurvivalLevelEnd()` 稍后又调用一次。
+  // 带锁存时，只要「最后一个敌人死掉的那一帧」恰好是规划帧，第一次调用就把锁存置真、
+  // 第二次调用直接返回 false，**通关被静默吞掉，而且之后再也不会赢**
+  // （锁存已经为真，后续每次调用都返回 false）。
+  // 玩家看到的就是「点位清光了、敌人也清光了，关卡却一直不结束」。
+  // 幂等交给 `Game.finishLevel()`（它自己有 `levelFinished` 守卫）就够了。
   checkVictory() {
-    if (this.victoryDeclared || !this.points.length) return false;
+    if (!this.points.length) return false;
     const cleared = clearedProgress(this.points);
     if (!cleared.allCleared) return false;
     const alive = this.aliveByPoint();
     const remaining = Object.values(alive).reduce((sum, count) => sum + count, 0);
-    if (remaining > 0) return false;
-    this.victoryDeclared = true;
-    return true;
+    return remaining <= 0;
   }
 
   serializeForSlot() {
@@ -179,7 +193,6 @@ export class SpawnPointSystem {
       point.cleared = entry.cleared === true;
       point.timer = Number.isFinite(entry.timer) ? entry.timer : point.timer;
     });
-    this.victoryDeclared = false;
     return true;
   }
 }

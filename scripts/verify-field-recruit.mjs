@@ -10,6 +10,7 @@
 // 重新校验，依赖"上一段代码留下的选中"来读 DOM 会让失败原因变得含糊。
 import { writeFileSync, mkdirSync } from 'node:fs';
 import WebSocket from 'ws';
+import { enterSurvivalGame } from './lib/enter-game.mjs';
 
 const CDP_PORT = Number(process.env.ISLAND_CDP_PORT || 9235);
 const BASE = process.env.ISLAND_URL || 'http://127.0.0.1:3000/';
@@ -56,24 +57,7 @@ const ev = async (expr) => {
 
 await send('Page.navigate', { url: BASE });
 const report = { page: BASE, levelId: LEVEL_ID, started: false, result: null, problems };
-for (let i = 0; i < 60; i += 1) {
-  await sleep(400);
-  if (await ev(`!!document.querySelector('[data-action="levels"]')`)) break;
-}
-await ev(`document.querySelector('[data-action="levels"]')?.click(); true`);
-await sleep(1200);
-await ev(`(() => {
-  const btn = [...document.querySelectorAll('[data-action="select-level"]')]
-    .find((e) => e.offsetParent !== null && (e.dataset.levelId || '').includes(${JSON.stringify(LEVEL_ID)}));
-  if (btn) btn.click();
-  return true;
-})()`);
-await sleep(500);
-await ev(`(()=>{const b=[...document.querySelectorAll('[data-action="start-level"]')].find(e=>e.offsetParent!==null);if(b)b.click();return true;})()`);
-for (let i = 0; i < 60; i += 1) {
-  await sleep(400);
-  if (await ev(`!!window.__VILLAGE_WAR_DEBUG__?.game`)) { report.started = true; break; }
-}
+report.started = await enterSurvivalGame(ev, sleep);
 
 if (report.started) {
   await sleep(500);
@@ -95,6 +79,24 @@ if (report.started) {
     if (game.strategyEvent) game.strategyEvent = null;
     if (game.strategyEventUi?.root) game.strategyEventUi.root.hidden = true;
     document.body.classList.remove('is-game-paused', 'is-strategy-event-open');
+
+    // 可招募单位现在**只在击破刷怪点时生成在该点位上**（需求第 6 条：
+    // 「可招募敌人改成击破刷怪点时生成在刷怪点，不默认到处都有」）。
+    // 这个脚本需要**两个**中立单位：一个测中立契约与招募流程，另一个放进基地射程里
+    // 测"基地不误伤"。而一个点只按 recruitReward 给一支，所以要点亮足够的点位。
+    const ensureNeutrals = (wanted) => {
+      const alive = () => (game.enemyUnits ?? []).filter((u) => u?.alive && u.isRecruitable);
+      const destroyed = [];
+      (game.spawnPoints?.points ?? []).forEach((point) => {
+        if (alive().length >= wanted || point.cleared) return;
+        game.spawnPoints.destroyPoint(point.id);
+        destroyed.push(point.id);
+        tick(4);
+      });
+      return destroyed;
+    };
+    out.destroyedPointIds = ensureNeutrals(2);
+    out.recruitablePointCount = (game.spawnPoints?.points ?? []).filter((p) => p.recruitReward).length;
 
     const neutrals = (game.enemyUnits ?? []).filter((u) => u?.alive && u.isRecruitable);
     out.neutralCount = neutrals.length;

@@ -8,6 +8,7 @@
 //   4. 缺料就停：不会凭空产出，也不会把进度清零。
 import { writeFileSync, mkdirSync } from 'node:fs';
 import WebSocket from 'ws';
+import { enterSurvivalGame } from './lib/enter-game.mjs';
 
 const CDP_PORT = Number(process.env.ISLAND_CDP_PORT || 9235);
 const BASE = process.env.ISLAND_URL || 'http://127.0.0.1:3000/';
@@ -57,24 +58,7 @@ const ev = async (expr) => {
 
 await send('Page.navigate', { url: BASE });
 const report = { page: BASE, levelId: LEVEL_ID, started: false, result: null, problems };
-for (let i = 0; i < 60; i += 1) {
-  await sleep(400);
-  if (await ev(`!!document.querySelector('[data-action="levels"]')`)) break;
-}
-await ev(`document.querySelector('[data-action="levels"]')?.click(); true`);
-await sleep(1200);
-await ev(`(() => {
-  const btn = [...document.querySelectorAll('[data-action="select-level"]')]
-    .find((e) => e.offsetParent !== null && (e.dataset.levelId || '').includes(${JSON.stringify(LEVEL_ID)}));
-  if (btn) btn.click();
-  return true;
-})()`);
-await sleep(500);
-await ev(`(()=>{const b=[...document.querySelectorAll('[data-action="start-level"]')].find(e=>e.offsetParent!==null);if(b)b.click();return true;})()`);
-for (let i = 0; i < 60; i += 1) {
-  await sleep(400);
-  if (await ev(`!!window.__VILLAGE_WAR_DEBUG__?.game`)) { report.started = true; break; }
-}
+report.started = await enterSurvivalGame(ev, sleep);
 
 if (report.started) {
   await sleep(500);
@@ -127,14 +111,21 @@ if (report.started) {
     await step(2);
     const card = document.querySelector('[data-recipe-id="furnace"]');
     out.furnaceRecipeListed = Boolean(card);
-    card?.querySelector('[data-craft-recipe]')?.click();
+    // 新背包面板里配方本身就是按钮（[data-backpack-recipe]），直接点它即可。
+    card?.click();
+    // 产物跟鼠标走（需求第 3 条）：点一个空格把它放下。
+    const furnaceEmptySlot = game.baseInventory.slots.findIndex((slot) => !slot);
+    if (furnaceEmptySlot >= 0) game.baseStorage.handleSlotClick(furnaceEmptySlot);
     out.furnaceInBase = game.baseInventory.countOf('furnace');
     await step(1);
 
     // ---- 2) 点「放置」进入放置模式 ----
     game.baseStorage.lastSignature = '';
     game.baseStorage.refresh();
-    const placeButton = document.querySelector('[data-place-item="furnace"]');
+    const furnaceIndex = game.baseInventory.slots.findIndex((slot) => slot?.itemId === 'furnace');
+    const placeButton = furnaceIndex >= 0
+      ? document.querySelector('[data-backpack-slot="' + furnaceIndex + '"] [data-backpack-place]')
+      : null;
     out.placeButtonFound = Boolean(placeButton);
     placeButton?.click();
     await step(1);

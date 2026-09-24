@@ -158,7 +158,7 @@ export class HostAuthority {
       trimCommandResults(this.commandResults);
       this.send(sourcePlayerId, rejection);
       if (sourcePlayerId === this.localPlayerId) {
-        this.game.cardSystem?.setHint?.(`操作未执行：${validation.reasonCode}`, 'network-command');
+        this.game.hints?.setHint?.(`操作未执行：${validation.reasonCode}`, 'network-command');
       }
       if (PRIVATE_STATE_COMMANDS.has(command?.name)) {
         this.markPrivateStateDirty(sourcePlayerId);
@@ -295,15 +295,15 @@ export class HostAuthority {
   }
 
   applyPlayCard(playerId, payload) {
-    const cards = this.game.cardSystems?.[playerId]
-      ?? (playerId === this.localPlayerId ? this.game.cardSystem : null);
-    return Boolean(cards?.playFromNetworkPayload?.(payload));
+    void playerId;
+    void payload;
+    return false;
   }
 
   applyDiscardCard(playerId, payload) {
-    const cards = this.game.cardSystems?.[playerId]
-      ?? (playerId === this.localPlayerId ? this.game.cardSystem : null);
-    return Boolean(cards?.discardFromNetworkPayload?.(payload));
+    void playerId;
+    void payload;
+    return false;
   }
 
   commandRejectionReason(command, playerId) {
@@ -316,9 +316,7 @@ export class HostAuthority {
     if (command?.name === COMMAND.SHOP_BACK) return 'shop_back_failed';
     if (command?.name === COMMAND.SHOP_REWARD_SKIP) return 'shop_skip_failed';
     if (command?.name !== COMMAND.PLAY_CARD) return 'game_rule_rejected';
-    const cards = this.game.cardSystems?.[playerId]
-      ?? (playerId === this.localPlayerId ? this.game.cardSystem : null);
-    return cards?.lastNetworkPlayRejectionReason ?? 'game_rule_rejected';
+    return 'game_rule_rejected';
   }
 
   send(playerId, payload) {

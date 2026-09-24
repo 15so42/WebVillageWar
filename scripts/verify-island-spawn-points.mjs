@@ -6,6 +6,7 @@
 // 已经被旧波次流程占用（存出生坐标），混用会多出一个 "[object Object]" 分组。
 // headless 里 requestAnimationFrame 不推进，所以手动驱动主循环。
 import WebSocket from 'ws';
+import { enterSurvivalGame } from './lib/enter-game.mjs';
 
 const CDP_PORT = Number(process.env.ISLAND_CDP_PORT || 9235);
 const BASE = process.env.ISLAND_URL || 'http://127.0.0.1:3000/';
@@ -45,24 +46,7 @@ const ev = async (expr) => (await send('Runtime.evaluate', { expression: expr, r
 await send('Page.navigate', { url: BASE });
 const report = { page: BASE, levelId: LEVEL_ID, started: false, result: null, problems };
 // 先走完主菜单 → 选关 → 开始，否则 game 永远不会出现
-for (let i = 0; i < 60; i += 1) {
-  await sleep(500);
-  if (await ev(`!!document.querySelector('[data-action="levels"]')`)) break;
-}
-await ev(`document.querySelector('[data-action="levels"]')?.click(); true`);
-await sleep(1200);
-await ev(`(() => {
-  const btn = [...document.querySelectorAll('[data-action="select-level"]')]
-    .find((e) => e.offsetParent !== null && (e.dataset.levelId || '').includes(${JSON.stringify(LEVEL_ID)}));
-  if (btn) btn.click();
-  return true;
-})()`);
-await sleep(500);
-await ev(`(()=>{const b=[...document.querySelectorAll('[data-action="start-level"]')].find(e=>e.offsetParent!==null);if(b)b.click();return true;})()`);
-for (let i = 0; i < 60; i += 1) {
-  await sleep(500);
-  if (await ev(`!!window.__VILLAGE_WAR_DEBUG__?.game`)) { report.started = true; break; }
-}
+report.started = await enterSurvivalGame(ev, sleep);
 
 if (report.started) {
   report.result = JSON.parse(await ev(`(() => {
@@ -95,6 +79,12 @@ if (report.started) {
     const wasPaused = game.paused;
     // 开局三选一之类的弹窗会把 game.paused 置为 true，暂停帧不跑系统
     game.paused = false;
+    // 昼夜循环后白天不出兵：验收必须先入夜，否则 30 秒模拟会得到「一个敌人都没有」的假失败。
+    if (game.dayNight) {
+      game.dayNight.phase = 'night';
+      game.dayNight.phaseElapsed = 0;
+      game.prepareNightRaid?.();
+    }
 
     // 逐规划周期监控「存活数超过该点上限」的瞬间：终局快照通常正好等于上限，
     // 超产只会出现在中间态，不对账就抓不到。

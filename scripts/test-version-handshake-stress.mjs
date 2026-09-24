@@ -17,11 +17,11 @@ const { CoopMatchController } = await import('./src/network/CoopMatchController.
 
 const makeController = (name) => new CoopMatchController({
   getDeckSelection: () => [],
-  getSelectedLevelId: () => 'snow-valley',
+  getSelectedLevelId: () => 'island-survival',
   getSelectedDifficulty: () => 1,
   getSelectedChallengeMode: () => 'standard',
   getPlayerName: () => name,
-  selectedLevel: () => ({ id: 'snow-valley', name: '雪原谷地' }),
+  selectedLevel: () => ({ id: 'island-survival', name: '孤岛求生' }),
   cardWithLevel: (id) => ({ id, level: 1 }),
   toggleLocalDeckCard: () => {}, setLocalDeckSelection: () => {},
   onStartGame: () => {}, onNotice: () => {}, onLobbyVisible: () => {}, onConnectionLost: () => {}

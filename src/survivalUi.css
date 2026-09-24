@@ -1,0 +1,24 @@
+/* 生存玩法的界面收敛。
+ *
+ * 卡牌时代的界面里有几块在生存关没有任何对应玩法，用 body 上的一个类统一压掉。
+ * 单独一个文件的原因：battleHud.css 里媒体查询密布（移动端/触屏/reduced-motion），
+ * 规则很容易被作用域吃掉；而这个文件没有任何媒体查询，规则一定生效。
+ *
+ * **注意不要藏 .wave-command-panel 本身**：生存关的顶部 HUD（目标剩余时间 +
+ * 刷怪点清除进度）就住在那个面板里，藏了会把有用的信息一起藏掉。
+ * 要藏的是面板里属于卡牌玩法的部分（下面逐条列）。 */
+
+/* 手牌区：卡牌玩法的核心界面，生存关里没有任何东西会放进去 */
+body.is-survival-level #card-hand {
+  display: none !important;
+}
+
+/* 银币是军需铺的货币。军需铺移除后它没有来源也没有用途；
+   容器 .hud-resource-data 本来就带 hidden，这里再压一道，防止以后有人把它显示出来。 */
+body.is-survival-level .hud-resource-data {
+  display: none !important;
+}
+
+body.is-survival-night .meter-time strong {
+  color: #d7e4ff;
+}

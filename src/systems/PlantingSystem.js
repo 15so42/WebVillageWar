@@ -139,7 +139,7 @@ export class PlantingSystem {
     this.stats.planted += 1;
     this.syncPlotVisual(record);
     game.baseStorage?.markDirty?.();
-    game.cardSystem?.setHintOnce?.(
+    game.hints?.setHintOnce?.(
       `${record.config.name}已种下树苗，约 ${Math.round(record.config.growthSeconds)} 秒后长成`,
       `plant:${record.unit.id}`
     );
@@ -169,7 +169,7 @@ export class PlantingSystem {
     record.offsetIndex += 1;
     this.stats.grown += 1;
     this.syncPlotVisual(record);
-    game.cardSystem?.setHintOnce?.(
+    game.hints?.setHintOnce?.(
       `${record.config.name}长出了一棵${node.definitionId === 'oak' ? '橡树' : '树'}，可以派人去砍了`,
       `grow:${unit.id}`
     );

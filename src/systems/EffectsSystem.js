@@ -13,6 +13,85 @@ const LIGHTNING_UP_AXIS = new THREE.Vector3(0, 1, 0);
 const METEOR_TRAIL_AXIS = new THREE.Vector3(0, 1, 0);
 const RECOVERY_PULSE_INTERVAL_SECONDS = 1;
 
+// —— 采集命中（砍树 / 挖矿）表现配置 ——
+// 所有尺寸都是 effectRadius 的倍率，调用方只改 radius 就能整组等比缩放。
+// 每一斧 / 每一镐都要播，所以全部层都在 0.5s 内收干净。
+// debrisShape：chip = 木屑薄片，splinter = 碎石棱块，soft = 浆果 / 草屑
+// （后两者没有硬体积，用软边小粒子，不能拿硬边几何体充当无体积粒子）。
+const WORK_STRIKE_PROFILES = {
+  wood: {
+    core: '#ffd98a',
+    coreHdr: [3.0, 2.2, 1.0],
+    dust: '#c9ac86',
+    dustOpacity: 0.5,
+    dustScale: [0.34, 0.62],
+    dustCount: 5,
+    debrisColors: ['#7b5330', '#8f6437', '#5d3d22', '#a9814a'],
+    debrisCount: 11,
+    debrisShape: 'chip',
+    roughness: 0.92,
+    scuff: '#6a4e2f',
+    scuffHdr: [0.46, 0.37, 0.25]
+  },
+  stone: {
+    core: '#ffeccb',
+    coreHdr: [2.7, 2.4, 1.9],
+    dust: '#9aa0a4',
+    dustOpacity: 0.54,
+    dustScale: [0.38, 0.68],
+    dustCount: 6,
+    debrisColors: ['#8d9094', '#a6a9ac', '#6f7478', '#b7b9ba'],
+    debrisCount: 12,
+    debrisShape: 'splinter',
+    roughness: 0.95,
+    scuff: '#5c5a55',
+    scuffHdr: [0.42, 0.42, 0.4]
+  },
+  iron: {
+    core: '#fff1cf',
+    coreHdr: [3.2, 2.6, 1.7],
+    dust: '#9a938a',
+    dustOpacity: 0.5,
+    dustScale: [0.36, 0.64],
+    dustCount: 6,
+    debrisColors: ['#6d7276', '#8b9094', '#a8703c', '#565b60'],
+    debrisCount: 12,
+    debrisShape: 'splinter',
+    roughness: 0.58,
+    metalness: 0.28,
+    scuff: '#4f4a44',
+    scuffHdr: [0.42, 0.4, 0.36]
+  },
+  food: {
+    core: '#ffe9a8',
+    coreHdr: [2.5, 2.3, 1.4],
+    dust: '#a8bd72',
+    dustOpacity: 0.42,
+    dustScale: [0.32, 0.56],
+    dustCount: 4,
+    debrisColors: ['#c2554f', '#8f2f34', '#6f9a4a', '#a8c46a'],
+    debrisCount: 9,
+    debrisShape: 'soft',
+    roughness: 0.85,
+    scuff: '#4c5a32',
+    scuffHdr: [0.38, 0.44, 0.26]
+  },
+  fiber: {
+    core: '#f2f4d8',
+    coreHdr: [2.3, 2.4, 1.8],
+    dust: '#c2c9a0',
+    dustOpacity: 0.4,
+    dustScale: [0.3, 0.52],
+    dustCount: 4,
+    debrisColors: ['#a8bd72', '#c6cf96', '#8ea55c', '#d8dcb0'],
+    debrisCount: 8,
+    debrisShape: 'soft',
+    roughness: 0.9,
+    scuff: '#5a6042',
+    scuffHdr: [0.4, 0.44, 0.32]
+  }
+};
+
 export class EffectsSystem {
   constructor(scene) {
     this.scene = scene;
@@ -1667,6 +1746,369 @@ export class EffectsSystem {
         spark.material.opacity = opacity;
       });
     }, () => this.releasePooledEffect(poolKey, group));
+  }
+
+  /**
+   * 采集命中反馈：砍树是木屑 + 木尘，挖矿是碎石 + 石尘。
+   * 在"挥砍命中那一帧"调用（不是开始挥的时候），所以它必须短促、有冲击感。
+   */
+  spawnWorkStrike(position, { resource = 'wood', radius = 1.1, kind = 'chop' } = {}) {
+    if (!position) return false;
+    const profileKey = WORK_STRIKE_PROFILES[resource] ? resource : 'wood';
+    const profile = WORK_STRIKE_PROFILES[profileKey];
+    const mining = kind === 'mine' || profileKey === 'stone' || profileKey === 'iron';
+    const effectRadius = clamp(Number(radius) || 1.1, 0.4, 3.2);
+    const duration = mining ? 0.5 : 0.44;
+    // 池键由资源与轻/重手感决定：工厂里按同一套配置建层，复用时只需重置状态
+    const poolKey = `work-strike:${profileKey}:${mining ? 'mine' : 'chop'}`;
+    const group = this.acquirePooledEffect(poolKey, () => {
+      const root = new THREE.Group();
+      root.userData.isWorkStrike = true;
+
+      // ① 瞬时高亮核心：0.06s 一闪而过（只有它允许以固定不透明度出现）
+      const coreMaterial = basicMat(profile.core, {
+        transparent: true,
+        opacity: 1,
+        depthTest: false,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        toneMapped: false
+      }).clone();
+      const core = new THREE.Mesh(new THREE.OctahedronGeometry(1, 0), coreMaterial);
+      core.userData.isWorkStrikeCore = true;
+      core.renderOrder = 1700;
+      root.add(core);
+
+      // 核心外托一层软边辉光（中心到边缘 alpha 衰减），负责在 RTS 距离上被看见
+      const coreHalo = createSoftParticleSprite(profile.core, {
+        falloff: 'tight',
+        opacity: 0,
+        depthTest: false,
+        toneMapped: false
+      });
+      coreHalo.renderOrder = 1699;
+      root.add(coreHalo);
+
+      // ② 尘雾：软边粒子，先快速外扩，再缓慢上升，末段缩小并淡出
+      const dustPuffs = [];
+      for (let index = 0; index < profile.dustCount; index += 1) {
+        const dust = createSoftParticleSprite(profile.dust, {
+          falloff: 'tight',
+          opacity: 0,
+          depthTest: false,
+          blending: THREE.NormalBlending,
+          toneMapped: true
+        });
+        dust.userData.origin = new THREE.Vector3();
+        dust.userData.dir = new THREE.Vector3();
+        dust.userData.drift = 0;
+        dust.userData.rise = 0;
+        dust.userData.spin = 0;
+        dust.userData.baseScale = 1;
+        dust.userData.baseOpacity = 1;
+        dust.userData.birth = 0;
+        dust.userData.lifeSpan = 1;
+        dust.renderOrder = 1692;
+        root.add(dust);
+        dustPuffs.push(dust);
+      }
+
+      // ③ 碎屑：木屑 / 碎石有真实体积，用硬边低多边形块，三套几何体在组内共享，
+      //    靠逐块的大小、旋转、速度、朝向与明暗拉开差异
+      const chipGeometries = profile.debrisShape === 'soft'
+        ? null
+        : (profile.debrisShape === 'splinter'
+          ? [
+            new THREE.TetrahedronGeometry(0.085, 0),
+            new THREE.OctahedronGeometry(0.064, 0),
+            new THREE.TetrahedronGeometry(0.054, 0)
+          ]
+          : [
+            new THREE.BoxGeometry(0.086, 0.024, 0.17),
+            new THREE.BoxGeometry(0.062, 0.021, 0.128),
+            new THREE.BoxGeometry(0.104, 0.03, 0.198)
+          ]);
+      const debrisPieces = [];
+      for (let index = 0; index < profile.debrisCount; index += 1) {
+        const color = profile.debrisColors[index % profile.debrisColors.length];
+        let piece;
+        if (chipGeometries) {
+          piece = new THREE.Mesh(
+            chipGeometries[index % chipGeometries.length],
+            mat(color, {
+              transparent: true,
+              opacity: 0,
+              roughness: profile.roughness,
+              metalness: profile.metalness ?? 0,
+              flatShading: true,
+              depthTest: true,
+              depthWrite: false
+            }).clone()
+          );
+        } else {
+          piece = createSoftParticleSprite(color, {
+            falloff: 'tight',
+            opacity: 0,
+            depthTest: true,
+            blending: THREE.NormalBlending,
+            toneMapped: true
+          });
+        }
+        piece.userData.origin = new THREE.Vector3();
+        piece.userData.dir = new THREE.Vector3();
+        piece.userData.outward = 0;
+        piece.userData.launch = 0;
+        piece.userData.gravity = 0;
+        piece.userData.spin = new THREE.Vector3();
+        piece.userData.spinScalar = 0;
+        piece.userData.baseScale = new THREE.Vector3(1, 1, 1);
+        piece.userData.baseOpacity = 1;
+        piece.userData.birth = 0;
+        piece.userData.lifeSpan = 1;
+        piece.renderOrder = 1694;
+        root.add(piece);
+        debrisPieces.push(piece);
+      }
+
+      // ④ 接触点擦痕：羽化渐变环 + 轻微扭曲轮廓，不是实心扩张圆盘
+      const scuff = this.createShockRingMesh(profile.scuff, profile.scuffHdr, {
+        innerRadius: 0.62,
+        outerRadius: 1
+      });
+      // 加法混合在雪地上等于看不见，擦痕是"蹭上去的脏印"，改用正常混合
+      scuff.material.blending = THREE.NormalBlending;
+      scuff.userData.isWorkStrikeScuff = true;
+      scuff.renderOrder = 1688;
+      root.add(scuff);
+
+      root.userData.parts = { core, coreHalo, dustPuffs, debrisPieces, scuff };
+      return root;
+    });
+
+    const { core, coreHalo, dustPuffs, debrisPieces, scuff } = group.userData.parts;
+    group.position.set(position.x, position.y ?? 0, position.z);
+    group.userData.workStrikeRadius = effectRadius;
+    group.userData.workStrikeResource = profileKey;
+    group.userData.workStrikeKind = mining ? 'mine' : 'chop';
+
+    // 核心：贴住接触点，逐次随机朝向与亮度，避免每次都像同一颗灯泡
+    core.position.set(0, 0, 0);
+    core.rotation.set(
+      Math.random() * Math.PI,
+      Math.random() * Math.PI,
+      Math.random() * Math.PI
+    );
+    core.scale.setScalar(effectRadius * 0.26);
+    const coreBrightness = 0.85 + Math.random() * 0.3;
+    core.material.color.setRGB(
+      profile.coreHdr[0] * coreBrightness,
+      profile.coreHdr[1] * coreBrightness,
+      profile.coreHdr[2] * coreBrightness
+    );
+    core.material.opacity = 1;
+    core.visible = true;
+
+    coreHalo.position.set(0, 0, 0);
+    coreHalo.scale.setScalar(effectRadius * 0.2);
+    coreHalo.material.color.set(profile.core).multiplyScalar(1.35 + Math.random() * 0.45);
+    coreHalo.material.opacity = 0;
+    coreHalo.visible = true;
+
+    // 命中点就在节点轴心附近，会被树干 / 岩体整块包住，
+    // 所以软尘与高亮核心关闭深度测试（否则采集反馈会被节点自己吃掉）；
+    // 碎屑有实体体积，保留深度测试，不穿透单位与地形显示。
+    dustPuffs.forEach((dust, index) => {
+      const data = dust.userData;
+      const angle = (index / dustPuffs.length) * Math.PI * 2 + (Math.random() - 0.5) * 1.2;
+      data.dir.set(Math.cos(angle), 0, Math.sin(angle));
+      const centerBias = index < 2 ? 0.02 : 0.07;
+      data.origin.set(
+        data.dir.x * effectRadius * centerBias,
+        effectRadius * (0.04 + Math.random() * 0.16),
+        data.dir.z * effectRadius * centerBias
+      );
+      data.drift = effectRadius * (0.2 + Math.random() * 0.3);
+      data.rise = effectRadius * (0.52 + Math.random() * 0.5) * (mining ? 0.92 : 1);
+      data.spin = (Math.random() - 0.5) * 6.5;
+      // dustScale = [最小, 最大]；按 3 档大小分层 + 随机，避免每团尘都一样大
+      data.baseScale = effectRadius * lerp(
+        profile.dustScale[0],
+        profile.dustScale[1],
+        ((index % 3) / 2) * 0.62 + Math.random() * 0.38
+      );
+      data.baseOpacity = profile.dustOpacity * (0.78 + Math.random() * 0.44);
+      data.birth = Math.random() * (mining ? 0.07 : 0.045);
+      data.lifeSpan = clamp(0.84 + Math.random() * 0.16, data.birth + 0.45, 1);
+      dust.position.copy(data.origin);
+      dust.scale.setScalar(data.baseScale * 0.42);
+      dust.material.rotation = Math.random() * Math.PI * 2;
+      dust.material.color.set(profile.dust).multiplyScalar(0.88 + Math.random() * 0.26);
+      dust.material.opacity = 0;
+      dust.visible = true;
+    });
+
+    // 碎屑：沿命中接触面向外飞散，起点沿自身方向外移一点（碎屑从接触面溅出，
+    // 不是从节点轴心钻出来），随后被重力拉回
+    const spreadScale = mining ? 0.85 : 1;
+    debrisPieces.forEach((piece, index) => {
+      const data = piece.userData;
+      const angle = (index / debrisPieces.length) * Math.PI * 2 + (Math.random() - 0.5) * 1.05;
+      data.dir.set(Math.cos(angle), 0, Math.sin(angle));
+      const surface = effectRadius * (0.2 + Math.random() * 0.18);
+      data.origin.set(
+        data.dir.x * surface,
+        effectRadius * (0.05 + Math.random() * 0.14),
+        data.dir.z * surface
+      );
+      data.outward = effectRadius * (0.42 + Math.random() * 0.5) * spreadScale;
+      data.launch = (1.05 + Math.random() * 1.45) * (mining ? 0.85 : 1);
+      data.gravity = mining ? 11.5 : 9.6;
+      data.birth = Math.random() * 0.05;
+      data.lifeSpan = clamp(0.78 + Math.random() * 0.22, data.birth + 0.42, 1);
+      data.baseOpacity = piece.isSprite
+        ? 0.6 + Math.random() * 0.28
+        : 0.86 + Math.random() * 0.14;
+      const color = profile.debrisColors[index % profile.debrisColors.length];
+      if (piece.isSprite) {
+        const size = effectRadius * (0.1 + Math.random() * 0.07);
+        data.baseScale.set(size, size, 1);
+        data.spinScalar = (Math.random() - 0.5) * 9;
+        piece.material.rotation = Math.random() * Math.PI * 2;
+        piece.material.color.set(color).multiplyScalar(0.88 + Math.random() * 0.24);
+      } else {
+        data.baseScale.set(
+          (0.76 + Math.random() * 0.44) * (0.86 + (index % 3) * 0.14),
+          0.8 + Math.random() * 0.5,
+          0.82 + Math.random() * 0.4
+        );
+        data.spin.set(
+          (Math.random() - 0.5) * 17,
+          (Math.random() - 0.5) * 17,
+          (Math.random() - 0.5) * 17
+        );
+        piece.rotation.set(
+          Math.random() * Math.PI,
+          Math.random() * Math.PI,
+          Math.random() * Math.PI
+        );
+        piece.material.color.set(color).multiplyScalar(0.84 + Math.random() * 0.34);
+      }
+      piece.position.copy(data.origin);
+      piece.scale.set(
+        data.baseScale.x * 0.86,
+        data.baseScale.y * 0.86,
+        data.baseScale.z * 0.86
+      );
+      piece.material.opacity = 0;
+      piece.visible = true;
+    });
+
+    scuff.rotation.set(-Math.PI / 2, 0, 0);
+    scuff.position.set(0, -effectRadius * 0.1, 0);
+    scuff.scale.setScalar(effectRadius * 0.22);
+    scuff.material.opacity = 0;
+    scuff.visible = true;
+
+    this.addEffect(group, duration, (dt, t) => {
+      const elapsed = t * duration;
+
+      // ① 高亮核心：0.06s 内由亮转暗并消失
+      const coreT = clamp(elapsed / 0.06, 0, 1);
+      core.visible = coreT < 1;
+      if (core.visible) {
+        core.rotation.x += dt * 11;
+        core.rotation.y += dt * 15;
+        core.scale.setScalar(
+          effectRadius * 0.26 * (0.86 + Math.sin(coreT * Math.PI) * 0.34)
+        );
+        core.material.opacity = (1 - coreT) ** 0.7;
+      }
+
+      // 核心辉光：0.18s 内从接触点铺开再淡出，先把力度和范围交代清楚
+      const haloPhase = Math.min(1, elapsed / 0.18);
+      coreHalo.scale.setScalar(
+        effectRadius * (0.2 + (1 - (1 - haloPhase) ** 2) * 0.62)
+      );
+      coreHalo.material.opacity = 0.92 * Math.sin(haloPhase * Math.PI) ** 0.85;
+      coreHalo.visible = coreHalo.material.opacity > 0.005;
+
+      // ② 尘雾：先快后慢地外扩，再缓慢上升，末段缩小淡出
+      dustPuffs.forEach((dust) => {
+        const data = dust.userData;
+        const localT = clamp(
+          (t - data.birth) / Math.max(0.01, data.lifeSpan - data.birth),
+          0,
+          1
+        );
+        dust.visible = t >= data.birth && t < data.lifeSpan;
+        if (!dust.visible) return;
+        const localElapsed = localT * duration;
+        const spread = 1 - (1 - Math.min(1, localElapsed / 0.3)) ** 3;
+        const rise = 1 - (1 - localT) ** 2;
+        dust.position.set(
+          data.origin.x + data.dir.x * data.drift * spread,
+          data.origin.y + data.rise * rise,
+          data.origin.z + data.dir.z * data.drift * spread
+        );
+        dust.material.rotation += data.spin * dt;
+        const grow = 1 - (1 - Math.min(1, localElapsed / 0.16)) ** 2;
+        const dissolve = 1 - clamp((localT - 0.6) / 0.4, 0, 1) * 0.5;
+        dust.scale.setScalar(Math.max(0.001, data.baseScale * (0.42 + grow * 0.8) * dissolve));
+        dust.material.opacity = data.baseOpacity
+          * Math.min(1, localT * 9)
+          * (1 - localT) ** 1.15;
+      });
+
+      // ③ 碎屑：沿命中方向向外爆发（前段快、随后明显减速）＋ 重力回落，末段缩小淡出
+      debrisPieces.forEach((piece) => {
+        const data = piece.userData;
+        const localT = clamp(
+          (t - data.birth) / Math.max(0.01, data.lifeSpan - data.birth),
+          0,
+          1
+        );
+        piece.visible = t >= data.birth && t < data.lifeSpan;
+        if (!piece.visible) return;
+        const localElapsed = localT * duration;
+        const outward = data.outward
+          * (1 - (1 - Math.min(1, localElapsed / (duration * 0.6))) ** 3);
+        const height = data.launch * localElapsed
+          - 0.5 * data.gravity * localElapsed * localElapsed;
+        piece.position.set(
+          data.origin.x + data.dir.x * outward,
+          data.origin.y + height,
+          data.origin.z + data.dir.z * outward
+        );
+        const pop = 1 - (1 - Math.min(1, localElapsed / 0.08)) ** 2;
+        const shrink = 1 - clamp((localT - 0.68) / 0.32, 0, 1) * 0.5;
+        const grow = (0.86 + pop * 0.14) * shrink;
+        if (piece.isSprite) {
+          piece.material.rotation += data.spinScalar * dt;
+          piece.scale.set(data.baseScale.x * grow, data.baseScale.y * grow, 1);
+        } else {
+          piece.rotation.x += data.spin.x * dt;
+          piece.rotation.y += data.spin.y * dt;
+          piece.rotation.z += data.spin.z * dt;
+          piece.scale.set(
+            data.baseScale.x * grow,
+            data.baseScale.y * grow,
+            data.baseScale.z * grow
+          );
+        }
+        piece.material.opacity = data.baseOpacity
+          * Math.min(1, localT * 12)
+          * (1 - localT) ** 1.3;
+      });
+
+      // ④ 接触点擦痕：快速铺开后随即淡出
+      const scuffT = Math.min(1, elapsed / 0.3);
+      scuff.visible = scuffT < 1;
+      if (scuff.visible) {
+        scuff.scale.setScalar(effectRadius * (0.22 + (1 - (1 - scuffT) ** 2) * 0.8));
+        scuff.material.opacity = 0.34 * Math.min(1, scuffT / 0.16) * (1 - scuffT) ** 1.15;
+      }
+    }, () => this.releasePooledEffect(poolKey, group));
+    return true;
   }
 
   spawnProjectileTrail(start, end, color = '#f4fbff', options = {}) {

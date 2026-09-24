@@ -205,12 +205,25 @@ export class MovementAgent {
 
   clampToBattlefield() {
     const unit = this.unit;
-    unit.position.x = clamp(
-      unit.position.x,
-      -BALANCE.battlefield.halfWidth,
-      BALANCE.battlefield.halfWidth
-    );
-    unit.position.z = clamp(unit.position.z, BALANCE.battlefield.minZ, BALANCE.battlefield.maxZ);
+    // **必须用与镜头、落点校验同一套边界**（Game.battlefieldBounds 按地图自身的
+    // navigationBounds 算，没有时才退回写死的旧值）。
+    //
+    // 这里曾经直接写死 BALANCE.battlefield（x ±42、z −40..40）。那是一条为最早那几张
+    // 走廊式小地图定的固定框，比它大的地图会被裁掉一圈，而且症状极其隐蔽：
+    // 单位每帧都往目标走一步、又立刻被拉回边界，于是表现为「st=walk / ai=moving、
+    // 却一步不动」的原地踏步（海岛放大一倍之后，基地就在 z=40 这条线上，
+    // 去北边巢穴的护卫全部卡死在 z=40.00）。
+    // Game.clampCameraTarget 早就改成 battlefieldBounds 了，这一处当时漏了。
+    const bounds = typeof this.game?.battlefieldBounds === 'function'
+      ? this.game.battlefieldBounds()
+      : {
+        minX: -BALANCE.battlefield.halfWidth,
+        maxX: BALANCE.battlefield.halfWidth,
+        minZ: BALANCE.battlefield.minZ,
+        maxZ: BALANCE.battlefield.maxZ
+      };
+    unit.position.x = clamp(unit.position.x, bounds.minX, bounds.maxX);
+    unit.position.z = clamp(unit.position.z, bounds.minZ, bounds.maxZ);
   }
 
   face(targetPosition, dt = 0) {

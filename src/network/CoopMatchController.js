@@ -8,7 +8,6 @@ import {
 } from './session/MultiplayerSession.js';
 import { GameNetworkBridge } from './bridge/GameNetworkBridge.js';
 import { normalizeChallengeMode } from '../systems/endlessMode.js';
-import { deckValidationMessage, validateDeckSelection } from '../systems/deckRules.js';
 import {
   CATALOG_VERSION,
   COMMAND,
@@ -249,12 +248,6 @@ export class CoopMatchController {
   }
 
   hasValidLocalDeck() {
-    const deck = this.getDeckSelection?.() ?? [];
-    const validation = validateDeckSelection(deck);
-    if (!validation.valid) {
-      this.onNotice?.(deckValidationMessage(validation));
-      return false;
-    }
     return true;
   }
 
@@ -776,12 +769,7 @@ export class CoopMatchController {
     if (command.payload?.catalogVersion !== CATALOG_VERSION) {
       return this.rejectLobbyCommand(command, 'catalog_version_mismatch');
     }
-    if (command.payload?.ready) {
-      const validation = validateDeckSelection(deck);
-      if (!validation.valid) {
-        return this.rejectLobbyCommand(command, validation.reason);
-      }
-    }
+
     player.ready = Boolean(command.payload?.ready);
     player.deck = deck.map((card) => ({ id: card.id, level: card.level ?? 1 }));
     player.deckRevision = command.payload?.deckRevision ?? deckRevision(player.deck);
@@ -1139,7 +1127,7 @@ export class CoopMatchController {
     const level = LEVEL_DEFINITIONS.find((entry) => entry.id === requestedLevelId) ?? LEVEL_DEFINITIONS[0];
     const requestedDifficulty = Number(config.difficulty ?? this.getSelectedDifficulty?.() ?? 1);
     return {
-      levelId: level?.id ?? LEVEL_DEFINITIONS[0]?.id ?? 'snow-valley',
+      levelId: level?.id ?? LEVEL_DEFINITIONS[0]?.id ?? 'island-survival',
       difficulty: Math.max(1, Math.floor(Number.isFinite(requestedDifficulty) ? requestedDifficulty : 1)),
       challengeMode: normalizeChallengeMode(
         config.challengeMode ?? this.getSelectedChallengeMode?.()

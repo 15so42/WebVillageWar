@@ -13,6 +13,10 @@ const PREVIEW_ANIMATIONS = [
   { id: 'idle', label: 'Idle' },
   { id: 'walk', label: 'Walk' },
   { id: 'attack', label: 'Attack' },
+  // 采集挥击：只有木傀儡有，但动画预览是"逐个单位选动作"的工具，
+  // 把名字列全才能在没有关卡的情况下单独调这两套动作。
+  { id: 'chop', label: 'Chop（砍树）' },
+  { id: 'mine', label: 'Mine（挖矿）' },
   { id: 'hit', label: 'Hit' }
 ];
 

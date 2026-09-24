@@ -99,7 +99,7 @@ export class GameNetworkBridge {
       this.unsubscribe = this.transport.onMessage((message) => this.onTransportMessage(message));
       this.closeUnsubscribe = this.transport.onClose(() => {
         if (this.role === 'host') this.host?.freezeHost(true);
-        if (this.role === 'client') this.game?.cardSystem?.cancelActiveDrag?.();
+        if (this.role === 'client') this.game?.cancelCameraDrag?.();
       });
     }
     if (this.role === 'client') {

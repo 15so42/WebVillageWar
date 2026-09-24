@@ -228,9 +228,16 @@
 }
 
 .mw-menu-utility-row {
-  display: grid !important;
-  grid-template-columns: repeat(3, 1fr);
+  /* 生存化之后这一行只剩「更新日志」一个按钮了。
+     原来写死三列网格，单个按钮会占最左那一列、整体偏左；
+     改成居中弹性布局，以后再加工具按钮也不会跑偏。 */
+  display: flex !important;
+  justify-content: center;
   gap: 8px !important;
+}
+
+.mw-menu-utility-row .mw-menu-button-utility {
+  width: 104px;
 }
 
 .mw-main-menu .mw-menu-button-utility {
