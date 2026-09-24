@@ -1888,3 +1888,74 @@ Numen 的同伴是 LLM 智能体，"要不要打路过的怪"由模型看着局�
 - 本轮所有数值（`engagePowerRatio 1` / `minHealthRatio 0.3` / `fleeDistance 14` /
   `calmGraceSeconds 2`）都是**代码标定 + 自动验收**，没有真人试玩。
   手感问题（逃多快算够、警戒那 2 秒会不会显得发呆）仍然需要用户试玩确认。
+
+### 10.15 试玩反馈两条：采空后不动 + 迎上去太晚（v0.2.204）
+
+用户试玩 v0.2.203 之后报的第一批：
+
+> 「然后我现在观察到的是木傀儡砍树狼都过来追他了离得很近它才和狼战斗。
+> 把狼杀了后继续砍树，但是砍完树后就在原地不动了」
+
+#### A. 「砍完树后就在原地不动了」——一个静默失败
+
+**根因**：`WorkSystem` 里那一批入口的第一行都是
+
+```js
+const unitId = typeof x === 'object' ? x?.id : x;
+```
+
+而**作业记录上没有 `id`**（它叫 `unitId`）。于是内部代码一旦顺手写成
+`this.clearTask(record)`，解析出来的 `unitId` 就是 `undefined`、
+`records.get(undefined)` 是 `undefined`、方法静默 `return false`——不报错、日志里也看不出来。
+
+`updateWorker` 里正好有这么一行（节点采空 → 交掉任务），于是：
+
+1. 采空的节点每帧被判一次"已采空"，`clearTask(record)` 每帧都无效；
+2. `record.task` 永远指着那棵空树，`workerState()` 也就一直报着那个 nodeId；
+3. `updateAutoAssign` 只挑"手上没活"（`!record.task`）的傀儡 →
+   它**再也不会被派活**，站在原地待命到天荒地老；
+4. `stats.depletedTasks` 每帧 +1（端到端探针实测 1500 帧 +1500，`everMoved: false`、`everNewTask: false`）。
+
+同一个坑还有一个受害者：`releaseTaskInDanger` 里的 `clearTask(record)` 也一直是空操作
+（§10.12 那条"逃开之后放掉危险任务"其实靠的是 `nodeIsWorkable` 的过滤生效的）。
+
+**修法**：新增 `WorkSystem.recordFor(target)`，把「单位 / 单位 id / 作业记录」统一解析成记录，
+并用在 `assignNode` / `clearTask` / `taskFor` / `isWorker` / `inventoryFor` / `lastError` /
+`workerState` / `notifyInventoryChanged` / `unregisterWorker` 上。
+
+**验收**：新增纯逻辑脚本 `test-work-records`（`test:work-records`），
+用三种入参形式把解析钉死，并复现一次那个"连续判 N 帧"的循环
+（修复前第一帧就该 null 的 `record.task` 会一直在）。端到端在
+`verify-island-ai-combat` 里新增 `handlesDepletedNode`：把傀儡手上那棵树的存货压到 3
+走真实的采空路径，断言「任务被真正交掉、`depletedTasks` 只 +1、很快被派到**另一个**节点、
+采空之后 idle 帧数为 0」。实测 `depletedDelta: 1`、`movedOnNodeId: 'oak-0-6'`。
+
+#### B. 「离得很近它才和狼战斗」——反应距离
+
+旧触发线是"它已经够得着我"（近战 = 攻击距离 + 半径 + 0.85 ≈ **2.3m**），
+也就是狼咬到脸上的那一刻才还手。现在 `combatFoes` 把"锁了我"与"该不该现在动手"分开：
+
+- `lockedOn`：原始信号（它锁了我 / 刚打过我）——只作报告与验收用；
+- `engaging`：**判据口径** = `lockedOn && distance <= max(它的危险半径, engageReactionRange)`，
+  `engageReactionRange = 5.5`。
+
+于是：一只**已锁定傀儡、正在逼近**的怪，在 5.5m 就被迎上去打；远程敌人不受影响
+（弓手危险半径 9.7 > 5.5，取 max 之后仍是"它能打到我"说了算）；
+而**路过的、没锁定它的**怪，仍然只有贴到一刀之内（`inMyReach`，约 2.2m）才会被顺手清掉
+——上一轮"不被 8m 外的狼牵着走"那条底线没有被破坏。
+
+顺带简化：`defenseTriggered` 现在就是 `foes.some(isContactFoe)`——
+触发与"这一场里有谁"用**同一个**判据，不会出现"触发进来了、挑目标时列表却是空的"这种空仗。
+
+#### C. 用户问的「威胁图还用不用得上」
+
+**结论：战斗决策已经完全不用它了**（那部分现在是每只敌人自己的危险半径）。
+它还剩两处用途，都在"去哪干活"这条线上：
+
+1. `nodeIsWorkable(node)`：节点威胁值 ≥ 2 的**不派活**（硬过滤）；
+2. `nodeWorkScore(node)`：`距离 + 威胁 × 2` 的排序权重。
+
+另外就是 Shift+G 的调试叠加（用户第 2 轮自己要求的"加一个调试开关可叠加显示"）。
+实测这一轮它并不是"原地不动"的原因（端到端探针里 124 个木节点只有 8 个被判不可工作），
+所以**没有动它**——要退掉的话是一次独立改动（把节点危险判据换成"有没有敌人的危险半径
+盖住这个点"，与战斗用同一把尺子），需要用户确认后再做。

@@ -42,6 +42,7 @@
     "test:mana-stones": "node scripts/test-mana-stones.mjs",
     "test:power": "node scripts/test-power.mjs",
     "test:work-orders": "node scripts/test-work-orders.mjs",
+    "test:work-records": "node scripts/test-work-records.mjs",
     "test:work-priority": "node scripts/test-work-priority.mjs",
     "test:puppet-arms": "node scripts/test-puppet-arms.mjs",
     "test:combat-plan": "node scripts/test-combat-plan.mjs",

@@ -26,7 +26,7 @@ import {
   selectBodyHolder,
   shouldHoldForDefense
 } from '../src/systems/combatReflex.js';
-import { COMBAT_PLAN_RULES, combatPlanRules } from '../src/systems/combatPlan.js';
+import { COMBAT_PLAN_RULES, combatPlanRules, isContactFoe } from '../src/systems/combatPlan.js';
 
 const report = [];
 function check(name, fn) {
@@ -51,54 +51,53 @@ const foe = (overrides = {}) => ({
 });
 
 // ---------------------------------------------------------------- 触发（布尔）
-check('触发线 ①：正在打我 且 够得着我 —— 两个条件缺一不可', () => {
+check('两条触发线：它锁定我已逼近 / 它已经贴到我的刀口上', () => {
   assert.equal(defenseTriggered({ foes: [] }), false);
   assert.equal(
-    defenseTriggered({ foes: [foe({ engaging: true, tooClose: false, inMyReach: false })] }),
+    defenseTriggered({ foes: [foe({ engaging: false, inMyReach: false })] }),
     false,
-    '锁了我但还在 9m 外：够不着，不该打断手里的活'
+    '既没锁定我、我也够不着：继续干活'
   );
   assert.equal(
-    defenseTriggered({ foes: [foe({ engaging: false, tooClose: true, inMyReach: false })] }),
-    false,
-    '够得着我但没动手：这一条要的是"已经挨打了"，不是"它站在那儿"'
+    defenseTriggered({ foes: [foe({ engaging: true })] }),
+    true,
+    '锁定我而且已经逼近（`engaging` 里已经含了 engageReactionRange）→ 当场接管'
   );
   assert.equal(
-    defenseTriggered({ foes: [foe({ engaging: true, tooClose: true, inMyReach: false })] }),
-    true
+    defenseTriggered({ foes: [foe({ engaging: false, inMyReach: true })] }),
+    true,
+    '贴到我的攻击距离里了 → 顺手清掉'
   );
   assert.equal(
     defenseTriggered({
-      foes: [foe({ id: 'a' }), foe({ id: 'b', engaging: true, tooClose: true })]
+      foes: [foe({ id: 'a' }), foe({ id: 'b', engaging: true })]
     }),
     true,
-    '一群里只要有一个真的在打我，就触发'
+    '一群里只要有一个成立，就触发'
   );
 });
 
-check('触发线 ②：它已经进了我自己的攻击距离 → 遇上了就先打了', () => {
-  // 需求原文：「在干其他活的时候遇到怪物也会先把怪物打了」。
-  // 这一条刻意比 Numen 宽（那边由 LLM 决定要不要打路过的怪），
-  // 但半径只有傀儡自己的一击之距，不会出现"8m 外的狼就丢下工作"。
-  assert.equal(
-    defenseTriggered({ foes: [foe({ inMyReach: true, engaging: false, tooClose: false })] }),
-    true
-  );
-  // 反过来：远到打不着的敌人，无论它锁没锁我，都不该在这一条上触发
-  assert.equal(
-    defenseTriggered({ foes: [foe({ inMyReach: false, engaging: false, tooClose: false })] }),
-    false
-  );
+check('触发与"这一场里有谁"是同一个判据（避免开一场空仗）', () => {
+  // 两条触发线合起来正好是 isContactFoe：触发成立了，挑目标时就一定挑得出来。
+  // 分开写的话会出现"触发进来了、contact 却是空的"，于是判 DONE、站着不动。
+  const cases = [
+    { engaging: true, inMyReach: false },
+    { engaging: false, inMyReach: true },
+    { engaging: true, inMyReach: true }
+  ];
+  for (const flags of cases) {
+    const entry = foe(flags);
+    assert.equal(defenseTriggered({ foes: [entry] }), true);
+    assert.equal(isContactFoe(entry), true, `触发成立就必须算对手：${JSON.stringify(flags)}`);
+  }
 });
 
-check('触发线不该依赖"够得着它的半径"与"它够得着我的半径"是同一个数', () => {
-  // 弓手在 9m 外就能打我（tooClose 为真），而我到不了它那儿（inMyReach 为假）：
-  // 两条线必须分别成立，否则"被远程放风筝"时傀儡会一直站着不还手。
-  const archer = foe({ engaging: true, tooClose: true, inMyReach: false });
-  assert.equal(defenseTriggered({ foes: [archer] }), true);
-  // 近战怪贴在我身上但还没锁我：inMyReach 成立，这时候也该动手
-  const wolf = foe({ engaging: false, tooClose: false, inMyReach: true });
-  assert.equal(defenseTriggered({ foes: [wolf] }), true);
+check('tooClose 只是报告字段，不再是触发条件（反应距离已经把它包住了）', () => {
+  // `engageRange = max(dangerRadius, engageReactionRange)`，所以"它够得着我"这件事
+  // 已经被 `engaging` 覆盖；`tooClose` 留着是为了调试与验收看得见。
+  const locked = foe({ engaging: true, tooClose: false, inMyReach: false });
+  assert.equal(defenseTriggered({ foes: [locked] }), true);
+  assert.equal(isContactFoe(locked), true);
 });
 
 check('触发是布尔，不是"我多想要身体"的浮点分（不产生需要维护的魔法数）', () => {
@@ -247,6 +246,8 @@ check('巢穴不算追兵（它是地点，不是追兵）', () => {
 check('规则常量集中在 combatPlan（反射层不另立一份数值）', () => {
   assert.equal(COMBAT_PLAN_RULES.calmGraceSeconds, 2);
   assert.equal(COMBAT_PLAN_RULES.fleeDistance, 14);
+  // 反应距离要明显大于近战的够到距离（约 2.3m），否则又退回"被咬了才还手"
+  assert.ok(COMBAT_PLAN_RULES.engageReactionRange > 4);
   // combatReflex 只消费 combatPlanRules 的结果，不自己定义数值
   const custom = combatPlanRules({ calmGraceSeconds: 5 });
   assert.equal(

@@ -359,6 +359,88 @@ if (report.started) {
       actionsGrew: game.work.stats.harvestActions > actionsBeforeFight
     };
 
+    // ---- 7) 采空之后必须能接到新活（用户报的「砍完树后就在原地不动了」）
+    //
+    // 复现出来的 bug：clearTask(record) 是**静默空操作**——它内部写
+    // unitId = typeof x === 'object' ? x?.id : x，而作业记录上没有 id（叫 unitId），
+    // 于是 records.get(undefined) 是 undefined、方法直接 return false。
+    // 后果：采空的节点每帧被判一次"已采空"，record.task 永远指着那棵空树，
+    // 而 updateAutoAssign 只挑"手上没活"的傀儡 → 它**再也不会被派活**，
+    // 站在原地待命到天荒地老，stats.depletedTasks 每帧 +1（实测 1500 帧 +1500）。
+    //
+    // 这一段就是那条的回归：把节点存货压到 1（走真实的采空路径），
+    // 然后要求"任务被真正交掉、只记一次、并且很快被派到**另一个**节点"。
+    // 就用手上这棵树：傀儡正站在它旁边砍它，跟用户描述的场景一致
+    // （换一棵远处的树会被"作业移动走直线"那条既有取舍干扰，测的就不是这件事了）。
+    game.refreshWorkDemands();   // 前面为了隔离关掉了自动派活，这里开回来
+    const bagForNext = game.work.inventoryFor(puppet);
+    bagForNext?.slots?.forEach((slot, index) => { if (slot) bagForNext.slots[index] = null; });
+    // 清背包是为了清掉背着的木头（不然它会先去卸货，测不到"接着砍下一棵"）。
+    // 但**斧头也在里面**：不清完再放回去的话，规划器会判 blocked / 缺工具，
+    // 于是这一段测的就变成"没工具当然不干活"，而不是我们想守的那条。
+    bagForNext?.add?.('axe', 1);
+    if (bagForNext) game.onUnitBackpackChanged(puppet);
+    const targetNode = node ?? null;
+    let depletion = { nodeId: targetNode?.id ?? null };
+    if (targetNode) {
+      game.work.clearTask(puppet);
+      game.work.assignNode(puppet, targetNode.id);
+      // 压到 3：几下就采空，走的是资源系统真正的 released / depleted 那条路
+      targetNode.amount = 3;
+      const amountAfterWrite = targetNode.amount;
+      game.tick();
+      const amountAfterOneTick = targetNode.amount;
+      const depletedBefore = game.work.stats.depletedTasks;
+      let sawTaskCleared = false;
+      let movedOnNodeId = null;
+      let idleFramesAfterDepletion = 0;
+      let depletedAtFrame = null;
+      const trace = [];
+      for (let i = 0; i < 1600; i += 1) {
+        topUpMana();
+        game.tick();
+        const rec = game.work.records.get(puppet.id);
+        const st = worker(puppet);
+        if (rec && rec.task === null) sawTaskCleared = true;
+        if (targetNode.released === true || (targetNode.amount ?? 0) <= 0) {
+          if (depletedAtFrame === null) depletedAtFrame = i + 1;
+        }
+        if (depletedAtFrame !== null && st.nodeId && st.nodeId !== targetNode.id) movedOnNodeId = st.nodeId;
+        if (depletedAtFrame !== null && depletedAtFrame + 30 < i
+            && st.state === 'idle' && !st.nodeId) idleFramesAfterDepletion += 1;
+        if (i % 200 === 0) {
+          trace.push({
+            f: i,
+            state: st.state,
+            nodeId: st.nodeId,
+            amount: targetNode.amount,
+            released: targetNode.released === true,
+            progress: Math.round((st.progress ?? 0) * 100) / 100,
+            error: st.error,
+            depletedTasks: game.work.stats.depletedTasks
+          });
+        }
+        if (depletedAtFrame !== null && movedOnNodeId !== null && i - depletedAtFrame > 60) break;
+      }
+      depletion = {
+        nodeId: targetNode.id,
+        amountAfterWrite,
+        amountAfterOneTick,
+        amountAtEnd: targetNode.amount,
+        depletedAtFrame,
+        sawTaskCleared,
+        // 采空这件事只该被记一次；每帧都记就是那个静默空操作
+        depletedDelta: game.work.stats.depletedTasks - depletedBefore,
+        movedOnNodeId,
+        movedOn: movedOnNodeId !== null,
+        idleFramesAfterDepletion,
+        finalTaskNodeId: worker(puppet).nodeId,
+        finalState: worker(puppet).state,
+        trace
+      };
+    }
+    out.depletion = depletion;
+
     out.workStats = { ...game.work.stats };
     game.clock.getDelta = originalDelta;
     return JSON.stringify(out);
@@ -401,6 +483,17 @@ report.verdict = r && !r.error ? {
     && r.resume?.bodyHolder === 'workOrder'
     && r.resume?.resumed === true
     && r.resume?.actionsGrew === true,
+  // 7) 采空之后必须能接到新活（用户报的「砍完树后就在原地不动了」）
+  //    - 任务被真正交掉（不是静默空操作）
+  //    - "已采空"只记一次，不是每帧一次
+  //    - 很快被派到另一个节点，而不是原地待命
+  handlesDepletedNode: r.depletion?.nodeId
+    && r.depletion?.depletedAtFrame !== null
+    && r.depletion?.sawTaskCleared === true
+    && r.depletion?.depletedDelta <= 2
+    && r.depletion?.movedOn === true
+    && r.depletion?.movedOnNodeId !== r.depletion?.nodeId
+    && r.depletion?.idleFramesAfterDepletion === 0,
   puppetSurvived: r.fight?.puppetAlive === true
 } : null;
 console.log(JSON.stringify(report, null, 2));

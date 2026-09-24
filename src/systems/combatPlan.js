@@ -51,6 +51,23 @@ export const COMBAT_PLAN_RULES = {
   /** 迎战时写进 aggroRange 的索敌半径（只写这一个单位，不改共享 definition）。 */
   engageAggroRange: 9,
   /**
+   * 「它已经锁定我、而且已经逼近到这个距离」就先动手。
+   *
+   * 这条是**用户试玩之后加的**：原来只有"它够得着我"（近战约 2.3m）才触发，
+   * 表现是"狼都追到脸上了它才开打"——它总是先挨一口。而一只**已经锁了我、
+   * 正在往我这儿走**的怪，是在明确地要打这一架，那就该在它咬到之前迎上去。
+   *
+   * 取 5.5 的两个理由：
+   *   - 明显大于近战的够到距离（约 2.3m），所以"迎上去 vs 被咬一口"的差别看得见；
+   *   - 只有**锁了我**的怪才算（`engaging`），所以不会退回到用户第 4 轮报的
+   *     「一开始为什么还朝狼走」——那时候任何 8m 外的狼都会让傀儡丢下工作。
+   *     路过的、没锁定我的怪，仍然只有贴到我一刀之内才会被顺手清掉（触发线 ②）。
+   *
+   * 远程敌人不受这个数影响：它的危险半径（弓手约 9.7m）本来就比它大，
+   * 取 `max` 之后仍然是"它能打到我"那一条说了算。
+   */
+  engageReactionRange: 5.5,
+  /**
    * 自己战力 ≥ 敌方**合计**战力 × 这个系数 才**开始**迎战。取 1.0 = "打得过才打"。
    * 为什么不用 0.85（"略微劣势也敢拼"）：战力公式只是代理指标，0.85 那条线会把
    * "明显打不赢但数值接近"的情况放进来——拿斧的傀儡 8.19 对盾卫 10.87 会判"敢打"，
@@ -182,6 +199,12 @@ export function isEngagingMe(foe, self, now, rules = COMBAT_PLAN_RULES) {
  *
  * 每一项都带上"它离我多远、够不够得着我、我够不够得着它、是不是正在打我"，
  * 这样后面的判据不必再碰几何，也就不会出现第二把尺子。
+ *
+ * ⚠️ `engaging` 是**判据口径**，不是原始信号：
+ *      `engaging = 它锁了我(lockedOn) 且 已经进了「迎上去」的距离`
+ *   原始信号单独放在 `lockedOn` 里，供调试与验收查看。
+ *   这么分是因为"锁了我"和"该不该现在动手"是两件事：弓手 9m 外锁我就已经能打到我，
+ *   而一只 8m 外刚锁定我的狼还没到该迎上去的距离（用户第 4 轮报的就是被这种怪牵着走）。
  */
 export function combatFoes({ self, threats = [], rules = null, reachOf = null, now = 0 } = {}) {
   const resolved = combatPlanRules(rules ?? {});
@@ -193,16 +216,24 @@ export function combatFoes({ self, threats = [], rules = null, reachOf = null, n
     const distance = Number.isFinite(threat.distance)
       ? Number(threat.distance)
       : planarDistance(unit.position, self?.position);
+    const danger = dangerRadiusOf(unit, self, { rules: resolved, reachOf });   // 它够得着我
+    const mine = dangerRadiusOf(self, unit, { rules: resolved, reachOf });     // 我够得着它
+    const lockedOn = isEngagingMe(unit, self, now, resolved);
+    // 「迎上去」的距离：它已经能打到我，或者已经逼近到我愿意主动开打的距离
+    const engageRange = Math.max(danger, resolved.engageReactionRange);
     foes.push({
       unit,
       id: unit.id,
       kind: unit.type ?? null,
       distance,
       power: Number.isFinite(threat.power) ? Number(threat.power) : unitCombatPower(unit),
-      engaging: isEngagingMe(unit, self, now, resolved),
-      tooClose: distance <= dangerRadiusOf(unit, self, { rules: resolved, reachOf }),
-      // 「我也够得着它」——这是"遇到怪物先打"那一档的触发条件（见 combatReflex）。
-      inMyReach: distance <= dangerRadiusOf(self, unit, { rules: resolved, reachOf })
+      lockedOn,
+      engaging: lockedOn && distance <= engageRange,
+      tooClose: distance <= danger,
+      // 「我也够得着它」——"遇上了就先打"那一档的触发条件（见 combatReflex）
+      inMyReach: distance <= mine,
+      dangerRadius: danger,
+      engageRange
     });
   }
   // 近的排前面：`pickCombatFoe` 的"没有记忆时打最近的"直接吃这个顺序

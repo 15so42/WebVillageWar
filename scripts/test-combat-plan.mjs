@@ -178,27 +178,62 @@ check('只有"锁定我 / 刚打过我"才算正在打我，旁边站着的怪�
   );
 });
 
-check('combatFoes 把三个几何关系分开标记，不去合并成一个布尔', () => {
+check('combatFoes 把「锁定我」「该不该动手」「够不够得着」分开标记', () => {
   const self = makePuppet();
-  const locker = engaging(makeFoe('wolf', 1.2), self);
-  const far = engaging(makeFoe('wolf', 9, 1), self);
-  const bystander = makeFoe('goblinSoldier', 1.5, 2);
-  const faraway = makeFoe('goblinSoldier', 12, 3);
-  const foes = foesOf(self, [locker, far, bystander, faraway]);
+  const adjacent = engaging(makeFoe('wolf', 1.2, 0, { id: 'adjacent' }), self);
+  const approaching = engaging(makeFoe('wolf', 4, 1, { id: 'approaching' }), self);
+  const lockedFar = engaging(makeFoe('wolf', 9, 2, { id: 'locked-far' }), self);
+  const bystander = makeFoe('goblinSoldier', 1.5, 3, { id: 'bystander' });
+  const faraway = makeFoe('goblinSoldier', 12, 4, { id: 'faraway' });
+  const foes = foesOf(self, [adjacent, approaching, lockedFar, bystander, faraway]);
   const byId = Object.fromEntries(foes.map((foe) => [foe.id, foe]));
-  assert.equal(byId[locker.id].engaging, true);
-  assert.equal(byId[locker.id].tooClose, true);
-  assert.equal(byId[locker.id].inMyReach, true, '1.2m 内当然是我也够得着它');
-  assert.equal(byId[far.id].engaging, true);
-  assert.equal(byId[far.id].tooClose, false, '9m 外的近战怪够不着我');
-  assert.equal(byId[far.id].inMyReach, false, '我也够不着它');
-  assert.equal(byId[bystander.id].engaging, false, '没动手的不算在打我');
-  assert.equal(byId[bystander.id].inMyReach, true, '但贴到我的攻击距离里了（"遇上了就先打"）');
-  assert.equal(byId[faraway.id].inMyReach, false, '12m 外两条触发线都不成立');
+
+  // 贴脸且锁定：三条全中
+  assert.equal(byId.adjacent.lockedOn, true);
+  assert.equal(byId.adjacent.engaging, true);
+  assert.equal(byId.adjacent.tooClose, true);
+  assert.equal(byId.adjacent.inMyReach, true);
+
+  // 锁定了、正在逼近、但还没到咬得到的距离：**这一档就是要它提前迎上去**
+  assert.equal(byId.approaching.lockedOn, true);
+  assert.equal(byId.approaching.engaging, true, '锁了我并已逼近 → 这一场算数');
+  assert.equal(byId.approaching.tooClose, false, '还没到它能咬到我的距离');
+  assert.equal(byId.approaching.inMyReach, false, '我也还没够到它');
+
+  // 锁定了但还很远：**信息留着（lockedOn），但不参与判据**。
+  // 用户第 4 轮报的「一开始为什么还朝狼走」就是这一档被算进去了。
+  assert.equal(byId['locked-far'].lockedOn, true);
+  assert.equal(byId['locked-far'].engaging, false, '9m 外刚锁定我，还不该丢下工作追过去');
+  assert.equal(byId['locked-far'].inMyReach, false);
+
+  // 没锁定我，但已经贴到我的刀口上：触发线 ② 管这一档
+  assert.equal(byId.bystander.lockedOn, false);
+  assert.equal(byId.bystander.engaging, false, '没动手的不算在打我');
+  assert.equal(byId.bystander.inMyReach, true, '但贴到我的攻击距离里了（"遇上了就先打"）');
+
+  assert.equal(byId.faraway.lockedOn, false);
+  assert.equal(byId.faraway.engaging, false);
+  assert.equal(byId.faraway.inMyReach, false, '12m 外两条触发线都不成立');
+
   // 列表按距离升序：没有记忆时"打最近的"直接吃这个顺序
   for (let i = 1; i < foes.length; i += 1) {
     assert.ok(foes[i - 1].distance <= foes[i].distance, 'foes 必须按距离升序');
   }
+});
+
+check('反应距离必须明显大于近战的够到距离——否则又是"被咬了才还手"', () => {
+  const self = makePuppet();
+  const wolf = engaging(makeFoe('wolf', 4), self);
+  const [foe] = foesOf(self, [wolf]);
+  // 近战怪够得着我只有 2.3m 上下，而"迎上去"是 5.5m：
+  // 用户口径「狼都追到脸上了它才和狼战斗」要的就是这个差值。
+  assert.ok(foe.dangerRadius < 3, `近战危险半径不该这么大：${foe.dangerRadius}`);
+  assert.ok(foe.engageRange >= rules.engageReactionRange);
+  assert.ok(foe.engageRange > foe.dangerRadius * 2, '迎上去的距离必须明显大于它咬到我的距离');
+  // 远程敌人不受这个数影响：它自己的射程说了算
+  const archer = engaging(makeFoe('goblinArcher', 4, 1), self);
+  const archerFoe = foesOf(self, [archer])[0];
+  assert.ok(archerFoe.engageRange > 8, '弓手在自己射程内就能打到我，取 max 之后仍是射程说了算');
 });
 
 check('野生动物与未被招募的野外单位：前者算威胁，后者完全不参与', () => {
@@ -286,7 +321,8 @@ check('抱团更危险：合计战力一超线就转逃', () => {
 
 check('同一个敌人，距离远近不能改变结论（旧实现翻面的根因）', () => {
   const self = makePuppet();
-  for (const distance of [1, 2, 3, 4, 5, 6, 7]) {
+  // 1~5m：都在"迎上去"的距离内（`engageReactionRange` 5.5），结论必须逐档一致
+  for (const distance of [1, 2, 3, 4, 5]) {
     const shield = engaging(makeFoe('shieldBearer', distance), self);
     const axe = openFire(self, [shield], { toolIds: ['axe'] }).move;
     assert.equal(axe.action, COMBAT_ACTION.disengage, `拿斧头距离 ${distance}m 应始终判逃`);
@@ -298,6 +334,20 @@ check('同一个敌人，距离远近不能改变结论（旧实现翻面的根�
       `拿木棒距离 ${distance}m 应始终判迎战`
     );
   }
+  // 再远就不是"距离改变结论"，而是"这一场还没开始"：锁定了我但还没逼近，
+  // 判据压根不参与（`engaging` 为假）——这跟"迎战/逃跑翻面"是两件事。
+  const farWolf = engaging(makeFoe('wolf', 8), self);
+  const farFoes = foesOf(self, [farWolf]);
+  assert.equal(farFoes[0].lockedOn, true, '前提：它确实锁了我');
+  assert.equal(farFoes[0].engaging, false);
+  assert.equal(
+    decideCombatMove({
+      self, foes: farFoes, gearPower: puppetCombatPower(puppetGearFor({ weaponItemId: 'puppetCudgel' })),
+      engaged: false, cornered: false, last: null, rules
+    }).action,
+    COMBAT_ACTION.done,
+    '8m 外刚锁定我的怪不该让傀儡丢下工作'
+  );
 });
 
 check('装备越好，结论只会越好（单调）', () => {
@@ -372,10 +422,12 @@ check('挑不出目标但还有东西在追我 → 继续走位，而不是"打�
 // ---------------------------------------------------------------- 承诺（记忆）
 check('承诺：选中一只就打完再换，不会因为另一只更近就转向', () => {
   const self = makePuppet();
-  const chosen = engaging(makeFoe('goblinArcher', 6, 0, { id: 'chosen' }), self);
+  // 两只都在"迎上去"的距离内（5m / 2m），所以两只都是这一场的对手
+  const chosen = engaging(makeFoe('goblinArcher', 5, 0, { id: 'chosen' }), self);
   const nearer = engaging(makeFoe('goblinArcher', 2, Math.PI, { id: 'nearer' }), self);
   const gear = puppetGearFor({ weaponItemId: 'puppetCudgel' });
   const foes = foesOf(self, [chosen, nearer]);
+  assert.equal(foes.filter((foe) => foe.engaging).length, 2, '前提：两只都在这一场里');
   const first = decideCombatMove({
     self, foes, gearPower: puppetCombatPower(gear), engaged: true, last: null, rules
   });

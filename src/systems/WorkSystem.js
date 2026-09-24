@@ -141,6 +141,29 @@ export class WorkSystem {
   }
 
   // ------------------------------------------------------------------ 登记
+  /**
+   * 把「单位 / 单位 id / 作业记录」统一解析成作业记录。
+   *
+   * 为什么必须有这个函数：下面这些入口的第一行以前都是
+   *   `const unitId = typeof x === 'object' ? x?.id : x;`
+   * 而**作业记录上没有 `id`**（它叫 `unitId`）。于是内部代码一旦顺手写成
+   * `this.clearTask(record)`，`unitId` 就是 `undefined`、`records.get(undefined)` 是
+   * `undefined`、方法静默 `return false`——什么也没做，而且不报错。
+   *
+   * 这条静默路径害了一次实打实的 bug（用户口径：「砍完树后就在原地不动了」）：
+   * 采空的节点每帧被判一次"已采空"，`clearTask` 每帧都无效，
+   * `record.task` 于是永远指着那棵空树；而 `updateAutoAssign` 只挑"手上没活"的傀儡，
+   * 所以它**再也不会被派活**，原地待命到天荒地老（`depletedTasks` 每帧 +1）。
+   * 同一个坑还有一个受害者：`releaseTaskInDanger` 里的 `clearTask(record)` 也一直是空操作。
+   */
+  recordFor(target) {
+    if (!target) return null;
+    // 已经是作业记录：记录表里存的就是它本身
+    if (target.unitId !== undefined && this.records.get(target.unitId) === target) return target;
+    const unitId = typeof target === 'object' ? target.id : target;
+    return this.records.get(unitId) ?? null;
+  }
+
   // 把一支普通单位变成傀儡：背包、活动魔力、供能接收者、作业记录一次配齐。
   registerWorker(unit, { inventory = null } = {}) {
     if (!unit?.id) return null;
@@ -240,9 +263,9 @@ export class WorkSystem {
 
   // 取消登记：供能接收者、任务预留、背包记录一起清掉，不留半个傀儡。
   unregisterWorker(unitOrId) {
-    const unitId = typeof unitOrId === 'object' ? unitOrId?.id : unitOrId;
+    const record = this.recordFor(unitOrId);
+    const unitId = record?.unitId ?? (typeof unitOrId === 'object' ? unitOrId?.id : unitOrId);
     if (unitId === null || unitId === undefined) return false;
-    const record = this.records.get(unitId);
     const unit = record?.unit ?? (typeof unitOrId === 'object' ? unitOrId : null);
     if (record) cancelSwing(record.swing);
     this.game?.power?.unregisterReceiver?.(unitId);
@@ -261,11 +284,12 @@ export class WorkSystem {
   }
 
   isWorker(unitOrId) {
-    const unitId = typeof unitOrId === 'object' ? unitOrId?.id : unitOrId;
-    return this.records.has(unitId);
+    return this.recordFor(unitOrId) !== null;
   }
 
   inventoryFor(unitOrId) {
+    const record = this.recordFor(unitOrId);
+    if (record) return this.inventories.get(record.unitId) ?? null;
     const unitId = typeof unitOrId === 'object' ? unitOrId?.id : unitOrId;
     return this.inventories.get(unitId) ?? null;
   }
@@ -273,9 +297,9 @@ export class WorkSystem {
   // ------------------------------------------------------------------ 任务
   // 派活：先在任务板上占坑，避免多个傀儡一起把同一棵树采穿。
   assignNode(unitOrId, nodeId) {
-    const unitId = typeof unitOrId === 'object' ? unitOrId?.id : unitOrId;
-    const record = this.records.get(unitId);
+    const record = this.recordFor(unitOrId);
     if (!record || !nodeId) return false;
+    const unitId = record.unitId;
     const node = this.game?.resourceNodes?.nodeById?.(nodeId) ?? null;
     if (!node || (node.amount ?? 0) <= 0) return false;
     const reserved = Math.max(WORKER_DEPOSIT_MIN_COUNT, this.rules.harvestPerAction ?? 1);
@@ -301,9 +325,9 @@ export class WorkSystem {
   }
 
   clearTask(unitOrId) {
-    const unitId = typeof unitOrId === 'object' ? unitOrId?.id : unitOrId;
-    const record = this.records.get(unitId);
+    const record = this.recordFor(unitOrId);
     if (!record) return false;
+    const unitId = record.unitId;
     this.board.release(unitId);
     this.tasks.delete(unitId);
     record.task = null;
@@ -316,12 +340,16 @@ export class WorkSystem {
   }
 
   taskFor(unitOrId) {
+    const record = this.recordFor(unitOrId);
+    if (record) return record.task ?? null;
     const unitId = typeof unitOrId === 'object' ? unitOrId?.id : unitOrId;
     return this.tasks.get(unitId) ?? null;
   }
 
   // 最近一次执行失败的原因（如 needs_tool / no_capacity），供 HUD 解释「为什么不干活」。
   lastError(unitOrId) {
+    const record = this.recordFor(unitOrId);
+    if (record) return this.lastErrors.get(record.unitId) ?? null;
     const unitId = typeof unitOrId === 'object' ? unitOrId?.id : unitOrId;
     return this.lastErrors.get(unitId) ?? null;
   }
@@ -1055,8 +1083,7 @@ export class WorkSystem {
   // ------------------------------------------------------------------ 查询
   // 对外状态：一步决策的结果 + 背包与进度，HUD 与调试面板都读它。
   workerState(unitOrId) {
-    const unitId = typeof unitOrId === 'object' ? unitOrId?.id : unitOrId;
-    const record = this.records.get(unitId);
+    const record = this.recordFor(unitOrId);
     if (!record) {
       return {
         state: WORK_STATE.idle,
@@ -1320,8 +1347,7 @@ export class WorkSystem {
    * 不通知的话会出现"背包里明明有斧子，规划器还说缺工具"。
    */
   notifyInventoryChanged(unitOrId) {
-    const unitId = typeof unitOrId === 'object' ? unitOrId?.id : unitOrId;
-    const record = this.records.get(unitId);
+    const record = this.recordFor(unitOrId);
     if (!record) return false;
     this.markPackDirty(record);
     return true;
