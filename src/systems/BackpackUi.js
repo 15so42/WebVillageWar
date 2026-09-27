@@ -1,5 +1,6 @@
 import { itemDefinition, itemName, itemStackLimit, itemStacksByMerging } from './items.js';
-import { insertIntoInventory, TRANSFER_ERROR_LABELS } from './inventoryTransfer.js';
+import { CRAFT_ERROR_LABELS } from './crafting.js';
+import { insertIntoInventory, moveSlot, TRANSFER_ERROR_LABELS } from './inventoryTransfer.js';
 import { itemArtForSlot, itemStatLines } from './itemArt.js';
 import {
   PRIORITY_MAX,
@@ -27,9 +28,13 @@ import { RUNE_ERROR_LABELS } from './RuneStoneSystem.js';
  *
  * 布局（对应需求第 3 条）：
  *   左侧  —— 背包网格。基地 6 行 × 8 列 = 48 格；单位视图用该单位自己的格数。
- *   右侧  —— 合成 / 科技 / 附魔台。合成是**网格**：灰的表示材料不足，
+ *   右侧  —— 合成 / 资源优先级。合成是**网格**：灰的表示材料不足，
  *            悬浮显示详情，点击后产物跟鼠标走，再点背包空格放下。
- *   底部  —— 9 格快捷栏，点一下使用/进入放置模式。
+ *           （快捷栏不住在这里：它是屏幕底部的独立常驻栏，见 HotbarUi。）
+ *
+ * 合成可撤销：点配方会**立刻扣材料**并把产物拿到鼠标上，所以"看走眼点了、格子又不够"
+ * 需要一个出口——产物还在手上时按右键，材料原样退回基地背包（见 `cancelCraft`）。
+ * 产物一旦落进任何格子就不再记撤销来源：那时它是背包里的一件普通物品。
  *
  * 格子里物品的画法：
  *   图 + 右下角数量；符文石不可堆叠，所以不显示数量，等级压在左上角。
@@ -43,6 +48,14 @@ import { RUNE_ERROR_LABELS } from './RuneStoneSystem.js';
 const REFRESH_INTERVAL_MS = 400;
 /** 基地是 6 行 × 8 列。列数写死，行数由容量推出来。 */
 const BASE_COLUMNS = 8;
+/**
+ * 快捷栏那块容器的 key。
+ *
+ * 它和基地背包是同一类的 `Inventory`，但**不画在面板里**（在屏幕底部，见 HotbarUi），
+ * 所以它不进 `containerEntries()`；面板的光标单独认这个 key，把它当落点——
+ * 这正是"打开背包时两边可以互相拖"唯一需要的那条线。
+ */
+export const HOTBAR_CONTAINER_KEY = 'hotbar';
 
 export class BackpackUi {
   constructor(game, options = {}) {
@@ -57,6 +70,8 @@ export class BackpackUi {
     /** 手上拿着的那一叠（《我的世界》语义）。null 表示空手。 */
     this.cursor = null;
     this.cursorGhost = null;
+    this.lastPointerX = null;
+    this.lastPointerY = null;
     this.refreshTimer = null;
     this.lastSignature = '';
     this.feedback = null;
@@ -118,6 +133,9 @@ export class BackpackUi {
     this.lastSignature = '';
     this.refresh();
     this.startAutoRefresh();
+    // 快捷栏的那种"模式"（开着=搬运容器 / 关着=使用入口）由这个面板的开合决定，
+    // 所以必须立刻通知它：等它自己那 400ms 轮询的话，玩家在这一瞬间点到的是旧语义。
+    this.game?.hotbar?.refresh?.();
   }
 
   setMode(mode) {
@@ -148,6 +166,8 @@ export class BackpackUi {
     if (!this.root) return;
     this.root.hidden = true;
     this.root.classList.remove('is-open');
+    // 面板关掉的这一刻，快捷栏就从"容器"变回"使用入口"（见 HotbarUi 的模式说明）。
+    this.game?.hotbar?.refresh?.();
   }
 
   /** 某个单位阵亡/被移除时关掉它的背包，避免面板停在不存在的单位上。 */
@@ -251,8 +271,15 @@ export class BackpackUi {
     return this.containerEntries()[0]?.inventory ?? null;
   }
 
-  /** 按 `data-backpack-container` 的值取容器。 */
+  /**
+   * 按 `data-backpack-container` 的值取容器。
+   *
+   * `hotbar` 是**特例**：快捷栏不在面板里（它在屏幕底部，见 HotbarUi），
+   * 但它和基地背包是同一类的 Inventory，所以面板的光标要能把它当落点——
+   * "打开背包时两边互相拖"就落在这里。
+   */
   containerFor(key) {
+    if (key === HOTBAR_CONTAINER_KEY) return this.game?.hotbarInventory ?? null;
     const entries = this.containerEntries();
     const found = entries.find((entry) => entry.key === key) ?? null;
     return found?.inventory ?? entries[0]?.inventory ?? null;
@@ -300,8 +327,7 @@ export class BackpackUi {
           </section>
           <section class="backpack-recipe-pane">
             <div class="backpack-tabs" role="tablist" data-backpack-tabs>
-              <button type="button" class="backpack-tab" role="tab" data-backpack-tab="craft">合成</button>
-              <button type="button" class="backpack-tab" role="tab" data-backpack-tab="resource">资源</button>
+              <button type="button" class="backpack-tab is-active" role="tab" data-backpack-tab="craft" aria-selected="true">合成</button>
             </div>
             <div class="backpack-pane-head">
               <span class="backpack-pane-title" data-backpack-recipe-title>合成</span>
@@ -341,12 +367,12 @@ export class BackpackUi {
       root.addEventListener('pointerdown', (event) => event.stopPropagation());
       root.addEventListener('click', (event) => this.onClick(event));
       root.addEventListener('pointerdown', (event) => this.onPointerDown(event));
-      root.addEventListener('contextmenu', (event) => event.preventDefault());
+      root.addEventListener('contextmenu', (event) => this.onContextMenu(event));
       root.addEventListener('pointerover', (event) => this.onPointerOver(event));
       root.addEventListener('pointerout', (event) => this.onPointerOut(event));
       // 光标上的那一叠要跟着鼠标走，所以监听挂在 window 上，销毁时必须摘掉。
       this.windowHandlers = {
-        move: (event) => this.moveCursorGhost(event.clientX, event.clientY)
+        move: (event) => this.syncCursorGhostPosition(event.clientX, event.clientY)
       };
       window.addEventListener('pointermove', this.windowHandlers.move);
       this.bound = true;
@@ -380,11 +406,6 @@ export class BackpackUi {
     this.noteSeenItems();
 
     const recipes = this.visibleRecipes();
-    // 资源 tab：木傀儡能采到的 + 能合成的，带优先级。科技与附魔台**不在这里**
-    // ——它们改由科研站/附魔台的扇形菜单打开（见 FacilityPanelUi）。
-    const resourceRows = typeof this.game?.resourcePriorityRows === 'function'
-      ? this.game.resourcePriorityRows()
-      : [];
 
     // 签名只包含真正影响 DOM 的内容：没变就什么都不重建，否则每 400ms
     // 重建一次会让按钮在鼠标按下时被替换掉，点都点不中。
@@ -407,7 +428,6 @@ export class BackpackUi {
         recipe.craftable,
         recipe.inputs.map((entry) => entry.have)
       ]),
-      resources: resourceRows.map((row) => [row.itemId, row.priority, row.stock, row.kind]),
       placing: this.game?.placingItem?.itemId ?? null,
       stranded: this.strandedStones().length
     });
@@ -416,7 +436,6 @@ export class BackpackUi {
 
     this.renderGrids(entries);
     this.renderRecipes(recipes);
-    this.renderResources(resourceRows);
     this.renderHeader(entries);
     this.renderFeedback();
   }
@@ -433,14 +452,20 @@ export class BackpackUi {
       const stones = this.runeSystem()?.stonesForUnit?.(this.unit)?.length ?? 0;
       lines.push(`${primary.title} ${used}/${primary.inventory.capacity} · 符文石 ${stones} 块生效中`);
       lines.push('上面是单位的背包、下面是基地背包：点一件拿起，再点另一块的格子就搬过去了');
+      lines.push('按住 Shift 点格子：在背包与基地仓库之间整格转移（自动找空位或合并）');
     } else {
       lines.push(`负重 ${used}/${primary.inventory.capacity} · 基地共 ${primary.inventory.capacity} 格（6 行 × 8 列）`);
     }
-    if (this.cursor) {
+    if (this.cursor?.craftedFrom) {
+      lines.push(`手上：${itemName(this.cursor.itemId)} ×${this.cursor.count}（刚合成）— 点空格放下，右键取消并退回材料`);
+    } else if (this.cursor) {
       lines.push(`手上：${itemName(this.cursor.itemId)} ×${this.cursor.count} — 点空格放下，点同类可合并，点异类交换`);
     } else {
       lines.push('左键拿起整叠 · 右键拿一半 · 手上有东西时按 Esc 会放回原处');
     }
+    // 快捷栏是个容器这件事必须写出来：它在屏幕底部，和面板隔着一段距离，
+    // 不说的话没人会想到"把东西拖到那一排格子上"是搬运而不是使用。
+    lines.push('屏幕下方的快捷栏也是容器：手上有东西时点它一格就放进去，关掉面板后按 1~9 使用');
     if (stranded.length) {
       lines.push(`有 ${stranded.length} 块符文石失去了落点（旧存档残留），已列在下方可收回基地`);
     }
@@ -712,7 +737,11 @@ export class BackpackUi {
       blocked.textContent = recipe.reasonLabel;
       tile.appendChild(blocked);
     }
-    tile.title = `${recipe.name}：${recipe.description || ''}`;
+    tile.title = [
+      `${recipe.name}：${recipe.description || ''}`,
+      '左键合成：材料立刻扣除，产物跟鼠标走',
+      '做好之后按右键可以取消这次合成，材料原样退回基地背包'
+    ].join('\n');
     return tile;
   }
 
@@ -731,7 +760,7 @@ export class BackpackUi {
       .join('，');
     if (inputs) parts.push(`材料：${inputs}`);
     parts.push(recipe.craftable
-      ? '点击即可合成，产物会跟鼠标走，再点背包空格放下'
+      ? '点击即可合成，产物会跟鼠标走，再点背包空格放下；做好后右键可取消并退回材料'
       : `暂时做不了：${recipe.reasonLabel ?? '材料不足'}`);
     this.parts.detail.textContent = parts.join(' · ');
   }
@@ -842,9 +871,9 @@ export class BackpackUi {
     // 'tech' / 'enchant' 是**已删除**的旧标签页（科技与附魔台改由科研站/附魔台的
     // 扇形菜单打开，见 FacilityPanelUi）。这里把旧名字映射到 craft 而不是报错，
     // 是为了让旧存档式的调用与验收脚本不至于直接崩掉。
-    const aliases = { items: 'craft', unit: 'craft', tech: 'craft', enchant: 'craft' };
+    const aliases = { items: 'craft', unit: 'craft', tech: 'craft', enchant: 'craft', resource: 'craft' };
     const wanted = aliases[tabId] ?? tabId;
-    const known = ['craft', 'resource'];
+    const known = ['craft'];
     this.activeTab = known.includes(wanted) ? wanted : 'craft';
     this.applyTab();
     return this.activeTab;
@@ -878,12 +907,44 @@ export class BackpackUi {
     const cell = event.target.closest('[data-backpack-slot]');
     if (!cell || !this.parts?.grids?.contains(cell)) return;
     event.preventDefault();
+    this.syncCursorGhostPosition(event.clientX, event.clientY);
     const index = Number(cell.dataset.backpackSlot);
     if (!Number.isFinite(index)) return;
+    const containerKey = cell.dataset.backpackContainer ?? null;
+    if (event.shiftKey && event.button === 0 && !this.cursor) {
+      this.shiftTransferSlot(index, containerKey);
+      return;
+    }
     this.handleSlotClick(index, {
       right: event.button === 2,
-      container: cell.dataset.backpackContainer ?? null
+      container: containerKey
     });
+  }
+
+  /**
+   * Shift+左键：单位视图下在「单位背包 ↔ 基地仓库」之间整格搬运（不经过鼠标上的那一叠）。
+   */
+  shiftTransferSlot(index, containerKey = null) {
+    if (this.mode !== 'unit' || !this.unit || this.cursor) return;
+    const entries = this.containerEntries();
+    const fromKey = containerKey === 'base' ? 'base' : 'unit';
+    const toKey = fromKey === 'unit' ? 'base' : 'unit';
+    const fromEntry = entries.find((entry) => entry.key === fromKey);
+    const toEntry = entries.find((entry) => entry.key === toKey);
+    if (!fromEntry?.inventory || !toEntry?.inventory) return;
+    if (!Number.isInteger(index) || index < 0 || index >= fromEntry.inventory.slots.length) return;
+    const slot = fromEntry.inventory.slots[index];
+    if (!slot?.itemId) return;
+    const result = moveSlot(fromEntry.inventory, toEntry.inventory, { fromIndex: index, toIndex: null });
+    if (!result.ok) {
+      this.showFeedback(TRANSFER_ERROR_LABELS[result.reason] ?? '放不下', true);
+      return;
+    }
+    this.syncUnitState();
+    this.lastSignature = '';
+    this.refresh();
+    const dest = toKey === 'base' ? '基地仓库' : '单位背包';
+    this.showFeedback(`${itemName(slot.itemId)} → ${dest}`, false);
   }
 
   /**
@@ -908,7 +969,8 @@ export class BackpackUi {
     }
 
     if (!slot?.itemId) {
-      this.placeCursorAt(container, index);
+      if (right) this.placeOneCursorAt(container, index);
+      else this.placeCursorAt(container, index);
       return;
     }
 
@@ -974,6 +1036,23 @@ export class BackpackUi {
     if (container.slots[index].instanceId === undefined) delete container.slots[index].instanceId;
     // 已经落格，不再记原位置：关面板时不该把它再搬走。
     this.cursor = null;
+    this.afterCursorChange();
+  }
+
+  /** 右键点空格：只放下 1 个（可堆叠物）；不可堆叠则整叠落下。 */
+  placeOneCursorAt(container, index) {
+    const cursor = this.cursor;
+    if (!cursor) return;
+    if (!itemStacksByMerging(cursor.itemId) || (cursor.count ?? 1) <= 1) {
+      this.placeCursorAt(container, index);
+      return;
+    }
+    container.slots[index] = {
+      itemId: cursor.itemId,
+      count: 1,
+      data: cursor.data ? { ...cursor.data } : null
+    };
+    cursor.count -= 1;
     this.afterCursorChange();
   }
 
@@ -1108,13 +1187,18 @@ export class BackpackUi {
       level.textContent = String(Math.max(1, Math.floor(Number(this.cursor.data?.level) || 1)));
       this.cursorGhost.appendChild(level);
     }
+    this.syncCursorGhostPosition();
     return this.cursorGhost;
   }
 
-  moveCursorGhost(clientX, clientY) {
+  syncCursorGhostPosition(clientX, clientY) {
+    if (Number.isFinite(clientX)) this.lastPointerX = clientX;
+    if (Number.isFinite(clientY)) this.lastPointerY = clientY;
     if (!this.cursorGhost) return;
-    this.cursorGhost.style.left = `${clientX}px`;
-    this.cursorGhost.style.top = `${clientY}px`;
+    const x = this.lastPointerX ?? window.innerWidth * 0.5;
+    const y = this.lastPointerY ?? window.innerHeight * 0.5;
+    this.cursorGhost.style.left = `${x}px`;
+    this.cursorGhost.style.top = `${y}px`;
   }
 
   removeCursorGhost() {
@@ -1125,6 +1209,9 @@ export class BackpackUi {
   // ---- 交互：点击派发 ----
 
   onClick(event) {
+    if (Number.isFinite(event.clientX)) {
+      this.syncCursorGhostPosition(event.clientX, event.clientY);
+    }
     if (event.target.closest('[data-backpack-close]')) {
       event.preventDefault();
       this.close();
@@ -1188,6 +1275,21 @@ export class BackpackUi {
   }
 
   /**
+   * 右键：撤回"刚做好、还拿在手上"的那一笔合成，材料原样退回基地背包。
+   *
+   * **必须先跳过格子。** 格子上的右键是《我的世界》语义（拿起一半 / 往格子里放一个），
+   * 由 `onPointerDown` 在 pointerdown 阶段就处理掉了，而 contextmenu 紧随其后还会再触发一次。
+   * 不跳过的话，"右键往空格里放一个产物"会把整笔合成一起撤掉：产物已经落了格、
+   * 材料又退回来，那一格就成了凭空多出来的东西。
+   */
+  onContextMenu(event) {
+    event.preventDefault();
+    if (!this.cursor?.craftedFrom) return null;
+    if (event.target.closest?.('[data-backpack-slot]')) return null;
+    return this.cancelCraft();
+  }
+
+  /**
    * 合成并把产物拿到手上（需求第 3 条：产物跟着鼠标，再点空格放下）。
    *
    * 合成本身仍然走 `game.craftAtBase`——材料扣除与"放不下就整笔失败"的原子性
@@ -1243,14 +1345,63 @@ export class BackpackUi {
     }
 
     if (lifted) {
-      this.cursor = { ...lifted, from: { inventory, index: null } };
+      // 记下"这一叠是刚做出来的、刚才扣了什么材料"：右键可以原样撤回（见 cancelCraft）。
+      // 只在真的拿到材料清单时才记——清单为空说明这次合成没有可退的东西，
+      // 那就别给玩家一个按下去什么都不发生的右键。
+      const consumed = (result.consumed ?? [])
+        .filter((entry) => entry?.itemId)
+        .map((entry) => ({ itemId: entry.itemId, count: entry.count }));
+      this.cursor = {
+        ...lifted,
+        from: { inventory, index: null },
+        craftedFrom: consumed.length
+          ? { recipeId: recipe.id, name: recipe.name, consumed }
+          : null
+      };
       this.seenItemIds.add(outputItemId);
-      this.showFeedback(`${recipe.name} 做好了：点背包空格放下`, false);
+      this.showFeedback(
+        consumed.length
+          ? `${recipe.name} 做好了：点背包空格放下，右键取消并退回材料`
+          : `${recipe.name} 做好了：点背包空格放下`,
+        false
+      );
     } else {
       // 取不出来（理论上不该发生）也不报错：东西已经在基地背包里，没有丢。
       this.seenItemIds.add(outputItemId);
       this.showFeedback(`${recipe.name} 已放进基地背包`, false);
     }
+    this.afterCursorChange();
+    return result;
+  }
+
+  /**
+   * 取消一笔"产物还拿在手上"的合成：丢掉产物、把扣掉的材料原样退回基地背包。
+   *
+   * 合成的交互是"点配方 → 立刻扣材料 → 产物跟着鼠标"，所以点错了（看走眼、格子不够、
+   * 本来想做的是另一件）必须有个出口。产物还在鼠标上就意味着它没有进任何库存，
+   * 这时撤回是干净的：库存直接回到点击之前的样子。
+   *
+   * 退不回来时**什么都不动**——产物继续留在手上，玩家可以腾出格子再右键，
+   * 而不是"产物没了、材料也没了"。
+   */
+  cancelCraft() {
+    const cursor = this.cursor;
+    const origin = cursor?.craftedFrom ?? null;
+    if (!cursor || !origin) {
+      this.showFeedback('右键取消只对"刚做好、还拿在手上"的物件有效', true);
+      return null;
+    }
+    const result = this.game?.refundCraftAtBase?.(origin.consumed)
+      ?? { ok: false, reason: 'no_refund_api' };
+    if (!result.ok) {
+      const label = CRAFT_ERROR_LABELS[result.reason] ?? '材料退不回基地背包';
+      this.showFeedback(`取消不了：${label}（先腾出格子再右键）`, true);
+      return null;
+    }
+    const name = origin.name ?? itemName(cursor.itemId);
+    // 产物只是"还没放下"的那一叠：撤销就是把它丢掉，材料已经退回来了。
+    this.cursor = null;
+    this.showFeedback(`已取消 ${name}：材料已退回基地背包`, false);
     this.afterCursorChange();
     return result;
   }

@@ -48,9 +48,37 @@ body:not(.is-survival-level) .item-hotbar {
   display: none;
 }
 
+/* 背包打开时把快捷栏抬到背包遮罩之上。
+ *
+ * 背包面板已经缩小、不再盖住快捷栏了（见 backpack.css 的 --backpack-hotbar-space），
+ * 但 `.backpack` 本身是 `inset: 0` 的全屏遮罩、z-index 12 且指针事件是开着的，
+ * 快捷栏照样落在它的矩形里：**看得见，指针却被遮罩吃掉**，等于还是够不着。
+ * 抬到 13 之后，快捷栏在自己那一块矩形里重新拿到事件；遮罩的其余部分照旧
+ * 挡住画布，不会出现"点背包背景顺手给单位下令"。 */
+body:has(.backpack.is-open) .item-hotbar {
+  z-index: 13;
+}
+
 /* 拖拽时整条栏变淡，避免和跟手的图标互相干扰 */
 .item-hotbar.is-dragging {
   opacity: 0.55;
+}
+
+/* 搬运模式（背包面板开着）：这一栏此刻是"另一个容器"，不是使用入口。
+ * 必须看得出区别——同一个"往快捷栏上拖"的动作，两种情境下意思正好相反
+ * （存进去 vs 用出去），界面上不给提示就是在赌玩家记得规则。 */
+.item-hotbar.is-transfer-mode {
+  border-color: rgba(255, 230, 163, 0.62);
+}
+
+body.is-game-active .item-hotbar.is-transfer-mode .item-hotbar-slot {
+  border-color: rgba(255, 230, 163, 0.45) !important;
+  background: rgba(48, 42, 20, 0.9) !important;
+}
+
+body.is-game-active .item-hotbar.is-transfer-mode .item-hotbar-slot.is-empty {
+  border-color: rgba(255, 230, 163, 0.3) !important;
+  cursor: pointer;
 }
 
 body.is-game-active .item-hotbar-slot {

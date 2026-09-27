@@ -664,12 +664,35 @@ function updateEnchantHaloVisual(unit, dt) {
   });
 }
 
+function visualFootprintSize(root) {
+  if (!root) return null;
+  root.updateWorldMatrix(true, true);
+  const box = new THREE.Box3().setFromObject(root);
+  if (box.isEmpty()) return null;
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  return size;
+}
+
 function createUnitGroundShadow(unit) {
-  const radius = Number.isFinite(unit.collisionRadius)
-    ? unit.collisionRadius
-    : unit.definition.role === 'ranged' ? 0.36 : 0.42;
-  const width = clamp(radius * (unit.isBuilding ? 2.5 : 2.05), 0.56, unit.isBuilding ? 2.4 : 1.65);
-  const depth = clamp(radius * (unit.isBuilding ? 1.8 : 1.35), 0.4, unit.isBuilding ? 1.65 : 1.12);
+  const custom = unit.definition?.art?.groundShadow;
+  let width;
+  let depth;
+  if (Number.isFinite(custom?.width) && Number.isFinite(custom?.depth)) {
+    width = custom.width;
+    depth = custom.depth;
+  } else if (custom?.fromModel) {
+    const size = visualFootprintSize(unit.visualRoot);
+    const pad = Number.isFinite(custom.pad) ? custom.pad : 0.56;
+    width = Math.max(0.26, (size?.x ?? 0.6) * pad);
+    depth = Math.max(0.22, (size?.z ?? 0.52) * pad);
+  } else {
+    const radius = Number.isFinite(unit.collisionRadius)
+      ? unit.collisionRadius
+      : unit.definition.role === 'ranged' ? 0.36 : 0.42;
+    width = clamp(radius * (unit.isBuilding ? 2.5 : 2.05), 0.56, unit.isBuilding ? 2.4 : 1.65);
+    depth = clamp(radius * (unit.isBuilding ? 1.8 : 1.35), 0.4, unit.isBuilding ? 1.65 : 1.12);
+  }
   const shadow = new THREE.Mesh(
     new THREE.CircleGeometry(1, 28),
     basicMat('#050607', {

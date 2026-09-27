@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>第一关地形编辑器 · Web Village War</title>
+    <link rel="stylesheet" href="./src/terrainEditor.css" />
+  </head>
+  <body>
+    <div id="editor-app" class="editor-shell">
+      <header class="topbar">
+        <div class="brand-block">
+          <span class="brand-mark" aria-hidden="true">◇</span>
+          <div>
+            <strong>地形编辑器</strong>
+            <span>第一关 · 风蚀高地</span>
+          </div>
+        </div>
+
+        <div class="tool-strip" aria-label="变换工具">
+          <button class="tool-button is-active" data-transform-mode="translate" title="移动 (W)">
+            <kbd>W</kbd><span>移动</span>
+          </button>
+          <button class="tool-button" data-transform-mode="rotate" title="旋转 (E)">
+            <kbd>E</kbd><span>旋转</span>
+          </button>
+          <button class="tool-button" data-transform-mode="scale" title="缩放 (R)">
+            <kbd>R</kbd><span>缩放</span>
+          </button>
+          <span class="toolbar-divider"></span>
+          <label class="snap-control" title="移动和旋转吸附">
+            <input id="snap-enabled" type="checkbox" checked />
+            <span>吸附</span>
+            <select id="snap-size" aria-label="网格吸附大小">
+              <option value="0.25">0.25m</option>
+              <option value="0.5" selected>0.5m</option>
+              <option value="1">1m</option>
+              <option value="2">2m</option>
+            </select>
+          </label>
+          <label class="snap-control compact" title="显示地表网格">
+            <input id="grid-visible" type="checkbox" checked />
+            <span>网格</span>
+          </label>
+        </div>
+
+        <div class="document-actions">
+          <button id="undo-button" class="quiet-button" title="撤销 (Ctrl+Z)" disabled>撤销</button>
+          <button id="redo-button" class="quiet-button" title="重做 (Ctrl+Y)" disabled>重做</button>
+          <button id="wfc-button" class="wfc-button">WFC 生成</button>
+          <button id="preset-button" class="preset-button">场景预设</button>
+          <button id="import-button" class="quiet-button">导入</button>
+          <button id="export-button" class="quiet-button">导出</button>
+          <button id="save-button" class="quiet-button">保存草稿</button>
+          <button id="apply-button" class="primary-button">应用到第一关</button>
+          <input id="import-file" type="file" accept="application/json,.json" hidden />
+        </div>
+      </header>
+
+      <aside class="asset-panel panel">
+        <div class="panel-heading">
+          <div>
+            <span class="eyebrow">ASSET LIBRARY</span>
+            <h1>场景资产</h1>
+          </div>
+          <span id="asset-count" class="count-chip"></span>
+        </div>
+        <p class="panel-help">点击资产即可放到当前视野中心。大形体先定构图，再补林木与地标。</p>
+        <div id="asset-library" class="asset-library"></div>
+      </aside>
+
+      <main id="viewport" class="viewport" aria-label="三维地形视口">
+        <canvas id="terrain-canvas" tabindex="0"></canvas>
+        <div class="viewport-badge">
+          <span class="status-dot"></span>
+          <span>透视</span>
+          <strong>45° 构图视角</strong>
+        </div>
+        <div id="empty-hint" class="empty-hint">
+          <span class="empty-hint-icon">＋</span>
+          <strong>从左侧选择一个资产</strong>
+          <span>放置后可直接拖动坐标轴，物体始终贴合地面</span>
+        </div>
+        <div id="toast" class="toast" role="status"></div>
+      </main>
+
+      <aside class="inspector-panel panel">
+        <section class="inspector-section selection-section">
+          <div class="panel-heading compact-heading">
+            <div>
+              <span class="eyebrow">INSPECTOR</span>
+              <h2 id="selection-title">未选择物体</h2>
+            </div>
+            <button id="focus-button" class="icon-button" title="聚焦选中物体 (F)" disabled>◎</button>
+          </div>
+          <p id="selection-description" class="selection-description">在场景中点击物体，或从下方层级列表选择。</p>
+
+          <div id="transform-fields" class="transform-fields is-disabled">
+            <div class="field-group">
+              <label>位置</label>
+              <div class="vector-fields">
+                <label><span class="axis x">X</span><input data-property="position.x" type="number" step="0.5" /></label>
+                <label><span class="axis z">Z</span><input data-property="position.z" type="number" step="0.5" /></label>
+              </div>
+            </div>
+            <div class="field-group">
+              <label>旋转</label>
+              <div class="vector-fields single">
+                <label><span class="axis y">Y</span><input data-property="rotation.y" type="number" step="15" /><em>°</em></label>
+              </div>
+            </div>
+            <div class="field-group">
+              <label>缩放</label>
+              <div class="vector-fields three">
+                <label><span class="axis x">X</span><input data-property="scale.x" type="number" step="0.1" min="0.05" /></label>
+                <label><span class="axis y">Y</span><input data-property="scale.y" type="number" step="0.1" min="0.05" /></label>
+                <label><span class="axis z">Z</span><input data-property="scale.z" type="number" step="0.1" min="0.05" /></label>
+              </div>
+            </div>
+            <label class="blocking-field">
+              <input id="blocking-input" type="checkbox" />
+              <span><strong>阻挡单位通行</strong><small>应用后写入第一关寻路网格</small></span>
+            </label>
+            <div class="selection-actions">
+              <button id="duplicate-button" class="quiet-button" disabled>复制 <kbd>Ctrl D</kbd></button>
+              <button id="delete-button" class="danger-button" disabled>删除 <kbd>Del</kbd></button>
+            </div>
+          </div>
+        </section>
+
+        <section class="hierarchy-section">
+          <div class="hierarchy-heading">
+            <div>
+              <span class="eyebrow">HIERARCHY</span>
+              <h2>场景层级</h2>
+            </div>
+            <span id="scene-count" class="count-chip">0</span>
+          </div>
+          <div class="locked-items" aria-label="锁定的游戏对象">
+            <span>▣ 游戏地面</span><span>▣ 主路</span><span>▣ 基地与祭坛</span>
+          </div>
+          <div id="scene-list" class="scene-list"></div>
+        </section>
+
+        <section class="layout-actions">
+          <button id="clear-layout-button" class="quiet-button full-width">清空手动布景</button>
+          <button id="restore-procedural-button" class="text-button">恢复原程序化布景</button>
+        </section>
+      </aside>
+
+      <footer class="statusbar">
+        <span id="save-status">草稿会自动保存在此浏览器</span>
+        <span class="shortcut-hints">
+          <kbd>左键</kbd> 选择
+          <kbd>右键</kbd> 旋转视角
+          <kbd>中键</kbd> 平移
+          <kbd>滚轮</kbd> 缩放
+          <kbd>F</kbd> 聚焦
+        </span>
+      </footer>
+    </div>
+
+    <dialog id="preset-dialog" class="preset-dialog">
+      <div class="preset-dialog-header">
+        <div>
+          <span class="eyebrow">COMPOSITION PRESETS</span>
+          <h2>从一套完整构图开始</h2>
+          <p>载入后所有物体都能单独选择和修改；当前草稿会保留在撤销历史里。</p>
+        </div>
+        <button id="close-preset-dialog" class="icon-button" aria-label="关闭预设窗口">×</button>
+      </div>
+      <div id="preset-grid" class="preset-grid"></div>
+    </dialog>
+
+    <dialog id="wfc-dialog" class="preset-dialog wfc-dialog">
+      <div class="preset-dialog-header">
+        <div>
+          <span class="eyebrow">WAVE FUNCTION COLLAPSE</span>
+          <h2>生成完整棋盘战场</h2>
+          <p>WFC 同时决定全部地块、高差、道路、山墙、林带和地标插槽，不再依赖原场景布局。</p>
+        </div>
+        <button id="close-wfc-dialog" class="icon-button" aria-label="关闭 WFC 生成窗口">×</button>
+      </div>
+      <div class="wfc-form">
+        <label class="wfc-field">
+          <span>随机种子</span>
+          <div class="wfc-seed-row">
+            <input id="wfc-seed" type="number" min="1" step="1" value="42" />
+            <button id="randomize-wfc-seed" class="quiet-button" type="button">换一个</button>
+          </div>
+        </label>
+        <label class="wfc-field">
+          <span>模块倾向</span>
+          <select id="wfc-style">
+            <option value="mixed" selected>岩林混合</option>
+            <option value="forest">林团棋盘</option>
+            <option value="fortress">岩墙棋盘</option>
+          </select>
+        </label>
+        <div class="wfc-rules">
+          <span><strong>12 × 12</strong> 完整地块</span>
+          <span><strong>6.5m</strong> 单元尺寸</span>
+          <span><strong>逐块可调</strong> 生成结果</span>
+        </div>
+        <div class="wfc-actions">
+          <button id="generate-wfc-button" class="primary-button" type="button">生成并替换整个场景</button>
+        </div>
+      </div>
+    </dialog>
+    <script type="module" src="./src/terrain-editor.js"></script>
+  </body>
+</html>

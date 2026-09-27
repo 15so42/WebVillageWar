@@ -88,6 +88,84 @@ body.is-meta-open .mobile-box-select-hint {
   cursor: pointer;
 }
 
+#game-canvas.is-clickable-hover {
+  cursor: pointer;
+}
+
+#game-canvas.is-construction-pointer.is-clickable-hover {
+  cursor: crosshair;
+}
+
+#game-canvas.is-construction-pointer {
+  cursor: crosshair;
+}
+
+#game-canvas.is-construction-pointer.is-loot-hover {
+  cursor: crosshair;
+}
+
+.resource-box-select-hud {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 8;
+  display: grid;
+  gap: 4px;
+  min-width: 148px;
+  padding: 10px 12px;
+  border: 2px solid rgba(255, 196, 92, 0.72);
+  border-radius: 10px;
+  color: #fff6df;
+  background: rgba(24, 34, 30, 0.88);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 242, 199, 0.12),
+    0 10px 24px rgba(0, 0, 0, 0.38);
+  pointer-events: none;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.35;
+}
+
+.resource-box-select-hud[hidden] {
+  display: none;
+}
+
+.resource-box-select-hud__title {
+  color: rgba(255, 220, 150, 0.95);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.resource-box-select-hud__priority {
+  font-size: 15px;
+}
+
+.resource-box-select-hud__priority strong {
+  color: #ffe08a;
+  font-size: 22px;
+  font-weight: 1000;
+}
+
+.resource-box-select-hud__hint {
+  color: rgba(247, 244, 232, 0.62);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+body.is-meta-open .resource-box-select-hud {
+  display: none;
+}
+
+.render-tuning-row-toggle {
+  grid-template-columns: minmax(86px, 1fr) auto;
+}
+
+.render-tuning-row-toggle input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #9eeedb;
+}
+
 .world-ui {
   position: fixed;
   inset: 0;
@@ -1811,9 +1889,10 @@ body.is-run-shop-open .card-pile-dock {
   width: min(390px, calc(100vw - 36px));
   max-height: calc(100vh - 112px);
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 10px;
   padding: 12px;
-  overflow: auto;
+  overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 8px;
   color: rgba(247, 244, 232, 0.92);
@@ -1833,10 +1912,21 @@ body.is-run-shop-open .card-pile-dock {
   gap: 12px;
 }
 
+.render-tuning-title {
+  display: grid;
+  gap: 2px;
+}
+
 .render-tuning-header strong {
   color: #fff2c7;
   font-size: 15px;
   font-weight: 1000;
+}
+
+.render-tuning-hint {
+  color: rgba(247, 244, 232, 0.62);
+  font-size: 12px;
+  letter-spacing: 0.02em;
 }
 
 .render-tuning-actions {
@@ -1864,9 +1954,19 @@ body.is-run-shop-open .card-pile-dock {
   background: rgba(76, 135, 122, 0.5);
 }
 
+.render-tuning-close {
+  width: 28px;
+  min-width: 28px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+}
+
 .render-tuning-grid {
   display: grid;
   gap: 10px;
+  min-height: 0;
+  overflow: auto;
 }
 
 .render-tuning-panel fieldset {
@@ -3664,6 +3764,14 @@ body:not(.is-game-active) .mobile-action-dock {
   pointer-events: none;
   border: 1px solid rgba(255, 242, 199, 0.95);
   background: rgba(114, 178, 143, 0.14);
+  box-shadow:
+    inset 0 0 0 1px rgba(35, 71, 53, 0.45),
+    0 0 18px rgba(255, 242, 199, 0.16);
+}
+
+.selection-box.is-resource {
+  border-color: rgba(255, 196, 92, 0.95);
+  background: rgba(214, 154, 46, 0.18);
   box-shadow:
     inset 0 0 0 1px rgba(35, 71, 53, 0.45),
     0 0 18px rgba(255, 242, 199, 0.16);

@@ -77,7 +77,14 @@ export const WORK_RULES = {
   // 卸货判定距离
   depositRange: 3.2,
   // 低于容量的这个比例就主动回供能区（与 POWER_RULES.lowManaRatio 同义，独立配置便于调）
-  lowPowerRatio: 0.25
+  lowPowerRatio: 0.25,
+  // 补魔的**退出水位**，默认 1 = 充满。
+  //
+  // 「低于 25% 回去补」和「补到多少算够」必须是两个数，否则回程变成来回横跳：
+  // 只用一个阈值时，它在基地旁补到刚过 25% 就被判"魔力够用"，
+  // 立刻被派回矿点，玩家看到的是「回到基地站一下、马上又去采矿」。
+  // 所以进入补魔看 lowPowerRatio，退出看 rechargeRatio（迟滞）。
+  rechargeRatio: 1
 };
 
 export function workRules(overrides = {}) {
@@ -123,6 +130,9 @@ export function workerManaRatio(worker) {
 // "打不打得过"需要战力公式与敌人列表，"什么时候还该继续打"需要跨帧的记忆，
 // 那两样都不属于这个纯状态机。
 // 这里只消费结论：`{action:'flee'|'engage', target?}`。
+//
+// `recharging` 是补魔会话的跨帧记忆（由调用方维护）：本帧之前是不是正处在
+// "回去补魔 / 原地补魔"里。它是**迟滞**的一半，见 WORK_RULES.rechargeRatio。
 export function planWorkerStep({
   worker = {},
   task = null,
@@ -131,7 +141,8 @@ export function planWorkerStep({
   supplyPoint = null,
   inSupplyRange = true,
   baseHasRoom = true,
-  danger = null
+  danger = null,
+  recharging = false
 } = {}) {
   const resolved = workRules(rules);
   const workerPosition = { x: worker.x ?? 0, z: worker.z ?? 0 };
@@ -168,8 +179,17 @@ export function planWorkerStep({
   // 2) 魔力过低：不要带着见底的魔力出发。
   //    已经在供能点旁边就原地等补，否则（不管在不在供能半径里）都先走回供能点。
   //    这正是文档说的「任务开始前估计工作和返程用量，保留返程储备」。
-  const lowPower = workerManaRatio(worker) <= resolved.lowPowerRatio;
-  if (lowPower) {
+  //
+  //    迟滞（两个阈值）：**进入**看 lowPowerRatio，**退出**看 rechargeRatio。
+  //    只用一个阈值时，傀儡在基地旁补到刚过 25% 就被判"够用了"、立刻出发，
+  //    玩家看到的是"回到基地站一下就又去采矿"——所以一旦进入补魔就必须补到
+  //    rechargeRatio（默认充满）为止。返回值本身不需要新状态：
+  //    `state === lowPower` 就是"这一帧还在补魔"，调用方据此维护跨帧的 recharging。
+  const manaRatio = workerManaRatio(worker);
+  const needsPower = recharging
+    ? manaRatio < resolved.rechargeRatio
+    : manaRatio <= resolved.lowPowerRatio;
+  if (needsPower) {
     const atSupply = distance2D(workerPosition, supply) <= resolved.depositRange;
     if (atSupply) {
       return result(WORK_STATE.lowPower, WORK_REASON.recharging, WORK_ACTION.none, null);

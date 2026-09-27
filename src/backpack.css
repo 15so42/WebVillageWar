@@ -11,6 +11,12 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  /* 底部这条留白是给常驻快捷栏让位的：面板再怎么长也不许压到它上面。
+     面板缩小之后仍然可能盖住快捷栏——居中放的话，"矮了 20%" 远不够让开
+     屏幕底部那一条——所以真正管用的是这里把快捷栏所在的高度整条留出来。
+     数值跟着 hotbar.css 里快捷栏自己的定位走：贴底 14px + 栏高 70px + 一点间隙。 */
+  --backpack-hotbar-space: 96px;
+  padding: 12px 0 var(--backpack-hotbar-space);
   color: #ece4d2;
   font-size: 13px;
   pointer-events: none;
@@ -19,6 +25,12 @@
   transition:
     opacity 130ms ease,
     visibility 130ms ease;
+}
+
+/* 非海岛关：底部手牌区从 30px 起、高 220px，快捷栏被顶到 268px（同 hotbar.css），
+   所以要让位的是"快捷栏所在的那一整条"，不只是它自己的高度。 */
+body:not(.is-survival-level) .backpack {
+  --backpack-hotbar-space: 346px;
 }
 
 .backpack.is-open {
@@ -33,7 +45,10 @@
   flex-direction: column;
   gap: 10px;
   width: min(1180px, calc(100vw - 24px));
-  max-height: min(92vh, 860px);
+  /* 需求：面板高度在原来的 92vh / 860px 基础上各缩 20%（92 × 0.8 = 73.6vh，860 × 0.8 = 688px），
+     把屏幕下方的快捷栏让出来。第三个值是硬约束——不管 20% 算出来多少，
+     都不许长到快捷栏上面去；屏幕矮的时候真正生效的就是它。 */
+  max-height: min(73.6vh, 688px, calc(100vh - var(--backpack-hotbar-space) - 24px));
   padding: 12px 14px 14px;
   border: 2px solid rgba(96, 176, 168, 0.5);
   border-radius: 12px;
@@ -696,8 +711,10 @@
 }
 
 @media (pointer: coarse) {
+  /* 触屏上同样是"缩 20%"，只是基数换成原来那条 96vh 的覆盖值（96 × 0.8 = 76.8vh）。
+     守卫项必须一起带上：否则这条覆盖会把上面那条为快捷栏让位的约束整个顶掉。 */
   .backpack-panel {
-    max-height: 96vh;
+    max-height: min(76.8vh, 688px, calc(100vh - var(--backpack-hotbar-space) - 24px));
   }
 
   .backpack-slot {

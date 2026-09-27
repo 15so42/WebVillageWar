@@ -66,7 +66,6 @@ import {
 } from './workSwing.js';
 import { playUnitAnimation, setUnitHeldTool } from '../art/visualRegistry.js';
 import { itemStacksByMerging } from './items.js';
-import { planWorkAllocation } from './workPriority.js';
 import { clamp } from '../utils/math.js';
 
 // 自动派活的节流间隔。调度每帧重算会让傀儡在两个资源点之间来回跑，
@@ -116,6 +115,9 @@ export class WorkSystem {
      */
     this.maxNodeThreat = Number.isFinite(options.maxNodeThreat) ? options.maxNodeThreat : 2;
     this.tasks = new Map();
+    // 玩家框选出来的资源点：nodeId -> 优先级 1..12（数字小的先做）。
+    // 没有标记就不派活。旧的「按资源种类需求自动采集」不再驱动傀儡。
+    this.markedNodes = new Map();
     this.inventories = new Map();
     this.records = new Map();
     this.board = new WorkTaskBoard();
@@ -243,7 +245,16 @@ export class WorkSystem {
       /** 战斗刚结束时的时刻，用来算 2 秒冷静宽限（`calmGraceSeconds`） */
       combatCalmSince: null,
       /** 当前复用中的逃跑落点 `{x,z,threat,source,expiresAt}`（见 resolveFleeTarget） */
-      flee: null
+      flee: null,
+      /**
+       * 补魔会话：本帧之前是不是正处在"回去补魔 / 原地补魔"里。
+       *
+       * 状态机（workOrders.planWorkerStep）是纯函数，两个阈值的迟滞需要一份跨帧记忆，
+       * 所以它由作业记录持有：`state === lowPower` 置真，其余状态一律置假。
+       * 没有这一位就会退化成"补到刚过 25% 就出发"——用户报的
+       * 「回到基地一点立刻又去采矿」。
+       */
+      recharging: false
     };
     this.records.set(unit.id, record);
     this.tasks.set(unit.id, null);
@@ -372,19 +383,14 @@ export class WorkSystem {
     const record = this.ensureRecord(unit);
     if (!record) return false;
 
-    // ---- 自卫反射（Numen `MobDefenseChain`：**抢占 + 归还**）
-    //
-    // 需求原文：「它的 ai 在执行任务时会朝着目标前进，路上遇到怪有些会打有些不会打，
-    // 很干脆，在干其他活的时候遇到怪物也会先把怪物打了。」
-    //
-    // 于是这里分成两层，与旧实现的分工完全不同：
-    //   - 旧实现：**每帧**用连续量（威胁压力）重算一次"打还是逃"，判定里含距离；
-    //   - 现在：`tickSelfDefense` 维持一场**有状态的战斗**——开打时判一次，
-    //     之后只在"目标没了 / 来了新的敌人 / 我扛不住了 / 退无可退"上重判。
-    //     触发用布尔（有东西正打着我又够得着我），并带 2 秒冷静宽限。
-    //
-    // 这一步必须在下面那批 `unit.target = null` **之前**：决定迎战/警戒时要把这一帧
-    // 原样交回常规战斗 AI，任何"清空目标/回城点"的动作都会让索敌从头开始。
+    if (record.rally) {
+      const rallyGear = puppetGearFor({
+        toolIds: record.pack.toolIds,
+        weaponItemId: unit.weaponItemId ?? null
+      });
+      return this.updateRally(record, unit, step, rallyGear);
+    }
+
     const view = refreshView(record);
     const gear = puppetGearFor({
       toolIds: record.pack.toolIds,
@@ -453,6 +459,8 @@ export class WorkSystem {
     // 空节点给规划器，它只会回报「没有有效任务」，玩家看不到「为什么停下了」。
     // 交掉任务后 workerState 会读取上一帧的 node_depleted 结论，原因文案不会丢。
     if (task && (task.node?.amount ?? 0) <= 0) {
+      if (task.nodeId) this.markedNodes.delete(task.nodeId);
+      this.game?.syncResourceGatherMarks?.();
       this.clearTask(record);
       this.stats.depletedTasks += 1;
     }
@@ -477,6 +485,8 @@ export class WorkSystem {
       inSupplyRange: this.workerInsideSupply(unit),
       baseHasRoom: this.baseHasRoomFor(record),
       rules: this.rules,
+      // 补魔迟滞的跨帧记忆在这个纯状态机外面（见 record.recharging 的注释）
+      recharging: record.recharging === true,
       // 逃跑落点在这里算：它要读威胁数组与"能不能走"，两者都不属于纯状态机。
       // 已经决定迎战的分支在上面就返回了，所以这里只可能是 'flee' 或 null。
       danger: action === 'flee'
@@ -484,6 +494,23 @@ export class WorkSystem {
         : null
     });
     record.lastPlan = plan;
+    // 什么时候算"还在补魔里"。
+    //
+    // 只要这一帧**没有放行去干活**，补魔会话就保留：去作业、待命、无法继续都表示放行了，
+    // 而 `lowPower`（原地补/往回走）与 `haulingHome`/`depositing`（背着满包顺路回基地）
+    // 都还站在"没补满就不出发"这一侧。
+    //
+    // 为什么不能只认 lowPower：满包回程排在补魔**前面**，一个又满包又缺魔的傀儡
+    // 走回来的那几帧 state 是 hauling_home。只认 lowPower 的话，这几帧会把它刚攒下的
+    // 补魔会话清掉，等它卸完货魔力已经过 25%，就直接带着半电去采矿了——
+    // 正是这次要修的"回到基地不多补一会儿"。反之若一律保留，一个满电却背着货的傀儡
+    // 也会被无谓地记成"在补魔"（只是显示噪点，不影响行为：它在供能点旁本来就会回满）。
+    //
+    // 迎战与警戒在上面就 return 了，所以战斗打断**不会**冲掉这一位：
+    // 打完之后魔力还是见底，它会接着把电补满再回矿点。
+    record.recharging = plan.state === WORK_STATE.lowPower
+      || plan.action === WORK_ACTION.moveToBase
+      || plan.action === WORK_ACTION.deposit;
 
     this.executeAction(record, unit, plan, step, validTask);
     return true;
@@ -919,6 +946,14 @@ export class WorkSystem {
       cancelSwing(record.swing);
       return false;
     }
+    // 采集时面向资源点。
+    //
+    // 为什么必须显式转向：傀儡是靠 `moveToward` 才转向的（它按实际移动方向摆姿势），
+    // 而进了采集距离之后就不再移动 —— 站位刚好的时候 `moveToward` 直接早退，
+    // 一帧都不转向。于是"迎战后回到树前"的表现是：朝向停在刚才那只敌人的方向，
+    // 举着斧子朝空地砍（用户实测第 1 条：杀掉敌人回到任务后不会转向）。
+    // 这里每帧 face 一次是安全的：MovementAgent.face 只在角度真的差着时才动 mesh。
+    unit.movement?.face(node, dt);
     // 背包满了就先不挥这一下：采了也装不进去，进度却已经推进了，
     // 会出现「卡在采集状态、货却进不了包」的静默空转。规划器下一帧会把它送回基地。
     if (workerInventoryFull(record.view)) {
@@ -1106,6 +1141,9 @@ export class WorkSystem {
       inventoryCapacity: record.inventory.capacity,
       activityMana: record.unit?.activityMana ?? 0,
       manaCapacity: record.unit?.manaCapacity ?? 0,
+      // 补魔会话（迟滞）：为真表示"这一轮补魔还没结束，补满才会回去干活"。
+      // HUD 与验收脚本读它，避免再去反推 state 字符串。
+      recharging: record.recharging === true,
       progress: record.progress,
       error: record.lastError ?? null,
       // 威胁与战力：验收脚本靠这几个字段判断"它到底是打、是逃、还是在干活"，
@@ -1139,67 +1177,138 @@ export class WorkSystem {
     this.updateAutoAssign(dt);
   }
 
-  // 采集需求表：{ id, resource, weight, targetStock, enabled }
+  // 旧的资源需求表还留着入口，但派活不再读它。
   setDemands(demands) {
     this.demands = Array.isArray(demands) ? demands : [];
-    this.autoAssignCooldown = 0;
     return this;
   }
 
-  // 自动派活。只处理「手上没有活」的傀儡，绝不打断正在采或正在运的傀儡——
-  // 半路改派会让它把已经背上的货丢掉，也会让玩家看到它在两个点之间反复横跳。
+  /**
+   * 把框选到的资源点标上优先级。1 最先做，12 最后做。
+   * 同一个点再框一次就改成新的优先级，不叠加。
+   */
+  markNodes(nodeIds, priority) {
+    const level = Math.max(1, Math.min(12, Math.round(Number(priority) || 4)));
+    const nodes = this.game?.resourceNodes;
+    let marked = 0;
+    (nodeIds ?? []).forEach((nodeId) => {
+      const node = nodes?.nodeById?.(nodeId) ?? null;
+      if (!node || (node.amount ?? 0) <= 0) return;
+      this.markedNodes.set(nodeId, level);
+      marked += 1;
+    });
+    if (marked > 0) this.autoAssignCooldown = 0;
+    this.game?.syncResourceGatherMarks?.();
+    return marked;
+  }
+
+  /**
+   * 右键临时点：先放下手里的活，走过去；路上不接战、不受击，到点立刻恢复采集任务。
+   */
+  beginRally(unit, point) {
+    const record = this.recordFor(unit);
+    if (!record || !point) return false;
+    const suspendedNodeId = record.task?.nodeId ?? record.rally?.suspendedNodeId ?? null;
+    this.clearTask(record);
+    record.rally = {
+      x: point.x,
+      z: point.z,
+      phase: 'moving',
+      suspendedNodeId
+    };
+    resetMoveGoal(record);
+    return true;
+  }
+
+  nearestHostile(unit, range) {
+    const enemies = this.game?.enemyUnits;
+    if (!enemies?.length || !unit?.position) return null;
+    let best = null;
+    let bestDistance = range;
+    enemies.forEach((enemy) => {
+      if (!enemy?.alive || enemy.underConstruction) return;
+      const distance = Math.hypot(
+        (enemy.position?.x ?? 0) - unit.position.x,
+        (enemy.position?.z ?? 0) - unit.position.z
+      );
+      if (distance >= bestDistance) return;
+      best = enemy;
+      bestDistance = distance;
+    });
+    return best;
+  }
+
+  updateRally(record, unit, dt, gear) {
+    const rally = record.rally;
+    if (!rally) return false;
+    record.engaging = false;
+    this.applyPuppetGear(unit, gear, false);
+    this.clearTransientTargets(unit);
+    const distance = distance2D(unitPositionX(unit), unitPositionZ(unit), rally.x, rally.z);
+    if (distance <= 1.2) {
+      this.finishRally(record, unit);
+      return true;
+    }
+    rally.phase = 'moving';
+    this.applyMove(record, unit, rally, 'rally', dt);
+    unit.visualState = 'walk';
+    unit.aiState = 'working';
+    unit.drainPerSecond = POWER_RULES.workerDrainMove;
+    record.lastPlan = {
+      state: WORK_STATE.movingToNode,
+      reason: WORK_REASON.none,
+      action: WORK_ACTION.moveToNode,
+      target: rally,
+      note: '前往临时位置'
+    };
+    return true;
+  }
+
+  finishRally(record, unit) {
+    const nodeId = record.rally?.suspendedNodeId ?? null;
+    record.rally = null;
+    resetMoveGoal(record);
+    if (!nodeId) return;
+    const node = this.game?.resourceNodes?.nodeById?.(nodeId);
+    if (!node || (node.amount ?? 0) <= 0) return;
+    this.assignNode(unit, nodeId);
+  }
+
+  // 自动派活。只处理「手上没有活、也没在赶临时点」的傀儡。
+  // 活只来自玩家框选的资源点，按优先级从 1 到 12，同级里挑更近、更安全的。
   updateAutoAssign(dt) {
-    if (!this.demands?.length || !this.records.size) return;
+    if (!this.markedNodes.size || !this.records.size) return;
     this.autoAssignCooldown = Math.max(0, (this.autoAssignCooldown ?? 0) - Math.max(0, dt));
     if (this.autoAssignCooldown > 0) return;
     this.autoAssignCooldown = AUTO_ASSIGN_INTERVAL_SECONDS;
 
     const idle = [...this.records.entries()]
-      .filter(([, record]) => !record.task && record.unit?.alive !== false)
+      .filter(([, record]) => !record.rally && !record.task && record.unit?.alive !== false)
       .map(([unitId]) => unitId)
       .sort();
     if (!idle.length) return;
 
     const activeNodes = this.game?.resourceNodes?.activeNodes?.() ?? [];
-    if (!activeNodes.length) return;
-    const stock = this.game?.baseInventory?.countsByItem?.() ?? {};
-    const availableNodes = {};
-    activeNodes.forEach((node) => {
-      availableNodes[node.resource] = (availableNodes[node.resource] ?? 0) + 1;
-    });
-
-    const plan = planWorkAllocation({
-      demands: this.demands,
-      stock,
-      availableNodes,
-      workerIds: idle
-    });
-    if (!plan.assignments.length) return;
-
-    // 按资源种类把节点分组，交给每个傀儡最近的、还没被这一轮派出去的节点。
-    // `nodeIsWorkable` 把"就在危险区里"的节点**排除**掉——不是扣分，是不可选。
-    // 这一条是断掉"走到危险点→逃跑→威胁散了又走回去"那个循环的关键。
+    const pool = activeNodes.filter((node) => (
+      this.markedNodes.has(node.id) && this.nodeIsWorkable(node)
+    ));
+    if (!pool.length) return;
     const claimed = new Set();
-    const workers = [...idle];
-    plan.assignments.forEach((assignment) => {
-      const pool = activeNodes.filter((node) => (
-        node.resource === assignment.resource && this.nodeIsWorkable(node)
-      ));
-      for (let i = 0; i < assignment.count && workers.length > 0; i += 1) {
-        const unitId = workers.shift();
-        const record = this.records.get(unitId);
-        if (!record) continue;
-        const unitX = record.unit?.position?.x ?? 0;
-        const unitZ = record.unit?.position?.z ?? 0;
-        const pick = pool
-          .filter((node) => !claimed.has(node.id))
-          .sort((a, b) => (
-            this.nodeWorkScore(a, unitX, unitZ) - this.nodeWorkScore(b, unitX, unitZ)
-          ))[0];
-        if (!pick) break;
-        claimed.add(pick.id);
-        this.assignNode(unitId, pick.id);
-      }
+    idle.forEach((unitId) => {
+      const record = this.records.get(unitId);
+      if (!record) return;
+      const unitX = record.unit?.position?.x ?? 0;
+      const unitZ = record.unit?.position?.z ?? 0;
+      const pick = pool
+        .filter((node) => !claimed.has(node.id))
+        .sort((a, b) => {
+          const priorityDelta = (this.markedNodes.get(a.id) ?? 12) - (this.markedNodes.get(b.id) ?? 12);
+          if (priorityDelta !== 0) return priorityDelta;
+          return this.nodeWorkScore(a, unitX, unitZ) - this.nodeWorkScore(b, unitX, unitZ);
+        })[0];
+      if (!pick) return;
+      claimed.add(pick.id);
+      this.assignNode(unitId, pick.id);
     });
   }
 

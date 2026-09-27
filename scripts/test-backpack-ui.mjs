@@ -17,12 +17,13 @@ const gameSource = read('src/systems/Game.js');
 const uiSource = read('src/systems/BackpackUi.js');
 const menuSource = read('src/systems/UnitActionMenu.js');
 const cssSource = read('src/backpack.css');
+const craftSource = read('src/systems/crafting.js');
 const menuCss = read('src/unitActionMenu.css');
 const mainSource = read('src/main.js');
 const hotbarSource = read('src/systems/HotbarUi.js');
 const hotbarCss = read('src/hotbar.css');
 const facilitySource = read('src/systems/FacilityPanelUi.js');
-const prioritySource = read('src/systems/resourcePriority.js');
+const workSource = read('src/systems/WorkSystem.js');
 
 const report = [];
 function check(name, fn) {
@@ -130,7 +131,11 @@ check('悬浮配方会显示详细信息', () => {
 
 check('点击配方后产物跟鼠标走，再点空格放下', () => {
   assert.match(uiSource, /craftInto\(recipeId\)/, '点击配方必须走合成入口');
-  assert.match(uiSource, /this\.cursor = \{ \.\.\.lifted, from: \{ inventory, index: null \} \}/, '产物必须被拿到手上');
+  assert.match(
+    uiSource,
+    /this\.cursor = \{[\s\S]{0,80}?\.\.\.lifted,[\s\S]{0,80}?from: \{ inventory, index: null \}/,
+    '产物必须被拿到手上'
+  );
   assert.match(uiSource, /backpack-cursor-ghost/, '手上那一叠必须有跟随光标的元素');
   assert.match(cssSource, /\.backpack-cursor-ghost \{[\s\S]*?position:\s*fixed;/, '光标元素必须固定在鼠标位置');
   // 必须按 instanceId 找出"刚做出来的那一件"，而不是新造一件
@@ -140,6 +145,61 @@ check('点击配方后产物跟鼠标走，再点空格放下', () => {
 check('手上拿着东西时关面板 / Esc 会放回原处，不吞物品', () => {
   assert.match(uiSource, /returnCursor\(\) \{/);
   assert.match(uiSource, /close\(\) \{[\s\S]{0,120}?this\.returnCursor\(\)/, 'close 必须先归还手上的东西');
+});
+
+// ---- 合成可撤销：产物还在手上时右键退回材料 ----
+
+check('合成后右键可以取消并退回材料', () => {
+  assert.match(uiSource, /onContextMenu\(event\)/, '必须处理右键');
+  assert.match(uiSource, /cancelCraft\(\) \{/, '必须有撤销入口');
+  // 撤销只认"刚做出来、还没放下"的那一叠：落格之后就不再记来源
+  assert.match(uiSource, /craftedFrom/, '产物必须记住这次合成扣了什么材料');
+  assert.match(uiSource, /this\.cursor\?\.craftedFrom/, '右键必须先判断这一叠是不是刚合成的');
+  assert.match(gameSource, /refundCraftAtBase\(consumed\) \{/, 'Game 必须提供退款入口');
+  assert.match(craftSource, /export function refundCraft\(inventory, consumed\)/, '退款规则必须是可单测的纯逻辑');
+  // 撤销失败（材料放不回去）不许把产物也吞掉
+  assert.match(uiSource, /if \(!result\.ok\) \{[\s\S]{0,300}?return null;/, '退款失败时必须原地保留产物');
+});
+
+check('右键遇到格子要让开，否则"右键放一个"会顺带撤掉整笔合成', () => {
+  assert.match(
+    uiSource,
+    /onContextMenu\(event\) \{[\s\S]{0,400}?closest\?\.\('\[data-backpack-slot\]'\)\) return null;/,
+    '格子上的右键是《我的世界》语义（拿一半/放一个），撤销必须跳过'
+  );
+});
+
+// ---- 基地背包高度：缩小 20%，并把屏幕底部的快捷栏让出来 ----
+
+check('基地背包面板高度缩小 20%', () => {
+  assert.match(
+    cssSource,
+    /max-height:\s*min\(73\.6vh, 688px,/,
+    '原来的 92vh / 860px 各缩 20%（73.6vh / 688px）'
+  );
+});
+
+check('面板不许盖住屏幕底部的快捷栏', () => {
+  assert.match(cssSource, /--backpack-hotbar-space:\s*96px/, '海岛关：快捷栏贴底，留出它那一条');
+  assert.match(
+    cssSource,
+    /body:not\(\.is-survival-level\) \.backpack \{[\s\S]{0,80}?--backpack-hotbar-space:\s*346px/,
+    '非海岛关：快捷栏被手牌顶到 268px，要让位整条'
+  );
+  assert.match(
+    cssSource,
+    /calc\(100vh - var\(--backpack-hotbar-space\) - 24px\)/,
+    'max-height 必须带这条硬约束，屏幕矮的时候靠它兜底'
+  );
+  assert.match(cssSource, /\.backpack \{[\s\S]*?padding:\s*12px 0 var\(--backpack-hotbar-space\)/);
+});
+
+check('露出来的快捷栏还要能点到（背包遮罩是全屏的）', () => {
+  assert.match(
+    hotbarCss,
+    /body:has\(\.backpack\.is-open\) \.item-hotbar \{[\s\S]{0,40}?z-index:\s*13;/,
+    '背包打开时必须把快捷栏抬到背包遮罩（z-index 12）之上'
+  );
 });
 
 // ---- 需求 6：快捷栏在屏幕下方，不在 B 面板里 ----
@@ -161,24 +221,69 @@ check('快捷栏里的东西能拖给单位，也能拖到地上建造', () => {
   assert.match(hotbarSource, /item-hotbar-drag-ghost/, '拖拽必须有跟手的图标');
   assert.match(hotbarCss, /\.item-hotbar-drag-ghost \{[\s\S]*?position:\s*fixed;/, '跟手图标必须固定在指针位置');
   assert.match(gameSource, /dropHotbarItemAt\(index, clientX, clientY\) \{/, 'Game 必须有落点处理入口');
-  assert.match(gameSource, /giveItemToUnit\(itemId, unit\) \{/, '必须有"把物品交给单位"的入口');
-  assert.match(gameSource, /if \(entry\.givable && unit\)/, '装备掉在单位身上才算交给他');
-  assert.match(gameSource, /if \(entry\.placeable\) \{/, '建筑掉在地上才进入放置');
+  assert.match(gameSource, /giveItemToUnit\(itemId, unit, \{ source = null \} = \{\}\) \{/, '必须有"把物品交给单位"的入口');
+  assert.match(gameSource, /entry\.useKind === ITEM_USE\.give && unit/, '装备掉在单位身上才算交给他');
+  assert.match(gameSource, /if \(entry\.useKind === ITEM_USE\.place\) \{/, '建筑掉在地上才进入放置');
 });
 
-check('快捷栏取材包含"给单位用的装备"，不只建筑', () => {
-  assert.match(gameSource, /itemIsGivable\(slot\.itemId\)/, '取材必须包含可交给单位的物品');
-  assert.match(read('src/systems/items.js'), /export function itemIsGivable\(itemId\)/);
+// ---- 快捷栏是一个容器（和基地背包同类），不是基地库存的投影 ----
+
+check('快捷栏是 9 格的真容器，和基地背包同属 Inventory', () => {
+  assert.match(gameSource, /this\.hotbarInventory = new Inventory\(\{ id: 'hotbar', capacity: HOTBAR_SLOT_COUNT \}\)/,
+    '快捷栏必须是一个真正的 Inventory');
+  assert.match(gameSource, /const inventory = this\.hotbarInventory;[\s\S]{0,120}?inventory\.slots\.slice\(0, HOTBAR_SLOT_COUNT\)\.map/,
+    '快捷栏内容必须从它自己的格子读，而不是从基地库存推导');
+  // 老实现是"从 baseInventory 里挑出可放置 / 可交给单位的，排序成 9 格"。
+  // 那套一旦回来，快捷栏就又没有落点了（拖进去的东西无处存放）。
+  assert.doesNotMatch(gameSource, /const totals = new Map\(\)/, '不得再按"基地库存投影"的方式生成快捷栏');
+  assert.match(gameSource, /resolveItemSource\(itemId, source = null\)/,
+    '放置 / 交给单位都必须能指定"从哪一格出"');
+  assert.match(gameSource, /removeAt\(source\.slotIndex, 1\)|removeAt\(picked\.slotIndex, 1\)/,
+    '按格扣除：扣错格子等于凭空换了一件');
+});
+
+check('用法分发只有一处：place / consume / give', () => {
+  assert.match(read('src/systems/items.js'), /export function itemUseKind\(itemId\)/,
+    '用途判定必须是可单测的纯逻辑');
+  assert.match(gameSource, /useHotbarSlot\(index\) \{/, '使用入口必须收敛成一个');
+  assert.match(gameSource, /activateHotbarSlot\(index\) \{[\s\S]{0,120}?return this\.useHotbarSlot\(index\);/,
+    '旧名字要指回同一处实现，不能各写一套');
+  assert.match(gameSource, /useConsumable\(itemId, \{ source = null \} = \{\}\) \{/,
+    '消耗品的"用"必须只有一个实现（点与拖都走它）');
+  // 数字键、点击、拖出去三条路径都不得绕过分发
+  assert.doesNotMatch(gameSource, /if \(entry\.placeable\) \{\s*const started = this\.beginPlacement\(entry\.itemId\);/);
+});
+
+check('背包开着 = 搬运容器，关着 = 使用', () => {
+  assert.match(hotbarSource, /isTransferMode\(\)[\s\S]{0,200}?backpack\?\.isOpen/,
+    '模式必须由"背包面板开没开"决定');
+  assert.match(hotbarSource, /backpack\?\.handleSlotClick\?\.\(index, \{[\s\S]{0,200}?HOTBAR_CONTAINER_KEY/,
+    '搬运模式下点快捷栏格 = 交付给背包光标');
+  assert.match(hotbarSource, /if \(this\.isTransferMode\(\)\) return;[\s\S]{0,160}?activateHotbarSlot/,
+    '搬运模式下的点击绝不能走使用（否则"放进快捷栏"会顺手用掉）');
+  assert.match(uiSource, /export const HOTBAR_CONTAINER_KEY = 'hotbar';/);
+  assert.match(uiSource, /if \(key === HOTBAR_CONTAINER_KEY\) return this\.game\?\.hotbarInventory/,
+    '背包光标必须把快捷栏当容器，这就是"两边互相拖"的接口');
+  assert.match(hotbarSource, /is-transfer-mode/, '界面必须能看出当前是搬运模式');
+});
+
+check('拖出去松手才是使用，拖回自己身上算反悔', () => {
+  assert.match(hotbarSource, /isPointerOverSelf\(event\.clientX, event\.clientY\)/,
+    '松手落在快捷栏自己身上必须取消，否则会把建筑建到栏后面、或直接吃掉消耗品');
+  assert.match(gameSource, /if \(entry\.useKind === ITEM_USE\.consume\) \{[\s\S]{0,300}?target: 'use'/,
+    '消耗品拖出去松手就是用掉');
+  assert.match(gameSource, /if \(this\.isPlacing\(\)\) \{\s*this\.cancelPlacement\(\);/,
+    '放置模式下右键必须是取消');
 });
 
 // ---- 需求 7 前半条：科技 / 附魔台不再是背包的标签页 ----
 
-check('背包右侧只剩合成与资源两个标签页', () => {
+check('背包右侧只保留合成，资源需求路线已去掉', () => {
   assert.doesNotMatch(uiSource, /data-backpack-tab="tech"/, '科技标签页必须从背包移除');
   assert.doesNotMatch(uiSource, /data-backpack-tab="enchant"/, '附魔台标签页必须从背包移除');
+  assert.doesNotMatch(uiSource, /data-backpack-tab="resource"/, '资源需求标签页必须从背包移除');
   assert.doesNotMatch(uiSource, /renderTechs|renderEnchants/, '对应的渲染函数必须删除');
-  assert.match(uiSource, /data-backpack-tab="resource"/, '必须新增资源标签页');
-  assert.match(uiSource, /renderResources\(rows\) \{/, '必须有资源 tab 的渲染函数');
+  assert.match(uiSource, /data-backpack-tab="craft"/, '合成标签页还在');
 });
 
 check('科技与附魔台改由建筑的扇形菜单打开', () => {
@@ -195,19 +300,11 @@ check('科技与附魔台改由建筑的扇形菜单打开', () => {
 
 // ---- 需求 7 后半条：资源 tab 的优先级 ----
 
-check('资源 tab 列出可采集与可合成的物品，并能加减优先级', () => {
-  assert.match(uiSource, /resourcePriorityRows/, '行数据必须来自纯逻辑模块');
-  assert.match(uiSource, /data-priority-item/, '每行必须有可点的优先级控件');
-  // `dataset.priorityDelta` 渲染出来才是 data-priority-delta，源码里只有驼峰
-  assert.match(uiSource, /priorityDelta/, '加减必须带上方向');
-  // dataset.resourceKind / resourceRow 渲染出来才是 data-resource-kind / data-resource-row
-  assert.match(uiSource, /resourceKind/, '必须区分"采集"与"合成"两类行');
-  assert.match(prioritySource, /export function resourcePriorityRows/);
-  assert.match(prioritySource, /export function demandsFromRows/);
-  assert.match(prioritySource, /export function gatherableInputsFor/, '合成类物品必须能折算成材料');
-  assert.match(gameSource, /setResourcePriority\(itemId, delta\) \{/, 'Game 必须提供改优先级的入口');
-  assert.match(gameSource, /refreshWorkDemands\(\)/, '改完必须重算采集需求');
-  assert.match(gameSource, /this\.work\.setDemands\(demands\)/, '重算的结果必须真的交给作业系统');
+check('采集不再走背包里的资源需求路线', () => {
+  assert.doesNotMatch(uiSource, /data-backpack-tab="resource"/);
+  assert.match(gameSource, /beginResourceBoxSelect\(/, '框选必须能带上优先级');
+  assert.match(gameSource, /markNodes\?\.\(/, '框选结果必须交给作业系统');
+  assert.match(workSource, /markedNodes/, '作业系统必须记住框选过的资源点');
 });
 
 // ---- 需求 3：底部快捷栏 ----
@@ -220,19 +317,18 @@ check('配方按"见过材料"解锁', () => {
   assert.match(uiSource, /return inputs\.some\(\(entry\) => this\.seenItemIds\.has\(entry\.itemId\)\)/, '拿到任一材料即解锁相关配方');
 });
 
-// ---- 需求 1：单位下方的扇形圆形菜单 ----
+// ---- 需求 1：快捷栏上方的单位操作条 ----
 
-check('点单位后在其下方扇形展开圆形图标 + 文字', () => {
-  assert.match(menuSource, /Math\.cos\(angle\) \* MENU_RADIUS/, '按钮必须按角度做扇形排布');
-  assert.match(menuSource, /Math\.sin\(angle\) \* MENU_RADIUS \* 0\.72/, '扇形必须压扁并朝下展开');
+check('单选单位后在快捷栏上方展开圆形图标 + 文字', () => {
   assert.match(menuSource, /unit-action-icon[\s\S]{0,200}?unit-action-label/, '每个按钮是圆形图标 + 下方文字');
   assert.match(menuCss, /\.unit-action-button \{[\s\S]*?border-radius:\s*50%/, '按钮必须是圆形');
+  assert.match(menuCss, /\.unit-action-menu[\s\S]*?bottom:\s*92px/, '菜单必须固定在快捷栏上方');
+  assert.doesNotMatch(menuSource, /MENU_RADIUS/, '不再使用脚下扇形排布');
 });
 
-check('菜单挂在选中单位下方，且只有单选时出现', () => {
+check('操作条只在单选时出现', () => {
   assert.match(menuSource, /selectedUnits\?\.length === 1/, '多选时不展开菜单');
-  assert.match(menuSource, /projectWorldUi\?\.\(this\.unit\.position/, '位置必须从世界坐标投影');
-  assert.match(gameSource, /this\.unitActionMenu\?\.sync\?\.\(\)/, '每帧必须同步菜单位置');
+  assert.match(gameSource, /this\.unitActionMenu\?\.sync\?\.\(\)/, '每帧必须同步操作条');
 });
 
 check('菜单里有背包与招募两个动作', () => {

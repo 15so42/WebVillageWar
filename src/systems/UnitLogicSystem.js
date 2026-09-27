@@ -240,9 +240,7 @@ export class UnitLogicSystem {
       }
     } else if (unit.isWildlife) {
       unit.attackRangeHoldTargetId = null;
-      unit.aiState = 'moving';
-      this.updateWildlifeWander(unit, dt);
-      unit.movement?.moveToward(unit.wanderGoal, dt, 0.55);
+      unit.aiState = 'idle';
     } else if (unit.moveGoal) {
       unit.attackRangeHoldTargetId = null;
       if (distance2D(unit.position, unit.moveGoal) <= 0.34) {
@@ -261,11 +259,6 @@ export class UnitLogicSystem {
           unit.aiState = 'idle';
         }
       }
-    } else if (unit.homePoint) {
-      // 没有目标也没有移动指令时，回到之前的位置（出生点或上一个目的地）
-      unit.attackRangeHoldTargetId = null;
-      unit.aiState = 'moving';
-      this.returnToHome(unit, dt);
     } else {
       unit.attackRangeHoldTargetId = null;
       unit.aiState = 'idle';
@@ -798,41 +791,6 @@ export class UnitLogicSystem {
       }
     }
     return best;
-  }
-
-  returnToHome(unit, dt) {
-    if (!unit.homePoint) return;
-    if (distance2D(unit.position, unit.homePoint) <= 0.42) return;
-    unit.movement?.moveToward(unit.homePoint, dt, 0.26);
-  }
-
-  updateWildlifeWander(unit, dt) {
-    unit.wanderTimer = Math.max(0, (unit.wanderTimer ?? 0) - dt);
-    const tooFar = distance2D(unit.position, unit.spawnPoint) > unit.leashRadius * 1.08;
-    const reached = !unit.wanderGoal || distance2D(unit.position, unit.wanderGoal) < 0.85;
-    if (!tooFar && !reached && unit.wanderTimer > 0) return;
-
-    if (tooFar) {
-      unit.wanderGoal = unit.spawnPoint.clone();
-      unit.wanderTimer = 0.8;
-      return;
-    }
-
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-      const angle = Math.random() * Math.PI * 2;
-      const radius = unit.leashRadius * (0.25 + Math.random() * 0.7);
-      const candidate = unit.spawnPoint.clone();
-      candidate.x += Math.cos(angle) * radius;
-      candidate.z += Math.sin(angle) * radius;
-      if (!this.game.isPointWalkable(candidate)) continue;
-      candidate.y = this.game.groundHeightAt(candidate);
-      unit.wanderGoal = candidate;
-      unit.wanderTimer = 1.8 + Math.random() * 2.6;
-      return;
-    }
-
-    unit.wanderGoal = unit.spawnPoint.clone();
-    unit.wanderTimer = 1.2;
   }
 }
 

@@ -1,23 +1,38 @@
 import { itemArtForSlot } from './itemArt.js';
-import { itemDefinition, itemName } from './items.js';
+import { itemDefinition, itemName, ITEM_USE } from './items.js';
+import { HOTBAR_CONTAINER_KEY } from './BackpackUi.js';
 
 /**
  * 屏幕底部的物品快捷栏。
  *
- * 取材不是玩家手动配置的，而是"基地库存里现在能用掉的东西"（见 `Game.hotbarItems`）：
- *   1. 可放置的建筑 —— 点一下进入放置模式，或拖到地上直接落地；
- *   2. 能交给单位的装备（工具 / 武器 / 符文石 / 魔力石）—— 拖到单位身上就转移过去。
+ * **它本身是一个 9 格容器**（`Game.hotbarInventory`，和基地背包同一类的 `Inventory`），
+ * 不是"基地库存里能用的东西"的自动投影。格子内容、顺序全部由玩家决定：
+ * 打开 B 面板把东西拖进来 / 拖回去，关掉面板之后这些格子才是"用的入口"。
  *
- * 两个设计决定：
+ * 于是这一栏有**两种模式**，由"背包面板开没开"决定，这是本文件最要紧的一条规则：
  *
- * **固定 9 格，空槽也画出来。** 早期版本是"有几件画几格、没有就整条隐藏"，
- * 那样槽位会随库存左右滑动，数字键的含义跟着变，而且**空格子是无法作为拖拽落点的**
- * ——拖到快捷栏上整理物品这种操作根本无从谈起。固定 9 格后"按 1 就是第一格"
- * 恒成立，也让"拖上去"有一个稳定的目标。
+ *   背包开着  → **搬运模式**：格子是背包光标的落点（拿起 / 放下 / 交换 / 拿一半），
+ *               和使用无关。把东西拖到这一栏 = 放进快捷栏。
+ *   背包关着  → **使用模式**：点一下 / 按数字键 = 用掉（建筑进放置模式、消耗品直接用、
+ *               装备交给选中单位）；直接拖出去松手也是"用"。
  *
- * **不再放在背包面板里。** 用户要求「快捷栏应该在屏幕下方…不应该在 b 键面板内部」：
- * 面板一打开就盖住大半个屏幕、进入放置模式还会自动关面板，快捷栏放在里面等于
- * 在最需要它的时候看不见。
+ * 为什么必须由面板状态来分：同一个"把东西拖到快捷栏上"的动作，在两种情境下
+ * 意思正好相反（存进去 vs 用出去）。让它们同时成立是不可能的，所以规则要显式、
+ * 要能一眼看出来（界面上有 `is-transfer-mode` 提示）。
+ *
+ * 固定 9 格、空槽也画：槽位序号就是数字键 1..9 的含义，"有几件画几格"会让按键
+ * 含义随库存滑动，而且空格子就无法作为拖拽落点。
+ *
+ * ⚠️ 为什么下面这些规则带 `body.is-game-active` 前缀和 `!important`：
+ * styles.css 里有一条全局的"桌游按钮"皮肤
+ *
+ *     body.is-game-active button { border: … !important; border-radius: 5px !important;
+ *                                  background: … !important }
+ *     body.is-game-active button:hover { transform: translateY(-2px) !important }
+ *
+ * 它给游戏内**每一个** <button> 强制了边框、圆角与底色。快捷栏格子是 <button>，
+ * 不覆盖就变成一排圆角小方块，而且悬停时会整体上浮 2px、把格子从原位挪开。
+ * 选择器写得比 `body.is-game-active button` 更具体（0,2,1 > 0,1,2）即可胜出。
  */
 
 const REFRESH_INTERVAL_MS = 400;
@@ -46,6 +61,14 @@ export class HotbarUi {
 
   isVisible() {
     return Boolean(this.root && !this.root.hidden);
+  }
+
+  /**
+   * 搬运模式：背包面板开着的时候，这一栏是"另一个容器"，不是使用入口。
+   * 使用流程（放置 / 消耗 / 交给单位）只在背包关掉之后成立——见文件头部的说明。
+   */
+  isTransferMode() {
+    return Boolean(this.game?.backpack?.isOpen?.());
   }
 
   ensureUi() {
@@ -93,15 +116,22 @@ export class HotbarUi {
     const items = typeof game?.hotbarItems === 'function' ? game.hotbarItems() : [];
     const visible = items.slice(0, HOTBAR_SLOT_COUNT);
     const activeItemId = game?.placingItem?.itemId ?? null;
+    const transferMode = this.isTransferMode();
+    // 光标上那一叠也要进签名：搬运模式下"背包手里拿着东西"必须让提示文案跟着变。
+    const held = game?.backpack?.cursor ?? null;
     const signature = JSON.stringify({
-      items: visible.map((entry) => [entry.itemId, entry.count]),
+      items: visible.map((entry) => (entry ? [entry.itemId, entry.count, entry.useKind] : null)),
       activeItemId,
+      transferMode,
+      held: held ? [held.itemId, held.count] : null,
       dragging: this.drag ? this.drag.itemId : null
     });
     if (signature === this.lastSignature) return;
     this.lastSignature = signature;
 
     this.root.hidden = false;
+    this.root.classList.toggle('is-transfer-mode', transferMode);
+    this.root.dataset.hotbarMode = transferMode ? 'transfer' : 'use';
     this.root.textContent = '';
     this.slots = [];
     for (let index = 0; index < HOTBAR_SLOT_COUNT; index += 1) {
@@ -112,7 +142,8 @@ export class HotbarUi {
       slot.dataset.hotbarIndex = String(index);
       if (entry) {
         slot.dataset.itemId = entry.itemId;
-        slot.dataset.hotbarKind = entry.placeable ? 'placeable' : 'givable';
+        // 用途写进 DOM：提示文案、验收断言、CSS 都读同一个值。
+        slot.dataset.hotbarUse = entry.useKind ?? 'inert';
       }
       const key = document.createElement('span');
       key.className = 'item-hotbar-key';
@@ -120,7 +151,7 @@ export class HotbarUi {
       slot.appendChild(key);
       if (entry) {
         if (entry.itemId === activeItemId) slot.classList.add('is-active');
-        slot.title = hotbarSlotTitle(entry);
+        slot.title = hotbarSlotTitle(entry, { transferMode });
         const art = document.createElement('span');
         art.className = 'item-hotbar-art';
         art.innerHTML = itemArtForSlot({ itemId: entry.itemId });
@@ -129,7 +160,9 @@ export class HotbarUi {
         count.textContent = `×${entry.count}`;
         slot.append(art, count);
       } else {
-        slot.title = `空槽位 ${index + 1}`;
+        slot.title = transferMode
+          ? `空槽位 ${index + 1}：把基地背包里的东西拖到这一格`
+          : `空槽位 ${index + 1}：打开背包（B）拖东西进来`;
       }
       this.root.appendChild(slot);
       this.slots.push(slot);
@@ -150,10 +183,22 @@ export class HotbarUi {
   onPointerDown(event) {
     event.stopPropagation();
     const slot = event.target.closest?.('[data-hotbar-index]');
-    if (!slot?.dataset?.itemId) return;
+    if (!slot) return;
     const index = Number(slot.dataset.hotbarIndex);
     if (!Number.isFinite(index)) return;
     event.preventDefault();
+    // 搬运模式：这一栏是背包光标的落点。空格子也要接（拖进去就是往空槽放），
+    // 所以这里不能像使用模式那样先把空槽挡掉。
+    if (this.isTransferMode()) {
+      this.game?.backpack?.handleSlotClick?.(index, {
+        right: event.button === 2,
+        container: HOTBAR_CONTAINER_KEY
+      });
+      this.lastSignature = '';
+      this.refresh();
+      return;
+    }
+    if (!slot.dataset.itemId) return;
     this.drag = {
       index,
       itemId: slot.dataset.itemId,
@@ -184,6 +229,11 @@ export class HotbarUi {
     this.onWindowPointerUp = null;
   }
 
+  /** 这一格的用途（place / consume / give / null）。 */
+  useKindAt(index) {
+    return this.game?.hotbarItems?.()?.[index]?.useKind ?? null;
+  }
+
   onDragMove(event) {
     const drag = this.drag;
     if (!drag) return;
@@ -193,6 +243,15 @@ export class HotbarUi {
       drag.moved = true;
       drag.ghost = this.createDragGhost(drag.itemId);
       this.root?.classList.add('is-dragging');
+      // 建筑：拖出去的这一下**就进入放置模式**，世界里的半透明预览立刻跟着指针走，
+      // 松手落在合法位置才真的建起来（见 onDragEnd / Game.dropHotbarItemAt）。
+      // 等到松手才建的话玩家是"盲放"——落点合不合法要等建完才知道。
+      if (this.useKindAt(drag.index) === ITEM_USE.place) {
+        const started = this.game?.beginPlacement?.(drag.itemId, {
+          source: this.game?.hotbarSource?.(drag.index)
+        }) ?? null;
+        drag.placementStarted = started?.ok === true;
+      }
     }
     if (drag.ghost) {
       drag.ghost.style.left = `${event.clientX}px`;
@@ -208,10 +267,28 @@ export class HotbarUi {
     const { index } = drag;
     this.endDrag(drag.ghost);
     if (!wasDrag) return;
+    // 松手时指针还压在快捷栏自己身上 = 反悔：不放置、不使用。
+    // 没有这条的话，"从槽位里拖出来又拖回去"会把建筑建到栏后面的地上、
+    // 或者把消耗品直接吃掉——两种都不是玩家想要的。
+    if (this.isPointerOverSelf(event.clientX, event.clientY)) {
+      // 建筑在拖动开始时就已经进了放置模式，这里要把它退掉，
+      // 否则松手之后预览还挂在指针上，玩家以为自己还在放。
+      if (drag.placementStarted) this.game?.cancelPlacement?.();
+      this.lastSignature = '';
+      this.refresh();
+      return;
+    }
     const result = this.game?.dropHotbarItemAt?.(index, event.clientX, event.clientY) ?? null;
     this.reportDrop(result, event.clientX, event.clientY);
     this.lastSignature = '';
     this.refresh();
+  }
+
+  /** 指针是不是落在快捷栏自己那块矩形里（拖拽落点判定用）。 */
+  isPointerOverSelf(clientX, clientY) {
+    const rect = this.root?.getBoundingClientRect?.() ?? null;
+    if (!rect) return false;
+    return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
   }
 
   /** 结束拖拽状态（不触发掉落）。 */
@@ -282,13 +359,15 @@ export class HotbarUi {
       return;
     }
     const reasons = {
-      no_target: '拖到己方单位身上才能交给他，或拖到地上放建筑',
+      no_target: '拖到己方单位身上才能交给他',
       not_givable: '这件东西不能交给单位',
       unit_has_no_bag: '这个单位没有物品背包',
-      not_in_stock: '基地库存里已经没有这件东西了',
-      empty_slot: '这一格是空的'
+      not_in_stock: '这一格已经没有这件东西了',
+      empty_slot: '这一格是空的',
+      not_usable: '这一格的东西不能直接使用（材料请在背包里合成）'
     };
-    const reason = reasons[result.reason] ?? `放不下（${result.reason ?? '未知原因'}）`;
+    // 放置失败的原因由 Game 给出人话（如"离供能范围太远"），优先用它。
+    const reason = result.label || reasons[result.reason] || `放不下（${result.reason ?? '未知原因'}）`;
     hints?.setHintOnce?.(`${itemName(result.itemId)}：${reason}`, `hotbar-drop-fail:${result.itemId}`);
   }
 
@@ -297,6 +376,9 @@ export class HotbarUi {
     if (!slot) return;
     event.preventDefault();
     event.stopPropagation();
+    // 搬运模式下这一下已经在 pointerdown 里交给背包的光标了，
+    // 这里绝不能再走使用——否则"点一下把装备放进快捷栏"会顺手把它交给单位。
+    if (this.isTransferMode()) return;
     const index = Number(slot.dataset.hotbarIndex);
     if (!Number.isFinite(index)) return;
     this.game?.activateHotbarSlot?.(index);
@@ -312,11 +394,20 @@ export function hotbarSlotLabel(entry) {
 }
 
 /** 槽位提示：说清"这一格能怎么用"，而不是只报名字。 */
-export function hotbarSlotTitle(entry) {
+export function hotbarSlotTitle(entry, { transferMode = false } = {}) {
   if (!entry?.itemId) return '';
   const count = entry.count > 1 ? ` ×${entry.count}` : '';
-  if (entry.placeable) {
-    return `${entry.name}${count}：点击进入放置模式，或直接拖到地面上建造`;
+  if (transferMode) {
+    return `${entry.name}${count}：背包开着时这一栏是容器——点一下拿起 / 放下，和基地背包互搬`;
   }
-  return `${entry.name}${count}：拖到己方单位身上交给它`;
+  if (entry.useKind === ITEM_USE.place) {
+    return `${entry.name}${count}：点击或按数字键进入放置模式（预览跟鼠标走，左键落地、右键取消），也可直接拖到地上建造`;
+  }
+  if (entry.useKind === ITEM_USE.consume) {
+    return `${entry.name}${count}：点击或按数字键直接使用；拖出去松手也是使用`;
+  }
+  if (entry.useKind === ITEM_USE.give) {
+    return `${entry.name}${count}：点击交给选中的单位，或拖到单位身上交给它`;
+  }
+  return `${entry.name}${count}：放进快捷栏的东西不能直接使用（材料请在背包里合成）`;
 }

@@ -1,18 +1,15 @@
 /**
- * 点击单位后，在单位脚下扇形展开的交互菜单。
+ * 单选友方/可交互单位后，在屏幕底部快捷栏正上方展开操作按钮。
  *
  * 每个按钮是圆形图标 + 下方文字。动作按单位状态决定：
- *   - 己方单位：背包、停止
+ *   - 己方单位：背包、停止（木傀儡无「停止」）
  *   - 可招募的野外单位：招募
- *   - 建筑：科研站 / 附魔台的界面入口（需求：「这两个应该是科研站和附魔台的
- *     扇形菜单弹出的界面」）。建筑没有背包也没有"停止"，所以它们的菜单里
- *     只有这一个动作；不是科研站/附魔台的建筑则没有菜单。
+ *   - 建筑：科研站 / 附魔台的界面入口
  *
- * 本模块只负责 DOM 与屏幕投影，真正的动作都交回 Game。
+ * 本模块只负责 DOM，真正的动作都交回 Game。
  */
 import { facilityPanelFor } from './FacilityPanelUi.js';
 
-const MENU_RADIUS = 78;
 const BUTTON_SIZE = 52;
 
 export class UnitActionMenu {
@@ -39,8 +36,6 @@ export class UnitActionMenu {
     if (!unit?.alive) return [];
     const actions = [];
     if (unit.isBuilding === true) {
-      // 建筑：只有"有界面"的那两种才长菜单。附属性的建筑（熔炉、箭塔…）
-      // 点选只看详情，弹一个空菜单比不弹更让人困惑。
       const facility = facilityPanelFor(unit);
       if (facility) {
         actions.push({
@@ -79,7 +74,7 @@ export class UnitActionMenu {
         title: '打开这个单位的背包（E）'
       });
     }
-    if (unit.team === 'player' && this.game?.canControlUnit?.(unit)) {
+    if (unit.team === 'player' && unit.isWorker !== true && this.game?.canControlUnit?.(unit)) {
       actions.push({
         id: 'stop',
         label: '停止',
@@ -106,7 +101,6 @@ export class UnitActionMenu {
       this.signature = signature;
       this.renderButtons(actions);
     }
-    this.position();
     this.root.hidden = false;
     this.root.classList.add('is-open');
   }
@@ -141,38 +135,17 @@ export class UnitActionMenu {
     const root = this.root;
     if (!root) return;
     root.textContent = '';
-    const count = actions.length;
-    const start = count === 1 ? Math.PI / 2 : Math.PI * 0.18;
-    const end = count === 1 ? Math.PI / 2 : Math.PI - Math.PI * 0.18;
-    actions.forEach((action, index) => {
-      const t = count === 1 ? 0.5 : index / Math.max(1, count - 1);
-      const angle = start + (end - start) * t;
-      const x = Math.cos(angle) * MENU_RADIUS;
-      const y = Math.sin(angle) * MENU_RADIUS * 0.72;
+    actions.forEach((action) => {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = action.disabled ? 'unit-action-button is-disabled' : 'unit-action-button';
       button.dataset.unitAction = action.id;
       button.disabled = Boolean(action.disabled);
       button.title = action.title;
-      button.style.setProperty('--action-x', `${Math.round(x)}px`);
-      button.style.setProperty('--action-y', `${Math.round(y)}px`);
       button.innerHTML = `<span class="unit-action-icon" aria-hidden="true">${action.icon}</span>`
         + `<span class="unit-action-label">${action.label}</span>`;
       root.appendChild(button);
     });
-  }
-
-  position() {
-    if (!this.root || !this.unit) return;
-    const screen = this.game?.projectWorldUi?.(this.unit.position, 0.12);
-    if (!screen?.visible) {
-      this.root.hidden = true;
-      return;
-    }
-    this.root.hidden = false;
-    this.root.style.left = `${screen.x}px`;
-    this.root.style.top = `${screen.y}px`;
   }
 
   onClick(event) {
@@ -202,3 +175,5 @@ export class UnitActionMenu {
     }
   }
 }
+
+export { BUTTON_SIZE };

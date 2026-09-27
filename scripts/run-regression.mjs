@@ -48,6 +48,7 @@ const VERIFICATIONS = [
   'verify-island-tech-effects',
   'verify-backpack-ui',
   'verify-backpack-transfer',
+  'verify-backpack-craft-refund',
   'verify-item-transfer',
   'verify-item-hotbar',
   'verify-weapon-swap',

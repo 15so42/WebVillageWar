@@ -168,6 +168,19 @@ const ICONS = {
     + `<rect x="4" y="13" width="24" height="4" rx="2" fill="${P.stoneLight}"/>`
     + `<path d="M11 9c0-3 3-3 3-6M17 9c0-3 3-3 3-6" stroke="#cfd6dd" stroke-width="1.6" fill="none" stroke-linecap="round"/>`
   ),
+  manaCore: wrap(
+    `<circle cx="16" cy="16" r="9" fill="#3a6a8c"/>`
+    + `<circle cx="16" cy="16" r="5.5" fill="#7ec8ff"/>`
+    + `<circle cx="13" cy="13" r="2" fill="#e8f7ff" opacity="0.85"/>`
+  ),
+  woodPuppetKit: wrap(
+    `<rect x="11" y="8" width="10" height="14" rx="2" fill="${P.wood}"/>`
+    + `<rect x="9" y="6" width="14" height="4" rx="1.5" fill="${P.woodLight}"/>`
+    + `<circle cx="13" cy="12" r="1.2" fill="#2a2018"/>`
+    + `<circle cx="19" cy="12" r="1.2" fill="#2a2018"/>`
+    + `<rect x="8" y="20" width="4" height="6" rx="1" fill="${P.woodDark}"/>`
+    + `<rect x="20" y="20" width="4" height="6" rx="1" fill="${P.woodDark}"/>`
+  ),
   wornSword: wrap(
     `<path d="M16 3l2.6 4v13h-5.2V7z" fill="${P.metalDark}"/>`
     + `<rect x="10" y="20" width="12" height="2.6" rx="1.3" fill="${P.wood}"/>`

@@ -158,6 +158,51 @@ function attemptCraft(inventory, recipeOrId, { times, commit }) {
   };
 }
 
+/**
+ * 撤销一次已经落盘的合成：把材料按原量加回库存。
+ *
+ * 产物**不在这里处理**：界面上的撤销只发生在"产物还拿在鼠标上、没进任何库存"的时刻，
+ * 丢掉那一叠是界面的事。所以这里只负责退材料。
+ *
+ * 和 `craftRecipe` 用同一套做法：先在副本上跑通，成功了才落回真库存。
+ * 于是"退不回来"（玩家趁合成之后把背包塞满了）只会整笔失败，不会出现退了一半的库存——
+ * 那种状态比干脆不退更难查，也更容易被当成丢件。
+ *
+ * ⚠️ 只支持堆叠类材料。配方输入目前**全是堆叠物**（木材 / 石料 / 深邃核心…），
+ * 而 `craftRecipe` 返回的 `consumed` 只带 `{ itemId, count }`、不带实例 id，
+ * 所以带有成长数据的实例类材料退回来会丢掉成长。真要支持得先让 `consumed` 带上 instanceId。
+ */
+export function refundCraft(inventory, consumed) {
+  if (!inventory) return { ok: false, reason: CRAFT_ERROR.noSpace, refunded: [] };
+  const entries = (Array.isArray(consumed) ? consumed : [])
+    .filter((entry) => entry?.itemId)
+    .map((entry) => ({
+      itemId: String(entry.itemId),
+      count: Math.max(1, Math.floor(Number(entry.count) || 1))
+    }));
+  if (!entries.length) return { ok: false, reason: CRAFT_ERROR.unknownRecipe, refunded: [] };
+  for (const entry of entries) {
+    if (!ITEM_DEFINITIONS[entry.itemId]) {
+      return { ok: false, reason: CRAFT_ERROR.unknownItem, refunded: [] };
+    }
+  }
+
+  const draft = Inventory.deserialize(inventory.serialize(), {
+    id: inventory.id,
+    capacity: inventory.capacity
+  });
+  for (const entry of entries) {
+    // add() 默认"整笔成功或整笔失败"，所以这里能直接把"放不下"当成撤销失败。
+    const added = draft.add(entry.itemId, entry.count);
+    if (!added.ok || added.added !== entry.count) {
+      return { ok: false, reason: CRAFT_ERROR.noSpace, refunded: [] };
+    }
+  }
+
+  inventory.loadSlots(draft.serialize().slots);
+  return { ok: true, reason: CRAFT_ERROR.none, refunded: entries };
+}
+
 /** 产物堆叠上限与配方数量的关系，供 UI 判断"一次能做几批"。 */
 export function maxCraftableTimes(inventory, recipeOrId, { limit = 99 } = {}) {
   const recipe = typeof recipeOrId === 'string' ? recipeById(recipeOrId) : normalizeRecipe(recipeOrId);

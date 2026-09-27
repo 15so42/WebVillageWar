@@ -247,5 +247,58 @@ check('接上库存后，资源系统的账本不再持有第二份所有权', (
   assert.equal(payload.bank, undefined, '库存接管后资源系统不应再序列化自己的账本');
 });
 
+// ---- removeAt：按格取走（快捷栏 / 放置流程要"扣的就是你点的那一格"）----
+
+check('removeAt 只动指定的那一格', () => {
+  const inventory = new Inventory({ id: 'hotbar', capacity: 4 });
+  inventory.add('furnace', 5);          // 第 0 格：5 个熔炉
+  inventory.add('furnace', 5);          // 第 1 格：又是 5 个（故意同一种物品占两格）
+  inventory.add('wood', 50);            // 第 2 格
+
+  const first = inventory.removeAt(0, 1);
+  assert.equal(first.ok, true);
+  assert.equal(first.itemId, 'furnace');
+  assert.equal(inventory.slots[0].count, 4, '扣的是第 0 格');
+  assert.equal(inventory.slots[1].count, 5, '第 1 格必须原封不动');
+  assert.equal(inventory.countOf('furnace'), 9);
+
+  // 取空那一格 → 格子真的空掉，而不是留一个 count 0 的残格
+  assert.equal(inventory.removeAt(0, 4).ok, true);
+  assert.equal(inventory.slots[0], null, '取空后必须是 null，不能留 count 0');
+  assert.equal(inventory.countOf('furnace'), 5, '剩下的还是第 1 格那 5 个');
+});
+
+check('removeAt 数量不够时只报到手多少，并说明不完整', () => {
+  const inventory = new Inventory({ id: 'hotbar', capacity: 2 });
+  inventory.add('wood', 3);
+  const partial = inventory.removeAt(0, 10);
+  assert.equal(partial.ok, false, '要 10 只有 3：必须报失败，不能假装成功');
+  assert.equal(partial.removed, 3);
+  assert.equal(partial.error, INVENTORY_ERROR.notEnough);
+  assert.equal(inventory.slots[0], null, '能拿走的都拿走了');
+});
+
+check('removeAt 对空格子与非法下标是安全的', () => {
+  const inventory = new Inventory({ id: 'hotbar', capacity: 2 });
+  inventory.add('axe', 1);
+  const empty = inventory.removeAt(1);
+  assert.equal(empty.ok, false);
+  assert.equal(empty.removed, 0);
+  assert.equal(inventory.removeAt(99).ok, false);
+  assert.equal(inventory.removeAt(-1).ok, false);
+  assert.equal(inventory.countOf('axe'), 1, '失败的调用不许动到别的格子');
+});
+
+check('removeAt 也适用于实例物品（一格一件）', () => {
+  const inventory = new Inventory({ id: 'hotbar', capacity: 3 });
+  inventory.add('axe', 1);
+  inventory.add('pickaxe', 1);
+  const instanceId = inventory.slots[0].instanceId;
+  assert.equal(inventory.removeAt(0, 1).ok, true);
+  assert.equal(inventory.slots[0], null);
+  assert.equal(inventory.findInstance(instanceId), null, '实例必须真的离开库存');
+  assert.equal(inventory.slots[1].itemId, 'pickaxe', '另一格不受影响');
+});
+
 console.log(report.join('\n'));
 console.log(`\n${report.filter((line) => line.startsWith('ok')).length}/${report.length} 通过`);

@@ -5,7 +5,17 @@ import { SAOPass } from 'three/examples/jsm/postprocessing/SAOPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { OutlinePass } from 'three/examples/jsm/postprocessing/OutlinePass.js';
 import { createSelectionRing } from '../art/lowpoly.js';
+import { setOutlineMaskActive } from '../art/outlineMask.js';
+import {
+  applyHoverOutline,
+  bindHoverOutlinePasses,
+  clearHoverOutline,
+  HOVER_OUTLINE_COLORS,
+  resizeHoverOutlinePass,
+  setResourceHighlightOutlines
+} from '../art/hoverOutline.js';
 import {
   BALANCE,
   COOP_ENEMY_SCALING,
@@ -18,6 +28,7 @@ import {
   RESOURCE_NODE_RULES,
   TEAMS,
   UNIT_DEFINITIONS,
+  WOOD_PUPPET_KIT_ITEM_ID,
   WAVE_BOSS_TYPES,
   WAVE_MONSTER_TYPES,
   enemyManaFactor,
@@ -109,7 +120,8 @@ import {
   craftRecipe as craftIntoInventory,
   maxCraftableTimes,
   normalizeRecipe,
-  recipeById
+  recipeById,
+  refundCraft
 } from './crafting.js';
 import { BackpackUi } from './BackpackUi.js';
 import { UnitActionMenu } from './UnitActionMenu.js';
@@ -118,12 +130,12 @@ import { ThreatFieldSystem } from './ThreatFieldSystem.js';
 import {
   clampPriority,
   defaultPriorityFor,
-  demandsFromRows,
   resourcePriorityRows
 } from './resourcePriority.js';
-import { itemIsGivable } from './items.js';
+import { itemIsGivable, itemUseKind, ITEM_USE } from './items.js';
 import { isHostileEnemy } from './unitTeam.js';
 import { PowerSystem } from './PowerSystem.js';
+import { PowerSupplyVisualSystem } from './PowerSupplyVisualSystem.js';
 import { SpawnPointSystem } from './SpawnPointSystem.js';
 import {
   advanceDayNight,
@@ -143,7 +155,7 @@ import {
   canEquipWeapon,
   weaponStatPatch
 } from './weapons.js';
-import { HotbarUi } from './HotbarUi.js';
+import { HotbarUi, HOTBAR_SLOT_COUNT } from './HotbarUi.js';
 import { planDeathDrop } from './drops.js';
 import { WorkSystem } from './WorkSystem.js';
 import { effectiveManaCapacity } from './manaStones.js';
@@ -696,17 +708,21 @@ const OutlineShader = {
     void main() {
       vec4 centerTexel = texture2D(tDiffuse, vUv);
       if (outlineThickness <= 0.0) {
-        gl_FragColor = centerTexel;
+        gl_FragColor = vec4(centerTexel.rgb, 1.0);
         return;
       }
       
       vec2 texelSize = outlineThickness / aspect;
       
       // Sample adjacent 4 pixels
-      vec3 cLeft   = texture2D(tDiffuse, vUv + vec2(-texelSize.x, 0.0)).rgb;
-      vec3 cRight  = texture2D(tDiffuse, vUv + vec2( texelSize.x, 0.0)).rgb;
-      vec3 cUp     = texture2D(tDiffuse, vUv + vec2(0.0,  texelSize.y)).rgb;
-      vec3 cDown   = texture2D(tDiffuse, vUv + vec2(0.0, -texelSize.y)).rgb;
+      vec4 tLeft   = texture2D(tDiffuse, vUv + vec2(-texelSize.x, 0.0));
+      vec4 tRight  = texture2D(tDiffuse, vUv + vec2( texelSize.x, 0.0));
+      vec4 tUp     = texture2D(tDiffuse, vUv + vec2(0.0,  texelSize.y));
+      vec4 tDown   = texture2D(tDiffuse, vUv + vec2(0.0, -texelSize.y));
+      vec3 cLeft = tLeft.rgb;
+      vec3 cRight = tRight.rgb;
+      vec3 cUp = tUp.rgb;
+      vec3 cDown = tDown.rgb;
 
       // Color distance-based edge detection
       float diff = distance(centerTexel.rgb, cLeft) +
@@ -730,8 +746,14 @@ const OutlineShader = {
       float fireMask = smoothstep(0.34, 0.5, warmth) * smoothstep(0.42, 0.58, luminance);
       edge *= 1.0 - fireMask;
 
+      // 细叶豁免：草叶、野花等只有几像素宽，描边会把整丛盖成描边色。
+      // 这类材质往 alpha 写入 < 1 的标记（其余不透明物体 alpha 恒为 1），
+      // 中心或相邻像素带标记时不描边。
+      float foliageAlpha = min(centerTexel.a, min(min(tLeft.a, tRight.a), min(tUp.a, tDown.a)));
+      edge *= smoothstep(0.45, 0.7, foliageAlpha);
+
       // Blend outline with original color
-      gl_FragColor = vec4(mix(centerTexel.rgb, outlineColor, edge), centerTexel.a);
+      gl_FragColor = vec4(mix(centerTexel.rgb, outlineColor, edge), 1.0);
     }
   `
 };
@@ -857,6 +879,32 @@ export class Game {
     };
     this.composer.addPass(renderPass);
 
+    const outlinePassOptions = {
+      edgeStrength: 3.2,
+      edgeThickness: 1.15,
+      edgeGlow: 0,
+      pulsePeriod: 0,
+      downSampleRatio: 2,
+      enabled: false
+    };
+    const createHoverOutlinePass = () => {
+      const pass = new OutlinePass(
+        new THREE.Vector2(window.innerWidth, window.innerHeight),
+        this.scene,
+        this.camera,
+        []
+      );
+      Object.assign(pass, outlinePassOptions);
+      this.composer.addPass(pass);
+      return pass;
+    };
+    this.resourceGatherOutlinePass = createHoverOutlinePass();
+    this.hoverOutlinePass = createHoverOutlinePass();
+    bindHoverOutlinePasses({
+      hover: this.hoverOutlinePass,
+      resource: this.resourceGatherOutlinePass
+    });
+
     this.saoPass = new SAOPass(this.scene, this.camera);
     // The normal/depth override ignores sprite alpha and otherwise turns the
     // campfire into opaque rectangles. Exclude only its registered soft effects.
@@ -897,6 +945,15 @@ export class Game {
 
     this.bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.15, 0.4, 0.85);
     this.bloomPass.enabled = useFullPostProcessing;
+    // 泛光只叠加 RGB，保留 alpha 里的描边豁免标记（见 art/outlineMask.js）。
+    Object.assign(this.bloomPass.blendMaterial, {
+      blending: THREE.CustomBlending,
+      blendEquation: THREE.AddEquation,
+      blendSrc: THREE.SrcAlphaFactor,
+      blendDst: THREE.OneFactor,
+      blendSrcAlpha: THREE.ZeroFactor,
+      blendDstAlpha: THREE.OneFactor
+    });
     this.composer.addPass(this.bloomPass);
 
     this.outlinePass = new ShaderPass(OutlineShader);
@@ -1013,6 +1070,9 @@ export class Game {
     this.selectedUnitIds = new Set();
     this.selectionMode = 'none';
     this.selectionDrag = null;
+    this.hoverHighlightRoot = null;
+    this.hoverHighlightKey = '';
+    this.hoverHighlightScope = 'subtree';
     const playerBasePosition = this.worldConfig.playerBasePosition ?? BALANCE.playerBase.position;
     const enemyCampPosition = this.worldConfig.enemyCampPosition ?? BALANCE.enemyCamp.position;
     this.playerBase = createStructureState({
@@ -1101,17 +1161,25 @@ export class Game {
       }
     });
     this.enemyCamp.position.y = this.groundHeightAt(this.enemyCamp.position);
-    setupStructureBody(this.enemyCamp, this.world.enemyCampModel, {
-      collisionRadius: 2.75,
-      attackRadius: 2.45
-    });
+    if (this.usesEnemyCamp()) {
+      setupStructureBody(this.enemyCamp, this.world.enemyCampModel, {
+        collisionRadius: 2.75,
+        attackRadius: 2.45
+      });
+    } else {
+      this.enemyCamp.alive = false;
+      this.enemyCamp.health = 0;
+      this.enemyCamp.structureDurability = 0;
+    }
     this.playerBase.statusElement = createStructureStatusElement('friendly');
-    this.playerBase.statusHeight = this.playerBase.model?.userData?.baseStyle === 'friendly-command-camp'
-      ? 3.05
-      : 4.48;
-    this.enemyCamp.statusElement = createStructureStatusElement('enemy');
-    this.enemyCamp.statusHeight = 3.15;
-    this.worldUi.append(this.playerBase.statusElement, this.enemyCamp.statusElement);
+    this.playerBase.statusHeight = this.playerBase.model?.userData?.statusHeight
+      ?? (this.playerBase.model?.userData?.baseStyle === 'friendly-command-camp' ? 3.05 : 4.48);
+    this.worldUi.append(this.playerBase.statusElement);
+    if (this.usesEnemyCamp()) {
+      this.enemyCamp.statusElement = createStructureStatusElement('enemy');
+      this.enemyCamp.statusHeight = 3.15;
+      this.worldUi.append(this.enemyCamp.statusElement);
+    }
 
     this.effects = new EffectsSystem(this.scene);
     this.areaEffects = new AreaEffectSystem(this);
@@ -1129,6 +1197,11 @@ export class Game {
     this.recovery = new RecoverySystem(this);
     // 基地库存：目前是资源节点的落点，后续合成、快捷栏、搬运都以它为准。
     this.baseInventory = new Inventory({ id: 'base', capacity: ITEM_RULES.baseInventorySlots });
+    // 快捷栏：一个和基地背包**同一类的 9 格容器**（不是基地库存的投影）。
+    // 玩家在 B 面板里把东西拖进来/拖回去；关掉面板之后，这些格子才是"用的入口"：
+    // 按数字键 / 点击 = 使用（建筑进放置模式、消耗品用掉、装备交给选中单位）。
+    // 放在这里（而不是 UI 分支里）是为了没有 DOM 的环境也能构造出来做逻辑验证。
+    this.hotbarInventory = new Inventory({ id: 'hotbar', capacity: HOTBAR_SLOT_COUNT });
     // 资源节点：地图上每棵树/石堆/矿脉的剩余量归这里管；模型与寻路阻挡仍由 world 提供。
     this.resourceNodes = new ResourceNodeSystem(this);
     this.resourceNodes.attach(this.world);
@@ -1147,6 +1220,8 @@ export class Game {
         supplyRadius: POWER_RULES.baseSupplyRadius
       });
     }
+    this.powerSupplyVisual = new PowerSupplyVisualSystem(this);
+    this.powerSupplyVisual.attach(this.scene);
     // 傀儡作业：采集状态机 + 每个傀儡自己的背包与活动魔力。
     // 与供能系统是上下游关系：这里决定傀儡干什么，power 负责给它的储备补魔。
     this.work = new WorkSystem(this);
@@ -1188,7 +1263,8 @@ export class Game {
       // 科研站 / 附魔台的独立界面。以前科技与附魔台是背包右侧的两个标签页，
       // 现在改成"走到那栋建筑、点它、从扇形菜单打开"。
       this.facilityPanel = new FacilityPanelUi(this);
-      // 物品快捷栏：屏幕底部常驻（不再是背包面板的页脚）。
+      // 物品快捷栏：屏幕底部常驻的 9 格容器（与基地背包同类的 Inventory，
+      // 见上面的 this.hotbarInventory），不是背包面板的页脚。
       this.hotbar = new HotbarUi(this);
       this.hotbar.ensureUi();
       // 威胁度二维数组：敌人每帧按自己的位置与半径叠进去，木傀儡据此避险。
@@ -1227,6 +1303,7 @@ export class Game {
     this.enemyEnchantment = new EnemyEnchantmentSystem(this);
     this.levelMechanics = new LevelMechanicSystem(this);
     this.selectionBox = createSelectionBoxElement();
+    this.resourceBoxSelectHud = createResourceBoxSelectHudElement();
 
     this.dom = {
       baseHealth: document.querySelector('#base-health'),
@@ -1434,6 +1511,7 @@ export class Game {
     // session does not inherit a frozen field or an invisible selection drag.
     this.cancelCameraDrag();
     this.cancelSelectionDrag();
+    this.clearHoverHighlight();
     this.cancelTouchGesture();
     this.activeTouchPointers.clear();
     this.setMobileBoxSelectMode(false);
@@ -1453,6 +1531,8 @@ export class Game {
     this.attacks?.destroy?.();
     this.combat?.destroy?.();
     this.effects?.destroy?.();
+    this.powerSupplyVisual?.destroy?.();
+    this.powerSupplyVisual = null;
     this.pathWorker?.terminate?.();
     this.pathWorker = null;
     this.pendingPathRequests.clear();
@@ -1464,6 +1544,8 @@ export class Game {
     this.disposeNavDebug();
     this.renderer.dispose();
     this.selectionBox?.remove();
+    this.resourceBoxSelectHud?.remove();
+    this.resourceBoxSelectHud = null;
     this.networkTerminatedOverlay?.remove();
     this.networkTerminatedOverlay = null;
     document.body.classList.remove(
@@ -1549,6 +1631,7 @@ export class Game {
       // 设施的供能状态：必须在 power 之前，决定这一段它吃不吃魔
       runPerfStep('facilities', () => this.facilities.update(dt));
       runPerfStep('power', () => this.power.update(dt));
+      runPerfStep('powerSupplyVisual', () => this.powerSupplyVisual?.update(dt));
       // 生产：必须在 power 之后——设施这一段拿到的 activityMana 决定它能不能开工
       runPerfStep('production', () => this.production.update(dt));
       // 傀儡作业：清掉已经不在注册表里的傀儡（不扫描资源节点）
@@ -1587,6 +1670,7 @@ export class Game {
       runStep('fuelPower', () => this.fuelPower.update(dt));
       runStep('facilities', () => this.facilities.update(dt));
       runStep('power', () => this.power.update(dt));
+      runStep('powerSupplyVisual', () => this.powerSupplyVisual?.update(dt));
       runStep('production', () => this.production.update(dt));
       // 种植：长成时会往世界里加资源节点，所以放在采集之前
       runStep('planting', () => this.planting.update(dt));
@@ -2223,7 +2307,12 @@ export class Game {
     if (event.type === 'change' && event.target?.type === 'range') return;
     event.stopPropagation();
     const next = { ...this.renderTuning };
-    if (event.target.type === 'color' || event.target.tagName?.toLowerCase() === 'select') {
+    if (event.target.type === 'checkbox') {
+      next[field] = event.target.checked;
+      if (field === 'outlineEnabled' && event.target.checked && Number(next.outlineThickness) <= 0) {
+        next.outlineThickness = defaultRenderTuningForWorld(this.worldConfig).outlineThickness || 0.8;
+      }
+    } else if (event.target.type === 'color' || event.target.tagName?.toLowerCase() === 'select') {
       next[field] = event.target.value;
     } else {
       next[field] = Number(event.target.value);
@@ -2247,6 +2336,11 @@ export class Game {
     if (action === 'copy') {
       this.copyRenderTuningParameters();
       return;
+    }
+    if (action === 'close') {
+      this.toggleRenderTuningPanel(false);
+      const active = document.activeElement;
+      if (active && this.renderTuningUi.root.contains(active)) active.blur();
     }
   }
 
@@ -2332,7 +2426,8 @@ export class Game {
       this.saoPass.params.saoBias = settings.aoBias;
     }
     if (this.outlinePass) {
-      this.outlinePass.uniforms.outlineThickness.value = settings.outlineThickness;
+      const outlineThickness = settings.outlineEnabled ? settings.outlineThickness : 0;
+      this.outlinePass.uniforms.outlineThickness.value = outlineThickness;
       this.outlinePass.uniforms.outlineColor.value.set(settings.outlineColor);
       this.outlinePass.uniforms.outlineThreshold.value = settings.outlineThreshold;
     }
@@ -2383,6 +2478,10 @@ export class Game {
     this.renderTuning = settings;
     Object.entries(ui.controls).forEach(([key, input]) => {
       if (!input) return;
+      if (input.type === 'checkbox') {
+        input.checked = Boolean(settings[key]);
+        return;
+      }
       input.value = String(settings[key]);
     });
     Object.entries(ui.values).forEach(([key, value]) => {
@@ -2435,6 +2534,7 @@ export class Game {
     if (this.composer) {
       this.composer.setSize(width, height);
     }
+    resizeHoverOutlinePass(width, height);
     if (this.outlinePass) {
       this.outlinePass.uniforms.aspect.value.set(width, height);
     }
@@ -2458,7 +2558,9 @@ export class Game {
   renderScene() {
     if (this.webglContextLost || this.renderer?.getContext?.().isContextLost?.()) return;
     if (this.composer) {
+      setOutlineMaskActive(this.outlinePass?.enabled === true);
       this.composer.render();
+      setOutlineMaskActive(false);
     } else {
       this.renderer.render(this.scene, this.camera);
     }
@@ -3707,7 +3809,7 @@ export class Game {
     // 但那一步的权重与目标库存现在完全来自"玩家在资源 tab 上点出来的优先级"，
     // 不再是写死的一份数组——否则界面调完了后台还在按旧表派活。
     this.resourcePriorities = this.resourcePriorities ?? {};
-    this.refreshWorkDemands();
+    // 开局不按资源优先级表派活。傀儡只采玩家框选过的资源点。
     // 海岛不跑波次，敌人由这 4 个刷怪点持续产生，全部摧毁才通关。
     this.spawnPoints.attach(ISLAND_SPAWN_POINTS);
     // 巢穴用惰性建筑类型 spawnPointNest：早前拿 spiderEgg 当占位，
@@ -3719,6 +3821,7 @@ export class Game {
     // 启动物资：够搭第一座工作台与一段栅栏，但不够跳过采集阶段。
     this.baseInventory.add('wood', 20);
     this.baseInventory.add('stone', 12);
+    this.baseInventory.add('manaCore', 1);
     return worker;
   }
 
@@ -3977,6 +4080,7 @@ export class Game {
   }
 
   updateEnemyCampAttack(dt) {
+    if (!this.usesEnemyCamp()) return;
     if (this.levelFinished || !this.enemyCamp?.alive) return;
     if ((this.enemyCamp.structureDurability ?? 0) <= 0) return;
     this.enemyCampAttackTimer = Math.max(0, (this.enemyCampAttackTimer ?? 0) - dt);
@@ -4513,10 +4617,6 @@ export class Game {
       this.attachUnitStatus(unit);
       unit.isWildlife = true;
       unit.spawnPoint = unit.position.clone();
-      unit.leashRadius = spawn.radius;
-      unit.moveGoal = unit.spawnPoint.clone();
-      unit.wanderGoal = unit.spawnPoint.clone();
-      unit.wanderTimer = 0;
       unit.attackTimer += index * 0.08;
       this.registerUnit(unit);
       this.effects.spawnRing(unit.position, spawn.type === 'bear' ? '#9b6b45' : '#8aa0a8', 0.66, 0.5);
@@ -5052,7 +5152,7 @@ export class Game {
       this.setPlayerBaseInvincible(true);
       this.debugTimeScale = 1;
       this.hints?.setHint?.(
-        '关卡测试模式：基地无敌 / 玩家基地不消耗耐久 / 基地防御999攻（Z慢放 X常速 C快放，F6关闭）',
+        '关卡测试模式：基地无敌 / 玩家基地不消耗耐久 / 基地防御999攻（Z慢放 X常速 C快放，Shift+F6关闭）',
         'test-mode'
       );
       return;
@@ -5204,6 +5304,11 @@ export class Game {
     return this.worldConfig?.sceneKey === 'island-survival';
   }
 
+  /** 本关是否还有「摧毁敌营」那套敌方基地（生存关为 false）。 */
+  usesEnemyCamp() {
+    return this.worldConfig?.usesEnemyCamp !== false;
+  }
+
   updateDayNight(dt) {
     if (!this.dayNight) return;
     const previous = this.dayNight.phase;
@@ -5309,6 +5414,7 @@ export class Game {
       this.checkSurvivalLevelEnd();
       return;
     }
+    if (!this.usesEnemyCamp()) return;
     if (!this.enemyCamp.alive) {
       this.finishLevel(true, { endReason: 'enemy_camp_destroyed' });
       return;
@@ -5516,6 +5622,23 @@ export class Game {
   }
 
   /**
+   * 撤销一次刚做完、还没放下的合成（背包界面里右键）。
+   *
+   * 和 `craftAtBase` 严格对称：产物不进库存——它还在鼠标上，由界面丢掉——
+   * 这里只把材料原样退回去。整笔要么全退要么不动（见 crafting.js 的 refundCraft）。
+   *
+   * 不在这里放特效：这个动作一定发生在背包面板打开的时候，而面板盖住整个世界，
+   * 基地上方那圈光效玩家根本看不见（craftAtBase 的特效是给"合成成功"那次世界反馈用的）。
+   */
+  refundCraftAtBase(consumed) {
+    const result = refundCraft(this.baseInventory, consumed);
+    if (result.ok) return result;
+    const label = CRAFT_ERROR_LABELS[result.reason] ?? '材料退不回来';
+    this.hints?.setHintOnce?.(`取消合成：${label}`, 'crafting:refund');
+    return result;
+  }
+
+  /**
    * 配方的可读状态：每个配方当前能不能做、缺什么、还差多少。
    * 合成界面直接渲染这个，不要在 UI 里重算库存规则。
    */
@@ -5563,7 +5686,7 @@ export class Game {
     if (!unit || unit.alive === false) return hidden;
     if (!this.isSurvivalLevel()) return hidden;
     if (!unit.isRecruitable) return hidden;
-    const orders = this.baseInventory?.countOf?.(RECRUITMENT_ORDER_ITEM_ID) ?? 0;
+    const orders = this.recruitmentOrderCount();
     return {
       visible: true,
       canRecruit: orders > 0,
@@ -5571,8 +5694,81 @@ export class Game {
       label: orders > 0 ? '招募' : '缺招募令',
       hint: orders > 0
         ? `消耗 1 张招募令，把${unit.name}招募成自己人`
-        : '需要 1 张招募令：在刷怪点拿到深邃核心后，到基地库存（I）里合成'
+        : '需要 1 张招募令：拿深邃核心在背包（B）的合成页做一张，放背包或快捷栏里都算'
     };
+  }
+
+  /** 招募令总数：基地背包 + 快捷栏。它在哪一边都不该影响"能不能招募"。 */
+  recruitmentOrderCount() {
+    return (this.baseInventory?.countOf?.(RECRUITMENT_ORDER_ITEM_ID) ?? 0)
+      + (this.hotbarInventory?.countOf?.(RECRUITMENT_ORDER_ITEM_ID) ?? 0);
+  }
+
+  /**
+   * 找一张招募令花掉。
+   *
+   * `source` 指定"就花这一格"（从快捷栏用掉时传），不指定则基地背包优先。
+   * 返回的 `refund()` 用于后续步骤失败时原样还回去——换队失败不能让招募令白掉。
+   * 还回去必然装得下：它就是从同一个容器里刚拿出来的。
+   */
+  consumeRecruitmentOrder(source = null) {
+    const candidates = [];
+    if (source?.inventory && Number.isInteger(source.slotIndex)) {
+      const slot = source.inventory.slots?.[source.slotIndex] ?? null;
+      if (slot?.itemId === RECRUITMENT_ORDER_ITEM_ID) candidates.push({ ...source });
+    }
+    if ((this.baseInventory?.countOf?.(RECRUITMENT_ORDER_ITEM_ID) ?? 0) > 0) {
+      candidates.push({ inventory: this.baseInventory, slotIndex: null });
+    }
+    if ((this.hotbarInventory?.countOf?.(RECRUITMENT_ORDER_ITEM_ID) ?? 0) > 0) {
+      candidates.push({ inventory: this.hotbarInventory, slotIndex: null });
+    }
+    const picked = candidates[0];
+    if (!picked) return { ok: false, reason: 'no_order' };
+    const removed = Number.isInteger(picked.slotIndex)
+      ? picked.inventory.removeAt(picked.slotIndex, 1)
+      : picked.inventory.remove(RECRUITMENT_ORDER_ITEM_ID, 1);
+    if (!removed.ok) return { ok: false, reason: 'no_order' };
+    return {
+      ok: true,
+      inventory: picked.inventory,
+      refund: () => { picked.inventory.add(RECRUITMENT_ORDER_ITEM_ID, 1); }
+    };
+  }
+
+  /**
+   * 使用「木傀儡」套件：消耗一件合成产物，在基地旁召唤一支木傀儡（含斧/镐背包）。
+   */
+  summonWoodPuppetFromKit({ source = null } = {}) {
+    if (!this.isSurvivalLevel()) return { ok: false, reason: 'not_survival_level' };
+    if (!UNIT_DEFINITIONS.woodPuppet || !this.work) return { ok: false, reason: 'unavailable' };
+    const from = this.resolveItemSource(WOOD_PUPPET_KIT_ITEM_ID, source);
+    if (!from?.inventory) return { ok: false, reason: 'not_in_stock' };
+    const slotIndex = Number.isInteger(from.slotIndex)
+      ? from.slotIndex
+      : (from.inventory.slots?.findIndex((slot) => slot?.itemId === WOOD_PUPPET_KIT_ITEM_ID) ?? -1);
+    if (slotIndex < 0) return { ok: false, reason: 'not_in_stock' };
+    const removed = from.inventory.removeAt(slotIndex, 1);
+    if (!removed.ok) return { ok: false, reason: 'not_in_stock' };
+
+    const spawnPoint = this.playerBase.position.clone().add(new THREE.Vector3(-3.6, 0, 3.4));
+    const position = this.resolveWalkablePoint(spawnPoint);
+    position.y = this.groundHeightAt(position);
+    this.summonUnits('woodPuppet', 1, position, 0.7, { select: false });
+    const unit = this.findNewestFriendlyUnit('woodPuppet');
+    if (!unit) {
+      from.inventory.add(WOOD_PUPPET_KIT_ITEM_ID, 1);
+      return { ok: false, reason: 'spawn_failed' };
+    }
+    const workerInventory = this.createWorkerBootstrapInventory(unit.id);
+    this.work.registerWorker(unit, { inventory: workerInventory });
+    this.selectUnit(unit);
+    this.effects?.spawnRing?.(unit.position, '#9fe8ff', 1.0, 0.58);
+    this.hints?.setHint?.(`${unit.name} 已在基地旁就绪`, 'wood-puppet-kit');
+    this.baseStorage?.markDirty?.();
+    this.hotbar?.refresh?.();
+    this.backpack?.markDirty?.();
+    return { ok: true, unit, itemId: WOOD_PUPPET_KIT_ITEM_ID };
   }
 
   /**
@@ -5582,19 +5778,19 @@ export class Game {
    * 就成了一条界面上看不出来的隐藏规则。招募令本身就是"一道命令"，
    * 远程下达是自洽的。若之后要加距离门槛，改这里并同时给出提示文案。
    */
-  recruitUnit(unit) {
+  recruitUnit(unit, { source = null } = {}) {
     if (!unit || unit.alive === false) return { ok: false, reason: 'no_unit' };
     if (!this.isSurvivalLevel()) return { ok: false, reason: 'not_survival_level' };
     if (!unit.isRecruitable) return { ok: false, reason: 'not_recruitable' };
     if (!this.baseInventory) return { ok: false, reason: 'no_inventory' };
 
-    const spent = this.baseInventory.remove(RECRUITMENT_ORDER_ITEM_ID, 1);
+    const spent = this.consumeRecruitmentOrder(source);
     if (!spent.ok) return { ok: false, reason: 'no_order' };
 
     const changed = this.unitRegistry?.changeTeam?.(unit, TEAMS.PLAYER);
     if (!changed) {
-      // 换队失败必须把招募令放回去：刚扣掉 1 张，背包里一定有位置。
-      this.baseInventory.add(RECRUITMENT_ORDER_ITEM_ID, 1);
+      // 换队失败必须把招募令放回去，否则"点了没成还少一张"。
+      spent.refund();
       return { ok: false, reason: 'team_change_failed' };
     }
 
@@ -5617,6 +5813,7 @@ export class Game {
       baseHeight: 0.5
     });
     this.baseStorage?.markDirty?.();
+    this.hotbar?.refresh?.();
     return { ok: true, unit };
   }
 
@@ -5636,6 +5833,7 @@ export class Game {
     // 招募成功后立刻切到它，玩家能直接下令——不然还要再点一次才知道成了。
     this.selectUnit(unit);
     this.baseStorage?.markDirty?.();
+    this.hotbar?.refresh?.();
     return result;
   }
 
@@ -5861,21 +6059,70 @@ export class Game {
   //   2. 必须落在某个供能源的半径内——设施是供能接收者，没电的生产设施是摆设。
   //      方案第 9 节的魔力炉就是"为周围生产和战斗提供魔力"，所以"紧邻供能"是既有模型。
 
-  /** 进入放置模式。物品不可放置时明确拒绝并给原因。 */
-  beginPlacement(itemId) {
+  /**
+   * 进入放置模式。物品不可放置时明确拒绝并给原因。
+   *
+   * `source` 指定"这件东西从哪一格出"：从快捷栏拖出来的建筑必须从**那一格**扣，
+   * 否则同一种建筑在基地背包和快捷栏各有一格时，会把基地那份扣掉、快捷栏那份留着——
+   * 玩家看到的是"我拖的这格没动，别处少了一件"。不传就按老规矩从基地背包出。
+   */
+  beginPlacement(itemId, { source = null } = {}) {
     const definition = ITEM_DEFINITIONS[itemId];
     if (!definition?.placeable?.unitType) return { ok: false, reason: 'not_placeable' };
     if (!UNIT_DEFINITIONS[definition.placeable.unitType]) return { ok: false, reason: 'unknown_building' };
-    if (this.baseInventory?.countOf?.(itemId) <= 0) return { ok: false, reason: 'not_in_stock' };
+    const resolved = this.resolveItemSource(itemId, source);
+    if (!resolved) return { ok: false, reason: 'not_in_stock' };
     this.cancelPlacement();
-    this.placingItem = { itemId, unitType: definition.placeable.unitType };
+    this.placingItem = { itemId, unitType: definition.placeable.unitType, source: resolved };
     this.createPlacementGhost(definition.placeable.unitType);
     this.hints?.setHint?.(
       `放置${definition.name}：左键落地，右键或 Esc 取消`,
       'placement'
     );
+    this.syncInteractionPointerUi();
     this.baseStorage?.close?.();
     return { ok: true, itemId, unitType: definition.placeable.unitType };
+  }
+
+  /**
+   * 把"这东西从哪一格出"落成一个确定的 `{ inventory, slotIndex }`，找不到返回 null。
+   * `slotIndex` 为 null 时表示"这个容器里任意一格都行"（基地背包的「放置」按钮就是这种）。
+   */
+  resolveItemSource(itemId, source = null) {
+    if (source?.inventory && Number.isInteger(source.slotIndex)) {
+      const slot = source.inventory.slots?.[source.slotIndex] ?? null;
+      if (slot?.itemId === itemId) return { inventory: source.inventory, slotIndex: source.slotIndex };
+    }
+    if ((this.baseInventory?.countOf?.(itemId) ?? 0) > 0) {
+      return { inventory: this.baseInventory, slotIndex: null };
+    }
+    if ((this.hotbarInventory?.countOf?.(itemId) ?? 0) > 0) {
+      return { inventory: this.hotbarInventory, slotIndex: null };
+    }
+    return null;
+  }
+
+  /**
+   * 落地时扣掉那一件。
+   *
+   * 先按记下的那一格扣；那一格在放置期间被别的手势动过（虽然放置时面板是关的）
+   * 就退回"这个容器里任意一格"，再退回基地背包。全都找不到就报失败，
+   * 由 `confirmPlacement` 取消放置——**绝不放下一栋没扣物品的建筑**。
+   */
+  consumePlacingItem(placing) {
+    const source = placing?.source ?? null;
+    if (source?.inventory && Number.isInteger(source.slotIndex)) {
+      const removed = source.inventory.removeAt(source.slotIndex, 1);
+      if (removed.ok) return removed;
+    }
+    const inventory = source?.inventory ?? this.baseInventory;
+    if ((inventory?.countOf?.(placing.itemId) ?? 0) > 0) {
+      return inventory.remove(placing.itemId, 1);
+    }
+    if ((this.baseInventory?.countOf?.(placing.itemId) ?? 0) > 0) {
+      return this.baseInventory.remove(placing.itemId, 1);
+    }
+    return { ok: false, removed: 0 };
   }
 
   cancelPlacement() {
@@ -5887,6 +6134,7 @@ export class Game {
       this.placementGhost = null;
     }
     this.hints?.clearHint?.('placement');
+    this.syncInteractionPointerUi();
     return true;
   }
 
@@ -5979,7 +6227,7 @@ export class Game {
       this.hints?.setHintOnce?.(check.label, 'placement-blocked');
       return { ok: false, reason: check.reason, label: check.label };
     }
-    const spent = this.baseInventory.remove(placing.itemId, 1);
+    const spent = this.consumePlacingItem(placing);
     if (!spent.ok) {
       this.cancelPlacement();
       return { ok: false, reason: 'not_in_stock' };
@@ -6002,6 +6250,7 @@ export class Game {
     );
     this.cancelPlacement();
     this.baseStorage?.markDirty?.();
+    this.hotbar?.refresh?.();
     return {
       ok: true,
       unit,
@@ -6054,112 +6303,330 @@ export class Game {
     return { ok: true, itemId, priority: next };
   }
 
-  /** 把"优先级字典"重算成采集需求表并交给作业系统。 */
+  /**
+   * 旧的资源需求路线已经停用：不再把优先级字典交给作业系统。
+   * 保留这个入口，是为了旧的验收脚本调用时不会直接崩掉。
+   */
   refreshWorkDemands() {
-    if (!this.work?.setDemands) return [];
-    const demands = demandsFromRows(this.resourcePriorityRows());
-    this.work.setDemands(demands);
-    return demands;
+    this.work?.setDemands?.([]);
+    return [];
+  }
+
+  beginResourceBoxSelect(priority) {
+    const level = Math.max(1, Math.min(12, Math.round(Number(priority) || 4)));
+    this.resourceBoxSelect = { priority: level };
+    this.selectionBox?.classList.add('is-resource');
+    this.syncInteractionPointerUi();
+    this.syncResourceBoxSelectVisuals();
+    this.hints?.setHint?.(`拖拽框选要采集的资源，优先级 ${level}（Esc 取消）`, 'resource-box');
+  }
+
+  cancelResourceBoxSelect() {
+    if (!this.resourceBoxSelect) return;
+    this.resourceBoxSelect = null;
+    this.selectionBox?.classList.remove('is-resource');
+    this.syncInteractionPointerUi();
+    this.syncResourceBoxSelectVisuals();
+    this.hints?.setHint?.('已取消资源框选', 'resource-box');
+  }
+
+  syncInteractionPointerUi() {
+    const construction = this.isPlacing() || Boolean(this.resourceBoxSelect);
+    this.canvas?.classList.toggle('is-construction-pointer', construction);
+    const hud = this.resourceBoxSelectHud;
+    if (!hud) return;
+    const active = Boolean(this.resourceBoxSelect);
+    hud.hidden = !active;
+    if (!active) return;
+    const priorityEl = hud.querySelector('[data-resource-box-priority]');
+    if (priorityEl) priorityEl.textContent = String(this.resourceBoxSelect.priority);
+    this.updateResourceBoxSelectHudPosition(this.pointerScreen.x, this.pointerScreen.y);
+  }
+
+  updateResourceBoxSelectHudPosition(clientX, clientY) {
+    const hud = this.resourceBoxSelectHud;
+    if (!hud || hud.hidden) return;
+    const pad = 14;
+    const rect = hud.getBoundingClientRect();
+    const maxX = Math.max(pad, window.innerWidth - rect.width - pad);
+    const maxY = Math.max(pad, window.innerHeight - rect.height - pad);
+    const x = clamp(clientX + pad, pad, maxX);
+    const y = clamp(clientY + pad, pad, maxY);
+    hud.style.left = `${x}px`;
+    hud.style.top = `${y}px`;
+  }
+
+  resourceNodesInScreenRect(drag) {
+    const nodes = this.resourceNodes?.activeNodes?.() ?? [];
+    const minX = Math.min(drag.startX, drag.currentX);
+    const maxX = Math.max(drag.startX, drag.currentX);
+    const minY = Math.min(drag.startY, drag.currentY);
+    const maxY = Math.max(drag.startY, drag.currentY);
+    const point = this.resourceScreenPoint ?? (this.resourceScreenPoint = new THREE.Vector3());
+    return nodes.filter((node) => {
+      if ((node.amount ?? 0) <= 0) return false;
+      point.set(node.x, node.y ?? 1, node.z);
+      const screen = this.worldToScreen(point);
+      return screen.x >= minX && screen.x <= maxX && screen.y >= minY && screen.y <= maxY;
+    });
+  }
+
+  finishResourceBoxSelect(drag, clientX, clientY) {
+    const priority = this.resourceBoxSelect?.priority ?? 4;
+    let nodes = [];
+    if (drag?.active) nodes = this.resourceNodesInScreenRect(drag);
+    else {
+      const point = this.resourceScreenPoint ?? (this.resourceScreenPoint = new THREE.Vector3());
+      let best = null;
+      let bestDistance = 36;
+      (this.resourceNodes?.activeNodes?.() ?? []).forEach((node) => {
+        point.set(node.x, node.y ?? 1, node.z);
+        const screen = this.worldToScreen(point);
+        const distance = Math.hypot(screen.x - clientX, screen.y - clientY);
+        if (distance < bestDistance) {
+          best = node;
+          bestDistance = distance;
+        }
+      });
+      if (best) nodes = [best];
+    }
+    const marked = this.work?.markNodes?.(nodes.map((node) => node.id), priority) ?? 0;
+    this.resourceBoxSelect = null;
+    this.selectionBox?.classList.remove('is-resource');
+    this.syncInteractionPointerUi();
+    this.hints?.setHint?.(
+      marked
+        ? `已标记 ${marked} 个资源，优先级 ${priority}`
+        : '框选范围内没有可采集的资源',
+      'resource-box'
+    );
+  }
+
+  syncResourceGatherMarks() {
+    if (!this.scene || !this.work) return;
+    if (!this.resourceMarkGroup) {
+      this.resourceMarkGroup = new THREE.Group();
+      this.resourceMarkGroup.name = 'ResourceGatherMarks';
+      this.scene.add(this.resourceMarkGroup);
+      this.resourceMarkGeometry = new THREE.RingGeometry(0.42, 0.58, 16);
+    }
+    const group = this.resourceMarkGroup;
+    const marks = this.work.markedNodes;
+    const seen = new Set();
+    marks.forEach((priority, nodeId) => {
+      const node = this.resourceNodes?.nodeById?.(nodeId);
+      if (!node || (node.amount ?? 0) <= 0) return;
+      seen.add(nodeId);
+      let ring = group.getObjectByName(nodeId);
+      if (!ring) {
+        const material = new THREE.MeshBasicMaterial({
+          color: resourceMarkColor(priority),
+          transparent: true,
+          opacity: 0.9,
+          depthWrite: false,
+          side: THREE.DoubleSide
+        });
+        ring = new THREE.Mesh(this.resourceMarkGeometry, material);
+        ring.name = nodeId;
+        ring.rotation.x = -Math.PI / 2;
+        ring.renderOrder = 2;
+        group.add(ring);
+      } else if (ring.userData.priority !== priority) {
+        ring.material.color.set(resourceMarkColor(priority));
+      }
+      ring.userData.priority = priority;
+      const y = (node.y ?? this.groundHeightAt(new THREE.Vector3(node.x, 0, node.z))) + 0.08;
+      ring.position.set(node.x, y, node.z);
+    });
+    [...group.children].forEach((child) => {
+      if (seen.has(child.name)) return;
+      child.material?.dispose?.();
+      group.remove(child);
+    });
+    this.syncResourceBoxSelectVisuals();
   }
 
   /**
-   * 快捷栏的取材：基地库存里"能在世界里用掉"的东西。
+   * 采集框选：已标记 + 当前框选预览内的资源显示黄色轮廓描边（不压暗场景）。
+   */
+  syncResourceBoxSelectVisuals() {
+    const highlighted = new Set();
+    this.work?.markedNodes?.forEach((_priority, nodeId) => highlighted.add(nodeId));
+    if (this.resourceBoxSelect && this.selectionDrag?.active) {
+      this.resourceNodesInScreenRect(this.selectionDrag).forEach((node) => highlighted.add(node.id));
+    }
+    const outlineEntries = [];
+    (this.resourceNodes?.activeNodes?.() ?? []).forEach((node) => {
+      const root = resourceNodeObjectRoot(node);
+      if (!root) return;
+      setResourceNodeVisualTone(root, 'normal');
+      if (highlighted.has(node.id)) {
+        outlineEntries.push({ root, scope: 'subtree' });
+      }
+    });
+    setResourceHighlightOutlines(outlineEntries);
+  }
+
+  /**
+   * 快捷栏的 9 个格子：**它自己就是一个容器**（`hotbarInventory`），不是基地库存的投影。
    *
-   * 两类，顺序固定：
-   *   1. 可放置的建筑（熔炉 / 魔力炉 / 科研站 / 附魔台 …）
-   *      —— 点一下进入放置模式，拖到地上直接落地；
-   *   2. 能交给单位的装备（工具 / 武器 / 符文石 / 魔力石）
-   *      —— 拖到单位身上就转移过去（需求：「拖拽相关东西给单位」）。
+   * 以前这里是"从基地库存里挑出能用的东西、自动排出 9 格"。那样快捷栏没有落点，
+   * 玩家既放不进去、也安排不了顺序，"拖到快捷栏里"根本无从谈起。
+   * 现在快捷栏和基地背包是同一类的 Inventory：
+   *   · 打开 B 面板时，两边可以互相搬运（光标点到哪一格就落在哪一格）；
+   *   · 关掉面板之后，这 9 格才是**用的入口**（数字键 / 点击 / 拖出去）。
    *
-   * **顺序固定是硬要求，不是随手排的**：槽位序号同时就是数字键 1..9 的含义。
-   * 如果每次刷新顺序都变，"按 1 放下的东西"每次都不一样，数字键就没有意义了。
-   * 所以先按"建筑在前、装备在后"，再按 itemId 字典序，同一套库存永远得到同一顺序。
+   * 每一项都带 `useKind`（见 `items.itemUseKind`）：界面据此写提示文案，
+   * 使用与拖拽的分发也读同一个值——"点"和"拖"不能各有一套判断。
+   *
+   * 返回长度恒为 9（空格子是 `null`）：槽位序号就是数字键 1..9 的含义，
+   * 数组长度跟着内容变会让按键含义滑动。
    */
   hotbarItems() {
-    const inventory = this.baseInventory;
+    const inventory = this.hotbarInventory;
     if (!inventory) return [];
-    const totals = new Map();
-    inventory.slots.forEach((slot) => {
-      if (!slot?.itemId) return;
+    return inventory.slots.slice(0, HOTBAR_SLOT_COUNT).map((slot, index) => {
+      if (!slot?.itemId) return null;
       const definition = ITEM_DEFINITIONS[slot.itemId];
-      if (!definition) return;
-      const placeable = Boolean(definition.placeable?.unitType);
-      const givable = itemIsGivable(slot.itemId);
-      if (!placeable && !givable) return;
-      const existing = totals.get(slot.itemId);
-      if (existing) {
-        existing.count += slot.count;
-        return;
-      }
-      totals.set(slot.itemId, {
+      if (!definition) return null;
+      return {
+        slotIndex: index,
         itemId: slot.itemId,
         name: definition.name,
-        count: slot.count,
-        placeable,
-        // `givable` 决定"拖到单位身上"能不能生效；`placeable` 决定"拖到地上"。
-        givable
-      });
-    });
-    return [...totals.values()].sort((a, b) => {
-      if (a.placeable !== b.placeable) return a.placeable ? -1 : 1;
-      return String(a.itemId).localeCompare(String(b.itemId));
+        count: slot.count ?? 1,
+        useKind: itemUseKind(slot.itemId),
+        placeable: Boolean(definition.placeable?.unitType),
+        givable: itemIsGivable(slot.itemId)
+      };
     });
   }
 
+  /** 这一格的东西从哪里出（放置 / 交给单位都要按格扣）。 */
+  hotbarSource(index) {
+    return { inventory: this.hotbarInventory, slotIndex: index };
+  }
+
   /**
-   * 数字键 / 点击快捷栏：建筑进入放置模式（再按一次取消），
-   * 装备则交给当前选中的那个己方单位——点一下和拖过去是同一件事的两种手势。
+   * 用掉快捷栏的一格。
+   *
+   * 数字键、鼠标点击、以及"从槽位拖出去松手"三条路径都收敛到这里，
+   * 分发只按 `entry.useKind` 走三条：
+   *   place   → 进入放置模式（同一格再按一次 = 取消）
+   *   consume → 立刻用掉
+   *   give    → 交给当前选中的己方单位
+   * 材料之类没有"用"这个动作的东西会得到一句说明，而不是静默什么都不发生。
    */
-  activateHotbarSlot(index) {
-    const items = this.hotbarItems();
-    const entry = items[index] ?? null;
+  useHotbarSlot(index) {
+    const entry = this.hotbarItems()[index] ?? null;
     if (!entry) return { ok: false, reason: 'empty_slot' };
-    if (!entry.placeable) {
+
+    if (entry.useKind === ITEM_USE.place) {
+      // 同一格再按一次就取消：老手感，保留。
+      if (this.placingItem?.itemId === entry.itemId
+        && this.placingItem?.source?.inventory === this.hotbarInventory
+        && this.placingItem?.source?.slotIndex === index) {
+        this.cancelPlacement();
+        this.hotbar?.refresh?.();
+        return { ok: true, cancelled: true, itemId: entry.itemId };
+      }
+      const result = this.beginPlacement(entry.itemId, { source: this.hotbarSource(index) });
+      this.hotbar?.refresh?.();
+      return result;
+    }
+
+    if (entry.useKind === ITEM_USE.consume) {
+      const result = this.useConsumable(entry.itemId, { source: this.hotbarSource(index) });
+      this.hotbar?.refresh?.();
+      this.backpack?.markDirty?.();
+      return result;
+    }
+
+    if (entry.useKind === ITEM_USE.give) {
       const unit = this.selectedUnit ?? null;
       if (!unit || unit.team !== TEAMS.PLAYER) {
         this.hints?.setHintOnce?.(
-          `${entry.name}：拖到单位身上就能交给它`,
+          `${entry.name}：先选中一个己方单位，或直接拖到单位身上`,
           `hotbar-give-hint:${entry.itemId}`
         );
         return { ok: false, reason: 'no_unit_target', itemId: entry.itemId };
       }
-      return this.giveItemToUnit(entry.itemId, unit);
+      return this.giveItemToUnit(entry.itemId, unit, { source: this.hotbarSource(index) });
     }
-    if (this.placingItem?.itemId === entry.itemId) {
-      this.cancelPlacement();
-      this.hotbar?.refresh?.();
-      return { ok: true, cancelled: true, itemId: entry.itemId };
-    }
-    const result = this.beginPlacement(entry.itemId);
-    this.hotbar?.refresh?.();
-    return result;
+
+    this.hints?.setHintOnce?.(
+      `${entry.name}不能直接使用：能用的是建筑、消耗品和装备`,
+      `hotbar-unusable:${entry.itemId}`
+    );
+    return { ok: false, reason: 'not_usable', itemId: entry.itemId };
+  }
+
+  /** 旧名字：数字键与既有验收脚本都叫 activateHotbarSlot。 */
+  activateHotbarSlot(index) {
+    return this.useHotbarSlot(index);
   }
 
   /**
-   * 把基地库存里的一件物品交给一个单位。
+   * 用掉一个消耗品。
    *
-   * 走 `transferBaseSlotToUnit`（按**格**搬）：快捷栏里的装备全是实例物品
-   * （工具 / 武器 / 符文石 / 魔力石，stackLimit 都是 1），一格就是一件，
-   * 所以"搬一格"与"给一件"在这里是同一件事。堆叠类物品不进快捷栏（见 items.itemIsGivable），
-   * 所以不存在"把 200 个木材一次性塞给傀儡"这种误操作。
+   * **所有消耗品的"用"都写在这里**，免得同一种东西在"点快捷栏"和"拖出去"
+   * 两条路径上有两种效果。目前只有招募令一种（`category: 'consumable'`）：
+   * 用它 = 招募当前选中的那个可招募单位。
    */
-  giveItemToUnit(itemId, unit) {
+  useConsumable(itemId, { source = null } = {}) {
+    if (itemId === RECRUITMENT_ORDER_ITEM_ID) {
+      const unit = this.selectedUnit ?? null;
+      if (!unit || !this.recruitStatusFor(unit).visible) {
+        this.hints?.setHintOnce?.(
+          '招募令：先选中一个可以招募的野外单位再用',
+          'hotbar-consume:recruit'
+        );
+        return { ok: false, reason: 'no_target', itemId };
+      }
+      return this.recruitUnit(unit, { source });
+    }
+    if (itemId === WOOD_PUPPET_KIT_ITEM_ID) {
+      return this.summonWoodPuppetFromKit({ source });
+    }
+    this.hints?.setHintOnce?.(
+      `${ITEM_DEFINITIONS[itemId]?.name ?? itemId}现在没有可以使用的地方`,
+      `hotbar-consume:${itemId}`
+    );
+    return { ok: false, reason: 'no_use', itemId };
+  }
+
+  /**
+   * 把一件物品交给一个单位。
+   *
+   * `source` 指定从**哪个容器的哪一格**出：快捷栏的装备走
+   * `{ inventory: hotbarInventory, slotIndex }`，不传就是基地背包里的任意一格。
+   * 按格搬是硬要求——实例物品（工具 / 武器 / 符文石 / 魔力石，stackLimit 都是 1）
+   * 一格就是一件，扣错格子等于凭空换了一件。
+   */
+  giveItemToUnit(itemId, unit, { source = null } = {}) {
     if (!unit?.alive) return { ok: false, reason: 'no_unit' };
     const bag = this.itemBagFor(unit, { create: true });
     if (!bag) {
       this.hints?.setHintOnce?.(`${unit.name}没有物品背包`, `hotbar-give-nobag:${unit.id}`);
       return { ok: false, reason: 'unit_has_no_bag' };
     }
-    const slotIndex = this.baseInventory?.slots?.findIndex((slot) => slot?.itemId === itemId) ?? -1;
+    const from = this.resolveItemSource(itemId, source);
+    if (!from) return { ok: false, reason: 'not_in_stock' };
+    const slotIndex = Number.isInteger(from.slotIndex)
+      ? from.slotIndex
+      : (from.inventory.slots?.findIndex((slot) => slot?.itemId === itemId) ?? -1);
     if (slotIndex < 0) return { ok: false, reason: 'not_in_stock' };
-    const result = this.transferBaseSlotToUnit(slotIndex, unit);
+
+    const result = this.transferInventoryEntry(from.inventory, bag, slotIndex);
     const name = ITEM_DEFINITIONS[itemId]?.name ?? itemId;
     if (result?.ok) {
+      // 背包缓存不会自己失效：工具列表与卸货清单都从缓存派生。
+      this.onUnitBackpackChanged(unit);
       this.hints?.setHint?.(
         `${name} 已交给${unit.name}（在单位背包里点「装备」才会生效）`,
         `hotbar-give:${unit.id}:${itemId}`
       );
       this.hotbar?.refresh?.();
+      this.backpack?.markDirty?.();
     } else {
       this.hints?.setHintOnce?.(`${unit.name}的背包放不下${name}`, `hotbar-give-full:${unit.id}`);
     }
@@ -6167,11 +6634,13 @@ export class Game {
   }
 
   /**
-   * 快捷栏拖拽的落点处理（需求：拖给单位 / 拖建筑建造）。
+   * 快捷栏拖拽的落点处理（需求：拖给单位 / 拖建筑建造 / 拖消耗品直接用）。
    *
-   * 判定顺序是"先看有没有单位、再看能不能放地上"：
-   * 装备掉在单位身上才是给出去，掉在空地上什么都不做（不弹建筑放置）；
-   * 建筑掉在单位身上不生效，掉在地上才进入放置。
+   * 判定顺序是"先看有没有单位、再看这一格是什么用途"：
+   *   装备：掉在单位身上才是给出去，掉在空地上什么都不做；
+   *   建筑：掉在地上进入放置（落点合法就直接建起来）；
+   *   消耗品：**拖出去松手就是"用"**，落在哪里无所谓——它没有落点，只有使用；
+   *   材料：不报错，但说清"这件东西不能直接使用"。
    * 返回 `{ok, target, unit?, itemId?, reason?}`，UI 直接用它决定提示文案。
    */
   dropHotbarItemAt(index, clientX, clientY) {
@@ -6187,14 +6656,14 @@ export class Game {
         ignoreOwnership: true
       })
       : null;
-    if (entry.givable && unit) {
-      const given = this.giveItemToUnit(entry.itemId, unit);
+    if (entry.useKind === ITEM_USE.give && unit) {
+      const given = this.giveItemToUnit(entry.itemId, unit, { source: this.hotbarSource(index) });
       return given.ok
         ? { ok: true, target: 'unit', unit, itemId: entry.itemId }
         : { ok: false, target: 'unit', unit, itemId: entry.itemId, reason: given.reason };
     }
-    if (entry.placeable) {
-      const started = this.beginPlacement(entry.itemId);
+    if (entry.useKind === ITEM_USE.place) {
+      const started = this.beginPlacement(entry.itemId, { source: this.hotbarSource(index) });
       if (!started.ok) return { ok: false, itemId: entry.itemId, reason: started.reason };
       const point = this.groundPointFromClient(clientX, clientY);
       if (!point) {
@@ -6206,11 +6675,23 @@ export class Game {
         ok: placed?.ok !== false,
         target: 'ground',
         itemId: entry.itemId,
-        reason: placed?.reason ?? null
+        reason: placed?.reason ?? null,
+        // 落点不合法时带上人话说明（"离供能范围太远"这类），界面直接显示
+        label: placed?.label ?? null
       };
     }
+    if (entry.useKind === ITEM_USE.consume) {
+      const used = this.useConsumable(entry.itemId, { source: this.hotbarSource(index) });
+      return used.ok
+        ? { ok: true, target: 'use', itemId: entry.itemId }
+        : { ok: false, itemId: entry.itemId, reason: used.reason };
+    }
+    if (entry.useKind === ITEM_USE.give) {
+      // 装备只有掉在单位身上才有意义：掉在空地上什么都不做（也不该弹建筑放置）
+      return { ok: false, unit: null, itemId: entry.itemId, reason: 'no_target' };
+    }
     if (unit) return { ok: false, target: 'unit', unit, itemId: entry.itemId, reason: 'not_givable' };
-    return { ok: false, itemId: entry.itemId, reason: 'no_target' };
+    return { ok: false, itemId: entry.itemId, reason: 'not_usable' };
   }
 
   finishLevel(victory, { endReason = null } = {}) {
@@ -6541,6 +7022,10 @@ export class Game {
         this.cancelPlacement();
         return;
       }
+      if (this.resourceBoxSelect) {
+        this.cancelResourceBoxSelect();
+        return;
+      }
       this.issueMoveCommand(event);
       return;
     }
@@ -6587,7 +7072,14 @@ export class Game {
   }
 
   onKeyDown(event) {
-    if (isTextInputTarget(event.target)) return;
+    const key = event.key.toLowerCase();
+    const tuningRoot = this.renderTuningUi?.root;
+    // 调参面板全是滑块和取色器，点过控件后焦点会留在 input 上。
+    // 这时仍要让 Shift+F4 把面板关掉，不能被下面的输入框拦截吃掉。
+    const tuningToggle = key === 'f4' && event.shiftKey && !event.repeat && tuningRoot && (
+      !tuningRoot.hidden || tuningRoot.contains(event.target)
+    );
+    if (isTextInputTarget(event.target) && !tuningToggle) return;
     if (this.networkTerminated) {
       event.preventDefault();
       return;
@@ -6600,7 +7092,6 @@ export class Game {
       return;
     }
     if (event.repeat) return;
-    const key = event.key.toLowerCase();
     // E：给鼠标指向（其次当前选中）的己方单位打开背包。背包界面只有一种，
     // 左边是背包网格、右边是配方，所以 E 与 B 的差别只是"开谁的"。
     if (key === 'e' && !event.ctrlKey && !event.metaKey && !event.altKey) {
@@ -6614,8 +7105,8 @@ export class Game {
       this.toggleBaseBackpack();
       return;
     }
-    // 数字键 1-9：物品快捷栏。放的是基地里可放置的建筑，按一次进入放置模式，
-    // 再按一次取消——比"开面板找那件东西点放置"少两步。
+    // 数字键 1-9：用掉快捷栏对应的那一格（建筑进放置模式、消耗品直接用掉、
+    // 装备交给选中单位）。能放什么、放在第几格由玩家在 B 面板里拖出来决定。
     if (!event.ctrlKey && !event.metaKey && !event.altKey && /^[1-9]$/.test(key)) {
       const slotIndex = Number(key) - 1;
       const result = this.activateHotbarSlot(slotIndex);
@@ -6624,24 +7115,37 @@ export class Game {
         return;
       }
     }
-    if (key === 'f2') {
+    const functionKey = /^f(\d{1,2})$/.exec(key);
+    const functionIndex = functionKey ? Number(functionKey[1]) : 0;
+    if (functionIndex >= 1 && functionIndex <= 12 && !event.ctrlKey && !event.metaKey && !event.altKey) {
       event.preventDefault();
-      this.togglePerfChart();
+      if (event.shiftKey) {
+        if (functionIndex === 2) this.togglePerfChart();
+        if (functionIndex === 4) {
+          this.setPlayerBaseInvincible(true);
+          this.toggleRenderTuningPanel();
+          if (this.renderTuningUi?.root?.hidden) {
+            const active = document.activeElement;
+            if (active && this.renderTuningUi.root.contains(active)) active.blur();
+          }
+        }
+        if (functionIndex === 6) this.toggleLevelTestMode();
+        return;
+      }
+      this.beginResourceBoxSelect(functionIndex);
       return;
     }
-    if (key === 'f4') {
+    if (key === 'g' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
       event.preventDefault();
-      this.setPlayerBaseInvincible(true);
-      this.toggleRenderTuningPanel();
-      return;
-    }
-    if (key === 'f6') {
-      event.preventDefault();
-      this.toggleLevelTestMode();
+      this.beginResourceBoxSelect(4);
       return;
     }
     if (key === 'escape') {
       event.preventDefault();
+      if (this.resourceBoxSelect) {
+        this.cancelResourceBoxSelect();
+        return;
+      }
       // 放置模式优先取消，不要一点 Esc 就把整个游戏暂停了
       if (this.isPlacing()) {
         this.cancelPlacement();
@@ -6728,6 +7232,12 @@ export class Game {
     // 放置预览跟着指针走：不更新的话玩家看不到自己要放在哪
     if (this.isPlacing()) this.updatePlacementPreview(event.clientX, event.clientY);
     this.pointerScreen.set(event.clientX, event.clientY);
+    if (event.target === this.canvas) {
+      this.updateHoverHighlight(event.clientX, event.clientY);
+    }
+    if (this.resourceBoxSelect) {
+      this.updateResourceBoxSelectHudPosition(event.clientX, event.clientY);
+    }
     if (event.pointerType === 'touch') {
       this.trackTouchPointer(event);
       if (this.updateTouchGesture(event)) return;
@@ -6743,6 +7253,7 @@ export class Game {
       this.selectionDrag.active = true;
     }
     this.updateSelectionBox();
+    if (this.resourceBoxSelect) this.syncResourceBoxSelectVisuals();
   }
 
   onCanvasPointerUp(event) {
@@ -6768,6 +7279,11 @@ export class Game {
         this.selectUnits([], { mode: 'none' });
       }
       this.setMobileBoxSelectMode(false);
+      return;
+    }
+
+    if (this.resourceBoxSelect) {
+      this.finishResourceBoxSelect(drag, event.clientX, event.clientY);
       return;
     }
 
@@ -7098,6 +7614,102 @@ export class Game {
     return this.pickUnitFromList(this.enemyUnits, clientX, clientY, options);
   }
 
+  shouldUpdateHoverHighlight() {
+    if (this.destroyed || this.paused || this.networkTerminated) return false;
+    if (document.body.classList.contains('is-meta-open')) return false;
+    if (this.isPlacing() || this.resourceBoxSelect) return false;
+    if (this.selectionDrag?.active || this.cameraDrag) return false;
+    if (this.backpack?.isOpen?.() || this.facilityPanel?.isOpen?.()) return false;
+    return true;
+  }
+
+  clearHoverHighlight() {
+    if (this.hoverHighlightRoot) {
+      clearHoverOutline();
+      this.hoverHighlightRoot = null;
+    }
+    this.hoverHighlightKey = '';
+    this.hoverHighlightScope = 'subtree';
+    this.canvas?.classList.remove('is-clickable-hover');
+  }
+
+  updateHoverHighlight(clientX, clientY) {
+    if (!this.shouldUpdateHoverHighlight()) {
+      this.clearHoverHighlight();
+      return;
+    }
+    const unit = this.pickHoverUnit(clientX, clientY);
+    if (unit) {
+      const key = `unit:${unit.id}`;
+      if (this.hoverHighlightKey === key) return;
+      this.clearHoverHighlight();
+      this.hoverHighlightKey = key;
+      this.hoverHighlightScope = 'subtree';
+      this.hoverHighlightRoot = unit.mesh ?? null;
+      const outlineColor = unit.team === TEAMS.PLAYER
+        ? HOVER_OUTLINE_COLORS.friendly
+        : HOVER_OUTLINE_COLORS.enemy;
+      applyHoverOutline(this.hoverHighlightRoot, outlineColor, { scope: 'subtree' });
+      this.canvas?.classList.add('is-clickable-hover');
+      return;
+    }
+    const resourcePick = this.pickHoverResourceNode(clientX, clientY);
+    if (resourcePick) {
+      const { node, object } = resourcePick;
+      const key = `resource:${node.id}:${object.uuid}`;
+      if (this.hoverHighlightKey === key) return;
+      this.clearHoverHighlight();
+      this.hoverHighlightKey = key;
+      this.hoverHighlightScope = 'mesh';
+      this.hoverHighlightRoot = object;
+      applyHoverOutline(object, HOVER_OUTLINE_COLORS.resource, { scope: 'mesh' });
+      this.canvas?.classList.add('is-clickable-hover');
+      return;
+    }
+    this.clearHoverHighlight();
+  }
+
+  pickHoverUnit(clientX, clientY) {
+    const units = [];
+    this.friendlyUnits.forEach((unit) => {
+      if (unit?.alive && this.canInspectUnit(unit)) units.push(unit);
+    });
+    this.enemyUnits.forEach((unit) => {
+      if (unit?.alive) units.push(unit);
+    });
+    if (!units.length) return null;
+    return this.pickUnitFromList(units, clientX, clientY, {
+      ignoreOwnership: true,
+      screenRadius: 38
+    });
+  }
+
+  pickHoverResourceNode(clientX, clientY) {
+    const nodes = this.resourceNodes?.activeNodes?.() ?? [];
+    if (!nodes.length) return null;
+    this.setPointerFromClient(clientX, clientY);
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    const roots = [];
+    const rootToNode = new Map();
+    nodes.forEach((node) => {
+      const root = resourceNodeObjectRoot(node);
+      if (!root) return;
+      roots.push(root);
+      rootToNode.set(root, node);
+    });
+    if (!roots.length) return null;
+    const hit = this.raycaster.intersectObjects(roots, true)[0];
+    if (!hit?.object) return null;
+    let current = hit.object;
+    while (current) {
+      if (rootToNode.has(current)) {
+        return { node: rootToNode.get(current), object: hit.object };
+      }
+      current = current.parent;
+    }
+    return null;
+  }
+
   pickUnitFromList(units, clientX, clientY, options = {}) {
     this.setPointerFromClient(clientX, clientY);
     this.raycaster.setFromCamera(this.pointer, this.camera);
@@ -7174,21 +7786,28 @@ export class Game {
     if (!units.length) return false;
     const commandCenter = this.resolveCommandPoint(point);
     if (!commandCenter) return false;
-    // 点在一个还能采的资源点附近时，选中的傀儡改为「去采这里」而不是走过去站着。
-    // 只在这里（一次点击）做节点距离判定，绝不放进每帧循环——activeNodes() 会遍历节点表。
-    if (this.issueHarvestOrders(commandCenter, units)) return true;
-    const formationRadius = Math.min(2.4, 0.55 + Math.sqrt(units.length) * 0.42);
-    const forceMoveUnits = [];
+    const workers = units.filter((unit) => unit.isWorker === true);
+    const movers = units.filter((unit) => unit.isWorker !== true);
+    if (workers.length && this.work?.beginRally) {
+      workers.forEach((unit) => this.work.beginRally(unit, commandCenter));
+      this.effects.spawnMoveDestination(
+        commandCenter,
+        Math.min(2.4, 0.55 + Math.sqrt(workers.length) * 0.42),
+        this.playerVisualColor(workers[0] ?? this.localPlayerSlot)
+      );
+    }
+    if (!movers.length) return workers.length > 0;
+    const formationRadius = Math.min(2.4, 0.55 + Math.sqrt(movers.length) * 0.42);
+    const commandedUnits = [];
     let commanded = false;
-    units.forEach((unit, index) => {
+    movers.forEach((unit, index) => {
       const destination = this.resolveCommandPoint(
         commandCenter.clone().add(commandFormationOffset(index, units.length, formationRadius))
       );
       if (!destination) return;
       commanded = true;
-      const forceMove = this.isUnitEngaged(unit);
-      unit.commandMoveGoal = forceMove ? destination.clone() : null;
-      unit.moveGoal = destination.clone();
+      unit.commandMoveGoal = destination.clone();
+      unit.moveGoal = null;
       unit.moveGoalUsesDirectSteering = false;
       unit.directMoveBlocked = false;
       unit.directMoveBlockedTime = 0;
@@ -7196,16 +7815,17 @@ export class Game {
       this.clearUnitRoute(unit);
       unit.target = null;
       unit.controlMode = 'normal';
-      // 移动途中遇敌会先追击作战、打完继续前往；到达目的地后把落点记为新的返回位置
       unit.homePoint = null;
-      if (forceMove) forceMoveUnits.push(unit);
+      commandedUnits.push(unit);
     });
-    if (!commanded) return false;
-    this.attacks.cancelPendingAttacksFor(forceMoveUnits);
+    if (!commanded && !workers.length) return false;
+    if (commandedUnits.length) {
+      this.attacks.cancelPendingAttacksFor(commandedUnits);
+    }
     this.effects.spawnMoveDestination(
       commandCenter,
       formationRadius,
-      this.playerVisualColor(units[0] ?? this.localPlayerSlot)
+      this.playerVisualColor(movers[0] ?? this.localPlayerSlot)
     );
     return true;
   }
@@ -7440,7 +8060,9 @@ export class Game {
       this.updateUnitVisual(this.enemyUnits[i], dt);
     }
     this.updateStructureStatusElement(this.playerBase, dt);
-    this.updateStructureStatusElement(this.enemyCamp, dt);
+    if (this.usesEnemyCamp()) {
+      this.updateStructureStatusElement(this.enemyCamp, dt);
+    }
   }
 
   updateUnitVisual(unit, dt) {
@@ -7488,6 +8110,10 @@ export class Game {
   updateStructureStatusElement(structure, dt = 0) {
     const element = structure.statusElement;
     if (!element?.parts) return;
+    if (structure === this.enemyCamp && !this.usesEnemyCamp()) {
+      element.hidden = true;
+      return;
+    }
     const hpRatio = clamp(structure.health / structure.maxHealth, 0, 1);
     const durabilityRatio = clamp(
       structure.structureDurability / Math.max(1, structure.maxStructureDurability),
@@ -7607,15 +8233,7 @@ export class Game {
     };
   }
 
-  /**
-   * 点选单位后在其下方扇形展开的交互菜单（背包 / 招募 / 停止）。
-   *
-   * 必须在**每帧**调用：菜单的位置是世界坐标投影出来的，单位在移动、镜头在平移时
-   * 每帧都会变。之前它挂在 updateHud() 里，而 updateHud 有 0.1s 节流
-   * （hudUpdateTimer），于是菜单只有 10Hz 的跟随——表现就是"扇形菜单跟着单位一顿
-   * 一顿地追"，手感像掉帧。按钮的 DOM 只在签名变化时重建（见 UnitActionMenu.sync），
-   * 每帧成本只有一次投影与两次 style 写入。
-   */
+  /** 单选单位时在快捷栏上方同步操作条（背包 / 招募 / 停止 / 设施）。 */
   syncUnitActionMenu() {
     this.unitActionMenu?.sync?.();
   }
@@ -8701,6 +9319,12 @@ function hashStringToSeed(value) {
   return hash >>> 0;
 }
 
+function resourceMarkColor(priority) {
+  const level = Math.max(1, Math.min(12, Math.round(Number(priority) || 4)));
+  const hue = 28 + (level - 1) * 16;
+  return `hsl(${hue}, 72%, 58%)`;
+}
+
 function escapeHtml(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -8713,10 +9337,79 @@ function cssKey(value) {
   return String(value ?? 'item').toLowerCase().replace(/[^a-z0-9-]/g, '-');
 }
 
+function resourceNodeObjectRoot(node) {
+  return node?.handle?.object ?? node?.object ?? null;
+}
+
+const RESOURCE_DIM_TINT = new THREE.Color(0x505050);
+const RESOURCE_DIM_LERP = 0.58;
+
+function ensureResourceVisualMaterialInstance(mesh) {
+  if (!mesh?.isMesh || mesh.userData.resourceVisualMaterialInstanced) return;
+  if (Array.isArray(mesh.material)) {
+    mesh.material = mesh.material.map((material) => material?.clone?.() ?? material);
+  } else if (mesh.material?.clone) {
+    mesh.material = mesh.material.clone();
+  }
+  mesh.userData.resourceVisualMaterialInstanced = true;
+}
+
+function setResourceNodeVisualTone(root, tone) {
+  if (!root) return;
+  root.traverse((node) => {
+    if (!node.isMesh) return;
+    ensureResourceVisualMaterialInstance(node);
+    const materials = Array.isArray(node.material) ? node.material : [node.material];
+    materials.forEach((material) => applyResourceMaterialTone(material, tone));
+  });
+}
+
+function applyResourceMaterialTone(material, tone) {
+  if (!material?.color) return;
+  if (!material.userData.resourceToneSaved) {
+    material.userData.resourceToneSaved = {
+      color: material.color.getHex(),
+      emissive: material.emissive?.getHex?.() ?? 0,
+      emissiveIntensity: material.emissiveIntensity ?? 0
+    };
+  }
+  const saved = material.userData.resourceToneSaved;
+  if (tone === 'dim') {
+    material.color.setHex(saved.color);
+    material.color.lerp(RESOURCE_DIM_TINT, RESOURCE_DIM_LERP);
+    if (material.emissive) {
+      material.emissive.setHex(saved.emissive);
+      material.emissiveIntensity = saved.emissiveIntensity * 0.25;
+    }
+    return;
+  }
+  material.color.setHex(saved.color);
+  if (material.emissive) {
+    material.emissive.setHex(saved.emissive);
+    material.emissiveIntensity = tone === 'highlight'
+      ? Math.max(saved.emissiveIntensity, 0.14)
+      : saved.emissiveIntensity;
+  }
+}
+
 function createSelectionBoxElement() {
   const element = document.createElement('div');
   element.className = 'selection-box';
   element.hidden = true;
+  document.body.appendChild(element);
+  return element;
+}
+
+function createResourceBoxSelectHudElement() {
+  const element = document.createElement('div');
+  element.id = 'resource-box-select-hud';
+  element.className = 'resource-box-select-hud';
+  element.hidden = true;
+  element.innerHTML = `
+    <span class="resource-box-select-hud__title">资源框选</span>
+    <span class="resource-box-select-hud__priority">优先级 <strong data-resource-box-priority>4</strong></span>
+    <span class="resource-box-select-hud__hint">拖拽框选 · Esc 取消</span>
+  `;
   document.body.appendChild(element);
   return element;
 }
@@ -8982,10 +9675,14 @@ function createRenderTuningPanel() {
   root.setAttribute('aria-label', '渲染调参');
   root.innerHTML = `
     <div class="render-tuning-header">
-      <strong>渲染调参</strong>
+      <div class="render-tuning-title">
+        <strong>渲染调参</strong>
+        <span class="render-tuning-hint">Shift+F4 开关</span>
+      </div>
       <div class="render-tuning-actions">
         <button type="button" data-render-action="reset">重置</button>
         <button type="button" data-render-action="copy">复制参数</button>
+        <button type="button" class="render-tuning-close" data-render-action="close" aria-label="关闭调参">×</button>
       </div>
     </div>
     <div class="render-tuning-grid">
@@ -9036,6 +9733,7 @@ function createRenderTuningPanel() {
       </fieldset>
       <fieldset>
         <legend>描边效果</legend>
+        ${renderToggleControl('outlineEnabled', '开启场景描边')}
         ${renderSliderControl('outlineThickness', '描边粗细', 0, 3.0, 0.1)}
         ${renderColorControl('outlineColor', '描边颜色')}
         ${renderSliderControl('outlineThreshold', '描边阈值', 0.05, 0.5, 0.01)}
@@ -9069,6 +9767,15 @@ function renderSliderControl(key, label, min, max, step) {
     <label class="render-tuning-row">
       <span>${label}<strong data-render-value="${key}"></strong></span>
       <input data-render-tuning="${key}" type="range" min="${min}" max="${max}" step="${step}" />
+    </label>
+  `;
+}
+
+function renderToggleControl(key, label) {
+  return `
+    <label class="render-tuning-row render-tuning-row-toggle">
+      <span>${label}<strong data-render-value="${key}"></strong></span>
+      <input data-render-tuning="${key}" type="checkbox" />
     </label>
   `;
 }
@@ -9194,6 +9901,7 @@ function defaultRenderTuningForWorld(worldConfig = BALANCE.world) {
     aoScale: finiteNumber(headDefaults?.aoScale, 2.6),
     aoKernelRadius: finiteNumber(headDefaults?.aoKernelRadius, 32),
     aoBias: finiteNumber(headDefaults?.aoBias, 0.08),
+    outlineEnabled: headDefaults?.outlineEnabled === true,
     outlineThickness: finiteNumber(headDefaults?.outlineThickness, 0.8),
     outlineColor: colorToHex(headDefaults?.outlineColor, '#445566'),
     outlineThreshold: finiteNumber(headDefaults?.outlineThreshold, 0.22)
@@ -9251,6 +9959,7 @@ function normalizeRenderTuning(settings = {}, worldConfig = BALANCE.world) {
     aoScale: clamp(finiteNumber(settings.aoScale, defaults.aoScale), 0.1, 10.0),
     aoKernelRadius: clamp(finiteNumber(settings.aoKernelRadius, defaults.aoKernelRadius), 1, 100),
     aoBias: clamp(finiteNumber(settings.aoBias, defaults.aoBias), 0, 1.0),
+    outlineEnabled: settings.outlineEnabled === true || settings.outlineEnabled === 'true',
     outlineThickness: clamp(finiteNumber(settings.outlineThickness, defaults.outlineThickness), 0, 3.0),
     outlineColor: colorToHex(settings.outlineColor, defaults.outlineColor),
     outlineThreshold: clamp(finiteNumber(settings.outlineThreshold, defaults.outlineThreshold), 0.05, 0.5)
@@ -9297,6 +10006,7 @@ function renderTuningExportText(settings, worldConfig = BALANCE.world, camera = 
       bias: normalized.aoBias
     },
     outline: {
+      enabled: normalized.outlineEnabled,
       thickness: normalized.outlineThickness,
       color: normalized.outlineColor,
       threshold: normalized.outlineThreshold
@@ -9324,6 +10034,7 @@ function renderTuningExportText(settings, worldConfig = BALANCE.world, camera = 
 
 function formatRenderTuningValue(key, value) {
   if (key === 'toneMapping') return RENDER_TONE_MAPPING_LABELS[value] ?? value;
+  if (key === 'outlineEnabled') return value ? '开' : '关';
   if (typeof value === 'string') return value.toUpperCase();
   if (key === 'hue') return `${Math.round(value)}°`;
   if (['sunX', 'sunY', 'sunZ', 'fogNear', 'fogFar'].includes(key)) return `${Math.round(value)}`;

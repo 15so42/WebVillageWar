@@ -207,6 +207,34 @@ export class Inventory {
     return { ok: true, itemId: slot.itemId, data: slot.data ?? null, error: INVENTORY_ERROR.none };
   }
 
+  /**
+   * 从**指定的那一格**取走东西。
+   *
+   * `remove(itemId, n)` 取的是"这种物品在库存里的总量"，落点由它自己挑（第一个匹配的格子）。
+   * 但"玩家点的是哪一格，就花哪一格"的场景不能这么算：同一种建筑分两格放时，
+   * 扣错了格子会让另一格凭空少一件——快捷栏与放置流程都是按格操作的。
+   * 实例类物品（count 恒为 1）走这里也天然正确：扣完那一格就空了。
+   */
+  removeAt(index, count = 1) {
+    const slot = this.slots[index];
+    if (!slot?.itemId) return { ok: false, removed: 0, error: INVENTORY_ERROR.notEnough };
+    const wanted = Math.max(1, Math.floor(Number(count) || 1));
+    const available = Math.max(1, Math.round(slot.count ?? 1));
+    const taken = Math.min(wanted, available);
+    const itemId = slot.itemId;
+    if (taken >= available) {
+      this.slots[index] = null;
+    } else {
+      slot.count = available - taken;
+    }
+    return {
+      ok: taken === wanted,
+      removed: taken,
+      itemId,
+      error: taken === wanted ? INVENTORY_ERROR.none : INVENTORY_ERROR.notEnough
+    };
+  }
+
   // 跨容器转移。先确认目标装得下再动手；万一中途失败会把东西放回原处，
   // 保证不会出现「两边都没有」的瞬间丢件。
   transferTo(target, itemId, count = null) {

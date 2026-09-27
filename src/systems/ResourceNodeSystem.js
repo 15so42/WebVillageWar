@@ -111,6 +111,8 @@ export class ResourceNodeSystem {
       this.state.set(node.id, normalizeResourceNodeState(node, node));
       const entry = this.state.get(node.id);
       entry.handle = node;
+      const root = node?.object;
+      if (root) root.userData.resourceNodeId = node.id;
     });
     return this;
   }
@@ -128,6 +130,8 @@ export class ResourceNodeSystem {
     if (!node?.id || this.state.has(node.id)) return null;
     const entry = normalizeResourceNodeState(node, node);
     entry.handle = node;
+    const root = node?.object;
+    if (root) root.userData.resourceNodeId = node.id;
     this.state.set(node.id, entry);
     return entry;
   }

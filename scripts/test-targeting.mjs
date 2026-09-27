@@ -97,4 +97,47 @@ assert.equal(
   'player targeting should use the same nearest-unit rule'
 );
 
+const wolf = {
+  id: 7,
+  alive: true,
+  team: TEAMS.ENEMY,
+  isWildlife: true,
+  position: { x: 80, y: 0, z: 0 }
+};
+const fleeingPuppet = {
+  id: 8,
+  alive: true,
+  team: TEAMS.PLAYER,
+  position: { x: 82, y: 0, z: 0 },
+  collisionRadius: 0.42,
+  definition: { role: 'worker' }
+};
+const wildlifeGame = {
+  modifiers: { getAggroRange: () => 9.5 },
+  unitRegistry: { allUnits: [wolf, fleeingPuppet] },
+  playerBase: null,
+  enemyCamp: null,
+  attacks: { cancelPendingAttacksFor: () => {} }
+};
+const wildlifeTargeting = new TargetingSystem(wildlifeGame);
+wolf.target = fleeingPuppet;
+assert.equal(
+  wildlifeTargeting.isCurrentTargetValid(wolf, fleeingPuppet),
+  true,
+  'enemies should keep chasing across the map once they have a target'
+);
+assert.equal(
+  wildlifeTargeting.acquireTarget(wolf),
+  null,
+  'enemies still only acquire targets within aggro range'
+);
+wolf.position = { x: 0, y: 0, z: 0 };
+fleeingPuppet.position = { x: 3, y: 0, z: 0 };
+wildlifeTargeting.rebuild();
+assert.equal(
+  wildlifeTargeting.acquireTarget(wolf),
+  fleeingPuppet,
+  'wildlife uses the same in-range acquire rule as other enemies'
+);
+
 console.log('Nearest-unit targeting checks passed.');

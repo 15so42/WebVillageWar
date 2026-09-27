@@ -2,7 +2,23 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 
-function applyGroundShader(material, { storybookSnow = false, flatTerrain = false } = {}) {
+function applyGroundShader(material, { storybookSnow = false, flatTerrain = false, islandGround = false } = {}) {
+  // 海岛地表的顶点色只有 1.5m 分辨率：片元里再叠两层世界空间噪声，
+  // 让草地在近景也有斑驳的明暗与冷暖，沙地带细颗粒。只按颜色判断草/沙，不读额外贴图。
+  const islandDetailChunk = islandGround
+    ? `
+      float islandPatch = snoise(vWorldPos * 0.36);
+      float islandGrain = snoise(vWorldPos * 1.85);
+      float islandGreen = clamp((diffuseColor.g - max(diffuseColor.r, diffuseColor.b)) * 9.0, 0.0, 1.0);
+      float islandSand = clamp((diffuseColor.r - diffuseColor.b) * 3.0 - islandGreen, 0.0, 1.0);
+      diffuseColor.rgb *= 1.0 + islandPatch * 0.06 + islandGrain * (0.035 * islandGreen + 0.025 * islandSand);
+      diffuseColor.rgb = mix(
+        diffuseColor.rgb,
+        diffuseColor.rgb * vec3(1.1, 1.05, 0.8),
+        smoothstep(0.2, 0.85, islandPatch) * islandGreen * 0.32
+      );
+      `
+    : '';
   // 雪谷地面不做全局暖色染：冷暖对比交给方向光（暖）与半球光（冷），
   // 全场乘暖色会让阴影面也变橙，丢失参考图的向阳/背光层次
   const warmTintChunk = '';
@@ -145,6 +161,7 @@ function applyGroundShader(material, { storybookSnow = false, flatTerrain = fals
       float exposedSoil = smoothstep(0.015, 0.12, diffuseColor.r - diffuseColor.b);
       diffuseColor.rgb *= 1.0 + (grain - 0.5) * (0.02 + exposedSoil * 0.11);
       ` : ''}
+      ${islandDetailChunk}
       ${warmTintChunk}
       `
     ).replace(
@@ -155,6 +172,8 @@ function applyGroundShader(material, { storybookSnow = false, flatTerrain = fals
       `
     );
   };
+  // 默认缓存键是 onBeforeCompile 的源码，各开关共用同一段源码，必须显式区分
+  material.customProgramCacheKey = () => `ground:${storybookSnow}:${flatTerrain}:${islandGround}`;
   return material;
 }
 
@@ -254,7 +273,8 @@ function applyCliffShader(material) {
   return material;
 }
 
-import { BALANCE, RESOURCE_NODE_DEFINITIONS } from '../data/gameData.js';
+import { BALANCE, ISLAND_SPAWN_POINTS, RESOURCE_NODE_DEFINITIONS } from '../data/gameData.js';
+import { createIslandResourceModel, createIslandScatterMeshes, updateIslandWind } from '../art/islandProps.js';
 import {
   bakeWarmLighting,
   basicMat,
@@ -2129,11 +2149,31 @@ const WORLD_PRESETS = {
       snow: '#cfd6c4',
       path: '#a98f66',
       puddle: '#4f9fb0',
-      sand: '#dcc99c',
-      wetSand: '#bda87c',
+      sand: '#e6d5a6',
+      wetSand: '#c7ad7e',
       shallow: '#59c3c8',
       deep: '#155f86',
-      cliff: '#7d7768'
+      cliff: '#7d7768',
+      // 地表分区色：大尺度草甸明暗、资源区地被、基地前庭与巢穴焦土
+      meadowLight: '#8cb95a',
+      meadowDark: '#557f3e',
+      dryGrass: '#b4b266',
+      forestFloor: '#476b37',
+      leafLitter: '#7d6b3c',
+      gravel: '#9d988b',
+      ironSoil: '#6f5b4b',
+      flowerMeadow: '#93c262',
+      courtyard: '#b49b70',
+      trodden: '#9a8761',
+      scorched: '#4e4535'
+    },
+    // 纯装饰的地表散布（不可采集、不阻挡寻路），全部实例化：每类一次绘制调用。
+    // 草丛与野花颜色都取自脚下地表，数量是性能旋钮。
+    groundDetail: {
+      grassTufts: 4200,
+      flowers: 1100,
+      pebbles: 320,
+      shoreRocks: 90
     },
     materials: {
       snow: '#6f9a52',
@@ -2151,6 +2191,7 @@ const WORLD_PRESETS = {
     // 岛放大一倍之后，两者的归一化位置与放大前一致，所以仍然落在内陆。
     playerBasePosition: { x: 4, z: 40 },
     enemyCampPosition: { x: 52, z: -24 },
+    usesEnemyCamp: false,
     pathPoints: [
       { x: 4, z: 40 },
       { x: 16, z: 28 },
@@ -2233,12 +2274,13 @@ const WORLD_PRESETS = {
       { node: 'stonePile', x: 40, z: -44, rx: 10, rz: 8.8, count: 16, spacing: 1.5 },
       { node: 'stonePile', x: -48, z: 28, rx: 9.2, rz: 8, count: 14, spacing: 1.5 },
       { node: 'stonePile', x: 16, z: -32, rx: 9.2, rz: 8, count: 14, spacing: 1.5 },
-      // 铁矿：数量刻意少，留给中期
+      // 铁矿：数量刻意少，留给中期。东侧矿脉放到东岬，
+      // 和能量祭坛北面的浆果区分开，中间留出空草地。
       { node: 'ironVein', x: -36, z: -40, rx: 8, rz: 6.8, count: 10, spacing: 1.9 },
-      { node: 'ironVein', x: 44, z: 12, rx: 7.2, rz: 6.4, count: 8, spacing: 1.9 },
+      { node: 'ironVein', x: 72, z: 32, rx: 6.5, rz: 5.5, count: 8, spacing: 1.9 },
       // 食物与纤维：不需要工具，开局就能采
       { node: 'berryBush', x: -16, z: 14, rx: 12, rz: 10, count: 20 },
-      { node: 'berryBush', x: 32, z: 8, rx: 10, rz: 8.8, count: 16 },
+      { node: 'berryBush', x: 18, z: -4, rx: 8, rz: 7, count: 16 },
       { node: 'fiberPlant', x: -4, z: 52, rx: 12, rz: 9.2, count: 24 },
       { node: 'fiberPlant', x: 28, z: 28, rx: 10, rz: 8.8, count: 20 }
     ],
@@ -2456,12 +2498,16 @@ export function createWorld(scene, worldOptions = {}) {
   placeOnTerrain(base, basePosition.x, basePosition.z);
   bakeObjectGroundShadow(base);
   scene.add(base);
+  if (base.userData.updateWorldDecoration) activeAnimatedDecorations.push(base);
 
-  const enemyCamp = createEnemyCampModel();
-  placeOnTerrain(enemyCamp, enemyCampPosition.x, enemyCampPosition.z);
-  enemyCamp.scale.setScalar(1.35);
-  bakeObjectGroundShadow(enemyCamp);
-  scene.add(enemyCamp);
+  let enemyCamp = null;
+  if (config.usesEnemyCamp !== false) {
+    enemyCamp = createEnemyCampModel();
+    placeOnTerrain(enemyCamp, enemyCampPosition.x, enemyCampPosition.z);
+    enemyCamp.scale.setScalar(1.35);
+    bakeObjectGroundShadow(enemyCamp);
+    scene.add(enemyCamp);
+  }
 
   if (theme === 'dungeon') {
     createDungeonDecor(scene, pathPoints);
@@ -2579,7 +2625,7 @@ export function createWorld(scene, worldOptions = {}) {
       const definition = RESOURCE_NODE_DEFINITIONS[definitionId];
       if (!definition || !activeResourceNodes) return null;
       const random = seededRandom((worldConfig().seed ?? 42) + 9001 + activeResourceNodes.length * 17);
-      const object = createResourceNodeModel(definition, random);
+      const object = createResourceNodeModel(definition, random, { x, z });
       if (!object) return null;
       const position = { x, z };
       placeOnTerrainOrWall(object, position, definition.groundOffset ?? 0, definition.navRadius ?? 0.5);
@@ -3229,6 +3275,8 @@ function islandTerrainColorAt(x, z, height, palette) {
     return color;
   }
 
+  if (terrain.flat === true) return islandFlatLandColorAt(x, z, aboveWater, distance, palette, facet);
+
   // 陆地：湿沙 → 干沙 → 草地，越高越干
   const color = sand.clone();
   color.lerp(new THREE.Color(palette.wetSand ?? '#bda87c'), 1 - smoothstep(0.06, 0.44, aboveWater));
@@ -3246,6 +3294,158 @@ function islandTerrainColorAt(x, z, height, palette) {
   return color;
 }
 
+// 平坦海岛的地表：高度处处相等，所以层次全部来自「平面分区」——
+// 大尺度草甸明暗、资源区各自的地被（林下、碎石、锈土、花甸）、基地前庭、
+// 巢穴焦土、以及按海岸距离铺出的一条有宽度的沙滩。
+const ISLAND_COLOR_CACHE = new Map();
+function islandPaletteColor(palette, key, fallback) {
+  const hex = palette[key] ?? fallback;
+  let cached = ISLAND_COLOR_CACHE.get(hex);
+  if (!cached) {
+    cached = new THREE.Color(hex);
+    ISLAND_COLOR_CACHE.set(hex, cached);
+  }
+  return cached;
+}
+
+function islandValueNoise(x, z) {
+  const ix = Math.floor(x);
+  const iz = Math.floor(z);
+  const fx = x - ix;
+  const fz = z - iz;
+  const ux = fx * fx * (3 - 2 * fx);
+  const uz = fz * fz * (3 - 2 * fz);
+  const a = hash2(ix, iz);
+  const b = hash2(ix + 1, iz);
+  const c = hash2(ix, iz + 1);
+  const d = hash2(ix + 1, iz + 1);
+  return (a + (b - a) * ux) * (1 - uz) + (c + (d - c) * ux) * uz;
+}
+
+function islandFbm(x, z) {
+  return islandValueNoise(x, z) * 0.57
+    + islandValueNoise(x * 2.03 + 17.3, z * 2.03 - 9.1) * 0.29
+    + islandValueNoise(x * 4.11 - 31.7, z * 4.11 + 5.3) * 0.14;
+}
+
+const ISLAND_GROUND_COVER = {
+  oak: 'forest',
+  pine: 'forest',
+  stonePile: 'rock',
+  ironVein: 'iron',
+  berryBush: 'meadow',
+  fiberPlant: 'meadow'
+};
+
+function islandGroundCoverAt(x, z, noise) {
+  const cover = { forest: 0, rock: 0, iron: 0, meadow: 0 };
+  (worldConfig().resourceZones ?? []).forEach((zone) => {
+    const kind = ISLAND_GROUND_COVER[zone.node];
+    if (!kind) return;
+    const distance = normalizedEllipseDistanceAt(x, z, zone) + (noise - 0.5) * 0.38;
+    const inner = kind === 'forest' ? 0.72 : 0.62;
+    const outer = kind === 'forest' ? 1.18 : 1.3;
+    cover[kind] = Math.max(cover[kind], 1 - smoothstep(inner, outer, distance));
+  });
+  return cover;
+}
+
+function islandFlatLandColorAt(x, z, aboveWater, distance, palette, facet) {
+  const config = worldConfig();
+  const meadow = islandFbm(x * 0.021 + 3.1, z * 0.021 - 7.4);
+  const detail = islandFbm(x * 0.085 - 11.2, z * 0.085 + 4.7);
+  const color = islandPaletteColor(palette, 'base', '#6f9a52').clone();
+
+  color.lerp(islandPaletteColor(palette, 'meadowDark', '#557f3e'), smoothstep(0.5, 0.26, meadow) * 0.8);
+  color.lerp(islandPaletteColor(palette, 'meadowLight', '#8cb95a'), smoothstep(0.5, 0.76, meadow) * 0.72);
+  color.lerp(
+    islandPaletteColor(palette, 'dryGrass', '#b4b266'),
+    smoothstep(0.6, 0.84, detail) * smoothstep(0.42, 0.7, meadow) * 0.42
+  );
+  color.multiplyScalar(0.94 + detail * 0.12);
+
+  const cover = islandGroundCoverAt(x, z, detail);
+  if (cover.forest > 0) {
+    color.lerp(islandPaletteColor(palette, 'forestFloor', '#476b37'), cover.forest * 0.62);
+    color.lerp(islandPaletteColor(palette, 'leafLitter', '#7d6b3c'), cover.forest * smoothstep(0.56, 0.8, detail) * 0.42);
+  }
+  if (cover.rock > 0) {
+    color.lerp(islandPaletteColor(palette, 'gravel', '#9d988b'), cover.rock * (0.35 + smoothstep(0.35, 0.75, detail) * 0.4));
+  }
+  if (cover.iron > 0) {
+    color.lerp(islandPaletteColor(palette, 'ironSoil', '#6f5b4b'), cover.iron * (0.4 + smoothstep(0.4, 0.8, detail) * 0.3));
+  }
+  if (cover.meadow > 0) {
+    color.lerp(islandPaletteColor(palette, 'flowerMeadow', '#93c262'), cover.meadow * 0.4);
+  }
+
+  // 基地前庭：一片踩实的土地，边缘被草吃进去一圈
+  const base = config.playerBasePosition;
+  const baseDistance = Math.hypot(x - base.x, z - base.z) + (detail - 0.5) * 2.4;
+  const courtyard = 1 - smoothstep(4.4, 6.6, baseDistance);
+  color.lerp(islandPaletteColor(palette, 'trodden', '#9a8761'), (1 - smoothstep(6, 10, baseDistance)) * 0.34);
+  color.lerp(islandPaletteColor(palette, 'courtyard', '#b49b70'), courtyard * 0.88);
+
+  (config.altars ?? []).forEach((altar) => {
+    const position = altar.position ?? altar;
+    const d = Math.hypot(x - position.x, z - position.z) + (detail - 0.5) * 1.6;
+    color.lerp(islandPaletteColor(palette, 'trodden', '#9a8761'), (1 - smoothstep(2.4, 4.4, d)) * 0.6);
+  });
+  // 巢穴模型大约 0.6m 宽。地面那圈焦土是模拟影子，必须贴着蛋底，
+  // 不能再按旧敌营尺度铺成六七米的大圆盘。
+  ISLAND_SPAWN_POINTS.forEach((point) => {
+    const d = Math.hypot(x - point.x, z - point.z) + (detail - 0.5) * 0.16;
+    color.lerp(islandPaletteColor(palette, 'scorched', '#4e4535'), (1 - smoothstep(0.26, 0.88, d)) * 0.5);
+  });
+
+  // 沙滩：按海岸距离铺一条 6~8m 宽的沙带（仍在可走陆地内），边界用噪声打散
+  const shoreNoise = (islandFbm(x * 0.05 + 40.1, z * 0.05 - 13.7) - 0.5) * 0.05;
+  const shoreDistance = distance + shoreNoise;
+  const sandMix = smoothstep(0.655, 0.705, shoreDistance);
+  const sand = islandPaletteColor(palette, 'sand', '#e6d5a6').clone();
+  sand.multiplyScalar(0.96 + detail * 0.08);
+  color.lerp(sand, sandMix);
+  // 草地与沙滩交界的一圈稀疏干草
+  color.lerp(islandPaletteColor(palette, 'dryGrass', '#b4b266'), smoothstep(0.62, 0.66, shoreDistance) * (1 - sandMix) * 0.5);
+  // 水线附近的湿沙
+  color.lerp(islandPaletteColor(palette, 'wetSand', '#c7ad7e'), smoothstep(0.735, 0.8, distance) * (1 - smoothstep(0.1, 0.7, aboveWater) * 0.4));
+
+  color.offsetHSL(0, 0.01 * facet, 0.014 * facet);
+  return color;
+}
+
+// 构建期烘一张 256² 水深图（R = 水深 / seaDepth，陆地为 0），
+// 海面着色器用它画浅滩与浪花，运行时不再做任何地形查询。
+function createIslandCoastDepthTexture(size = 256) {
+  const config = worldConfig();
+  const waterHeight = config.landmass?.waterHeight ?? 0;
+  const seaDepth = Math.max(0.1, config.terrain?.seaDepth ?? 5);
+  const width = config.ground.width;
+  const depth = config.ground.depth;
+  const minX = -width / 2;
+  const minZ = -depth / 2;
+  const data = new Uint8Array(size * size * 4);
+  for (let row = 0; row < size; row += 1) {
+    const z = minZ + ((row + 0.5) / size) * depth;
+    for (let column = 0; column < size; column += 1) {
+      const x = minX + ((column + 0.5) / size) * width;
+      const waterDepth = clamp((waterHeight - islandSurvivalHeightAt(x, z)) / seaDepth, 0, 1);
+      const offset = (row * size + column) * 4;
+      data[offset] = Math.round(waterDepth * 255);
+      data[offset + 3] = 255;
+    }
+  }
+  const texture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat, THREE.UnsignedByteType);
+  texture.name = 'IslandCoastDepth';
+  texture.magFilter = THREE.LinearFilter;
+  texture.minFilter = THREE.LinearFilter;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.generateMipmaps = false;
+  texture.needsUpdate = true;
+  return { texture, rect: new THREE.Vector4(minX, minZ, width, depth) };
+}
+
 // 海面：一块覆盖全图（含外海）的半透明水面。起伏交给顶点着色器，
 // CPU 每帧只推进一个 uTime，不做任何逐帧几何重建。
 function createIslandOcean(scene) {
@@ -3261,9 +3461,17 @@ function createIslandOcean(scene) {
     metalness: 0,
     depthWrite: false
   });
-  const uniforms = { uTime: { value: 0 } };
+  const coast = createIslandCoastDepthTexture();
+  const uniforms = {
+    uTime: { value: 0 },
+    uCoastDepth: { value: coast.texture },
+    uCoastRect: { value: coast.rect },
+    uShallowColor: { value: new THREE.Color(config.palette?.shallow ?? '#59c3c8') },
+    uDeepColor: { value: new THREE.Color(config.landmass?.oceanColor ?? '#1d6f8f') },
+    uFoamColor: { value: new THREE.Color('#f4fbff') }
+  };
   material.onBeforeCompile = (shader) => {
-    shader.uniforms.uTime = uniforms.uTime;
+    Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = `
       uniform float uTime;
       varying vec3 vOceanWorld;
@@ -3282,16 +3490,42 @@ function createIslandOcean(scene) {
     );
     shader.fragmentShader = `
       uniform float uTime;
+      uniform sampler2D uCoastDepth;
+      uniform vec4 uCoastRect;
+      uniform vec3 uShallowColor;
+      uniform vec3 uDeepColor;
+      uniform vec3 uFoamColor;
       varying vec3 vOceanWorld;
       ${shader.fragmentShader}
     `.replace(
       '#include <color_fragment>',
       `
       #include <color_fragment>
+      // 水深 0 = 水线，1 = 海床最深处；网格之外按深海处理
+      vec2 coastUv = (vOceanWorld.xz - uCoastRect.xy) / uCoastRect.zw;
+      float coastDepth = texture2D(uCoastDepth, clamp(coastUv, 0.0, 1.0)).r;
+      float shallowMix = 1.0 - smoothstep(0.0, 0.85, coastDepth);
+      diffuseColor.rgb = mix(uDeepColor, uShallowColor, shallowMix * shallowMix * 0.9 + shallowMix * 0.1);
       // 缓慢流动的明暗带，让大面积水面不是一整块死色
       float oceanCrest =
         sin(vOceanWorld.x * 0.34 + uTime * 0.85) * cos(vOceanWorld.z * 0.30 - uTime * 0.64);
       diffuseColor.rgb *= 1.0 + oceanCrest * 0.07;
+      // 浅滩更通透，能看到沙底
+      diffuseColor.a = mix(0.86, 0.46, shallowMix);
+
+      // 浪花：贴岸一圈 + 向岸推进的断续浪线，两者都随时间呼吸
+      float foamBreak = 0.5 + 0.5 * sin(vOceanWorld.x * 0.43 + sin(vOceanWorld.z * 0.29) * 2.3 + uTime * 0.35);
+      float foamBreakB = 0.5 + 0.5 * sin(vOceanWorld.z * 0.51 - sin(vOceanWorld.x * 0.23) * 2.1 - uTime * 0.27);
+      // 岸坡上 1m 水平距离约对应 0.11 的归一化水深
+      float rimWidth = 0.1 + 0.04 * sin(uTime * 1.3 + vOceanWorld.x * 0.2 + vOceanWorld.z * 0.17);
+      float shoreFoam = 1.0 - smoothstep(rimWidth * 0.4, rimWidth, coastDepth);
+      float wavePhase = coastDepth * 3.6 + uTime * 0.16;
+      float waveLine = smoothstep(0.8, 0.96, sin(wavePhase * 6.2831853) * 0.5 + 0.5);
+      float waveFade = smoothstep(0.12, 0.2, coastDepth) * (1.0 - smoothstep(0.35, 0.7, coastDepth));
+      float waveFoam = waveLine * waveFade * smoothstep(0.35, 0.8, foamBreak * 0.6 + foamBreakB * 0.4);
+      float foam = clamp(shoreFoam * (0.7 + foamBreak * 0.3) + waveFoam * 0.75, 0.0, 1.0);
+      diffuseColor.rgb = mix(diffuseColor.rgb, uFoamColor, foam * 0.88);
+      diffuseColor.a = max(diffuseColor.a, foam * 0.92);
       `
     );
   };
@@ -3422,7 +3656,11 @@ function createGroundMaterial() {
     roughness: storybookSnow ? 0.95 : 0.9,
     metalness: 0.0,
     flatShading: config.ground?.flatShading === true
-  }), { storybookSnow, flatTerrain: config.terrain?.flat === true });
+  }), {
+    storybookSnow,
+    flatTerrain: config.terrain?.flat === true,
+    islandGround: config.sceneKey === 'island-survival'
+  });
 }
 
 function colorGroundGeometry(geometry) {
@@ -5639,6 +5877,7 @@ function placeSnowRoadOverlap(scene, pathPoints) {
   // 都应该是能采的，两种混着放会让玩家分不清哪棵砍得动。
   if ((worldConfig().resourceZones ?? []).length) {
     activeResourceNodes = placeResourceNodes(scene, pathPoints);
+    if (worldConfig().sceneKey === 'island-survival') placeIslandGroundDetail(scene, activeResourceNodes);
     return;
   }
   activeResourceNodes = null;
@@ -7427,9 +7666,18 @@ function placeDesertScrub(scene, pathPoints, random) {
 // 某一棵被采空的树。代价是每个节点一次绘制调用，换来的是每个节点都能独立改变
 // 状态，也满足存档与联机快照需要「稳定逻辑 ID」的要求。
 // ---------------------------------------------------------------------------
-function createResourceNodeModel(definition, random) {
+function createResourceNodeModel(definition, random, point = null) {
   const [minScale, maxScale] = definition.scale ?? [1, 1];
   const size = minScale + random() * Math.max(0, maxScale - minScale);
+  if (worldConfig().sceneKey === 'island-survival') {
+    const islandModel = createIslandResourceModel(definition, size, point?.x ?? 0, point?.z ?? 0);
+    if (islandModel) {
+      // 布点与模型共用一条随机流：旧的石头模型会从中取数，这里按原样消耗，
+      // 保证节点坐标（存档、联机双方、刷怪点让位）与换模型前完全一致。
+      if (definition.model === 'rock' || definition.model === 'ore') consumeLegacyRockRandom(random);
+      return islandModel;
+    }
+  }
   switch (definition.model) {
     case 'tree':
       return createWorldSnowPine(size);
@@ -7508,6 +7756,13 @@ function resourceZonePoints(zone, count, random, isValid) {
   return accepted;
 }
 
+function resourceKindsConflict(a, b) {
+  if (!a || !b || a === b) return false;
+  const meadow = a === 'food' || a === 'fiber' || b === 'food' || b === 'fiber';
+  const mineral = a === 'iron' || a === 'stone' || b === 'iron' || b === 'stone';
+  return meadow && mineral;
+}
+
 function placeResourceNodes(scene, pathPoints) {
   const config = worldConfig();
   const zones = config.resourceZones ?? [];
@@ -7521,10 +7776,16 @@ function placeResourceNodes(scene, pathPoints) {
       { ...zone, spacing: zone.spacing ?? definition.spacing },
       count,
       random,
-      (point) => isDecorationClear(point.x, point.z, pathPoints, 1.6)
+      (point) => {
+        if (!isDecorationClear(point.x, point.z, pathPoints, 1.6)) return false;
+        return nodes.every((other) => {
+          if (!resourceKindsConflict(definition.resource, other.resource)) return true;
+          return Math.hypot(other.x - point.x, other.z - point.z) >= 12;
+        });
+      }
     );
     points.forEach((point, index) => {
-      const object = createResourceNodeModel(definition, random);
+      const object = createResourceNodeModel(definition, random, point);
       if (!object) return;
       const position = { x: point.x, z: point.z };
       placeOnTerrainOrWall(object, position, definition.groundOffset ?? 0, definition.navRadius ?? 0.5);
@@ -7550,6 +7811,151 @@ function placeResourceNodes(scene, pathPoints) {
     });
   });
   return nodes;
+}
+
+// 海岛地表散布：矮草、野花、碎石与海岸礁石。纯装饰，不登记寻路阻挡；
+// 礁石只放在水线外（不可走的岸坡与浅海），不会和可走地面上的资源节点混淆。
+// 用独立的随机流，不影响资源节点布点。
+const ISLAND_FLOWER_COLORS = ['#f6f2e4', '#f5cf3f', '#ef82a8', '#a07fe2', '#ea5a4c', '#92c6f2'];
+
+function placeIslandGroundDetail(scene, nodes = []) {
+  const config = worldConfig();
+  const detail = config.groundDetail;
+  if (!detail) return;
+  const random = seededRandom((config.seed ?? 42) + 3301);
+  const bounds = config.navigationBounds ?? { minX: -100, maxX: 100, minZ: -100, maxZ: 100 };
+  const base = config.playerBasePosition;
+  const altars = (config.altars ?? []).map((altar) => altar.position ?? altar);
+
+  const cellSize = 2;
+  const nodeCells = new Map();
+  nodes.forEach((node) => {
+    if (!(node.navRadius > 0)) return;
+    const key = `${Math.floor(node.x / cellSize)},${Math.floor(node.z / cellSize)}`;
+    if (!nodeCells.has(key)) nodeCells.set(key, []);
+    nodeCells.get(key).push(node);
+  });
+  const nearNode = (x, z, padding) => {
+    const cx = Math.floor(x / cellSize);
+    const cz = Math.floor(z / cellSize);
+    for (let dx = -1; dx <= 1; dx += 1) {
+      for (let dz = -1; dz <= 1; dz += 1) {
+        const list = nodeCells.get(`${cx + dx},${cz + dz}`);
+        if (list?.some((node) => Math.hypot(node.x - x, node.z - z) < node.navRadius + padding)) return true;
+      }
+    }
+    return false;
+  };
+  const clearOfLandmarks = (x, z) => {
+    if (Math.hypot(x - base.x, z - base.z) < 7.2) return false;
+    if (altars.some((altar) => Math.hypot(x - altar.x, z - altar.z) < 4.2)) return false;
+    return !ISLAND_SPAWN_POINTS.some((point) => Math.hypot(x - point.x, z - point.z) < 1.3);
+  };
+  const randomPoint = () => ({
+    x: bounds.minX + random() * (bounds.maxX - bounds.minX),
+    z: bounds.minZ + random() * (bounds.maxZ - bounds.minZ)
+  });
+
+  const grass = [];
+  for (let attempt = 0; attempt < detail.grassTufts * 4 && grass.length < detail.grassTufts; attempt += 1) {
+    const { x, z } = randomPoint();
+    const coast = islandCoastDistanceAt(x, z);
+    if (coast > 0.675) continue;
+    const clump = islandFbm(x * 0.07 + 5.3, z * 0.07 - 2.1);
+    if (random() > 0.25 + smoothstep(0.38, 0.72, clump) * 0.75) continue;
+    if (!clearOfLandmarks(x, z) || nearNode(x, z, 0.1)) continue;
+    const y = terrainHeightAt(x, z);
+    const color = terrainColorAt(x, z, y).multiplyScalar(0.96 + random() * 0.14);
+    const scale = 0.8 + random() * 0.65;
+    grass.push({ x, y: y - 0.01, z, rotation: random() * Math.PI * 2, scale, color });
+  }
+
+  const flowers = [];
+  const flowerColors = ISLAND_FLOWER_COLORS.map((hex) => new THREE.Color(hex));
+  for (let attempt = 0; attempt < 900 && flowers.length < detail.flowers; attempt += 1) {
+    const center = randomPoint();
+    if (islandCoastDistanceAt(center.x, center.z) > 0.64) continue;
+    if (!clearOfLandmarks(center.x, center.z)) continue;
+    const cover = islandGroundCoverAt(center.x, center.z, 0.5);
+    if (cover.forest > 0.5 && random() < 0.7) continue;
+    const dominant = flowerColors[Math.floor(random() * flowerColors.length)];
+    const accent = flowerColors[Math.floor(random() * flowerColors.length)];
+    const count = 6 + Math.floor(random() * (cover.meadow > 0.3 ? 20 : 12));
+    const radius = 1.2 + random() * 2.2;
+    for (let index = 0; index < count && flowers.length < detail.flowers; index += 1) {
+      const angle = random() * Math.PI * 2;
+      const distance = Math.sqrt(random()) * radius;
+      const x = center.x + Math.cos(angle) * distance;
+      const z = center.z + Math.sin(angle) * distance;
+      if (islandCoastDistanceAt(x, z) > 0.66 || !clearOfLandmarks(x, z) || nearNode(x, z, 0.15)) continue;
+      const color = (random() < 0.82 ? dominant : accent).clone().multiplyScalar(0.9 + random() * 0.2);
+      flowers.push({
+        x,
+        y: terrainHeightAt(x, z),
+        z,
+        rotation: random() * Math.PI * 2,
+        tiltX: (random() - 0.5) * 0.3,
+        tiltZ: (random() - 0.5) * 0.3,
+        scale: 0.85 + random() * 0.5,
+        color
+      });
+    }
+  }
+
+  const pebbles = [];
+  const pebbleTones = ['#a39d91', '#8e8981', '#b3ac9c', '#7f7a73'].map((hex) => new THREE.Color(hex));
+  for (let attempt = 0; attempt < detail.pebbles * 30 && pebbles.length < detail.pebbles; attempt += 1) {
+    const { x, z } = randomPoint();
+    const coast = islandCoastDistanceAt(x, z);
+    if (coast > 0.745) continue;
+    const cover = islandGroundCoverAt(x, z, 0.5);
+    const beach = smoothstep(0.66, 0.7, coast);
+    const chance = Math.max(cover.rock * 0.9, cover.iron * 0.7, beach * 0.22);
+    if (random() > chance || !clearOfLandmarks(x, z) || nearNode(x, z, 0.05)) continue;
+    const tone = pebbleTones[Math.floor(random() * pebbleTones.length)].clone();
+    if (cover.iron > 0.4 && random() < 0.5) tone.lerp(new THREE.Color('#7a5a48'), 0.5);
+    const scale = 0.6 + random() * 1.1;
+    pebbles.push({ x, y: terrainHeightAt(x, z) - 0.01, z, rotation: random() * Math.PI * 2, scale, color: tone });
+  }
+
+  const shoreRocks = [];
+  const rockTones = ['#9a9486', '#8a867d', '#a69f8f', '#7d7a74'].map((hex) => new THREE.Color(hex));
+  for (let attempt = 0; attempt < detail.shoreRocks * 60 && shoreRocks.length < detail.shoreRocks; attempt += 1) {
+    const center = {
+      x: bounds.minX - 10 + random() * (bounds.maxX - bounds.minX + 20),
+      z: bounds.minZ - 10 + random() * (bounds.maxZ - bounds.minZ + 20)
+    };
+    const coast = islandCoastDistanceAt(center.x, center.z);
+    if (coast < 0.8 || coast > 0.9) continue;
+    const members = 1 + Math.floor(random() * 4);
+    for (let index = 0; index < members && shoreRocks.length < detail.shoreRocks; index += 1) {
+      const x = center.x + (random() - 0.5) * 4.5;
+      const z = center.z + (random() - 0.5) * 4.5;
+      const d = islandCoastDistanceAt(x, z);
+      const big = index === 0 && random() < 0.45;
+      if (d < (big ? 0.82 : 0.78) || d > 0.92) continue;
+      const scale = big ? 1.3 + random() * 1.1 : 0.4 + random() * 0.7;
+      shoreRocks.push({
+        x,
+        y: terrainHeightAt(x, z) - scale * 0.22,
+        z,
+        rotation: random() * Math.PI * 2,
+        scale,
+        scaleY: scale * (0.7 + random() * 0.6),
+        tiltX: (random() - 0.5) * 0.3,
+        tiltZ: (random() - 0.5) * 0.3,
+        color: rockTones[Math.floor(random() * rockTones.length)].clone().multiplyScalar(0.92 + random() * 0.16)
+      });
+    }
+  }
+
+  const objects = createIslandScatterMeshes({ grass, flowers, pebbles, shoreRocks });
+  objects.forEach((object) => scene.add(object));
+  const windDriver = objects.find((object) => object.name === 'IslandGrassScatter') ?? objects[0];
+  if (windDriver) {
+    windDriver.userData.updateWorldDecoration = updateIslandWind;
+    activeAnimatedDecorations?.push(windDriver);
+  }
 }
 
 function placeForests(scene, pathPoints, random) {
@@ -7679,6 +8085,20 @@ function isNearCliff(x, z, padding = 2.0) {
     }
   }
   return false;
+}
+
+// 与 createLowpolySnowRock 的取数顺序逐一对应，改那边时必须同步改这里。
+function consumeLegacyRockRandom(random) {
+  random();
+  const numSides = 5 + Math.floor(random() * 3);
+  random();
+  random();
+  for (let side = 0; side <= numSides; side += 1) {
+    for (let draw = 0; draw < 5; draw += 1) random();
+    if (random() < 0.25) random();
+  }
+  random();
+  random();
 }
 
 function createLowpolySnowRock(size = 1, random, options = {}) {

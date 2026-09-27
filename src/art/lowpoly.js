@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { createSoftParticleSprite } from './vfxMaterials.js';
+import { createIslandKeepBaseModel } from './islandProps.js';
 
 const MATERIALS = new Map();
 
@@ -8424,6 +8425,7 @@ export function createWaterOrbModel(color = '#65d8ff') {
 }
 
 export function createBaseModel({ theme = 'snow' } = {}) {
+  if (theme === 'island') return createIslandKeepBaseModel();
   const palette = baseThemePalette(theme);
   if (theme === 'snow') return createFriendlyCampBaseModel(palette, theme);
   const group = new THREE.Group();

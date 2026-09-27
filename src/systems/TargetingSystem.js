@@ -101,16 +101,6 @@ export class TargetingSystem {
       return this.nearestUnit(unit, TEAMS.ENEMY, aggroRange)
         ?? this.nearestStructure(unit, this.game.enemyCamp, aggroRange);
     }
-    if (unit.isWildlife) {
-      const friendly = this.nearestUnit(unit, TEAMS.PLAYER, aggroRange);
-      if (
-        friendly &&
-        distance2D(unit.spawnPoint, friendly.position) <= unit.leashRadius + aggroRange
-      ) {
-        return friendly;
-      }
-      return null;
-    }
     const friendly = this.nearestUnit(unit, TEAMS.PLAYER, aggroRange);
     if (friendly) return friendly;
     return this.nearestStructure(unit, this.game.playerBase, aggroRange);
@@ -118,18 +108,16 @@ export class TargetingSystem {
 
   isCurrentTargetValid(unit, target) {
     if (!target?.alive || !unit?.position) return false;
-    if (unit.isWildlife && target.position && unit.spawnPoint) {
-      const aggroRange = this.game.modifiers.getAggroRange(unit);
-      if (distance2D(unit.spawnPoint, target.position) > unit.leashRadius + aggroRange) {
-        return false;
-      }
-    }
     const targetPosition = getTargetPosition(target);
     if (!targetPosition) return false;
     const distance = Math.max(
       0,
       distance2D(unit.position, targetPosition) - targetCombatRadius(target)
     );
+    // 敌方：接上目标后一直追，不因距离或「离出生点多远」脱战
+    if (unit.team === TEAMS.ENEMY && unit.isRecruitable !== true) {
+      return true;
+    }
     return distance <= this.game.modifiers.getAggroRange(unit);
   }
 

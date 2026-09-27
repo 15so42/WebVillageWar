@@ -33,7 +33,11 @@ check('数据健全：设施都有对应的建筑定义、可放置物品与配�
     assert.ok(config.manaCapacity > 0 && config.drainPerSecond >= 0);
     assert.ok(config.restartRatio > 0 && config.restartRatio < 1, '重启门槛要在 (0,1) 之间，否则要么起不来要么没有滞回');
     assert.equal(ITEM_DEFINITIONS[config.unitType]?.placeable?.unitType, config.unitType, '必须能放置');
-    assert.ok(RECIPES[config.unitType], `${config.unitType} 必须有合成配方`);
+    if (config.unitType === 'canteen') {
+      assert.equal(RECIPES.canteen, undefined, '食堂已从合成表移除');
+    } else {
+      assert.ok(RECIPES[config.unitType], `${config.unitType} 必须有合成配方`);
+    }
   });
   assert.equal(facilityConfigForUnitType('furnace'), null, '熔炉是生产设施，不该被当成要魔力的设施');
 });

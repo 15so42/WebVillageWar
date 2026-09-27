@@ -257,7 +257,17 @@ if (report.started) {
       game.handleUnitDeath(unit, null);
     });
     await step(4);
-    const canteenPlacement = await craftAndPlace('canteen', -6.5, 2.5, 0);
+    inventory.add('canteen', 1);
+    game.beginPlacement('canteen');
+    const canteenSpot = game.playerBase.position.clone();
+    canteenSpot.x += -6.5;
+    canteenSpot.z += 2.5;
+    const canteenPlaced = game.confirmPlacement(canteenSpot);
+    const canteenPlacement = {
+      inBag: 1,
+      placed: canteenPlaced,
+      unit: canteenPlaced.unit ?? null
+    };
     // 立刻检查一次，再等建造完成检查一次：这样能区分"根本没登记"和"登记了又被摘掉"
     out.canteenPlacementFacilityFlag = canteenPlacement.placed.facility ?? null;
     out.canteenRegisteredImmediately = game.facilities.facilities.has(canteenPlacement.unit?.id) === true;

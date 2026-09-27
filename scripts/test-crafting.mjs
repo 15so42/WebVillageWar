@@ -14,7 +14,8 @@ import {
   missingInputs,
   normalizeRecipe,
   recipeById,
-  recipeInputsFor
+  recipeInputsFor,
+  refundCraft
 } from '../src/systems/crafting.js';
 import { ITEM_DEFINITIONS, RECIPES } from '../src/data/gameData.js';
 
@@ -251,6 +252,79 @@ check('实例产物放不下时整笔失败（空格数就是实例类产物的�
   const result = craftRecipe(roomy, 'axe');
   assert.equal(result.ok, true, '两格刚好放材料，扣完腾出格子后产物放得下');
   assert.equal(roomy.instancesOf('axe').length, 1);
+});
+
+// ---- 撤销合成（背包界面里右键）：材料原样退回 ----
+//
+// 界面上的流程是"点配方 → 扣材料 → 产物跟鼠标 → 右键撤销"，产物全程不进库存，
+// 所以这里模拟的是：合成 → 把产物从库存取走（相当于拿到鼠标上）→ 退款。
+
+check('撤销合成：材料原样退回，库存回到点击之前', () => {
+  const inventory = makeInventory();
+  inventory.add('deepCore', 2);
+  inventory.add('wood', 100);
+  const before = inventory.countsByItem();
+
+  const crafted = craftRecipe(inventory, 'recruitmentOrder');
+  assert.equal(crafted.ok, true, crafted.reason);
+  assert.equal(inventory.countOf('deepCore'), 1, '合成先扣掉材料');
+  assert.ok(crafted.consumed.length > 0, '合成结果必须带回扣了什么材料，界面才有得退');
+
+  // 界面把产物取到鼠标上
+  assert.equal(inventory.remove('recruitmentOrder', 1).ok, true);
+  const refunded = refundCraft(inventory, crafted.consumed);
+  assert.equal(refunded.ok, true, refunded.reason);
+  assert.deepEqual(inventory.countsByItem(), before, '撤销后库存必须与合成之前逐项一致');
+});
+
+check('撤销实例类产物（工具）之后同样回到原点', () => {
+  const inventory = makeInventory();
+  inventory.add('wood', 40);
+  inventory.add('stone', 40);
+  const before = JSON.stringify(inventory.serialize());
+
+  const crafted = craftRecipe(inventory, 'axe');
+  assert.equal(crafted.ok, true, crafted.reason);
+  const axe = inventory.instancesOf('axe')[0];
+  assert.ok(axe, '产物必须是一件实例');
+  assert.equal(inventory.removeInstance(axe.instanceId).ok, true, '界面把产物拿到鼠标上');
+
+  assert.equal(refundCraft(inventory, crafted.consumed).ok, true);
+  assert.equal(JSON.stringify(inventory.serialize()), before, '撤销后连格子布局都要和原来一样');
+});
+
+check('撤销放不下时整笔失败，库存一个字节都不变', () => {
+  // 3 格：合成木斧吃掉 5 木材 + 5 石料并腾空这两格。
+  // 之后玩家把三格都顶到堆叠上限塞满，材料就没地方回去了——
+  // 这时必须整笔拒绝，不能退一半、更不能把产物也吞掉。
+  const inventory = makeInventory(3);
+  inventory.add('wood', 5);
+  inventory.add('stone', 5);
+  const crafted = craftRecipe(inventory, 'axe');
+  assert.equal(crafted.ok, true, crafted.reason);
+  assert.equal(inventory.removeInstance(inventory.instancesOf('axe')[0].instanceId).ok, true);
+
+  inventory.add('wood', 200);
+  inventory.add('wood', 200);
+  inventory.add('stone', 200);
+  assert.equal(inventory.freeSlots(), 0, '前提：背包已经塞满');
+  const before = JSON.stringify(inventory.serialize());
+
+  const refunded = refundCraft(inventory, crafted.consumed);
+  assert.equal(refunded.ok, false);
+  assert.equal(refunded.reason, CRAFT_ERROR.noSpace);
+  assert.equal(JSON.stringify(inventory.serialize()), before, '撤销失败时库存必须一个字节都不变');
+});
+
+check('撤销的入参不合法时拒绝，且不动库存', () => {
+  const inventory = makeInventory();
+  inventory.add('wood', 10);
+  const before = JSON.stringify(inventory.serialize());
+  assert.equal(refundCraft(inventory, []).ok, false);
+  assert.equal(refundCraft(inventory, null).ok, false);
+  assert.equal(refundCraft(inventory, [{ itemId: 'notARealItem', count: 1 }]).reason, CRAFT_ERROR.unknownItem);
+  assert.equal(refundCraft(null, [{ itemId: 'wood', count: 1 }]).ok, false);
+  assert.equal(JSON.stringify(inventory.serialize()), before);
 });
 
 console.log(report.join('\n'));

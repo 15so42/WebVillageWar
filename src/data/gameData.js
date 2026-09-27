@@ -1005,7 +1005,9 @@ export const UNIT_DEFINITIONS = {
     art: {
       modelKey: 'unit.spawnPointNest',
       rig: 'building',
-      clips: { idle: 'Idle', hit: 'Hit', death: 'Death' }
+      clips: { idle: 'Idle', hit: 'Hit', death: 'Death' },
+      // 碰撞半径比蛋模型大一圈，方便打中；影子按模型占地来，不能跟着 collisionRadius 撑开。
+      groundShadow: { fromModel: true, pad: 0.56 }
     },
     maxHealth: 420,
     maxShield: 0,
@@ -6786,8 +6788,18 @@ export const ITEM_DEFINITIONS = {  wood: { id: 'wood', name: '木材', kind: 'st
   // 深邃核心：只从刷怪点掉出来，是招募令的材料。做成可堆叠材料而不是实例，
   // 因为它没有需要跟随的个体数据，堆叠能省格子。
   deepCore: { id: 'deepCore', name: '深邃核心', kind: 'stack', stackLimit: 20, category: 'material' },
+  // 魔力核心：开局自带，与木材合成木傀儡套件。
+  manaCore: { id: 'manaCore', name: '魔力核心', kind: 'stack', stackLimit: 10, category: 'material' },
   // 招募令：野外招募的消耗品，一次招募用掉一张。
   recruitmentOrder: { id: 'recruitmentOrder', name: '招募令', kind: 'stack', stackLimit: 20, category: 'consumable' },
+  // 木傀儡套件：合成后在快捷栏使用，在基地旁召唤一支木傀儡。
+  woodPuppetKit: {
+    id: 'woodPuppetKit',
+    name: '木傀儡',
+    kind: 'stack',
+    stackLimit: 5,
+    category: 'consumable'
+  },
   // 木炭：熔炉把木材加工出来的燃料。方案第 9 节：「建议木材产物命名为木炭」。
   charcoal: { id: 'charcoal', name: '木炭', kind: 'stack', stackLimit: 120, category: 'material' },
   // 树苗：砍树时的副产物，树坑补种要消耗它。
@@ -7023,6 +7035,8 @@ export const ITEM_DEFINITIONS = {  wood: { id: 'wood', name: '木材', kind: 'st
 
 /** 野外招募消耗的物品 id。单独导出一个常量，避免各处写字符串字面量。 */
 export const RECRUITMENT_ORDER_ITEM_ID = 'recruitmentOrder';
+/** 合成出的木傀儡套件；使用后于基地旁召唤木傀儡。 */
+export const WOOD_PUPPET_KIT_ITEM_ID = 'woodPuppetKit';
 
 // ---------------------------------------------------------------------------
 // 合成配方
@@ -7068,6 +7082,16 @@ export const RECIPES = {
     ],
     output: { itemId: 'pickaxe', count: 1 },
     description: '挖石料与铁矿用的木镐。做出来会放在基地库存里，需要到合成面板把它搬给傀儡。'
+  },
+  woodPuppet: {
+    id: 'woodPuppet',
+    name: '木傀儡',
+    inputs: [
+      { itemId: 'manaCore', count: 1 },
+      { itemId: 'wood', count: 12 }
+    ],
+    output: { itemId: 'woodPuppetKit', count: 1 },
+    description: '用魔力核心与木材组装木傀儡。产物在快捷栏使用后在基地旁召唤。'
   },
   furnace: {
     id: 'furnace',
@@ -7200,16 +7224,6 @@ export const RECIPES = {
     ],
     output: { itemId: 'arrowTower', count: 1 },
     description: '自动射击范围内敌人的箭塔。要消耗魔力，放在基地供能范围里才有用。'
-  },
-  canteen: {
-    id: 'canteen',
-    name: '食堂',
-    inputs: [
-      { itemId: 'wood', count: 20 },
-      { itemId: 'food', count: 15 }
-    ],
-    output: { itemId: 'canteen', count: 1 },
-    description: '治疗附近单位（消耗自身耐久）。要消耗魔力。'
   }
 };
 

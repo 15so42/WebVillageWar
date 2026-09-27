@@ -431,6 +431,13 @@ export function getAnimationEventTime(unit, name, eventName) {
   return duration * Math.max(0, Math.min(1, eventAt));
 }
 
+function unitIsWalking(unit) {
+  const state = unit?.visualState;
+  if (state === 'walk' || state === 'moving') return true;
+  if (unit?.aiState === 'moving') return true;
+  return false;
+}
+
 export function updateUnitAnimation(unit, dt) {
   const root = unit.visualRoot;
   resetAnimatedParts(root);
@@ -456,14 +463,14 @@ export function updateUnitAnimation(unit, dt) {
     return;
   }
   if (unit.type === 'spearman') {
-    applySpearmanStance(root, time, unit.visualState === 'walk', unit.id);
+    applySpearmanStance(root, time, unitIsWalking(unit), unit.id);
     return;
   }
   if (unit.type === 'woodPuppet') {
-    applyWoodPuppetStance(root, time, unit.visualState === 'walk', unit.id);
+    applyWoodPuppetStance(root, time, unitIsWalking(unit), unit.id);
     return;
   }
-  if (unit.visualState === 'walk') {
+  if (unitIsWalking(unit)) {
     root.rotation.x = 0;
     root.rotation.y = 0;
     root.position.y = rootGroundOffset(root) + Math.sin(time * WALK_BOB_RATE + unit.id) * WALK_BOB_HEIGHT;

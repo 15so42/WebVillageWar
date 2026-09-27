@@ -38,6 +38,7 @@
     "test:rune-stones": "node scripts/test-rune-stones.mjs",
     "test:resource-nodes": "node scripts/test-resource-nodes.mjs",
     "test:inventory": "node scripts/test-inventory.mjs",
+    "test:item-use": "node scripts/test-item-use.mjs",
     "test:inventory-transfer": "node scripts/test-inventory-transfer.mjs",
     "test:mana-stones": "node scripts/test-mana-stones.mjs",
     "test:power": "node scripts/test-power.mjs",
@@ -70,6 +71,7 @@
     "test:island-terrain": "node scripts/test-island-terrain.mjs",
     "test:movement-clamp": "node scripts/test-movement-clamp.mjs",
     "test:work-swing": "node scripts/test-work-swing.mjs",
+    "test:worker-recharge": "node scripts/test-worker-recharge.mjs",
     "test:puppet-rig": "node scripts/test-puppet-rig.mjs",
     "test:scripts-syntax": "node scripts/test-scripts-syntax.mjs",
     "regression": "node scripts/run-regression.mjs"

@@ -68,6 +68,35 @@ export function itemIsGivable(itemId) {
   return GIVABLE_ITEM_CATEGORIES.includes(definition.category);
 }
 
+/**
+ * 快捷栏一格"用一下"是哪一类动作。
+ *
+ * 这是快捷栏**唯一**的分发依据：鼠标点一下、按数字键、从槽位拖出去松手，
+ * 三条路径读的都是这个值。分成两处判断的话，"点"和"拖"迟早会出现两种效果
+ * （同一种东西点一下是建造、拖出去是别的事），那是这类界面最难查的 bug。
+ *
+ *   place   —— 建筑：进入放置模式，预览跟鼠标走，左键落地 / 右键取消。
+ *   consume —— 消耗品：立刻用掉（具体效果见 Game.useConsumable）。
+ *   give    —— 装备（工具 / 武器 / 符文石 / 魔力石）：交给当前选中的己方单位；
+ *              从槽位拖到某个单位身上时，落点决定给谁。
+ *   null    —— 材料之类没有"用"这个动作的东西。**可以**放进快捷栏、可以搬运，
+ *              但按下去只会得到一句说明，而不是静默什么都不发生。
+ */
+export const ITEM_USE = Object.freeze({
+  place: 'place',
+  consume: 'consume',
+  give: 'give'
+});
+
+export function itemUseKind(itemId) {
+  const definition = ITEM_DEFINITIONS[itemId];
+  if (!definition) return null;
+  if (definition.placeable?.unitType) return ITEM_USE.place;
+  if (definition.category === 'consumable') return ITEM_USE.consume;
+  if (itemIsGivable(itemId)) return ITEM_USE.give;
+  return null;
+}
+
 let instanceCounter = 0;
 
 // 生成唯一实例 ID。只用于本地；联机时由 Host 下发，客户端不自行发放。
