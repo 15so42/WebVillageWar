@@ -846,6 +846,13 @@ const DEVELOPMENT_CHANGELOG_ARCHIVE = [
 
 const CHANGELOG_ENTRIES = [
   {
+    date: '2026-09-28',
+    title: '开发代理可用 Three.js 技能包',
+    items: [
+      '为后续开发代理安装 Three.js WebGPU/TSL 技能包（含画面路由、水体、粒子、后处理与视觉验收）。当前对局玩法、数值和操作不变。'
+    ]
+  },
+  {
     date: '2026-09-27',
     title: '生存交互与合成：框选描边、魔力核心造傀儡、野怪持续追击',
     items: [
