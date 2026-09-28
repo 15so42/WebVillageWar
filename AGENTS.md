@@ -96,6 +96,10 @@
 
 最终目标是制作一款真正可持续扩展、可游玩、性能稳定，并具有完整风格化美术体验的 RTS 卡牌游戏。
 
+## Three.js 开发技能
+
+`.agents/skills/` 里安装了 `linegel/threejs-complete-set-of-skill`。跨多个画面系统的 Three.js 工作先读 `threejs-choose-skills`，再打开它点名的技能。当前游戏仍走现有 WebGL 与 `src/art/vfxMaterials.js` 的特效规则；这些技能只作实现参考。只有用户明确要求迁移时，才把工程改成 WebGPU / TSL。
+
 ## 联机系统与更新日志
 
 **双人合作联机**：规则、协议、目录、改造清单与里程碑见 `docs/COOP_MULTIPLAYER.md`。Host 权威 + 中继转发；双经济（各自牌组/能量/银币/军需铺/波次奖励）+ 共享营地；敌军合作缩放 2.5x 血 / 1.3x 攻、数量不变。联机代码放 `src/network/`、`src/coop/`、`server/`，经 `GameNetworkBridge` 接入，不要往 `Game.js` 堆 WebSocket。
