@@ -25,6 +25,8 @@ import {
   createFrostArrowModel,
   createResearchStationModel,
   createTreePitModel,
+  createManualWorkbenchModel,
+  createChestModel,
   createFrostScoutModel,
   createFrostTrollBossModel,
   createFrostOracleBossModel,
@@ -156,7 +158,9 @@ const UNIT_FACTORIES = {
   researchStation: ({ team }) => createResearchStationModel(team),
   enchantTable: ({ team }) => createEnchantTableModel(team),
   // 树坑：种下树苗、等它长成一棵可砍的树
-  treePit: ({ team }) => createTreePitModel(team)
+  treePit: ({ team }) => createTreePitModel(team),
+  manualWorkbench: ({ team }) => createManualWorkbenchModel(team),
+  chest: ({ team }) => createChestModel(team)
 };
 
 const PROJECTILE_FACTORIES = {

@@ -19,6 +19,13 @@ import {
   resourceNodeStrikeHeight
 } from '../data/gameData.js';
 import { Inventory } from './Inventory.js';
+import {
+  countOfInWorkerCargo,
+  moveWorkerCargoSlotTo,
+  workerCargoSlotCount,
+  workerCargoSlotStart,
+  workerCargoUsedSlots
+} from './workerInventory.js';
 import { RESOURCE_ERROR } from './ResourceNodeSystem.js';
 import {
   advanceHarvestProgress,
@@ -29,7 +36,8 @@ import {
   workRules,
   workStateLabel,
   WorkTaskBoard,
-  workerInventoryFull
+  workerInventoryFull,
+  workerManaDepleted
 } from './workOrders.js';
 import {
   puppetGearFor,
@@ -66,7 +74,10 @@ import {
 } from './workSwing.js';
 import { playUnitAnimation, setUnitHeldTool } from '../art/visualRegistry.js';
 import { itemStacksByMerging } from './items.js';
+import { STATION_KIND } from './StationSystem.js';
+import { chestAcceptsItem } from './workTasks.js';
 import { clamp } from '../utils/math.js';
+import { CRAFT_READY_PRIORITY } from './workTasks.js';
 
 // 自动派活的节流间隔。调度每帧重算会让傀儡在两个资源点之间来回跑，
 // 所以既在调度器里保证分配结果确定，也在这里限频。
@@ -182,7 +193,7 @@ export class WorkSystem {
     unit.manaCapacity = POWER_RULES.workerManaCapacity;
     if (!Number.isFinite(unit.activityMana)) unit.activityMana = POWER_RULES.workerManaCapacity;
     unit.activityMana = clamp(unit.activityMana, 0, unit.manaCapacity);
-    unit.inventoryCapacity = owned.capacity;
+    unit.inventoryCapacity = workerCargoSlotCount(owned);
     // 待机不吃魔；真正干活时才由 updateWorker 按行为改这个值
     if (!Number.isFinite(unit.drainPerSecond)) unit.drainPerSecond = POWER_RULES.workerDrainIdle;
     unit.powerPriority = WORKER_POWER_PRIORITY;
@@ -201,7 +212,7 @@ export class WorkSystem {
         x: 0,
         z: 0,
         inventoryUsed: 0,
-        inventoryCapacity: owned.capacity,
+        inventoryCapacity: workerCargoSlotCount(owned),
         activityMana: unit.activityMana,
         manaCapacity: unit.manaCapacity
       },
@@ -254,7 +265,9 @@ export class WorkSystem {
        * 没有这一位就会退化成"补到刚过 25% 就出发"——用户报的
        * 「回到基地一点立刻又去采矿」。
        */
-      recharging: false
+      recharging: false,
+      /** 合成 / 存放 / 取出。采集仍走 task，不和差事叠在同一次手上。 */
+      errand: null
     };
     this.records.set(unit.id, record);
     this.tasks.set(unit.id, null);
@@ -278,6 +291,7 @@ export class WorkSystem {
     const unitId = record?.unitId ?? (typeof unitOrId === 'object' ? unitOrId?.id : unitOrId);
     if (unitId === null || unitId === undefined) return false;
     const unit = record?.unit ?? (typeof unitOrId === 'object' ? unitOrId : null);
+    if (record?.errand) this.clearErrand(record);
     if (record) cancelSwing(record.swing);
     this.game?.power?.unregisterReceiver?.(unitId);
     this.board.release(unitId);
@@ -310,6 +324,7 @@ export class WorkSystem {
   assignNode(unitOrId, nodeId) {
     const record = this.recordFor(unitOrId);
     if (!record || !nodeId) return false;
+    if (record.errand) this.clearErrand(record);
     const unitId = record.unitId;
     const node = this.game?.resourceNodes?.nodeById?.(nodeId) ?? null;
     if (!node || (node.amount ?? 0) <= 0) return false;
@@ -339,8 +354,10 @@ export class WorkSystem {
     const record = this.recordFor(unitOrId);
     if (!record) return false;
     const unitId = record.unitId;
+    const nodeId = record.task?.nodeId ?? null;
     this.board.release(unitId);
     this.tasks.delete(unitId);
+    if (nodeId) this.game?.stations?.releaseGatherClaim?.(nodeId);
     record.task = null;
     record.progress = 0;
     // 挥击也要停：命中的是**节点**，换任务之后那一下会打到别的资源上，
@@ -348,6 +365,195 @@ export class WorkSystem {
     cancelSwing(record.swing);
     resetMoveGoal(record);
     return true;
+  }
+
+  pokeAssign() {
+    this.autoAssignCooldown = 0;
+  }
+
+  prepareErrand(record) {
+    if (!record) return;
+    record.progress = 0;
+    resetMoveGoal(record);
+  }
+
+  clearErrand(record) {
+    if (!record?.errand) return false;
+    const errand = record.errand;
+    record.errand = null;
+    record.progress = 0;
+    this.game?.stations?.releaseClaim?.(errand);
+    resetMoveGoal(record);
+    return true;
+  }
+
+  clearErrandsForStation(stationId) {
+    if (!stationId) return 0;
+    let cleared = 0;
+    this.records.forEach((record) => {
+      if (record.errand?.stationId !== stationId) return;
+      this.clearErrand(record);
+      cleared += 1;
+    });
+    return cleared;
+  }
+
+  // 合成、把货从傀儡背包送进容器。
+  tickErrand(record, unit, dt) {
+    const errand = record.errand;
+    const stations = this.game?.stations;
+    const station = stations?.stationById?.(errand?.stationId);
+    if (!errand || !station || station.unit?.alive === false) {
+      this.clearErrand(record);
+      return;
+    }
+    this.clearTransientTargets(unit);
+    unit.visualState = 'idle';
+    unit.aiState = 'working';
+    const range = this.rules.depositRange;
+    if (errand.kind === 'craft') {
+      this.tickCraftErrand(record, unit, station, range, dt);
+      return;
+    }
+    if (errand.kind === 'store') {
+      this.tickHaulErrand(record, unit, station, range, dt);
+    }
+  }
+
+  tickCraftErrand(record, unit, station, range, dt) {
+    const point = buildingPoint(station.unit);
+    const here = { x: unitPositionX(unit), z: unitPositionZ(unit) };
+    if (distance2D(here.x, here.z, point.x, point.z) > range) {
+      unit.drainPerSecond = POWER_RULES.workerDrainMove;
+      this.applyMove(record, unit, point, 'station', dt);
+      record.lastPlan = {
+        state: WORK_STATE.movingToNode,
+        reason: WORK_REASON.none,
+        note: '前往工作台'
+      };
+      return;
+    }
+    this.holdPosition(record, unit);
+    unit.drainPerSecond = POWER_RULES.workerDrainHarvest;
+    record.progress += dt;
+    record.lastPlan = {
+      state: WORK_STATE.harvesting,
+      reason: WORK_REASON.none,
+      note: '正在合成'
+    };
+    if (record.progress < 1.15) return;
+    record.progress = 0;
+    const result = this.game.stations.performCraft(station);
+    if (!result?.ok || station.craftPriority !== CRAFT_READY_PRIORITY) this.clearErrand(record);
+  }
+
+  tickHaulErrand(record, unit, station, range, dt) {
+    if (station.kind === STATION_KIND.playerBase) {
+      this.tickPlayerBaseStoreErrand(record, unit, station, range, dt);
+      return;
+    }
+    const stations = this.game.stations;
+    const here = { x: unitPositionX(unit), z: unitPositionZ(unit) };
+    const destPt = buildingPoint(station.unit);
+    const carrying = errandCarried(record, record.errand);
+    if (record.errand.phase === 'pickup' && !carrying) {
+      const offer = stations.storeOffer(station, record.inventory);
+      if (!offer?.itemId || countOfInWorkerCargo(record.inventory, offer.itemId) <= 0) {
+        this.clearErrand(record);
+        return;
+      }
+      record.errand.itemId = offer.itemId;
+      record.errand.phase = 'dropoff';
+      resetMoveGoal(record);
+      return;
+    }
+    record.errand.phase = 'dropoff';
+    if (distance2D(here.x, here.z, destPt.x, destPt.z) > range) {
+      unit.drainPerSecond = POWER_RULES.workerDrainCarry;
+      this.applyMove(record, unit, destPt, 'station', dt);
+      record.lastPlan = {
+        state: WORK_STATE.haulingHome,
+        reason: WORK_REASON.none,
+        note: '送进容器'
+      };
+      return;
+    }
+    const itemId = record.errand.itemId;
+    const given = stations.giveCarried(record.inventory, station.inventory, itemId, record.errand.offer);
+    this.markPackDirty(record);
+    if (!given?.ok) {
+      stations.returnCarriedToBase(record.inventory, itemId);
+      this.markPackDirty(record);
+      this.clearErrand(record);
+      return;
+    }
+    stations.touch(station);
+    resetMoveGoal(record);
+    const more = stations.storeOffer(station, record.inventory);
+    if (more && countOfInWorkerCargo(record.inventory, more.itemId) > 0) {
+      record.errand.phase = 'pickup';
+      record.errand.itemId = null;
+      return;
+    }
+    this.clearErrand(record);
+  }
+
+  tickPlayerBaseStoreErrand(record, unit, station, range, dt) {
+    const stations = this.game.stations;
+    const here = { x: unitPositionX(unit), z: unitPositionZ(unit) };
+    const basePt = this.basePoint();
+    const errand = record.errand;
+    const carrying = errandCarried(record, errand);
+    const offer = errand?.offer ?? stations.storeOffer(station, record.inventory);
+    if (!offer?.itemId) {
+      this.clearErrand(record);
+      return;
+    }
+    errand.offer = offer;
+
+    if (errand.phase === 'pickup' && !carrying) {
+      if (countOfInWorkerCargo(record.inventory, offer.itemId) <= 0) {
+        this.clearErrand(record);
+        return;
+      }
+      errand.itemId = offer.itemId;
+      errand.phase = 'dropoff';
+      resetMoveGoal(record);
+      return;
+    }
+    errand.phase = 'dropoff';
+    if (distance2D(here.x, here.z, basePt.x, basePt.z) > range) {
+      unit.drainPerSecond = POWER_RULES.workerDrainCarry;
+      this.applyMove(record, unit, basePt, 'base', dt);
+      record.lastPlan = {
+        state: WORK_STATE.haulingHome,
+        reason: WORK_REASON.none,
+        note: '送进基地'
+      };
+      return;
+    }
+    const destination = this.game.baseInventory;
+    const itemId = errand.itemId ?? offer.itemId;
+    const given = stations.giveCarried(record.inventory, destination, itemId, errand.offer);
+    this.markPackDirty(record);
+    if (!given?.ok) {
+      this.clearErrand(record);
+      return;
+    }
+    stations.touch(station);
+    resetMoveGoal(record);
+    const more = stations.storeOffer(station, record.inventory);
+    if (more && countOfInWorkerCargo(record.inventory, more.itemId) > 0) {
+      errand.phase = 'pickup';
+      errand.itemId = null;
+      errand.offer = more;
+      return;
+    }
+    this.clearErrand(record);
+  }
+
+  baseStorageFilter() {
+    return this.game?.stations?.playerBaseStation?.()?.filter ?? null;
   }
 
   taskFor(unitOrId) {
@@ -392,11 +598,19 @@ export class WorkSystem {
     }
 
     const view = refreshView(record);
+    const manaDepleted = workerManaDepleted(view);
+    if (manaDepleted && unit.commandMoveGoal) {
+      unit.drainPerSecond = POWER_RULES.workerDrainMove;
+      return false;
+    }
     const gear = puppetGearFor({
       toolIds: record.pack.toolIds,
       weaponItemId: unit.weaponItemId ?? null
     });
-    const decision = this.tickSelfDefense(record, unit, view, gear, step);
+    let decision = this.tickSelfDefense(record, unit, view, gear, step);
+    if (manaDepleted && decision.action === 'engage') {
+      decision = { action: 'flee', reason: 'no_mana', holder: decision.holder };
+    }
     const action = decision.action;
     // 记下这一帧的有效结论，供 HUD 与调试读取
     record.dangerAction = action;
@@ -442,6 +656,12 @@ export class WorkSystem {
       return true;
     }
     record.engaging = false;
+
+    // 合成 / 存放 / 取出不走采集状态机。逃跑仍交给下面的 planWorkerStep。
+    if (action !== 'flee' && record.errand && !manaDepleted) {
+      this.tickErrand(record, unit, step);
+      return true;
+    }
 
     // 傀儡不参与常规战斗 AI：目标/回城点由作业系统独占
     this.clearTransientTargets(unit);
@@ -567,7 +787,8 @@ export class WorkSystem {
 
     if (!record.combat) {
       // 开一场新的：**当场判一次打还是逃**。
-      const move = decideCombatMove({
+      const manaEmpty = (unit.manaCapacity ?? 0) > 0 && (unit.activityMana ?? 0) <= 0;
+      let move = decideCombatMove({
         self: unit,
         foes,
         gearPower: power,
@@ -576,6 +797,9 @@ export class WorkSystem {
         last: null,
         rules
       });
+      if (manaEmpty && move.action !== COMBAT_ACTION.disengage && move.action !== COMBAT_ACTION.done) {
+        move = { ...move, action: COMBAT_ACTION.disengage, reason: 'no_mana' };
+      }
       if (move.action === COMBAT_ACTION.done) {
         // 冷静宽限期里的空转：不新开一场，也不把身体交回作业
         //（Numen 的 `tick` 在这个窗口里就是"返回 RUNNING 但什么也不做"）。
@@ -586,6 +810,15 @@ export class WorkSystem {
     }
 
     if (record.combat.phase === COMBAT_PHASE.fight) {
+      if ((unit.manaCapacity ?? 0) > 0 && (unit.activityMana ?? 0) <= 0) {
+        record.combat.phase = COMBAT_PHASE.flee;
+        record.combat.reason = 'no_mana';
+        record.combat.startedAt = now;
+        record.combat.stuckSeconds = 0;
+        record.flee = null;
+        this.stats.flees += 1;
+        return { action: 'flee', reason: 'no_mana', holder };
+      }
       if (foes.some(isContactFoe)) record.combat.lastFoeSeenAt = now;
       if (fightResolved({ foes })) {
         // 收场并进入**唯一**的那个冷静宽限：身体还归反射、站在原地警戒，
@@ -816,8 +1049,7 @@ export class WorkSystem {
   //   2. applyMove 走不动时会把当前任务的节点标成 `reachable = false`。逃跑时
   //      被逼到角落走不动是正常的，不能让傀儡回去以后拒绝自己原本的节点。
   //
-  // 导航转向拿不到安全方向时（目标在障碍里、路线还在 worker 里算、被同伴挤住）
-  // 退回直线，保证"逃跑"永远不会退化成站着不动。
+  // 路线还没算出来的那一两帧会站着，不算失败。不算直线硬挤：树干前面挤不动。
   applyFlee(record, unit, target, dt) {
     if (!target) {
       // 周围没有更安全的落点：原地不动比朝随机方向乱跑安全（乱跑会撞进更大的威胁）
@@ -830,12 +1062,9 @@ export class WorkSystem {
     move.hasMoveGoal = true;
     move.goalKind = 'flee';
     move.staleSeconds = 0;
-    // 先试寻路（movement.moveToward 不带 direct 时走 navGrid 的 A* 路线）
+    // 逃跑也走寻路。直线退路会一头扎进旁边的树，然后在树干前停死。
     unit.moveGoalUsesDirectSteering = false;
-    if (unit.movement?.moveToward(target, dt, WORKER_ARRIVE_DISTANCE) === true) return true;
-    // 寻路这一步没走成：退回直线，至少别站着
-    unit.moveGoalUsesDirectSteering = true;
-    return unit.movement?.moveToward(target, dt, WORKER_ARRIVE_DISTANCE, { direct: true }) === true;
+    return unit.movement?.moveToward(target, dt, WORKER_ARRIVE_DISTANCE) === true;
   }
 
   /**
@@ -897,21 +1126,22 @@ export class WorkSystem {
       ? { x: record.move.approachX ?? target.x, z: record.move.approachZ ?? target.z }
       : target;
     ensureGoal(record, goal, goalKind);
-    // 傀儡走直线（direct steering）。
-    // 这不是随手选的：实测在傀儡位置与目标点都可走的情况下，
-    // 导航转向 safeSurfaceSteeringToward 仍会返回空，moveToward 于是每帧 false、
-    // 傀儡一步不动（而作业状态机还在按「正在移动」扣魔力）。
-    // 直线转向能稳定拿到位移；撞上障碍时 MovementAgent 的 directMoveBlocked
-    // 会累计并让规划器改判「路线不可达」，不会静默卡死。
-    // 代价是傀儡不会自己绕路——岛上地形开阔时够用，等障碍变密再回头查导航转向。
-    unit.moveGoalUsesDirectSteering = true;
-    const moved = unit.movement?.moveToward(goal, dt, WORKER_ARRIVE_DISTANCE, { direct: true }) === true;
+    // 走寻路，不走直线。直线会贴着树停住：tryApplyWalkableStep 拒绝走进阻挡，
+    // 傀儡就在树干前面一帧一帧地返回 false。采集点的落点已经让到树冠外面，
+    // 寻路的终点是那一圈可走的站位，不是树心。
+    unit.moveGoalUsesDirectSteering = false;
+    const moved = unit.movement?.moveToward(goal, dt, WORKER_ARRIVE_DISTANCE) === true;
     if (moved) {
       record.move.staleSeconds = 0;
       return true;
     }
     const stillFar = distance2D(unitPositionX(unit), unitPositionZ(unit), goal.x, goal.z) > WORKER_ARRIVE_DISTANCE + 0.05;
     if (!stillFar) {
+      record.move.staleSeconds = 0;
+      return false;
+    }
+    // 路线还在寻路线程里的时候不要当成撞墙。算完之前站着等，比直线撞树强。
+    if (unit.pendingRouteRequestId != null) {
       record.move.staleSeconds = 0;
       return false;
     }
@@ -1085,21 +1315,23 @@ export class WorkSystem {
     const base = this.game?.baseInventory;
     const inventory = record.inventory;
     if (!base || !inventory) return false;
-    const pack = this.refreshPack(record);
+    this.refreshPack(record);
     let moved = 0;
     let blockedItem = null;
-    for (let i = 0; i < pack.itemIds.length; i += 1) {
-      const itemId = pack.itemIds[i];
-      if (!itemStacksByMerging(itemId)) continue;
-      const count = inventory.countOf(itemId);
-      if (count < WORKER_DEPOSIT_MIN_COUNT) continue;
-      const result = inventory.transferTo(base, itemId, count);
+    const filter = this.baseStorageFilter();
+    const start = workerCargoSlotStart();
+    for (let index = start; index < inventory.slots.length; index += 1) {
+      const slot = inventory.slots[index];
+      if (!slot?.itemId || !itemStacksByMerging(slot.itemId)) continue;
+      if (filter && !chestAcceptsItem(filter, slot.itemId)) continue;
+      if ((slot.count ?? 0) < WORKER_DEPOSIT_MIN_COUNT) continue;
+      const result = moveWorkerCargoSlotTo(inventory, index, base);
       if (result?.ok) {
         moved += result.moved ?? 0;
         continue;
       }
-      blockedItem = itemId;
-      this.setLastError(record, 'container_full', itemId);
+      blockedItem = slot.itemId;
+      this.setLastError(record, 'container_full', slot.itemId);
       break;
     }
     if (moved > 0) {
@@ -1137,8 +1369,8 @@ export class WorkSystem {
       note: plan?.note ?? workStateLabel(WORK_STATE.idle, WORK_REASON.noTask),
       nodeId: record.task?.nodeId ?? null,
       carrying,
-      inventoryUsed: record.inventory.usedSlots(),
-      inventoryCapacity: record.inventory.capacity,
+      inventoryUsed: workerCargoUsedSlots(record.inventory),
+      inventoryCapacity: workerCargoSlotCount(record.inventory),
       activityMana: record.unit?.activityMana ?? 0,
       manaCapacity: record.unit?.manaCapacity ?? 0,
       // 补魔会话（迟滞）：为真表示"这一轮补魔还没结束，补满才会回去干活"。
@@ -1277,13 +1509,18 @@ export class WorkSystem {
   // 自动派活。只处理「手上没有活、也没在赶临时点」的傀儡。
   // 活只来自玩家框选的资源点，按优先级从 1 到 12，同级里挑更近、更安全的。
   updateAutoAssign(dt) {
-    if (!this.markedNodes.size || !this.records.size) return;
+    if (!this.records.size) return;
+    // 框选采集、合成、存放、取出共用这一次节流。数字越小越先做。
     this.autoAssignCooldown = Math.max(0, (this.autoAssignCooldown ?? 0) - Math.max(0, dt));
     if (this.autoAssignCooldown > 0) return;
     this.autoAssignCooldown = AUTO_ASSIGN_INTERVAL_SECONDS;
+    this.game?.stations?.assignIdleWorkers?.(this);
+    if (!this.markedNodes.size) return;
 
     const idle = [...this.records.entries()]
-      .filter(([, record]) => !record.rally && !record.task && record.unit?.alive !== false)
+      .filter(([, record]) => (
+        !record.rally && !record.task && !record.errand && record.unit?.alive !== false
+      ))
       .map(([unitId]) => unitId)
       .sort();
     if (!idle.length) return;
@@ -1434,10 +1671,12 @@ export class WorkSystem {
   baseHasRoomFor(record) {
     const base = this.game?.baseInventory;
     if (!base?.canAccept) return true;
+    const filter = this.baseStorageFilter();
     const pack = this.refreshPack(record);
     for (let i = 0; i < pack.itemIds.length; i += 1) {
       const itemId = pack.itemIds[i];
       if (!itemStacksByMerging(itemId)) continue;
+      if (filter && !chestAcceptsItem(filter, itemId)) continue;
       const count = record.inventory.countOf(itemId);
       if (count <= 0) continue;
       if (base.canAccept(itemId, count) > 0) return true;
@@ -1471,15 +1710,20 @@ export class WorkSystem {
     pack.toolSet.clear();
     pack.totalCount = 0;
     pack.anyStacks = false;
-    record.inventory.slots.forEach((slot) => {
+    const toolEnd = workerCargoSlotStart();
+    record.inventory.slots.forEach((slot, index) => {
       if (!slot) return;
+      if (index < toolEnd) {
+        const tool = ITEM_DEFINITIONS[slot.itemId]?.tool;
+        if (tool) {
+          if (!pack.toolSet.has(tool)) pack.toolSet.add(tool);
+          if (!pack.toolIds.includes(tool)) pack.toolIds.push(tool);
+        }
+        return;
+      }
       pack.totalCount += slot.count ?? 0;
       if (!pack.itemIds.includes(slot.itemId)) pack.itemIds.push(slot.itemId);
-      const tool = ITEM_DEFINITIONS[slot.itemId]?.tool;
-      if (tool) {
-        if (!pack.toolSet.has(tool)) pack.toolSet.add(tool);
-        if (!pack.toolIds.includes(tool)) pack.toolIds.push(tool);
-      } else if (itemStacksByMerging(slot.itemId)) {
+      if (itemStacksByMerging(slot.itemId)) {
         pack.anyStacks = true;
       }
     });
@@ -1500,6 +1744,15 @@ export class WorkSystem {
     task.node = node;
     return task;
   }
+}
+
+function buildingPoint(unit) {
+  return { x: unit?.position?.x ?? 0, z: unit?.position?.z ?? 0 };
+}
+
+function errandCarried(record, errand) {
+  if (!errand?.itemId || !record?.inventory) return false;
+  return countOfInWorkerCargo(record.inventory, errand.itemId) > 0;
 }
 
 function requiredToolFor(definitionId) {
@@ -1524,8 +1777,8 @@ function refreshView(record) {
   record.work.refreshPack(record);
   view.x = unitPositionX(unit);
   view.z = unitPositionZ(unit);
-  view.inventoryUsed = record.inventory.usedSlots();
-  view.inventoryCapacity = record.inventory.capacity;
+  view.inventoryUsed = workerCargoUsedSlots(record.inventory);
+  view.inventoryCapacity = workerCargoSlotCount(record.inventory);
   view.activityMana = unit.activityMana ?? 0;
   view.manaCapacity = unit.manaCapacity ?? POWER_RULES.workerManaCapacity;
   return view;

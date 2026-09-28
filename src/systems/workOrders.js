@@ -120,6 +120,13 @@ export function workerManaRatio(worker) {
   return stored / capacity;
 }
 
+/** 活动魔力见底：不能攻击、不能干活，只能移动（回供能点 / 逃跑 / 玩家右键移动）。 */
+export function workerManaDepleted(worker) {
+  const capacity = Math.max(0, worker?.manaCapacity ?? 0);
+  if (capacity <= 0) return false;
+  return (worker?.activityMana ?? 0) <= 0;
+}
+
 // 单步决策。优先级顺序与文档一致：
 //   威胁（打/逃）> 满包回程 > 缺魔力返程 > 任务有效性 > 工具 > 距离 > 采集
 //
@@ -161,8 +168,17 @@ export function planWorkerStep({
   if (danger?.action === 'flee') {
     return result(WORK_STATE.fleeing, WORK_REASON.threatNearby, WORK_ACTION.flee, danger.target ?? null);
   }
-  if (danger?.action === 'engage') {
+  if (danger?.action === 'engage' && !workerManaDepleted(worker)) {
     return result(WORK_STATE.engaging, WORK_REASON.threatNearby, WORK_ACTION.none, null);
+  }
+
+  // 活动魔力为 0：只允许走向供能点等待补魔（移动），不做任何作业
+  if (workerManaDepleted(worker)) {
+    const atSupply = distance2D(workerPosition, supply) <= resolved.depositRange;
+    if (!atSupply) {
+      return result(WORK_STATE.lowPower, WORK_REASON.lowPower, WORK_ACTION.moveToBase, supply);
+    }
+    return result(WORK_STATE.lowPower, WORK_REASON.recharging, WORK_ACTION.none, null);
   }
 
   // 1) 背包满了：先把货送回基地，任务不取消，卸完继续

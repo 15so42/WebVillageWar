@@ -45,6 +45,8 @@
     "test:work-orders": "node scripts/test-work-orders.mjs",
     "test:work-records": "node scripts/test-work-records.mjs",
     "test:work-priority": "node scripts/test-work-priority.mjs",
+    "test:work-tasks": "node scripts/test-work-tasks.mjs",
+    "test:transport": "node scripts/test-transport.mjs",
     "test:puppet-arms": "node scripts/test-puppet-arms.mjs",
     "test:combat-plan": "node scripts/test-combat-plan.mjs",
     "test:combat-reflex": "node scripts/test-combat-reflex.mjs",

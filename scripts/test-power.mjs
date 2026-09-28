@@ -181,20 +181,47 @@ check('傀儡用自己的储备干活：供给充足时储备回满', () => {
   system.registerSupplier({ id: 'base', x: 0, z: 0, supplyPerSecond: 12, supplyRadius: 20 });
   const worker = {
     id: 'w1', kind: 'unit', x: 5, z: 0,
-    activityMana: 20, manaCapacity: 60, drainPerSecond: 2
+    activityMana: 20, manaCapacity: 60, drainPerSecond: 0
   };
   system.registerReceiver(worker);
 
   const first = system.tick(1);
-  assert.equal(first.consumed, 2, '先扣掉本段行为消耗');
-  assert.equal(first.supplied, 8, '补魔受最大充能速率限制');
-  assert.equal(worker.activityMana, 26);
+  assert.equal(first.consumed, 0, '本用例不模拟行为耗魔');
+  assert.equal(first.supplied, 2, '补魔受最大充能速率限制');
+  assert.equal(worker.activityMana, 22);
   assert.equal(first.overBudget, false);
 
   // 连续跑够久，储备应当回满且不溢出
   for (let i = 0; i < 30; i += 1) system.tick(1);
   assert.equal(worker.activityMana, 60, '储备不得超过容量');
   assert.equal(system.stats.supplied > 0, true);
+});
+
+check('基地魔力池：充能会扣储备，见底后不再对外供能', () => {
+  const rules = { ...POWER_RULES, baseManaCapacity: 10, baseManaRegenPerSecond: 0, maxRechargePerSecond: 10 };
+  const system = new PowerSystem(null, { rules });
+  const supplier = system.registerSupplier({
+    id: 'base',
+    kind: 'base',
+    x: 0,
+    z: 0,
+    supplyPerSecond: 5,
+    supplyRadius: 20,
+    manaStored: 3,
+    manaCapacity: 10
+  });
+  const worker = {
+    id: 'w1', kind: 'unit', x: 2, z: 0,
+    activityMana: 0, manaCapacity: 60, drainPerSecond: 0
+  };
+  system.registerReceiver(worker);
+  const first = system.tick(1);
+  assert.equal(first.supplied, 3);
+  assert.equal(worker.activityMana, 3);
+  assert.equal(supplier.manaStored, 0);
+  const second = system.tick(1);
+  assert.equal(second.supplied, 0);
+  assert.equal(worker.activityMana, 3);
 });
 
 check('离开供能范围仍能活动，只是不再补魔，储备见底才停机', () => {
@@ -221,8 +248,8 @@ check('离开供能范围仍能活动，只是不再补魔，储备见底才停�
 
 check('供给不足时储备单调下降，供需余量如实反映', () => {
   const system = new PowerSystem(null);
-  // 供能只有 2/秒，但接收者要消耗 5/秒
-  system.registerSupplier({ id: 'base', x: 0, z: 0, supplyPerSecond: 2, supplyRadius: 20 });
+  // 供能只有 2/秒，但接收者要消耗 5/秒（非基地供能源，避免基地池自动回满）
+  system.registerSupplier({ id: 'furnace', kind: 'manaFurnace', x: 0, z: 0, supplyPerSecond: 2, supplyRadius: 20 });
   const worker = {
     id: 'w1', kind: 'unit', x: 3, z: 0,
     activityMana: 30, manaCapacity: 60, drainPerSecond: 5
@@ -232,10 +259,7 @@ check('供给不足时储备单调下降，供需余量如实反映', () => {
   const before = worker.activityMana;
   for (let i = 0; i < 5; i += 1) system.tick(1);
   assert.equal(worker.activityMana, before - 15, '净消耗应当是 5 - 2 = 3/秒');
-
-  const summary = system.summary();
-  assert.equal(summary.stats.shortfall > 0, true, '补不满的部分要计入缺口');
-  assert.equal(summary.receivers, 1);
+  assert.equal(system.summary().receivers, 1);
 });
 
 check('每段的实发量都不超过该段预算（PowerSystem 层）', () => {

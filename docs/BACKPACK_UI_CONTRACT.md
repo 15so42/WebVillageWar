@@ -96,8 +96,8 @@ game.backpack.containerFor('base' | 'unit')             // 取某一块的库存
 | 格子状态类 | `.backpack-slot.is-empty` / `.is-filled` / `.is-rune` / `.is-inactive` / `.is-mana` |
 | 符文石等级（左上角） | `.backpack-slot-level` |
 | 数量（右下角） | `.backpack-slot-count`（数量 > 1 才出现） |
-| 格内「放置」（只在 base 块） | `[data-backpack-place="N"]` |
 | 格内「装备」（只在 unit 块） | `[data-backpack-equip="N"]` |
+| 基地格直接使用 | 在 base 格上 **Ctrl+左键**（与快捷栏同一套 `itemUseKind`） |
 | 提示行 | `[data-backpack-hint]` |
 | 右侧标签 | `[data-backpack-tab="craft\|resource"]` |
 | 合成网格 | `[data-backpack-recipes]` |

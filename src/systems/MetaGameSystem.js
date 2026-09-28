@@ -5,9 +5,7 @@ import { TEST_VERSION_LABEL } from '../version.js';
 import { calculateLevelReward } from '../utils/levelRewards.js';
 import { CHALLENGE_MODE, isEndlessMode, normalizeChallengeMode } from './endlessMode.js';
 
-const STORAGE_KEY = 'village-war-meta-v1';
 const STARTING_COINS = 10000;
-const STARTING_COINS_VERSION = 1;
 const MAX_LEVEL_DIFFICULTY = 10;
 const WAVE_DIFFICULTY_GROWTH_PER_SELECTED_DIFFICULTY = 0.16;
 const DEFAULT_PLAYER_NAME = '玩家';
@@ -1722,7 +1720,7 @@ export class MetaGameSystem {
     this.onStartDebug = onStartDebug;
     this.onStartAnimationPreview = onStartAnimationPreview;
     this.onOpenCoop = onOpenCoop;
-    this.progress = loadProgress();
+    this.progress = createDefaultProgress();
     this.view = 'menu';
     this.selectedLevelId = this.progress.preferences.selectedLevelId;
     this.selectedDifficulty = this.selectedDifficultyForLevel(this.selectedLevelId);
@@ -1777,7 +1775,6 @@ export class MetaGameSystem {
         );
       }
       this.progress.coins += reward;
-      saveProgress(this.progress);
     }
 
     this.lastResult = {
@@ -1786,27 +1783,6 @@ export class MetaGameSystem {
       nextDifficulty: this.progress.levelDifficulties[result.session.level.id] ?? 1
     };
     this.show('result');
-  }
-
-  clearSaveData() {
-    const confirmed = window.confirm(
-      '确定要清除本地存档吗？\n\n将重置金币、卡牌、升级、解锁难度和牌组选择，此操作不可撤销。'
-    );
-    if (!confirmed) return;
-    try {
-      localStorage.removeItem(STORAGE_KEY);
-    } catch {
-      // Local storage can fail in private contexts.
-    }
-    this.progress = loadProgress();
-    this.selectedLevelId = this.progress.preferences.selectedLevelId;
-    this.selectedDifficulty = this.selectedDifficultyForLevel(this.selectedLevelId);
-    this.selectedChallengeMode = normalizeChallengeMode(this.progress.preferences.challengeMode);
-    this.deckSelection = this.progress.preferences.deckSelection.slice();
-    this.playerName = normalizePlayerName(this.progress.preferences.playerName);
-    this.lastResult = null;
-    this.setNotice('本地存档已清除，已恢复为初始进度。');
-    this.show('menu', { keepNotice: true });
   }
 
   calculateReward(result) {
@@ -1838,10 +1814,6 @@ export class MetaGameSystem {
     }
     if (action === 'changelog') {
       this.show('changelog');
-      return;
-    }
-    if (action === 'clear-save') {
-      this.clearSaveData();
       return;
     }
     if (action === 'debug-scene') {
@@ -1884,7 +1856,6 @@ export class MetaGameSystem {
     event.preventDefault();
     event.stopPropagation();
     this.progress.coins += 1000;
-    saveProgress(this.progress);
     this.render();
   }
 
@@ -2198,10 +2169,6 @@ export class MetaGameSystem {
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h14v16H5z"/><path d="M9 2v4M15 2v4M8 10h8M8 14h8"/></svg><span>更新<br>日志</span>
                   </button>
               </div>
-              <button class="mw-menu-button mw-menu-button-clear" type="button" data-action="clear-save" title="清除全部本地存档">
-                  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13.7 2.2c.5 2.8-.7 4.2-2 5.4-1.2 1.2-2.3 2.3-1.7 4.4.5-1.1 1.3-1.8 2.2-2.5-.1 2.1 1.2 3.2 2.2 4.2.8.8 1.5 1.5 1.5 2.8a4 4 0 0 1-8 0c0-1.8.8-3.1 2-4.5-3 .9-5 3.5-5 6.4A6.1 6.1 0 0 0 11 24a6.6 6.6 0 0 0 6.8-6.6c0-3.9-2.7-5.8-4.1-8.1-.9-1.5-1.2-3.5 0-7.1z"/></svg>
-                  <span>焚毁盟约（清档）</span>
-              </button>
             </nav>
             <label class="mw-player-name-field" for="meta-player-name">
               <span>指挥官名</span>
@@ -2313,7 +2280,6 @@ export class MetaGameSystem {
       playerName: normalizePlayerName(this.playerName),
       deckSelection: this.deckSelection.slice()
     };
-    saveProgress(this.progress);
   }
 
   /**
@@ -2398,49 +2364,24 @@ function pageTitleForView(view) {
   return titles[view] ?? '村落战争';
 }
 
-function loadProgress() {
-  const raw = readStoredProgress();
+function createDefaultProgress() {
   const ownedCards = normalizeOwnedCards();
   const cardLevels = {};
   ownedCards.forEach((id) => {
-    cardLevels[id] = Math.max(1, Math.floor(raw?.cardLevels?.[id] ?? 1));
+    cardLevels[id] = 1;
   });
   const levelDifficulties = {};
   LEVEL_DEFINITIONS.forEach((level) => {
-    const legacyId = legacyLevelIdFor(level.id);
-    const stored = raw?.levelDifficulties?.[level.id]
-      ?? (legacyId ? raw?.levelDifficulties?.[legacyId] : undefined);
-    levelDifficulties[level.id] = clampDifficulty(stored ?? 1);
+    levelDifficulties[level.id] = clampDifficulty(1);
   });
-  const preferences = normalizePreferences(raw?.preferences, ownedCards, levelDifficulties);
-  const hasStartingCoinsGrant = raw?.startingCoinsVersion === STARTING_COINS_VERSION;
-  const storedCoins = Math.max(0, Math.floor(raw?.coins ?? 0));
-  const progress = {
-    coins: hasStartingCoinsGrant ? storedCoins : Math.max(storedCoins, STARTING_COINS),
-    startingCoinsVersion: STARTING_COINS_VERSION,
+  const preferences = normalizePreferences(null, ownedCards, levelDifficulties);
+  return {
+    coins: STARTING_COINS,
     ownedCards,
     cardLevels,
     levelDifficulties,
     preferences
   };
-  saveProgress(progress);
-  return progress;
-}
-
-function readStoredProgress() {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null');
-  } catch {
-    return null;
-  }
-}
-
-function saveProgress(progress) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(progress));
-  } catch {
-    // Local storage can fail in private contexts; gameplay can continue in memory.
-  }
 }
 
 function normalizePreferences(rawPreferences, ownedCards, levelDifficulties) {

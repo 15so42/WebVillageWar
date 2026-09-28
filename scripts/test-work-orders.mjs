@@ -13,7 +13,8 @@ import {
   workRules,
   workStateLabel,
   workerInventoryFull,
-  workerManaRatio
+  workerManaRatio,
+  workerManaDepleted
 } from '../src/systems/workOrders.js';
 
 const report = [];
@@ -200,6 +201,26 @@ check('采集进度按时间推进，结算后把溢出时间带进下一轮', (
   const long = advanceHarvestProgress(0, 3.5, 1.0);
   assert.equal(long.completions, 3);
   assert.ok(Math.abs(long.progress - 0.5) < 1e-9, '溢出的 0.5 秒要带下去');
+});
+
+check('活动魔力见底时只回供能点，不迎战也不采集', () => {
+  const worker = makeWorker({ activityMana: 0, x: 10, z: 0 });
+  const node = { id: 'oak-0', amount: 40, x: 12, z: 0 };
+  const engage = planWorkerStep({
+    worker,
+    task: { node, toolSatisfied: true },
+    base: { x: 0, z: 0 },
+    danger: { action: 'engage' }
+  });
+  assert.equal(engage.state, WORK_STATE.lowPower);
+  assert.equal(engage.action, WORK_ACTION.moveToBase);
+  const harvest = planWorkerStep({
+    worker: makeWorker({ activityMana: 0, x: 12, z: 0 }),
+    task: { node, toolSatisfied: true },
+    base: { x: 0, z: 0 }
+  });
+  assert.equal(harvest.action, WORK_ACTION.moveToBase);
+  assert.equal(workerManaDepleted(worker), true);
 });
 
 check('容量与魔力比例的边界不会算错', () => {

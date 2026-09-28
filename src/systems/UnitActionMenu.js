@@ -1,14 +1,12 @@
 /**
  * 单选友方/可交互单位后，在屏幕底部快捷栏正上方展开操作按钮。
  *
- * 每个按钮是圆形图标 + 下方文字。动作按单位状态决定：
- *   - 己方单位：背包、停止（木傀儡无「停止」）
- *   - 可招募的野外单位：招募
- *   - 建筑：科研站 / 附魔台的界面入口
- *
- * 本模块只负责 DOM，真正的动作都交回 Game。
+ * 建筑：设施 / 工作台·箱子 + **运输连线**。
+ * 选中基地（点营地）时同样显示 **背包 / 运输**。
  */
 import { facilityPanelFor } from './FacilityPanelUi.js';
+import { stationPanelFor } from './StationPanelUi.js';
+import { playerBaseTransportEndpoint, transportEndpointFromUnit } from './transport.js';
 
 const BUTTON_SIZE = 52;
 
@@ -18,6 +16,7 @@ export class UnitActionMenu {
     this.mount = options.mount ?? (typeof document !== 'undefined' ? document.body : null);
     this.root = null;
     this.unit = null;
+    this.containerTarget = null;
     this.signature = '';
     this.bound = false;
   }
@@ -30,9 +29,15 @@ export class UnitActionMenu {
     this.root?.remove();
     this.root = null;
     this.unit = null;
+    this.containerTarget = null;
   }
 
-  actionsFor(unit) {
+  transportEndpointForUnit(unit) {
+    if (!unit?.alive) return null;
+    return transportEndpointFromUnit(unit, this.game?.stations);
+  }
+
+  actionsForUnit(unit) {
     if (!unit?.alive) return [];
     const actions = [];
     if (unit.isBuilding === true) {
@@ -44,6 +49,27 @@ export class UnitActionMenu {
           icon: facility.tab === 'tech' ? '⚗' : '✶',
           disabled: false,
           title: `打开${facility.title}界面`
+        });
+      }
+      const station = stationPanelFor(unit);
+      if (station) {
+        actions.push({
+          id: 'station',
+          label: station.title,
+          icon: station.icon,
+          disabled: false,
+          title: `打开${station.title}`
+        });
+      }
+      if (this.transportEndpointForUnit(unit)) {
+        actions.push({
+          id: 'transport',
+          label: '运输',
+          icon: '↝',
+          disabled: false,
+          title: unit.type === 'furnace'
+            ? '运输线：连入=进料，从熔炉连出=产物输出'
+            : '连接运输线：先点来源容器，再点目标容器'
         });
       }
       return actions;
@@ -86,17 +112,43 @@ export class UnitActionMenu {
     return actions;
   }
 
+  actionsForContainer(target) {
+    if (!target) return [];
+    return [
+      {
+        id: 'backpack',
+        label: '背包',
+        icon: '▣',
+        disabled: false,
+        title: '打开基地背包（B）'
+      },
+      {
+        id: 'transport',
+        label: '运输',
+        icon: '↝',
+        disabled: false,
+        title: '从基地连到其他容器，或从其他容器连到基地'
+      }
+    ];
+  }
+
   sync() {
     if (!this.available) return;
     const unit = this.game?.selectedUnits?.length === 1 ? this.game.selectedUnit : null;
-    const actions = this.actionsFor(unit);
-    if (!unit || !actions.length) {
+    const containerTarget = this.game?.containerMenuTarget ?? null;
+    const actions = unit
+      ? this.actionsForUnit(unit)
+      : this.actionsForContainer(containerTarget);
+    if ((!unit && !containerTarget) || !actions.length) {
       this.hide();
       return;
     }
     this.ensureUi();
     this.unit = unit;
-    const signature = `${unit.id}:${actions.map((action) => `${action.id}:${action.disabled ? 1 : 0}:${action.label}`).join('|')}`;
+    this.containerTarget = containerTarget;
+    const signature = unit
+      ? `u:${unit.id}:${actions.map((a) => a.id).join('|')}`
+      : `c:${containerTarget?.stationId ?? 'base'}:${actions.map((a) => a.id).join('|')}`;
     if (signature !== this.signature) {
       this.signature = signature;
       this.renderButtons(actions);
@@ -107,6 +159,7 @@ export class UnitActionMenu {
 
   hide() {
     this.unit = null;
+    this.containerTarget = null;
     this.signature = '';
     if (!this.root) return;
     this.root.hidden = true;
@@ -114,21 +167,18 @@ export class UnitActionMenu {
   }
 
   ensureUi() {
-    if (this.root || !this.available) return this.root;
+    if (this.root) return;
     const root = document.createElement('div');
     root.id = 'unit-action-menu';
     root.className = 'unit-action-menu';
     root.hidden = true;
-    root.setAttribute('role', 'menu');
-    root.setAttribute('aria-label', '单位操作');
     this.mount.appendChild(root);
     this.root = root;
     if (!this.bound) {
-      root.addEventListener('pointerdown', (event) => event.stopPropagation());
       root.addEventListener('click', (event) => this.onClick(event));
+      root.addEventListener('pointerdown', (event) => event.stopPropagation());
       this.bound = true;
     }
-    return root;
   }
 
   renderButtons(actions) {
@@ -155,22 +205,35 @@ export class UnitActionMenu {
     event.stopPropagation();
     const action = button.dataset.unitAction;
     const unit = this.unit;
-    if (!unit) return;
-    if (action === 'facility') {
+    const container = this.containerTarget ?? this.game?.containerMenuTarget;
+    if (action === 'facility' && unit) {
       this.game?.facilityPanel?.toggleForUnit?.(unit);
       this.sync();
       return;
     }
-    if (action === 'backpack') {
-      this.game?.backpack?.openForUnit?.(unit);
+    if (action === 'station' && unit) {
+      this.game?.stationPanel?.toggleForUnit?.(unit);
+      this.sync();
       return;
     }
-    if (action === 'recruit') {
+    if (action === 'transport') {
+      const origin = unit
+        ? this.transportEndpointForUnit(unit)
+        : (container ?? playerBaseTransportEndpoint());
+      this.game?.beginTransportLink?.(origin);
+      return;
+    }
+    if (action === 'backpack') {
+      if (unit) this.game?.backpack?.openForUnit?.(unit);
+      else this.game?.toggleBaseBackpack?.();
+      return;
+    }
+    if (action === 'recruit' && unit) {
       this.game?.recruitSelectedUnit?.();
       this.sync();
       return;
     }
-    if (action === 'stop') {
+    if (action === 'stop' && unit) {
       this.game?.stopSelectedUnits?.();
     }
   }

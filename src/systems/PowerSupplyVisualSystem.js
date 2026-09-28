@@ -407,8 +407,8 @@ export class PowerSupplyVisualSystem {
         this.root.add(link.root);
       }
 
-      receiverHeadAnchor(receiver, _start);
-      supplierLinkAnchor(game, supplier, _end);
+      supplierLinkAnchor(game, supplier, _start);
+      receiverHeadAnchor(receiver, _end);
       updateLinkVisual(link, _start, _end, this.time);
     });
 

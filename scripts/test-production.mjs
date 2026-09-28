@@ -10,12 +10,17 @@ import {
   allProductionRecipes,
   maxCyclesByInput,
   maxCyclesByOutput,
+  maxCyclesForFurnace,
+  maxCyclesForFurnaceSlot,
   normalizeProductionRecipe,
   productionCycleAmounts,
   productionRecipeById,
-  productionRecipeForUnitType
+  productionRecipeForInput,
+  productionRecipeForUnitType,
+  settleFurnaceProduction
 } from '../src/systems/production.js';
 import { ITEM_DEFINITIONS, PRODUCTION_RECIPES } from '../src/data/gameData.js';
+import { Inventory } from '../src/systems/Inventory.js';
 
 const report = [];
 function check(name, fn) {
@@ -38,6 +43,8 @@ check('配方数据健全：材料与产物都有物品定义，周期与数量�
   });
   assert.equal(productionRecipeById('furnace')?.name, '烧炭');
   assert.equal(productionRecipeForUnitType('furnace')?.input.itemId, 'wood');
+  assert.equal(productionRecipeForInput('furnace', 'wood')?.output.itemId, 'charcoal');
+  assert.equal(productionRecipeForUnitType('furnace')?.drainPerSecond, 1);
   assert.equal(productionRecipeForUnitType('arrowTower'), null, '没有配方的建筑不该被登记成生产者');
 });
 
@@ -111,26 +118,29 @@ check('周期结算量按次数放大，扣与产一模一样', () => {
 
 check('长时间运行不会产出超过材料允许的次数（守恒）', () => {
   const recipe = normalizeProductionRecipe(PRODUCTION_RECIPES.furnace);
-  let wood = 41;              // 够 10 次整（40），余 1
-  let charcoal = 0;
+  const inputInv = new Inventory({ capacity: 1 });
+  const outputInv = new Inventory({ capacity: 1 });
+  inputInv.add('wood', 41);
   let progress = 0;
   const dt = 0.25;
   const steps = Math.ceil((recipe.seconds * 20) / dt);
   for (let i = 0; i < steps; i += 1) {
-    const allowed = Math.min(
-      maxCyclesByInput(recipe, () => wood),
-      maxCyclesByOutput(recipe, () => 9999)
-    );
+    const slot = inputInv.slots[0];
+    const allowed = maxCyclesForFurnace(recipe, slot, outputInv, { stackLimit: 64 });
     const step = advanceProduction({ progress, dt, seconds: recipe.seconds, cyclesAllowed: allowed });
     progress = step.progress;
     if (step.cycles > 0) {
-      const amounts = productionCycleAmounts(recipe, step.cycles);
-      wood -= amounts.consumed.count;
-      charcoal += amounts.produced.count;
+      settleFurnaceProduction(inputInv, outputInv, recipe, step.cycles, { stackLimit: 64 });
+    }
+    if (outputInv.countOf('charcoal') > 0) {
+      outputInv.remove('charcoal', outputInv.countOf('charcoal'));
     }
   }
-  assert.equal(wood, 1, '剩 1 个木材做不了第 11 次，必须原样留着');
-  assert.equal(charcoal, recipe.output.count * 10, '10 次 × 每次产出');
+  const woodLeft = inputInv.countOf('wood');
+  const totalCharcoal = outputInv.countOf('charcoal');
+  assert.equal(woodLeft, 1, '剩 1 个木材做不了第 11 次，必须原样留着');
+  assert.equal(totalCharcoal, 0);
+  assert.equal(41 - woodLeft, 40, '应消耗 40 木材');
 });
 
 console.log(report.join('\n'));

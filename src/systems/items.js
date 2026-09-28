@@ -24,7 +24,10 @@ export function itemKind(itemId) {
 export function itemStackLimit(itemId) {
   const definition = ITEM_DEFINITIONS[itemId];
   if (!definition) return 0;
-  return Math.max(1, Math.round(definition.stackLimit ?? 1));
+  if (itemKind(itemId) !== ITEM_KIND.stack) return 1;
+  const cap = Math.max(1, Math.round(ITEM_RULES.defaultStackLimit ?? 64));
+  const perDef = Math.max(1, Math.round(definition.stackLimit ?? cap));
+  return Math.min(perDef, cap);
 }
 
 // 实例类物品永远不合并：附魔石、工具、武器都按件管理，

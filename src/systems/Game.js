@@ -126,6 +126,14 @@ import {
 import { BackpackUi } from './BackpackUi.js';
 import { UnitActionMenu } from './UnitActionMenu.js';
 import { FacilityPanelUi } from './FacilityPanelUi.js';
+import { StationSystem } from './StationSystem.js';
+import { StationPanelUi } from './StationPanelUi.js';
+import { TransportSystem } from './TransportSystem.js';
+import { TransportLinkVisualSystem } from './TransportLinkVisualSystem.js';
+import { TransportLinkPanelUi } from './TransportPanelUi.js';
+import {
+  playerBaseTransportEndpoint
+} from './transport.js';
 import { ThreatFieldSystem } from './ThreatFieldSystem.js';
 import {
   clampPriority,
@@ -1217,7 +1225,9 @@ export class Game {
         x: basePosition.x,
         z: basePosition.z,
         supplyPerSecond: POWER_RULES.baseSupplyPerSecond,
-        supplyRadius: POWER_RULES.baseSupplyRadius
+        supplyRadius: POWER_RULES.baseSupplyRadius,
+        manaStored: POWER_RULES.baseManaCapacity,
+        manaCapacity: POWER_RULES.baseManaCapacity
       });
     }
     this.powerSupplyVisual = new PowerSupplyVisualSystem(this);
@@ -1225,6 +1235,15 @@ export class Game {
     // 傀儡作业：采集状态机 + 每个傀儡自己的背包与活动魔力。
     // 与供能系统是上下游关系：这里决定傀儡干什么，power 负责给它的储备补魔。
     this.work = new WorkSystem(this);
+    // 手动工作台和箱子：库存、过滤、框选采集任务。傀儡的走位仍由 work 执行。
+    this.stations = new StationSystem(this);
+    this.transport = new TransportSystem(this);
+    this.transportVisual = new TransportLinkVisualSystem(this);
+    this.transportVisual.attach(this.scene);
+    /** @type {import('./transport.js').TransportEndpoint | null} */
+    this.containerMenuTarget = null;
+    /** @type {{ origin: object, label: string } | null} */
+    this.transportLinkMode = null;
     // 刷怪点：海岛关没有波次，持续压力来自地图上的点位；点被摧毁后永久停止产怪。
     this.spawnPoints = new SpawnPointSystem(this);
     // 地面遗物包：单位阵亡时背包与符文石一起落地，走近即转移进拾取者（物品守恒，方案第 7 节）。
@@ -1263,6 +1282,9 @@ export class Game {
       // 科研站 / 附魔台的独立界面。以前科技与附魔台是背包右侧的两个标签页，
       // 现在改成"走到那栋建筑、点它、从扇形菜单打开"。
       this.facilityPanel = new FacilityPanelUi(this);
+      this.stationPanel = new StationPanelUi(this);
+      this.transportLinkPanel = new TransportLinkPanelUi(this);
+      this.transportPanel = this.transportLinkPanel;
       // 物品快捷栏：屏幕底部常驻的 9 格容器（与基地背包同类的 Inventory，
       // 见上面的 this.hotbarInventory），不是背包面板的页脚。
       this.hotbar = new HotbarUi(this);
@@ -1520,6 +1542,9 @@ export class Game {
     this.unitActionMenu?.destroy?.();
     this.hotbar?.destroy?.();
     this.facilityPanel?.destroy?.();
+    this.stationPanel?.destroy?.();
+    this.transportPanel?.destroy?.();
+    this.transportVisual?.destroy?.();
     this.threat?.destroy?.();
     this.hints?.destroy?.();
     this.buildings?.destroy?.();
@@ -1636,6 +1661,8 @@ export class Game {
       runPerfStep('production', () => this.production.update(dt));
       // 傀儡作业：清掉已经不在注册表里的傀儡（不扫描资源节点）
       runPerfStep('work', () => this.work.update(dt));
+      runPerfStep('transport', () => this.transport?.update?.(dt));
+      runPerfStep('transportVisual', () => this.transportVisual?.update?.(dt));
       runPerfStep('spawnPoints', () => this.spawnPoints.update(dt));
       runPerfStep('drops', () => this.drops.update(dt));
       runPerfStep('mechanics', () => this.levelMechanics.update(dt));
@@ -1675,6 +1702,8 @@ export class Game {
       // 种植：长成时会往世界里加资源节点，所以放在采集之前
       runStep('planting', () => this.planting.update(dt));
       runStep('work', () => this.work.update(dt));
+      runStep('transport', () => this.transport?.update?.(dt));
+      runStep('transportVisual', () => this.transportVisual?.update?.(dt));
       runStep('spawnPoints', () => this.spawnPoints.update(dt));
       runStep('drops', () => this.drops.update(dt));
       runStep('mechanics', () => this.levelMechanics.update(dt));
@@ -3080,6 +3109,9 @@ export class Game {
       this.backpack?.closeIfUnit?.(unit);
       // 科研站 / 附魔台被拆掉时同理：界面不能停在一栋不存在的建筑上。
       this.facilityPanel?.closeIfUnit?.(unit);
+      this.stations?.releaseBuilding?.(unit);
+      this.transport?.removeLinksForStation?.(unit.id);
+      this.stationPanel?.closeIfUnit?.(unit);
     }
 
     return true;
@@ -5642,6 +5674,22 @@ export class Game {
    * 配方的可读状态：每个配方当前能不能做、缺什么、还差多少。
    * 合成界面直接渲染这个，不要在 UI 里重算库存规则。
    */
+  /**
+   * 基地背包和工作台共用的配方目录。
+   * 科技没解锁的不出现；材料还没进过基地背包的也不出现。
+   * 工作台只拿这份目录来展示和让傀儡做，不另维护一张表。
+   */
+  craftCatalog() {
+    const all = this.recipeStatus();
+    const seen = this.backpack?.seenItemIds;
+    if (!seen) return all;
+    return all.filter((recipe) => {
+      const inputs = recipe.inputs ?? [];
+      if (!inputs.length) return true;
+      return inputs.some((entry) => seen.has(entry.itemId));
+    });
+  }
+
   recipeStatus() {
     const inventory = this.baseInventory;
     return allRecipes()
@@ -6081,12 +6129,13 @@ export class Game {
     );
     this.syncInteractionPointerUi();
     this.baseStorage?.close?.();
+    this.backpack?.close?.();
     return { ok: true, itemId, unitType: definition.placeable.unitType };
   }
 
   /**
    * 把"这东西从哪一格出"落成一个确定的 `{ inventory, slotIndex }`，找不到返回 null。
-   * `slotIndex` 为 null 时表示"这个容器里任意一格都行"（基地背包的「放置」按钮就是这种）。
+   * `slotIndex` 为 null 时表示"这个容器里任意一格都行"（未指定格时的兜底）。
    */
   resolveItemSource(itemId, source = null) {
     if (source?.inventory && Number.isInteger(source.slotIndex)) {
@@ -6233,6 +6282,7 @@ export class Game {
       return { ok: false, reason: 'not_in_stock' };
     }
     const unit = this.buildStructureUnit(placing.unitType, spot, { buildSeconds: 6 });
+    const station = this.stations?.registerBuilding?.(unit) ?? null;
     const producer = this.production?.registerProducer?.(unit) ?? null;
     // 燃料供能设施（魔力炉）注册成供能源；它没有生产配方，所以 producer 为空。
     const burner = this.fuelPower?.registerBurner?.(unit) ?? null;
@@ -6245,7 +6295,8 @@ export class Game {
       producer ? `${UNIT_DEFINITIONS[placing.unitType].name}已动工，建成后开始生产`
         : (burner ? `${UNIT_DEFINITIONS[placing.unitType].name}已动工，建成后开始供能`
           : (plot ? `${UNIT_DEFINITIONS[placing.unitType].name}已动工，建成后开始种树`
-            : (facility ? `${UNIT_DEFINITIONS[placing.unitType].name}已动工，建成后需要魔力驱动` : '建筑已动工'))),
+            : (facility ? `${UNIT_DEFINITIONS[placing.unitType].name}已动工，建成后需要魔力驱动`
+              : (station ? `${UNIT_DEFINITIONS[placing.unitType].name}已动工，建成后点它打开界面` : '建筑已动工')))),
       'placement-done'
     );
     this.cancelPlacement();
@@ -6257,7 +6308,8 @@ export class Game {
       producer: Boolean(producer),
       burner: Boolean(burner),
       plot: Boolean(plot),
-      facility: Boolean(facility)
+      facility: Boolean(facility),
+      station: Boolean(station)
     };
   }
 
@@ -6563,6 +6615,57 @@ export class Game {
   /** 旧名字：数字键与既有验收脚本都叫 activateHotbarSlot。 */
   activateHotbarSlot(index) {
     return this.useHotbarSlot(index);
+  }
+
+  /**
+   * 用掉库存某一格（基地背包 Ctrl+左键等与快捷栏同一套 `itemUseKind` 分发）。
+   */
+  useInventorySlot(inventory, slotIndex) {
+    const slot = inventory?.slots?.[slotIndex] ?? null;
+    if (!slot?.itemId) return { ok: false, reason: 'empty_slot' };
+    const itemId = slot.itemId;
+    const source = { inventory, slotIndex };
+    const useKind = itemUseKind(itemId);
+    const name = ITEM_DEFINITIONS[itemId]?.name ?? itemId;
+
+    if (useKind === ITEM_USE.place) {
+      if (this.placingItem?.itemId === itemId
+        && this.placingItem?.source?.inventory === inventory
+        && this.placingItem?.source?.slotIndex === slotIndex) {
+        this.cancelPlacement();
+        this.backpack?.markDirty?.();
+        return { ok: true, cancelled: true, itemId, useKind, name };
+      }
+      const result = this.beginPlacement(itemId, { source });
+      this.backpack?.markDirty?.();
+      return { ...result, useKind, name };
+    }
+
+    if (useKind === ITEM_USE.consume) {
+      const result = this.useConsumable(itemId, { source });
+      this.backpack?.markDirty?.();
+      return { ...result, useKind, name };
+    }
+
+    if (useKind === ITEM_USE.give) {
+      const unit = this.selectedUnit ?? null;
+      if (!unit || unit.team !== TEAMS.PLAYER) {
+        this.hints?.setHintOnce?.(
+          `${name}：先选中一个己方单位，或按住 Ctrl 点基地格交给它`,
+          `inventory-give-hint:${itemId}`
+        );
+        return { ok: false, reason: 'no_unit_target', itemId, useKind, name };
+      }
+      const result = this.giveItemToUnit(itemId, unit, { source });
+      this.backpack?.markDirty?.();
+      return { ...result, useKind, name, itemId };
+    }
+
+    this.hints?.setHintOnce?.(
+      `${name}不能直接使用：能用的是建筑、消耗品和装备`,
+      `inventory-unusable:${itemId}`
+    );
+    return { ok: false, reason: 'not_usable', itemId, useKind, name };
   }
 
   /**
@@ -6897,6 +7000,9 @@ export class Game {
     });
     this.selectedUnits = filtered;
     this.selectedUnitIds = new Set(this.selectedUnits.map((unit) => unit.id));
+    if (filtered.length) {
+      this.containerMenuTarget = null;
+    }
     this.selectedUnits.forEach((unit) => {
       unit.statusUiDirty = true;
     });
@@ -7026,6 +7132,10 @@ export class Game {
         this.cancelResourceBoxSelect();
         return;
       }
+      if (this.transportLinkMode) {
+        this.cancelTransportLink();
+        return;
+      }
       this.issueMoveCommand(event);
       return;
     }
@@ -7146,6 +7256,10 @@ export class Game {
         this.cancelResourceBoxSelect();
         return;
       }
+      if (this.transportLinkMode) {
+        this.cancelTransportLink();
+        return;
+      }
       // 放置模式优先取消，不要一点 Esc 就把整个游戏暂停了
       if (this.isPlacing()) {
         this.cancelPlacement();
@@ -7159,6 +7273,14 @@ export class Game {
       // 科研站 / 附魔台界面同理
       if (this.facilityPanel?.isOpen()) {
         this.facilityPanel.close();
+        return;
+      }
+      if (this.stationPanel?.isOpen()) {
+        this.stationPanel.close();
+        return;
+      }
+      if (this.transportLinkPanel?.isOpen()) {
+        this.transportLinkPanel.close();
         return;
       }
       if (this.battleDebugPanel?.isOpen()) {
@@ -7232,6 +7354,9 @@ export class Game {
     // 放置预览跟着指针走：不更新的话玩家看不到自己要放在哪
     if (this.isPlacing()) this.updatePlacementPreview(event.clientX, event.clientY);
     this.pointerScreen.set(event.clientX, event.clientY);
+    if (this.transportLinkMode) {
+      this.updateTransportLinkPreview(event.clientX, event.clientY);
+    }
     if (event.target === this.canvas) {
       this.updateHoverHighlight(event.clientX, event.clientY);
     }
@@ -7287,12 +7412,35 @@ export class Game {
       return;
     }
 
+    if (this.transportLinkMode && !drag.active) {
+      this.tryCompleteTransportLink(event.clientX, event.clientY);
+      return;
+    }
+
+    if (!drag.active) {
+      const linkId = this.transportVisual?.pickLinkAt?.(event.clientX, event.clientY);
+      if (linkId) {
+        this.transportLinkPanel?.openForLink?.(linkId);
+        return;
+      }
+    }
+
     if (drag.active) {
       this.selectUnits(this.unitsInScreenRect(drag), { mode: 'box' });
       return;
     }
 
-    this.selectUnit(this.pickSelectableUnit(event.clientX, event.clientY));
+    const picked = this.pickSelectableUnit(event.clientX, event.clientY);
+    if (picked) {
+      this.selectUnit(picked);
+      return;
+    }
+    if (this.pickPlayerBase(event.clientX, event.clientY)) {
+      this.selectPlayerBaseContainer();
+      return;
+    }
+    this.selectUnit(null);
+    this.clearContainerMenuTarget();
   }
 
   onCanvasPointerCancel(event) {
@@ -7630,13 +7778,41 @@ export class Game {
     }
     this.hoverHighlightKey = '';
     this.hoverHighlightScope = 'subtree';
+    this.transportVisual?.setHoveredLinkId?.(null);
     this.canvas?.classList.remove('is-clickable-hover');
   }
 
   updateHoverHighlight(clientX, clientY) {
+    if (this.transportLinkMode) {
+      this.transportVisual?.setHoveredLinkId?.(null);
+      this.updateTransportLinkHoverHighlight(clientX, clientY);
+      return;
+    }
     if (!this.shouldUpdateHoverHighlight()) {
       this.clearHoverHighlight();
+      this.transportVisual?.setHoveredLinkId?.(null);
       return;
+    }
+    if (!this.transportLinkMode) {
+      const linkId = this.transportVisual?.pickLinkAt?.(clientX, clientY);
+      if (linkId) {
+        const key = `transport-link:${linkId}`;
+        const outlineRoot = this.transportVisual?.linkOutlineMeshFor?.(linkId);
+        this.transportVisual?.setHoveredLinkId?.(linkId);
+        if (this.hoverHighlightKey === key && this.hoverHighlightRoot === outlineRoot) {
+          this.canvas?.classList.add('is-clickable-hover');
+          return;
+        }
+        this.clearHoverHighlight();
+        this.hoverHighlightKey = key;
+        this.hoverHighlightRoot = outlineRoot;
+        if (outlineRoot) {
+          applyHoverOutline(outlineRoot, HOVER_OUTLINE_COLORS.resource, { scope: 'mesh' });
+        }
+        this.canvas?.classList.add('is-clickable-hover');
+        return;
+      }
+      this.transportVisual?.setHoveredLinkId?.(null);
     }
     const unit = this.pickHoverUnit(clientX, clientY);
     if (unit) {
@@ -7666,7 +7842,70 @@ export class Game {
       this.canvas?.classList.add('is-clickable-hover');
       return;
     }
+    if (this.pickPlayerBase(clientX, clientY)) {
+      const model = this.playerBase?.model;
+      if (model) {
+        const key = 'base:hover';
+        if (this.hoverHighlightKey === key) return;
+        this.clearHoverHighlight();
+        this.hoverHighlightKey = key;
+        this.hoverHighlightScope = 'subtree';
+        this.hoverHighlightRoot = model;
+        applyHoverOutline(model, HOVER_OUTLINE_COLORS.friendly, { scope: 'subtree' });
+        this.canvas?.classList.add('is-clickable-hover');
+        return;
+      }
+    }
     this.clearHoverHighlight();
+  }
+
+  updateTransportLinkHoverHighlight(clientX, clientY) {
+    const endpoint = this.transportEndpointAt(clientX, clientY);
+    if (endpoint?.kind === 'station' && endpoint.stationId !== 'player-base') {
+      const station = this.stations?.stationById?.(endpoint.stationId);
+      const mesh = station?.unit?.mesh;
+      if (mesh) {
+        const key = `transport:${endpoint.stationId}`;
+        if (this.hoverHighlightKey === key) return;
+        this.clearHoverHighlight();
+        this.hoverHighlightKey = key;
+        this.hoverHighlightRoot = mesh;
+        applyHoverOutline(mesh, HOVER_OUTLINE_COLORS.friendly, { scope: 'subtree' });
+        this.canvas?.classList.add('is-clickable-hover');
+        return;
+      }
+    }
+    if (
+      (endpoint?.kind === 'station' && endpoint.stationId === 'player-base')
+      || this.pickPlayerBase(clientX, clientY)
+    ) {
+      const model = this.playerBase?.model;
+      if (model) {
+        const key = 'transport:player-base';
+        if (this.hoverHighlightKey === key) return;
+        this.clearHoverHighlight();
+        this.hoverHighlightKey = key;
+        this.hoverHighlightRoot = model;
+        applyHoverOutline(model, HOVER_OUTLINE_COLORS.friendly, { scope: 'subtree' });
+        this.canvas?.classList.add('is-clickable-hover');
+        return;
+      }
+    }
+    this.clearHoverHighlight();
+    this.canvas?.classList.remove('is-clickable-hover');
+  }
+
+  updateTransportLinkPreview(clientX, clientY) {
+    if (!this.transportLinkMode?.origin) return;
+    const endpoint = this.transportEndpointAt(clientX, clientY);
+    if (endpoint) {
+      this.transportVisual?.setLinkPreviewTargetEndpoint?.(endpoint);
+      return;
+    }
+    const ground = this.groundPointFromClient(clientX, clientY);
+    if (ground) {
+      this.transportVisual?.setLinkPreviewTargetPoint?.(ground);
+    }
   }
 
   pickHoverUnit(clientX, clientY) {
@@ -8127,6 +8366,14 @@ export class Game {
     if (element.parts.durability) {
       element.parts.durability.style.transform = `scaleX(${durabilityRatio})`;
     }
+    if (structure === this.playerBase && element.parts.baseMana) {
+      const { stored, capacity } = this.power?.baseSupplierMana?.() ?? { stored: 0, capacity: POWER_RULES.baseManaCapacity };
+      const manaRatio = clamp(stored / Math.max(1, capacity), 0, 1);
+      element.parts.baseMana.style.transform = `scaleX(${manaRatio})`;
+      if (element.parts.baseManaBar) element.parts.baseManaBar.hidden = false;
+    } else if (element.parts.baseManaBar) {
+      element.parts.baseManaBar.hidden = true;
+    }
     if (structure === this.playerBase) {
       this.renderRebirthQueueStatus(element.parts.rebirthQueue);
     } else if (element.parts.rebirthQueue) {
@@ -8236,6 +8483,92 @@ export class Game {
   /** 单选单位时在快捷栏上方同步操作条（背包 / 招募 / 停止 / 设施）。 */
   syncUnitActionMenu() {
     this.unitActionMenu?.sync?.();
+  }
+
+  selectPlayerBaseContainer() {
+    this.selectUnits([]);
+    this.containerMenuTarget = playerBaseTransportEndpoint();
+    this.syncUnitActionMenu();
+  }
+
+  clearContainerMenuTarget() {
+    if (!this.containerMenuTarget) return;
+    this.containerMenuTarget = null;
+    this.syncUnitActionMenu();
+  }
+
+  transportEndpointAt(clientX, clientY) {
+    const unit = this.pickSelectableUnit(clientX, clientY, { includeEnemies: false });
+    if (unit) {
+      const station = this.stations?.stationFor?.(unit);
+      if (station) {
+        return { kind: 'station', stationId: station.id };
+      }
+    }
+    if (this.pickPlayerBase(clientX, clientY)) {
+      return playerBaseTransportEndpoint();
+    }
+    return null;
+  }
+
+  pickPlayerBase(clientX, clientY) {
+    const model = this.playerBase?.model;
+    if (!model || this.playerBase?.alive === false) return false;
+    this.pointer.set(
+      (clientX / window.innerWidth) * 2 - 1,
+      -(clientY / window.innerHeight) * 2 + 1
+    );
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    const hit = this.raycaster.intersectObject(model, true)[0];
+    return Boolean(hit);
+  }
+
+  beginTransportLink(origin) {
+    if (!origin) return { ok: false, reason: 'no_origin' };
+    this.cancelTransportLink(false);
+    this.transportLinkMode = {
+      origin,
+      label: '容器'
+    };
+    document.body.classList.add('is-transport-link-mode');
+    this.transportVisual?.setLinkPreview?.(origin);
+    this.updateTransportLinkPreview(this.pointerScreen.x, this.pointerScreen.y);
+    this.hints?.setHint?.(
+      '运输连线：左键点目标容器完成连线，右键取消。连到熔炉=进料线；从熔炉连出=产物输出线。',
+      'transport-link'
+    );
+    return { ok: true };
+  }
+
+  cancelTransportLink(showHint = true) {
+    if (!this.transportLinkMode) return false;
+    this.transportLinkMode = null;
+    this.transportVisual?.clearLinkPreview?.();
+    this.clearHoverHighlight();
+    document.body.classList.remove('is-transport-link-mode');
+    this.hints?.clearHint?.('transport-link');
+    if (showHint) {
+      this.hints?.setHintOnce?.('已取消运输连线', 'transport-link-cancel');
+    }
+    return true;
+  }
+
+  tryCompleteTransportLink(clientX, clientY) {
+    const mode = this.transportLinkMode;
+    if (!mode?.origin) return false;
+    const target = this.transportEndpointAt(clientX, clientY);
+    if (!target) {
+      this.hints?.setHintOnce?.('请点击箱子、工作台或基地', 'transport-link-miss');
+      return true;
+    }
+    const result = this.transport?.tryAddLink?.(mode.origin, target) ?? { ok: false, label: '无法连线' };
+    if (result.ok) {
+      this.hints?.setHint?.('运输线已连接', 'transport-link-ok');
+      this.cancelTransportLink(false);
+    } else {
+      this.hints?.setHintOnce?.(result.label ?? '无法连线', 'transport-link-fail');
+    }
+    return true;
   }
 
   updateHud(dt = 0) {
@@ -10901,6 +11234,9 @@ function createStructureStatusElement(team) {
     <div class="world-durability-bar">
       <span class="world-durability-fill"></span>
     </div>
+    <div class="world-base-mana-bar">
+      <span class="world-base-mana-fill"></span>
+    </div>
     <div class="world-rebirth-queue" hidden></div>
   `;
   element.hidden = true;
@@ -10909,6 +11245,8 @@ function createStructureStatusElement(team) {
     healthLoss: element.querySelector('.world-health-loss-fill'),
     ticks: element.querySelector('.world-health-ticks'),
     durability: element.querySelector('.world-durability-fill'),
+    baseMana: element.querySelector('.world-base-mana-fill'),
+    baseManaBar: element.querySelector('.world-base-mana-bar'),
     rebirthQueue: element.querySelector('.world-rebirth-queue')
   };
   return element;

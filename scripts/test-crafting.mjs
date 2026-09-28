@@ -85,22 +85,22 @@ check('材料不够时整笔失败，且库存完全不变', () => {
 check('产物放不下时整笔失败，材料不会被白扣', () => {
   // 用招募令测不出这一条：它的材料正好占满格子，扣完就腾出空间，产物一定放得下。
   // 必须构造一个"材料从已有堆里扣、产物又塞不进同一个堆"的场景。
-  // 1 格装满 200 木材，配方是 1 木材 → 200 木材：
-  // 扣掉 1 之后剩 199，只能再塞 1 个，离 200 差得远 → 必须整笔失败。
+  // 1 格装满 64 木材，配方是 1 木材 → 65 木材：
+  // 扣掉 1 之后剩 63，再加 65 产物单格上限 64 放不下 → 必须整笔失败。
   const bulk = {
     id: 'testBulk',
     name: '堆叠压力测试',
     inputs: [{ itemId: 'wood', count: 1 }],
-    output: { itemId: 'wood', count: 200 }
+    output: { itemId: 'wood', count: 65 }
   };
   const inventory = makeInventory(1);
-  inventory.add('wood', 200);
+  inventory.add('wood', 64);
   const before = JSON.stringify(inventory.serialize());
   const result = craftRecipe(inventory, bulk);
   assert.equal(result.ok, false, '产物放不下时必须失败');
   assert.equal(result.reason, CRAFT_ERROR.noSpace);
   assert.equal(JSON.stringify(inventory.serialize()), before, '失败时材料必须原样留着');
-  assert.equal(inventory.countOf('wood'), 200);
+  assert.equal(inventory.countOf('wood'), 64);
   assert.equal(inventory.countOf('deepCore'), 0);
 });
 
@@ -304,9 +304,9 @@ check('撤销放不下时整笔失败，库存一个字节都不变', () => {
   assert.equal(crafted.ok, true, crafted.reason);
   assert.equal(inventory.removeInstance(inventory.instancesOf('axe')[0].instanceId).ok, true);
 
-  inventory.add('wood', 200);
-  inventory.add('wood', 200);
-  inventory.add('stone', 200);
+  inventory.add('wood', 64);
+  inventory.add('wood', 64);
+  inventory.add('stone', 64);
   assert.equal(inventory.freeSlots(), 0, '前提：背包已经塞满');
   const before = JSON.stringify(inventory.serialize());
 

@@ -1,4 +1,4 @@
-import { itemDefinition, itemName, itemStackLimit, itemStacksByMerging } from './items.js';
+import { itemDefinition, itemName, itemStackLimit, itemStacksByMerging, ITEM_USE } from './items.js';
 import { CRAFT_ERROR_LABELS } from './crafting.js';
 import { insertIntoInventory, moveSlot, TRANSFER_ERROR_LABELS } from './inventoryTransfer.js';
 import { itemArtForSlot, itemStatLines } from './itemArt.js';
@@ -17,6 +17,14 @@ import {
 } from './runeStones.js';
 import { isManaStoneItem } from './manaStones.js';
 import { RUNE_ERROR_LABELS } from './RuneStoneSystem.js';
+import {
+  workerCargoSlotCount,
+  workerCargoSlotStart,
+  workerCargoUsedSlots,
+  isWorkerToolSlotIndex,
+  workerToolZoneSlots
+} from './workerInventory.js';
+import { mountStationStoragePane, STATION_STORAGE_DATASETS } from './stationStorageUi.js';
 
 /**
  * 统一背包界面（B 键 / 点单位下方的「背包」按钮）。
@@ -80,6 +88,7 @@ export class BackpackUi {
     this.seenItemIds = new Set();
     this.bound = false;
     this.windowHandlers = null;
+    this.suppressFilterClick = false;
   }
 
   get available() {
@@ -143,6 +152,9 @@ export class BackpackUi {
     if (!this.root) return;
     this.root.classList.toggle('is-unit-view', this.mode === 'unit');
     this.root.classList.toggle('is-base-view', this.mode === 'base');
+    if (this.mode === 'unit' && this.activeTab === 'storage') {
+      this.activeTab = 'craft';
+    }
   }
 
   toggle() {
@@ -328,12 +340,15 @@ export class BackpackUi {
           <section class="backpack-recipe-pane">
             <div class="backpack-tabs" role="tablist" data-backpack-tabs>
               <button type="button" class="backpack-tab is-active" role="tab" data-backpack-tab="craft" aria-selected="true">合成</button>
+              <button type="button" class="backpack-tab" role="tab" data-backpack-tab="storage" aria-selected="false">存放</button>
             </div>
             <div class="backpack-pane-head">
               <span class="backpack-pane-title" data-backpack-recipe-title>合成</span>
               <span class="backpack-pane-count" data-backpack-recipe-count></span>
               <span class="backpack-pane-count" data-backpack-resource-count hidden></span>
             </div>
+            <p class="backpack-craft-help" data-backpack-craft-help>合成：Shift+左键产物进快捷栏；Ctrl+左键进快捷栏并关背包（建筑则直接放置）。基地格子：Ctrl+左键直接使用（放置 / 消耗 / 交给选中单位）。</p>
+            <div class="backpack-base-storage" data-backpack-base-storage hidden></div>
             <div class="backpack-recipes" data-backpack-recipes role="tabpanel"></div>
             <div class="backpack-list" data-backpack-resources role="tabpanel" hidden></div>
             <p class="backpack-detail" data-backpack-detail></p>
@@ -354,7 +369,10 @@ export class BackpackUi {
       recipeTitle: root.querySelector('[data-backpack-recipe-title]'),
       recipeCount: root.querySelector('[data-backpack-recipe-count]'),
       resourceCount: root.querySelector('[data-backpack-resource-count]'),
+      baseStorage: root.querySelector('[data-backpack-base-storage]'),
       recipes: root.querySelector('[data-backpack-recipes]'),
+      craftHelp: root.querySelector('[data-backpack-craft-help]'),
+      paneHead: root.querySelector('.backpack-pane-head'),
       resources: root.querySelector('[data-backpack-resources]'),
       detail: root.querySelector('[data-backpack-detail]'),
       feedback: root.querySelector('[data-backpack-feedback]'),
@@ -372,9 +390,13 @@ export class BackpackUi {
       root.addEventListener('pointerout', (event) => this.onPointerOut(event));
       // 光标上的那一叠要跟着鼠标走，所以监听挂在 window 上，销毁时必须摘掉。
       this.windowHandlers = {
-        move: (event) => this.syncCursorGhostPosition(event.clientX, event.clientY)
+        move: (event) => {
+          this.syncCursorGhostPosition(event.clientX, event.clientY);
+        },
+        up: (event) => this.onWindowPointerUp(event)
       };
       window.addEventListener('pointermove', this.windowHandlers.move);
+      window.addEventListener('pointerup', this.windowHandlers.up);
       this.bound = true;
     }
     this.applyTab();
@@ -429,15 +451,19 @@ export class BackpackUi {
         recipe.inputs.map((entry) => entry.have)
       ]),
       placing: this.game?.placingItem?.itemId ?? null,
-      stranded: this.strandedStones().length
+      stranded: this.strandedStones().length,
+      baseFilter: this.game?.stations?.playerBaseStation?.()?.filter ?? null,
+      baseStorePriority: this.game?.stations?.playerBaseStation?.()?.storePriority ?? null
     });
     if (signature === this.lastSignature) return;
     this.lastSignature = signature;
 
     this.renderGrids(entries);
+    this.renderBaseStorageFilter();
     this.renderRecipes(recipes);
     this.renderHeader(entries);
     this.renderFeedback();
+    this.applyTab();
   }
 
   renderHeader(entries) {
@@ -466,8 +492,9 @@ export class BackpackUi {
     // 快捷栏是个容器这件事必须写出来：它在屏幕底部，和面板隔着一段距离，
     // 不说的话没人会想到"把东西拖到那一排格子上"是搬运而不是使用。
     lines.push('屏幕下方的快捷栏也是容器：手上有东西时点它一格就放进去，关掉面板后按 1~9 使用');
+    lines.push('基地格子里按住 Ctrl 点左键：建筑直接放置、消耗品直接用、装备交给当前选中单位');
     if (stranded.length) {
-      lines.push(`有 ${stranded.length} 块符文石失去了落点（旧存档残留），已列在下方可收回基地`);
+      lines.push(`有 ${stranded.length} 块符文石失去了落点，已列在下方可收回基地`);
     }
     this.parts.hint.textContent = lines.join(' · ');
   }
@@ -495,6 +522,13 @@ export class BackpackUi {
       const block = document.createElement('div');
       block.className = 'backpack-grid-block';
       block.dataset.backpackGridBlock = entry.key;
+
+      const isWorkerBag = entry.key === 'unit' && entry.unit?.isWorker === true;
+      if (isWorkerBag) {
+        this.renderWorkerInventoryGrids(block, entry);
+        host.appendChild(block);
+        return;
+      }
 
       const head = document.createElement('div');
       head.className = 'backpack-pane-head';
@@ -533,6 +567,54 @@ export class BackpackUi {
     this.renderStranded(host);
   }
 
+  renderWorkerInventoryGrids(block, entry) {
+    const inventory = entry.inventory;
+    const toolSlots = workerToolZoneSlots();
+    const cargoStart = workerCargoSlotStart();
+    const toolUsed = inventory.slots.slice(0, toolSlots).filter(Boolean).length;
+    const cargoUsed = workerCargoUsedSlots(inventory);
+
+    const toolHead = document.createElement('div');
+    toolHead.className = 'backpack-pane-head';
+    toolHead.innerHTML = `
+      <span class="backpack-pane-title">工具区</span>
+      <span class="backpack-pane-count">${toolUsed}/${toolSlots}</span>
+    `;
+    block.appendChild(toolHead);
+    const toolHint = document.createElement('p');
+    toolHint.className = 'backpack-grid-hint';
+    toolHint.textContent = '斧、镐等工具放这里；不参与自动存放与卸货。';
+    block.appendChild(toolHint);
+    const toolGrid = document.createElement('div');
+    toolGrid.className = 'backpack-grid is-worker-tool-zone';
+    toolGrid.dataset.backpackGrid = entry.key;
+    toolGrid.style.setProperty('--backpack-columns', '6');
+    for (let index = 0; index < toolSlots; index += 1) {
+      toolGrid.appendChild(this.createSlotElement(entry, inventory.slots[index] ?? null, index));
+    }
+    block.appendChild(toolGrid);
+
+    const cargoHead = document.createElement('div');
+    cargoHead.className = 'backpack-pane-head backpack-worker-cargo-head';
+    cargoHead.innerHTML = `
+      <span class="backpack-pane-title">物资区</span>
+      <span class="backpack-pane-count">${cargoUsed}/${workerCargoSlotCount(inventory)}</span>
+    `;
+    block.appendChild(cargoHead);
+    const cargoHint = document.createElement('p');
+    cargoHint.className = 'backpack-grid-hint';
+    cargoHint.textContent = '采集物与要送进箱子/基地的货放这里。';
+    block.appendChild(cargoHint);
+    const cargoGrid = document.createElement('div');
+    cargoGrid.className = 'backpack-grid is-worker-cargo-zone';
+    cargoGrid.dataset.backpackGrid = entry.key;
+    cargoGrid.style.setProperty('--backpack-columns', '4');
+    for (let index = cargoStart; index < inventory.capacity; index += 1) {
+      cargoGrid.appendChild(this.createSlotElement(entry, inventory.slots[index] ?? null, index));
+    }
+    block.appendChild(cargoGrid);
+  }
+
   createSlotElement(entry, slot, index) {
     const cell = document.createElement('div');
     cell.className = 'backpack-slot';
@@ -545,6 +627,13 @@ export class BackpackUi {
       return cell;
     }
     cell.classList.add('is-filled');
+    if (entry.key === 'unit' && this.unit?.isWorker === true) {
+      if (isWorkerToolSlotIndex(index)) {
+        cell.classList.add('is-worker-tool-slot');
+      } else {
+        cell.classList.add('is-worker-cargo-slot');
+      }
+    }
     const definition = itemDefinition(slot.itemId);
     const isStone = slot.itemId === RUNE_STONE_ITEM_ID;
     if (isStone) {
@@ -577,14 +666,7 @@ export class BackpackUi {
       cell.appendChild(count);
     }
 
-    // 两件"格内动作"：基地那块的建筑可放置、单位那块（且只有这块）的武器可装备。
-    // 它们是格子里的小按钮而不是"双击"之类的隐藏手势——旧面板就是这样，
-    // 玩家已经习惯了，而且验收脚本也按这两个入口断言。
-    if (entry.key === 'base' && definition?.placeable?.unitType) {
-      cell.appendChild(this.createSlotAction('place', '放置', index, {
-        title: `把${itemName(slot.itemId)}放到地面上（左键落地，右键取消）`
-      }));
-    }
+    // 基地格：Ctrl+左键直接使用（见 `useBaseSlotDirect`）。单位格内保留「装备」小按钮。
     if (entry.key === 'unit' && definition?.category === 'weapon') {
       cell.appendChild(this.createSlotAction('equip', '装备', index, {
         title: `把${itemName(slot.itemId)}装到${this.unit?.name ?? '单位'}手上`
@@ -595,12 +677,12 @@ export class BackpackUi {
     return cell;
   }
 
-  /** 格子右下角的小动作按钮（放置 / 装备）。 */
+  /** 格子右下角的小动作按钮（装备）。 */
   createSlotAction(action, label, index, { title = '' } = {}) {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = `backpack-slot-action is-${action}`;
-    button.dataset[action === 'place' ? 'backpackPlace' : 'backpackEquip'] = String(index);
+    button.dataset.backpackEquip = String(index);
     button.textContent = label;
     if (title) button.title = title;
     return button;
@@ -656,11 +738,41 @@ export class BackpackUi {
    * 科技锁着的配方由 `recipeStatus()` 直接剔除，这里不再重复判断。
    */
   visibleRecipes() {
+    if (typeof this.game?.craftCatalog === 'function') return this.game.craftCatalog();
     const all = typeof this.game?.recipeStatus === 'function' ? this.game.recipeStatus() : [];
     return all.filter((recipe) => {
       const inputs = recipe.inputs ?? [];
       if (!inputs.length) return true;
       return inputs.some((entry) => this.seenItemIds.has(entry.itemId));
+    });
+  }
+
+  renderBaseStorageFilter() {
+    const host = this.parts.baseStorage;
+    if (!host) return;
+    if (this.mode !== 'base') {
+      host.textContent = '';
+      host.className = 'backpack-base-storage';
+      return;
+    }
+    const station = this.game?.stations?.playerBaseStation?.();
+    if (!station) {
+      host.textContent = '';
+      return;
+    }
+    host.textContent = '';
+    const datasets = STATION_STORAGE_DATASETS.backpackBase;
+    mountStationStoragePane(host, station, {
+      hostClass: 'backpack-base-storage',
+      title: '傀儡存放基地',
+      filterHintWhitelist: '把左侧基地格里的物品拖到这里，傀儡只会把名单里的货搬进基地。白名单为空时不收任何种类。',
+      filterHintBlacklist: '除名单里的种类外都收；黑名单为空时什么都收。点掉一项可移出名单。',
+      datasets: {
+        mode: datasets.mode,
+        filter: datasets.filter,
+        filterItem: datasets.filterItem,
+        priorityDelta: datasets.priorityDelta
+      }
     });
   }
 
@@ -873,37 +985,53 @@ export class BackpackUi {
     // 是为了让旧存档式的调用与验收脚本不至于直接崩掉。
     const aliases = { items: 'craft', unit: 'craft', tech: 'craft', enchant: 'craft', resource: 'craft' };
     const wanted = aliases[tabId] ?? tabId;
-    const known = ['craft'];
-    this.activeTab = known.includes(wanted) ? wanted : 'craft';
+    const known = ['craft', 'storage'];
+    if (this.mode !== 'base' && wanted === 'storage') {
+      this.activeTab = 'craft';
+    } else {
+      this.activeTab = known.includes(wanted) ? wanted : 'craft';
+    }
     this.applyTab();
     return this.activeTab;
   }
 
   applyTab() {
     if (!this.parts) return;
-    const active = this.activeTab ?? 'craft';
+    const isBase = this.mode === 'base';
+    let active = this.activeTab ?? 'craft';
+    if (!isBase && active === 'storage') active = 'craft';
+
     this.parts.tabButtons.forEach((button) => {
-      const isActive = button.dataset.backpackTab === active;
+      const tabId = button.dataset.backpackTab;
+      if (tabId === 'storage') {
+        button.hidden = !isBase;
+      }
+      const isActive = tabId === active;
       button.classList.toggle('is-active', isActive);
       button.setAttribute('aria-selected', isActive ? 'true' : 'false');
     });
-    if (this.parts.recipes) this.parts.recipes.hidden = active !== 'craft';
-    if (this.parts.resources) this.parts.resources.hidden = active !== 'resource';
+
+    const isCraft = active === 'craft';
+    const isStorage = active === 'storage' && isBase;
+
+    if (this.parts.craftHelp) this.parts.craftHelp.hidden = !isCraft;
+    if (this.parts.recipes) this.parts.recipes.hidden = !isCraft;
+    if (this.parts.detail) this.parts.detail.hidden = !isCraft;
+    if (this.parts.baseStorage) this.parts.baseStorage.hidden = !isStorage;
+    if (this.parts.paneHead) this.parts.paneHead.hidden = false;
     if (this.parts.recipeTitle) {
-      this.parts.recipeTitle.textContent = active === 'craft' ? '合成' : '资源优先级';
+      this.parts.recipeTitle.textContent = isStorage ? '存放设置' : '合成';
     }
-    if (this.parts.recipeCount) this.parts.recipeCount.hidden = active !== 'craft';
-    if (this.parts.resourceCount) this.parts.resourceCount.hidden = active !== 'resource';
-    // 悬浮详情那一行是给合成配方用的，切到资源 tab 时清掉，
-    // 否则会留着上一张配方的说明文字，看起来像资源行的说明。
-    if (active !== 'craft') this.clearRecipeDetail();
+    if (this.parts.recipeCount) this.parts.recipeCount.hidden = !isCraft;
+    if (this.parts.resourceCount) this.parts.resourceCount.hidden = true;
+    if (!isCraft) this.clearRecipeDetail();
   }
 
   // ---- 交互：格子搬运（《我的世界》语义）----
 
   onPointerDown(event) {
     // 格子内的小按钮（放置 / 装备）不是搬运手势：先让 onClick 处理它们。
-    if (event.target.closest('[data-backpack-place]') || event.target.closest('[data-backpack-equip]')) return;
+    if (event.target.closest('[data-backpack-equip]')) return;
     const cell = event.target.closest('[data-backpack-slot]');
     if (!cell || !this.parts?.grids?.contains(cell)) return;
     event.preventDefault();
@@ -915,10 +1043,29 @@ export class BackpackUi {
       this.shiftTransferSlot(index, containerKey);
       return;
     }
-    this.handleSlotClick(index, {
-      right: event.button === 2,
-      container: containerKey
-    });
+    if ((event.ctrlKey || event.metaKey) && event.button === 0 && !this.cursor && containerKey === 'base') {
+      this.useBaseSlotDirect(index);
+      return;
+    }
+    if (event.button === 2) {
+      this.handleSlotClick(index, {
+        right: true,
+        container: containerKey
+      });
+      return;
+    }
+    if (event.button !== 0) return;
+    if (!this.cursor) {
+      const container = containerKey ? this.containerFor(containerKey) : this.container();
+      const slot = container?.slots?.[index];
+      if (!slot?.itemId) return;
+      this.handleSlotClick(index, {
+        right: false,
+        container: containerKey
+      });
+      return;
+    }
+    // 左键按住已有物品：等松手再落到格子或名单区
   }
 
   /**
@@ -1188,12 +1335,19 @@ export class BackpackUi {
       this.cursorGhost.appendChild(level);
     }
     this.syncCursorGhostPosition();
+    if (this.cursorGhost) {
+      this.cursorGhost.style.display = 'block';
+    }
     return this.cursorGhost;
   }
 
   syncCursorGhostPosition(clientX, clientY) {
     if (Number.isFinite(clientX)) this.lastPointerX = clientX;
     if (Number.isFinite(clientY)) this.lastPointerY = clientY;
+    if (!this.cursor && !this.cursorGhost) return;
+    if (this.cursor && !this.cursorGhost) {
+      this.updateCursorGhost();
+    }
     if (!this.cursorGhost) return;
     const x = this.lastPointerX ?? window.innerWidth * 0.5;
     const y = this.lastPointerY ?? window.innerHeight * 0.5;
@@ -1204,6 +1358,47 @@ export class BackpackUi {
   removeCursorGhost() {
     this.cursorGhost?.remove();
     this.cursorGhost = null;
+  }
+
+  registerFilterItemFromCursor(clientX, clientY) {
+    if (!this.cursor?.itemId || typeof document === 'undefined') return false;
+    const hit = document.elementFromPoint(clientX, clientY);
+    if (hit?.closest?.('[data-backpack-slot]')) return false;
+    const baseFilter = hit?.closest?.('[data-backpack-base-filter]');
+    if (baseFilter) {
+      this.game?.stations?.addFilterItem?.(
+        this.game.stations.playerBaseStation(),
+        this.cursor.itemId
+      );
+      return true;
+    }
+    const tlink = hit?.closest?.('[data-transport-link-filter]');
+    if (tlink && this.game?.transportLinkPanel?.acceptFilterDrop?.(this.cursor.itemId)) {
+      return true;
+    }
+    return false;
+  }
+
+  tryPlaceCursorOnSlotAt(clientX, clientY) {
+    if (!this.cursor || typeof document === 'undefined') return false;
+    const hit = document.elementFromPoint(clientX, clientY);
+    const cell = hit?.closest?.('[data-backpack-slot]');
+    if (!cell || !this.parts?.grids?.contains(cell)) return false;
+    const index = Number(cell.dataset.backpackSlot);
+    const containerKey = cell.dataset.backpackContainer ?? null;
+    if (!Number.isFinite(index)) return false;
+    this.handleSlotClick(index, { right: false, container: containerKey });
+    return true;
+  }
+
+  onWindowPointerUp(event) {
+    if (!this.isOpen() || event.button !== 0) return;
+    if (!this.cursor) return;
+    if (this.registerFilterItemFromCursor(event.clientX, event.clientY)) {
+      this.suppressFilterClick = true;
+      return;
+    }
+    this.tryPlaceCursorOnSlotAt(event.clientX, event.clientY);
   }
 
   // ---- 交互：点击派发 ----
@@ -1228,13 +1423,6 @@ export class BackpackUi {
       this.recoverStranded();
       return;
     }
-    const place = event.target.closest('[data-backpack-place]');
-    if (place) {
-      event.preventDefault();
-      // 「放置」只出现在基地那一块网格里。
-      this.beginPlacement(Number(place.dataset.backpackPlace), 'base');
-      return;
-    }
     const equip = event.target.closest('[data-backpack-equip]');
     if (equip) {
       event.preventDefault();
@@ -1250,7 +1438,8 @@ export class BackpackUi {
     const craft = event.target.closest('[data-backpack-recipe]');
     if (craft) {
       event.preventDefault();
-      this.craftInto(/** @type {HTMLElement} */ (craft).dataset.backpackRecipe);
+      const destination = event.shiftKey ? 'hotbar' : (event.ctrlKey || event.metaKey ? 'use' : 'cursor');
+      this.craftInto(/** @type {HTMLElement} */ (craft).dataset.backpackRecipe, { destination });
       return;
     }
     const priority = event.target.closest('[data-priority-item]');
@@ -1262,6 +1451,55 @@ export class BackpackUi {
       this.adjustResourcePriority(priority.dataset.priorityItem, delta);
       return;
     }
+    const baseMode = event.target.closest('[data-backpack-base-mode]');
+    if (baseMode) {
+      event.preventDefault();
+      this.game?.stations?.setFilterMode?.(
+        this.game.stations.playerBaseStation(),
+        baseMode.dataset.backpackBaseMode
+      );
+      return;
+    }
+    const baseFilterDrop = event.target.closest('[data-backpack-base-filter]');
+    if (
+      baseFilterDrop
+      && this.cursor?.itemId
+      && !event.target.closest('[data-backpack-base-filter-item]')
+    ) {
+      event.preventDefault();
+      this.game?.stations?.addFilterItem?.(
+        this.game.stations.playerBaseStation(),
+        this.cursor.itemId
+      );
+      return;
+    }
+    const transportFilterDrop = event.target.closest('[data-transport-link-filter]');
+    if (
+      transportFilterDrop
+      && this.cursor?.itemId
+      && !event.target.closest('[data-transport-link-filter-item]')
+    ) {
+      event.preventDefault();
+      this.game?.transportLinkPanel?.acceptFilterDrop?.(this.cursor.itemId);
+      return;
+    }
+    const basePriority = event.target.closest('[data-backpack-base-priority-delta]');
+    if (basePriority) {
+      event.preventDefault();
+      const delta = Number(basePriority.dataset.backpackBasePriorityDelta);
+      if (!Number.isFinite(delta)) return;
+      this.game?.stations?.setStorePriority?.(this.game.stations.playerBaseStation(), delta);
+      return;
+    }
+    const baseChip = event.target.closest('[data-backpack-base-filter-item]');
+    if (baseChip && !this.suppressFilterClick) {
+      event.preventDefault();
+      this.game?.stations?.removeFilterItem?.(
+        this.game.stations.playerBaseStation(),
+        baseChip.dataset.backpackBaseFilterItem
+      );
+    }
+    this.suppressFilterClick = false;
   }
 
   onPointerOver(event) {
@@ -1297,7 +1535,7 @@ export class BackpackUi {
    * 先记下现有的实例 id，合成后找出新出现的那个，用 removeInstance 取走，
    * 保证"手上这一件"就是刚做出来的那一件，而不是又复制一份。
    */
-  craftInto(recipeId) {
+  craftInto(recipeId, { destination = 'cursor' } = {}) {
     if (!recipeId) return null;
     if (this.cursor) {
       this.showFeedback('手里还拿着东西：先点背包空格放下，再合成', true);
@@ -1318,6 +1556,11 @@ export class BackpackUi {
     if (!result?.ok) {
       this.showFeedback(`${recipe.name}：${recipe.reasonLabel || '合成失败'}`, true);
       return null;
+    }
+    this.seenItemIds.add(outputItemId);
+
+    if (destination === 'hotbar' || destination === 'use') {
+      return this.finishCraftShortcut(recipe, inventory, outputItemId, result, before, destination);
     }
 
     // 从基地背包取到手上
@@ -1371,6 +1614,56 @@ export class BackpackUi {
       this.showFeedback(`${recipe.name} 已放进基地背包`, false);
     }
     this.afterCursorChange();
+    return result;
+  }
+
+  /**
+   * Shift：产物进快捷栏，背包留着。
+   * Ctrl：产物进快捷栏后关掉背包。能放置的建筑直接进入放置，关掉之后快捷栏才是使用模式。
+   */
+  finishCraftShortcut(recipe, inventory, outputItemId, result, before, destination) {
+    const hotbar = this.game?.hotbarInventory ?? null;
+    const count = Math.max(1, Math.floor(result.crafted ?? recipe.output.count));
+    let slotIndex = -1;
+    if (hotbar) {
+      if (itemStacksByMerging(outputItemId)) {
+        const moved = inventory.transferTo(hotbar, outputItemId, count);
+        if (moved.ok) {
+          slotIndex = hotbar.slots.findIndex((slot) => slot?.itemId === outputItemId);
+        }
+      } else {
+        const created = (inventory.instancesOf?.(outputItemId) ?? [])
+          .find((slot) => !before.has(slot.instanceId)) ?? null;
+        if (created && inventory.transferInstanceTo(hotbar, created.instanceId).ok) {
+          slotIndex = hotbar.slots.findIndex((slot) => slot?.instanceId === created.instanceId);
+        }
+      }
+    }
+    const placeable = Boolean(itemDefinition(outputItemId)?.placeable?.unitType);
+    if (destination === 'use' && placeable) {
+      const source = slotIndex >= 0
+        ? { inventory: hotbar, slotIndex }
+        : null;
+      const placed = this.game?.beginPlacement?.(outputItemId, { source });
+      if (placed?.ok) {
+        this.showFeedback(`${recipe.name} 做好了，左键放到地上`, false);
+        this.markDirty();
+        return result;
+      }
+    }
+    if (slotIndex < 0) {
+      this.showFeedback(`${recipe.name} 做好了，但快捷栏已满，留在基地背包`, true);
+      this.markDirty();
+      return result;
+    }
+    this.game?.hotbar?.refresh?.();
+    if (destination === 'use') {
+      this.close();
+      this.showFeedback(`${recipe.name} 已放进快捷栏，背包已关闭，可以直接使用`, false);
+      return result;
+    }
+    this.showFeedback(`${recipe.name} 已放进快捷栏`, false);
+    this.markDirty();
     return result;
   }
 
@@ -1466,27 +1759,41 @@ export class BackpackUi {
     return moved;
   }
 
-  /**
-   * 格子上的「放置」：进入放置模式。
-   * 面板会自己关掉——玩家接下来要点地图，留着面板会挡住落点。
-   */
-  beginPlacement(slotIndex, containerKey = 'base') {
-    const slot = this.containerFor(containerKey)?.slots?.[slotIndex] ?? null;
-    if (!slot?.itemId) {
-      this.showFeedback('这一格是空的', true);
-      return null;
-    }
-    const result = this.game?.beginPlacement?.(slot.itemId) ?? { ok: false, reason: 'not_placeable' };
-    if (result.ok) {
-      // game.beginPlacement 内部会 close 本面板（关面板时不吞手上的东西）
-      this.showFeedback(`放置${itemName(slot.itemId)}：左键落地，右键 / Esc 取消`, false);
-    } else {
-      this.showFeedback(
-        result.reason === 'not_in_stock' ? `${itemName(slot.itemId)}：背包里没有` : '这件东西不能放置',
-        true
-      );
+  /** 基地背包格子 Ctrl+左键：与快捷栏同一套「使用」分发。 */
+  useBaseSlotDirect(index) {
+    const inventory = this.containerFor('base');
+    if (!inventory) return null;
+    const slot = inventory.slots[index] ?? null;
+    if (!slot?.itemId) return null;
+    const result = this.game?.useInventorySlot?.(inventory, index)
+      ?? { ok: false, reason: 'no_game' };
+    if (result.cancelled) {
+      this.showFeedback(`已取消放置${itemName(slot.itemId)}`, false);
       this.markDirty();
+      return result;
     }
+    if (result.ok) {
+      if (result.useKind === ITEM_USE.place) {
+        this.showFeedback(`放置${itemName(slot.itemId)}：左键落地，右键 / Esc 取消`, false);
+      } else if (result.useKind === ITEM_USE.consume) {
+        this.close();
+        this.showFeedback(`${itemName(slot.itemId)}已使用`, false);
+      } else if (result.useKind === ITEM_USE.give) {
+        this.close();
+      }
+      this.markDirty();
+      return result;
+    }
+    if (result.reason === 'not_usable') {
+      this.showFeedback(`${itemName(slot.itemId)}不能直接使用（材料请合成或放进快捷栏）`, true);
+    } else if (result.reason === 'no_unit_target') {
+      this.showFeedback(`先把${itemName(slot.itemId)}交给谁？请先选中一个己方单位`, true);
+    } else if (result.reason === 'not_placeable') {
+      this.showFeedback('这件东西不能放置', true);
+    } else {
+      this.showFeedback('无法使用这一格', true);
+    }
+    this.markDirty();
     return result;
   }
 

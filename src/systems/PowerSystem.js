@@ -152,9 +152,33 @@ export class PowerSystem {
     return this.tick(dt);
   }
 
+  tickBaseSupplierRegen(dt) {
+    const step = Math.max(0, dt);
+    if (step <= 0) return;
+    const cap = Math.max(0, this.rules.baseManaCapacity ?? 100);
+    const regen = Math.max(0, this.rules.baseManaRegenPerSecond ?? 2) * step;
+    this.supplierList().forEach((supplier) => {
+      if (supplier.kind !== 'base') return;
+      if (!Number.isFinite(supplier.manaCapacity)) supplier.manaCapacity = cap;
+      if (!Number.isFinite(supplier.manaStored)) supplier.manaStored = cap;
+      supplier.manaStored = Math.min(cap, Math.max(0, supplier.manaStored) + regen);
+    });
+  }
+
+  baseSupplierMana() {
+    const supplier = this.suppliers.get('player-base') ?? this.supplierList().find((s) => s.kind === 'base') ?? null;
+    if (!supplier) return { stored: 0, capacity: this.rules.baseManaCapacity ?? 100 };
+    const capacity = Math.max(0, supplier.manaCapacity ?? this.rules.baseManaCapacity ?? 100);
+    const stored = Number.isFinite(supplier.manaStored)
+      ? Math.max(0, Math.min(capacity, supplier.manaStored))
+      : capacity;
+    return { stored, capacity, supplier };
+  }
+
   tick(dt) {
     const step = Math.max(0, dt);
     if (step <= 0) return this.lastReport;
+    this.tickBaseSupplierRegen(step);
     const entries = [...this.receivers.values()];
     const report = {
       dt: step,

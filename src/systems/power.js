@@ -20,6 +20,12 @@ export const POWER_STRATEGY = {
 
 const EPSILON = 1e-9;
 
+function deductSupplierMana(supplier, amount) {
+  if (!supplier || amount <= EPSILON) return;
+  if (!Number.isFinite(supplier.manaStored)) return;
+  supplier.manaStored = Math.max(0, supplier.manaStored - amount);
+}
+
 // 一个供能源在 dt 内最多能拿出多少。带储备的供能源（以后烧燃料的魔力炉）
 // 还要受自身储备限制，所以这里同时返回 throughput 与 stored 的上限。
 export function powerSupplierBudget(supplier, dt) {
@@ -100,6 +106,7 @@ export function allocatePower({
       const take = Math.min(remaining, source.budget.remaining);
       if (take <= EPSILON) continue;
       source.budget.remaining -= take;
+      deductSupplierMana(source.budget.supplier, take);
       entry.granted += take;
       remaining -= take;
     }
@@ -120,6 +127,7 @@ export function allocatePower({
         const take = Math.min(room, share, budget.remaining);
         if (take <= EPSILON) return;
         budget.remaining -= take;
+        deductSupplierMana(budget.supplier, take);
         entry.granted += take;
       });
     });

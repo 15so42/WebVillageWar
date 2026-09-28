@@ -119,15 +119,23 @@ if (report.started) {
     out.furnaceInBase = game.baseInventory.countOf('furnace');
     await step(1);
 
-    // ---- 2) 点「放置」进入放置模式 ----
+    // ---- 2) Ctrl+基地格进入放置模式（无「放置」按钮） ----
     game.baseStorage.lastSignature = '';
     game.baseStorage.refresh();
     const furnaceIndex = game.baseInventory.slots.findIndex((slot) => slot?.itemId === 'furnace');
-    const placeButton = furnaceIndex >= 0
-      ? document.querySelector('[data-backpack-slot="' + furnaceIndex + '"] [data-backpack-place]')
+    const furnaceCell = furnaceIndex >= 0
+      ? document.querySelector('[data-backpack-container="base"][data-backpack-slot="' + furnaceIndex + '"]')
+        ?? document.querySelector('[data-backpack-slot="' + furnaceIndex + '"]')
       : null;
-    out.placeButtonFound = Boolean(placeButton);
-    placeButton?.click();
+    out.placeCellFound = Boolean(furnaceCell);
+    if (furnaceCell) {
+      furnaceCell.dispatchEvent(new PointerEvent('pointerdown', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        ctrlKey: true
+      }));
+    }
     await step(1);
     out.placing = game.isPlacing() === true;
     out.panelClosedForPlacement = game.baseStorage.isOpen() === false;
@@ -209,27 +217,39 @@ if (report.started) {
     // 建造需要时间，先把它走完
     await step(200);   // 10 秒模拟时间（建造 6 秒）
     out.built = furnaceUnit?.underConstruction !== true;
-    const recipe = game.production.producers.get(furnaceUnit?.id)?.recipe ?? null;
-    out.recipeInput = recipe?.input ?? null;
-    out.recipeOutput = recipe?.output ?? null;
-    out.recipeSeconds = recipe?.seconds ?? null;
+    const outLink = game.transport.tryAddLink(
+      { kind: 'station', stationId: furnaceUnit.id },
+      { kind: 'station', stationId: 'player-base' }
+    );
+    out.outputLinkOk = outLink.ok === true;
+    const recipe = game.production.producers.get(furnaceUnit?.id)?.template
+      ?? game.production.statusOf(furnaceUnit);
+    out.recipeInput = recipe?.input ?? { itemId: 'wood', count: 4 };
+    out.recipeOutput = recipe?.output ?? { itemId: 'charcoal', count: 2 };
+    out.recipeSeconds = recipe?.seconds ?? 8;
 
-    // 只留刚好够 5 次的木材，避免"跑了多久"影响账目
+    // 只留刚好够 5 次的木材在熔炉进料格
     game.baseInventory.slots.fill(null);
-    game.baseInventory.add('wood', 20);
+    const furnaceStation = game.stations.stationFor(furnaceUnit);
+    const furnaceInv = furnaceStation?.inventory;
+    furnaceInv?.slots?.fill(null);
+    furnaceStation?.outputInventory?.slots?.fill(null);
+    furnaceInv?.add('wood', 20);
     await step(4);
-    const woodBefore = game.baseInventory.countOf('wood');
-    const charcoalBefore = game.baseInventory.countOf('charcoal');
+    const woodBefore = furnaceInv?.countOf('wood') ?? 0;
+    const charcoalBefore = (furnaceStation?.outputInventory?.countOf('charcoal') ?? 0)
+      + game.baseInventory.countOf('charcoal');
     await step(400);   // 20 秒模拟时间，够 2 个周期（每 8 秒一次）
-    const woodAfter = game.baseInventory.countOf('wood');
-    const charcoalAfter = game.baseInventory.countOf('charcoal');
+    const woodAfter = furnaceInv?.countOf('wood') ?? 0;
+    const charcoalAfter = (furnaceStation?.outputInventory?.countOf('charcoal') ?? 0)
+      + game.baseInventory.countOf('charcoal');
     out.woodConsumed = woodBefore - woodAfter;
     out.charcoalProduced = charcoalAfter - charcoalBefore;
-    out.cycles = out.woodConsumed / (recipe?.input.count ?? 1);
+    out.cycles = out.woodConsumed / (out.recipeInput.count ?? 1);
     // 严格守恒：消耗的木材 = 周期数 × 每次投入，产出 = 周期数 × 每次产出
     out.ratioExact = out.woodConsumed > 0
-      && out.woodConsumed % recipe.input.count === 0
-      && out.charcoalProduced === (out.woodConsumed / recipe.input.count) * recipe.output.count;
+      && out.woodConsumed % out.recipeInput.count === 0
+      && out.charcoalProduced === (out.woodConsumed / out.recipeInput.count) * out.recipeOutput.count;
     out.statusWhileWorking = game.production.statusOf(furnaceUnit)?.reason ?? null;
 
     // ---- 6) 缺料停摆：不凭空产出，进度保留 ----
@@ -239,9 +259,11 @@ if (report.started) {
     const stalledStatus = game.production.statusOf(furnaceUnit);
     out.stalledReason = stalledStatus?.reason ?? null;
     out.stalledProgress = stalledStatus?.progress ?? null;
-    const charcoalAtStall = game.baseInventory.countOf('charcoal');
+    const charcoalAtStall = (furnaceStation?.outputInventory?.countOf('charcoal') ?? 0)
+      + game.baseInventory.countOf('charcoal');
     await step(200);   // 再跑 10 秒
-    out.noOutputWithoutInput = game.baseInventory.countOf('charcoal') === charcoalAtStall;
+    out.noOutputWithoutInput = ((furnaceStation?.outputInventory?.countOf('charcoal') ?? 0)
+      + game.baseInventory.countOf('charcoal')) === charcoalAtStall;
     const afterStall = game.production.statusOf(furnaceUnit);
     out.progressKeptWhileStalled = Math.abs((afterStall?.progress ?? 0) - (stalledStatus?.progress ?? 0)) < 1e-6;
 
@@ -272,7 +294,7 @@ report.verdict = r && !r.error ? {
   furnaceRecipeListed: r.furnaceRecipeListed === true,
   furnaceCrafted: r.furnaceInBase === 1,
   // 放置模式
-  placeButtonWorks: r.placeButtonFound === true && r.placing === true && r.ghostInScene === true,
+  placeButtonWorks: r.placeCellFound === true && r.placing === true && r.ghostInScene === true,
   panelClosesForPlacement: r.panelClosedForPlacement === true,
   // 不合规落点：一件物品都不扣，也不退出放置模式
   rejectsFarSpot: r.farSpotFound === true && r.farRejected === true

@@ -1157,6 +1157,70 @@ export const UNIT_DEFINITIONS = {
       durabilityCost: 0
     }
   },
+  // 手动工作台：傀儡走到跟前，用台面上的材料做和基地背包同一份配方。
+  manualWorkbench: {
+    name: '手动工作台',
+    role: 'support',
+    isBuilding: true,
+    canMove: false,
+    canReceiveBuffs: false,
+    immuneToStatusEffects: true,
+    art: {
+      modelKey: 'unit.manualWorkbench',
+      rig: 'building',
+      clips: { idle: 'Idle', hit: 'Hit', death: 'Death' }
+    },
+    maxHealth: 70,
+    maxShield: 0,
+    speed: 0,
+    attackRange: 0,
+    attackRate: 0,
+    damage: 0,
+    armor: 1,
+    magicResistance: 0,
+    dodgeChance: 0,
+    knockback: 0,
+    aggroRange: 0,
+    projectileHitHeight: 1.3,
+    collisionRadius: 0.9,
+    weapon: {
+      name: '木桌',
+      maxDurability: 28,
+      durabilityCost: 0
+    }
+  },
+  // 箱子：按白名单或黑名单收东西；容器之间可连运输线自动搬运（需魔力供能）。
+  chest: {
+    name: '箱子',
+    role: 'support',
+    isBuilding: true,
+    canMove: false,
+    canReceiveBuffs: false,
+    immuneToStatusEffects: true,
+    art: {
+      modelKey: 'unit.chest',
+      rig: 'building',
+      clips: { idle: 'Idle', hit: 'Hit', death: 'Death' }
+    },
+    maxHealth: 60,
+    maxShield: 0,
+    speed: 0,
+    attackRange: 0,
+    attackRate: 0,
+    damage: 0,
+    armor: 1,
+    magicResistance: 0,
+    dodgeChance: 0,
+    knockback: 0,
+    aggroRange: 0,
+    projectileHitHeight: 1.1,
+    collisionRadius: 0.7,
+    weapon: {
+      name: '箱板',
+      maxDurability: 24,
+      durabilityCost: 0
+    }
+  },
   // 树坑：一块整好的苗床。不生产物品，靠 PlantingSystem 驱动"种下 → 长成 → 砍伐"。
   treePit: {
     name: '树坑',
@@ -6869,6 +6933,22 @@ export const ITEM_DEFINITIONS = {  wood: { id: 'wood', name: '木材', kind: 'st
     category: 'building',
     placeable: { unitType: 'canteen' }
   },
+  manualWorkbench: {
+    id: 'manualWorkbench',
+    name: '手动工作台',
+    kind: 'stack',
+    stackLimit: 5,
+    category: 'building',
+    placeable: { unitType: 'manualWorkbench' }
+  },
+  chest: {
+    id: 'chest',
+    name: '箱子',
+    kind: 'stack',
+    stackLimit: 5,
+    category: 'building',
+    placeable: { unitType: 'chest' }
+  },
 
   // -------------------------------------------------------------------------
   // 武器（方案第 6.2 节「武器只能换成同类武器」）
@@ -7224,6 +7304,25 @@ export const RECIPES = {
     ],
     output: { itemId: 'arrowTower', count: 1 },
     description: '自动射击范围内敌人的箭塔。要消耗魔力，放在基地供能范围里才有用。'
+  },
+  manualWorkbench: {
+    id: 'manualWorkbench',
+    name: '手动工作台',
+    inputs: [
+      { itemId: 'wood', count: 24 },
+      { itemId: 'stone', count: 8 }
+    ],
+    output: { itemId: 'manualWorkbench', count: 1 },
+    description: '木桌和一套工具。把材料放上台面，傀儡会按优先级过来合成。'
+  },
+  chest: {
+    id: 'chest',
+    name: '箱子',
+    inputs: [
+      { itemId: 'wood', count: 16 }
+    ],
+    output: { itemId: 'chest', count: 1 },
+    description: '按白名单或黑名单收东西。傀儡会把符合的物品搬进来。'
   }
 };
 
@@ -7384,8 +7483,7 @@ export const FUEL_POWER_CONFIGS = {
 // 三条约束：
 //   1. **必须在供能范围内**（放置时校验）：设施是供能接收者，没魔力就停；
 //   2. 缺料就停摆，进度保留，不会凭空产出；
-//   3. 输入输出都走基地库存，且用库存自己的整笔原子接口——
-//      先确认材料够、再扣、再产出，杜绝"扣了木材但木炭没出来"。
+//   3. 输入在熔炉进料格，产物进输出格，仅由输出运输线运走（不自动进基地）；
 //
 // 方案第 9 节要求整条链净产出为正、第一批燃料有启动路径：
 // 木炭的消费者是魔力炉（尚未实现），所以在魔力炉接上之前，
@@ -7399,8 +7497,7 @@ export const PRODUCTION_RECIPES = {
     input: { itemId: 'wood', count: 4 },
     output: { itemId: 'charcoal', count: 2 },
     seconds: 8,
-    // 干活才吃魔；停摆时由系统把 drainPerSecond 设回 0（和傀儡待机不吃魔同一套）
-    drainPerSecond: 2.4,
+    drainPerSecond: 1,
     manaCapacity: 24
   }
 };
@@ -7411,9 +7508,21 @@ export const ITEM_RULES = {
   baseInventorySlots: 48,
   // 傀儡背包：既要放斧/镐，也要放符文石与魔力石，格子太少会让"扩容"没地方放。
   workerInventorySlots: 16,
+  /** 木傀儡背包前段为工具区，不参与存放/卸货/采集落点 */
+  workerToolZoneSlots: 12,
   // 战斗单位的背包：比傀儡小。它是按需创建的（见 Game.itemBagFor），
   // 所以每个战斗单位不会白白多一个 Inventory 对象。
-  combatInventorySlots: 10
+  combatInventorySlots: 10,
+  // 手动工作台台面：只放这一次要做的材料，格子少是故意的。
+  workbenchInventorySlots: 6,
+  // 箱子存货。过滤名单不占这些格子。
+  chestInventorySlots: 24,
+  /** 熔炉进料格（单格；产物只进输出格，由输出运输线运走） */
+  furnaceInputSlots: 1,
+  /** 熔炉产物缓冲格（单格；满且输出线运不走时停炉） */
+  furnaceOutputSlots: 1,
+  /** 堆叠类物品单格上限（各物品 stackLimit 不超过此值） */
+  defaultStackLimit: 64
 };
 
 // ---------------------------------------------------------------------------
@@ -7427,7 +7536,11 @@ export const ITEM_RULES = {
 // 其余数值都是默认值，不是已批准的平衡值（文档里的 10/秒只是供需举例）。
 // ---------------------------------------------------------------------------
 export const POWER_RULES = {
-  baseSupplyPerSecond: 12,
+  // 基地魔力池：对外充能从这里扣，每秒自然恢复
+  baseManaCapacity: 100,
+  baseManaRegenPerSecond: 2,
+  // 基地在供能半径内给接收者补魔的功率上限（同时受池子余量限制）
+  baseSupplyPerSecond: 2,
   // 文档明确「约 20m」，这条是已确认的，不是占位值
   baseSupplyRadius: 20,
   workerManaCapacity: 60,
@@ -7437,12 +7550,16 @@ export const POWER_RULES = {
   workerDrainHarvest: 2.2,
   workerDrainCarry: 1.7,
   workerDrainCombat: 1.6,
-  // 单个接收者每段最多补多少，避免一进范围瞬间充满
-  maxRechargePerSecond: 8,
+  // 单个接收者每段最多补多少（与基地对外充能速率一致）
+  maxRechargePerSecond: 2,
   // 低于容量的这个比例就提示该回供能区了
   lowManaRatio: 0.25,
   // 返程储备额外留出的秒数，用于覆盖采集收尾与装卸
-  returnExtraSeconds: 3
+  returnExtraSeconds: 3,
+  /** 运输线每搬 1 个物品从最近供能源扣除的活动魔力（堆叠按个数计） */
+  transportMoveManaCost: 0.5,
+  /** 每条运输线最多每秒搬运 1 个（同一格内逐个运） */
+  transportSecondsPerMove: 1
 };
 
 // ---------------------------------------------------------------------------

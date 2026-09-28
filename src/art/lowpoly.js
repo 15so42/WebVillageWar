@@ -2638,6 +2638,100 @@ export function createEnchantTableModel(team = 'player') {
   return enableShadows(group);
 }
 
+export function createManualWorkbenchModel(team = 'player') {
+  const group = new THREE.Group();
+  const wood = mat('#8d5a32');
+  const woodDark = mat('#5c3a22');
+  const metal = mat(team === 'player' ? '#b7c0c8' : '#a56b55', { metalness: 0.28, roughness: 0.42 });
+  const handle = mat('#c4a46a');
+
+  const top = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.12, 0.92), wood);
+  top.position.y = 0.78;
+  const apron = new THREE.Mesh(new THREE.BoxGeometry(1.42, 0.16, 0.78), woodDark);
+  apron.position.y = 0.66;
+  const legGeometry = new THREE.BoxGeometry(0.1, 0.62, 0.1);
+  const legs = [
+    [-0.66, 0.31, -0.34], [0.66, 0.31, -0.34], [-0.66, 0.31, 0.34], [0.66, 0.31, 0.34]
+  ].map(([x, y, z]) => {
+    const leg = new THREE.Mesh(legGeometry, woodDark);
+    leg.position.set(x, y, z);
+    return leg;
+  });
+
+  // 台面上的工具：斧、锤、锯，让「这是干活的桌子」一眼能认出来
+  const axeHandle = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.42, 0.06), handle);
+  axeHandle.position.set(-0.42, 0.9, 0.12);
+  axeHandle.rotation.z = 0.5;
+  const axeHead = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.1, 0.06), metal);
+  axeHead.position.set(-0.28, 1.02, 0.12);
+  axeHead.rotation.z = 0.5;
+  const hammerHandle = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.36, 0.05), handle);
+  hammerHandle.position.set(0.08, 0.9, -0.08);
+  hammerHandle.rotation.z = -0.35;
+  const hammerHead = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.1, 0.1), metal);
+  hammerHead.position.set(0.02, 1.04, -0.08);
+  hammerHead.rotation.z = -0.35;
+  const saw = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.08, 0.02), metal);
+  saw.position.set(0.38, 0.88, 0.18);
+  saw.rotation.y = 0.4;
+  saw.rotation.z = 0.15;
+
+  group.add(top, apron, ...legs, axeHandle, axeHead, hammerHandle, hammerHead, saw);
+  return enableShadows(group);
+}
+
+export function createChestModel(team = 'player') {
+  const group = new THREE.Group();
+  const wood = mat('#7a4e2d');
+  const woodDark = mat('#4e301c');
+  const metal = mat(team === 'player' ? '#c5ccd2' : '#a56b55', { metalness: 0.32, roughness: 0.4 });
+
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.62, 0.7), wood);
+  body.position.y = 0.4;
+  const lid = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.16, 0.74), woodDark);
+  lid.position.set(0, 0.78, -0.06);
+  lid.rotation.x = -0.35;
+  const bandGeometry = new THREE.BoxGeometry(0.06, 0.7, 0.74);
+  const bandLeft = new THREE.Mesh(bandGeometry, metal);
+  bandLeft.position.set(-0.34, 0.42, 0);
+  const bandRight = new THREE.Mesh(bandGeometry, metal);
+  bandRight.position.set(0.34, 0.42, 0);
+  const latch = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.16, 0.06), metal);
+  latch.position.set(0, 0.58, 0.36);
+  const footGeometry = new THREE.BoxGeometry(0.12, 0.1, 0.12);
+  const feet = [
+    [-0.4, 0.05, -0.24], [0.4, 0.05, -0.24], [-0.4, 0.05, 0.24], [0.4, 0.05, 0.24]
+  ].map(([x, y, z]) => {
+    const foot = new THREE.Mesh(footGeometry, woodDark);
+    foot.position.set(x, y, z);
+    return foot;
+  });
+
+  group.add(body, lid, bandLeft, bandRight, latch, ...feet);
+  return enableShadows(group);
+}
+
+export function createTransportPillarModel(team = 'player') {
+  const group = new THREE.Group();
+  const stone = mat('#8a939c');
+  const stoneDark = mat('#5c6369');
+  const glow = mat(team === 'player' ? '#7ec8ff' : '#c89070', {
+    emissive: team === 'player' ? '#3a8ec0' : '#804030',
+    emissiveIntensity: 0.35
+  });
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.62, 0.18, 8), stoneDark);
+  base.position.y = 0.09;
+  const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 1.35, 8), stone);
+  pillar.position.y = 0.85;
+  const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.3, 0.14, 8), stoneDark);
+  cap.position.y = 1.52;
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.05, 6, 16), glow);
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = 1.05;
+  group.add(base, pillar, cap, ring);
+  return enableShadows(group);
+}
+
 export function createTreePitModel(team = 'player') {
   const group = new THREE.Group();
   const soil = mat('#5b4630');

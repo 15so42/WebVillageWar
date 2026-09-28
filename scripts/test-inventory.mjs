@@ -56,7 +56,7 @@ check('每种资源都有同名物品，堆叠上限一致', () => {
     const itemId = resourceItemId(resourceId);
     assert.ok(itemId, `${resourceId} 没有对应物品`);
     assert.equal(ITEM_DEFINITIONS[itemId].kind, 'stack', `${itemId} 应当是堆叠类物品`);
-    assert.ok(itemStackLimit(itemId) > 0);
+    assert.equal(itemStackLimit(itemId), 64, `${itemId} 单格上限应为 64`);
   });
 });
 
@@ -69,15 +69,24 @@ check('未知物品与非法数量被拒绝', () => {
 });
 
 check('堆叠按上限合并，不够时开新格', () => {
+  const limit = itemStackLimit('wood');
+  assert.equal(limit, 64);
   const inventory = new Inventory({ capacity: 3 });
-  assert.equal(inventory.add('wood', 450).added, 450);
-  assert.equal(inventory.countOf('wood'), 450);
-  assert.equal(inventory.usedSlots(), 3, '450 木材应当占满 200+200+50 三格');
-  // 第三格还有 150 的空隙，此时应当能继续塞进去
-  assert.equal(inventory.add('wood', 150).added, 150);
-  assert.equal(inventory.countOf('wood'), 600);
+  assert.equal(inventory.add('wood', limit * 3).added, limit * 3);
+  assert.equal(inventory.countOf('wood'), limit * 3);
+  assert.equal(inventory.usedSlots(), 3);
   assert.equal(inventory.add('wood', 1).error, INVENTORY_ERROR.noSpace);
-  assert.equal(inventory.countOf('wood'), 600);
+  assert.equal(inventory.countOf('wood'), limit * 3);
+
+  const roomy = new Inventory({ capacity: 8 });
+  assert.equal(roomy.add('wood', 450).added, 450);
+  assert.equal(roomy.countOf('wood'), 450);
+  assert.equal(roomy.usedSlots(), Math.ceil(450 / limit));
+
+  const full = new Inventory({ capacity: 8 });
+  assert.equal(full.add('wood', limit * 8).added, limit * 8);
+  assert.equal(full.freeSlots(), 0);
+  assert.equal(full.add('wood', 1).error, INVENTORY_ERROR.noSpace);
 });
 
 check('默认整笔失败，allowPartial 才返回余量，任何情况都不静默丢件', () => {
@@ -90,9 +99,9 @@ check('默认整笔失败，allowPartial 才返回余量，任何情况都不静
   const loose = new Inventory({ capacity: 2 });
   const partial = loose.add('wood', 500, { allowPartial: true });
   assert.equal(partial.ok, true);
-  assert.equal(partial.added, 400);
-  assert.equal(partial.remainder, 100, '装不下的部分必须报出来');
-  assert.equal(loose.totalCount(), 400);
+  assert.equal(partial.added, 128);
+  assert.equal(partial.remainder, 372, '装不下的部分必须报出来');
+  assert.equal(loose.totalCount(), 128);
 });
 
 check('取出不够时整笔失败，不会扣掉一部分', () => {
@@ -140,7 +149,7 @@ check('实例转移保留身份，不产生副本', () => {
 check('跨容器转移是原子的：目标满了就一点都不动', () => {
   const source = new Inventory({ id: 'unit', capacity: 4 });
   const target = new Inventory({ id: 'base', capacity: 1 });
-  source.add('wood', 300);
+  source.add('wood', 120);
   target.add('stone', 40);
   const beforeSource = source.totalCount();
   const beforeTarget = target.totalCount();
@@ -183,9 +192,9 @@ check('序列化往返保留格位、数量与实例 ID', () => {
 });
 
 check('库存装不下时，资源节点上的量不能被扣掉', () => {
-  // 一格 200 上限的库存，先塞满，再采需要 45 的橡树
+  const limit = itemStackLimit('wood');
   const inventory = new Inventory({ id: 'base', capacity: 1 });
-  inventory.add('wood', 200);
+  inventory.add('wood', limit);
   const world = makeWorld([makeNode('oak', 'oak-0')]);
   const system = new ResourceNodeSystem(null, { depositTarget: inventory }).attach(world);
 
@@ -193,15 +202,14 @@ check('库存装不下时，资源节点上的量不能被扣掉', () => {
   assert.equal(blocked.ok, false);
   assert.equal(blocked.error, RESOURCE_ERROR.noCapacity);
   assert.equal(system.nodeById('oak-0').amount, 45, '装不下时节点剩余量必须原样');
-  assert.equal(inventory.totalCount(), 200);
+  assert.equal(inventory.totalCount(), limit);
 
-  // 腾出空间后应当能采，而且采到的量等于库存实际收到的量
   inventory.remove('wood', 5);
   const ok = system.harvest('oak-0', { toolIds: ['axe'], position: { x: 0, z: 0 } });
   assert.equal(ok.ok, true);
   assert.equal(ok.taken, 5, '库存只剩 5 格空间，本次只能采 5');
   assert.equal(system.nodeById('oak-0').amount, 40);
-  assert.equal(inventory.countOf('wood'), 200);
+  assert.equal(inventory.countOf('wood'), limit);
 });
 
 check('傀儡采集时产物进傀儡背包，背包装满则不扣节点', () => {
@@ -217,21 +225,20 @@ check('傀儡采集时产物进傀儡背包，背包装满则不扣节点', () =
   assert.equal(worker.countOf('wood'), 5);
   assert.equal(base.countOf('wood'), 0, '傀儡没回基地之前，基地不该凭空多出木材');
 
-  // 一格背包装满 200 之后，采集必须失败且不扣节点
-  worker.add('wood', 195);
-  assert.equal(worker.countOf('wood'), 200);
+  // 物资区一格，堆叠上限 64
+  worker.add('wood', 59);
+  assert.equal(worker.countOf('wood'), 64);
   const before = system.nodeById('oak-1').amount;
   const blocked = system.harvest('oak-1', { toolIds: ['axe'], position: { x: 1, z: 1 }, depositTarget: worker });
   assert.equal(blocked.ok, false);
   assert.equal(blocked.error, RESOURCE_ERROR.noCapacity);
   assert.equal(system.nodeById('oak-1').amount, before, '装不下时节点剩余量必须原样');
-  assert.equal(worker.countOf('wood') + base.countOf('wood'), 200, '总量必须守恒');
+  assert.equal(worker.countOf('wood') + base.countOf('wood'), 64, '总量必须守恒');
 
-  // 运回基地：转移之后背包空了，基地拿到货
-  const moved = worker.transferTo(base, 'wood', 200);
-  assert.equal(moved.moved, 200);
+  const moved = worker.transferTo(base, 'wood', 64);
+  assert.equal(moved.moved, 64);
   assert.equal(worker.totalCount(), 0);
-  assert.equal(base.countOf('wood'), 200);
+  assert.equal(base.countOf('wood'), 64);
 });
 
 check('接上库存后，资源系统的账本不再持有第二份所有权', () => {

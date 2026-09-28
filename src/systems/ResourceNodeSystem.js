@@ -22,6 +22,11 @@ import {
   serializeResourceNodeState,
   totalResourceAmount
 } from './resources.js';
+import {
+  addToWorkerCargo,
+  canAcceptInWorkerCargo,
+  isWorkerInventory
+} from './workerInventory.js';
 
 export const RESOURCE_ERROR = {
   none: 'none',
@@ -100,6 +105,9 @@ export class ResourceNodeSystem {
   depositRoom(resourceId, count, target = null) {
     const itemId = resourceItemId(resourceId) ?? resourceId;
     const destination = target ?? this.depositTarget;
+    if (isWorkerInventory(destination)) {
+      return Math.max(0, Math.floor(canAcceptInWorkerCargo(destination, itemId, count) ?? 0));
+    }
     return Math.max(0, Math.floor(destination?.canAccept?.(itemId, count) ?? 0));
   }
 
@@ -201,7 +209,9 @@ export class ResourceNodeSystem {
       return { ok: false, error: RESOURCE_ERROR.noCapacity, taken: 0 };
     }
     const itemId = resourceItemId(node.resource) ?? node.resource;
-    const deposited = destination.add(itemId, taken, { allowPartial: true });
+    const deposited = isWorkerInventory(destination)
+      ? addToWorkerCargo(destination, itemId, taken, { allowPartial: true })
+      : destination.add(itemId, taken, { allowPartial: true });
     const actuallyStored = Math.min(taken, deposited?.added ?? 0);
     if (actuallyStored <= 0) {
       this.stats.rejected += 1;

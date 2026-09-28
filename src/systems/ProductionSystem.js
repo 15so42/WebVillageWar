@@ -1,65 +1,58 @@
-// 生产设施的运行时。
+// 生产设施的运行时（熔炉等）。
 //
-// 一座设施（目前是熔炉）按周期把基地库存里的材料变成产物。三条规则：
-//   1. **必须在供能范围内**：设施注册成供能接收者，干活才吃魔（`drainPerSecond`），
-//      停摆时设回 0——和傀儡待机不吃魔是同一套模型。
-//   2. **缺料就停摆**：进度原地保留，材料接上之后接着烧，不从头再来。
-//   3. **结算是整笔原子的**：先算"这一段最多能做几个周期"（材料上限与产物空间取小），
-//      再扣材料、再加产物。扣了木材却没出木炭这种半成品状态不允许出现。
-//
-// 输入输出都走基地库存：方案第 5 节推荐的"容器连接 + 搬运"还没做，
-// 所以 v1 用共享的基地库存，而不是给设施再发一个独立缓冲——
-// 那会引入一套临时的第二物流，接上真正的搬运时反而要拆掉。
+// 熔炉：进料格 + 产物输出格；产物只进输出格，由输出运输线运走（不自动进基地库存）。
+// 无输出运输线，或输出格满且端口运不走时，停止熔炼（进度保留）。
+// 工作时每秒消耗配方 drainPerSecond（熔炉默认 1），且须在供能范围内。
+import { itemStackLimit } from './items.js';
 import {
   advanceProduction,
-  maxCyclesByInput,
-  maxCyclesByOutput,
+  maxCyclesForFurnace,
   normalizeProductionRecipe,
-  productionCycleAmounts,
-  productionRecipeForUnitType
+  productionRecipeForInput,
+  productionRecipeForUnitType,
+  productionRecipesForUnitType,
+  settleFurnaceProduction
 } from './production.js';
 
 export class ProductionSystem {
   constructor(game, options = {}) {
     this.game = game ?? null;
     this.rules = options.rules ?? {};
-    /** @type {Map<number, object>} unitId → { unit, recipe, progress, cycles, stalled, reason } */
+    /** @type {Map<number, object>} unitId → producer record */
     this.producers = new Map();
     this.stats = { registered: 0, cycles: 0, consumed: 0, produced: 0, stalledTicks: 0 };
   }
 
-  /**
-   * 把一座建好的设施登记成生产者。`recipe` 缺省时按 unitType 自动匹配；
-   * 匹配不到就返回 null（不是所有建筑都生产东西）。
-   */
   registerProducer(unit, { recipe = null } = {}) {
     if (!unit?.id) return null;
-    const resolved = normalizeProductionRecipe(recipe)
+    const template = normalizeProductionRecipe(recipe)
       ?? productionRecipeForUnitType(unit.type);
-    if (!resolved) return null;
+    if (!template) return null;
+
+    this.game?.stations?.registerBuilding?.(unit);
+
     const record = {
       unit,
-      recipe: resolved,
-      baseRecipe: resolved,
+      template,
+      baseRecipes: productionRecipesForUnitType(unit.type),
+      recipe: null,
       progress: 0,
       cycles: 0,
       stalled: true,
       reason: 'no_input'
     };
     this.producers.set(unit.id, record);
-    // 供电：容量与"干活时"的消耗先给上，真正的开关在 update 里按有没有料来切
     unit.kind = 'building';
-    unit.baseManaCapacity = resolved.manaCapacity;
-    unit.manaCapacity = resolved.manaCapacity;
-    if (!Number.isFinite(unit.activityMana)) unit.activityMana = resolved.manaCapacity;
-    unit.activityMana = Math.min(Math.max(0, unit.activityMana), resolved.manaCapacity);
+    unit.baseManaCapacity = template.manaCapacity;
+    unit.manaCapacity = template.manaCapacity;
+    if (!Number.isFinite(unit.activityMana)) unit.activityMana = template.manaCapacity;
+    unit.activityMana = Math.min(Math.max(0, unit.activityMana), template.manaCapacity);
     unit.drainPerSecond = 0;
     unit.powerPriority = this.rules.powerPriority ?? 1;
     this.game?.power?.registerReceiver?.(unit, {
       positionOf: () => ({ x: unit.position?.x ?? 0, z: unit.position?.z ?? 0 })
     });
     this.stats.registered += 1;
-    // 建的时候先把当前科技的效果套上（先研究后建的情况）
     this.refreshRecipes();
     return record;
   }
@@ -73,62 +66,119 @@ export class ProductionSystem {
     return true;
   }
 
-  /** 设施当前状态，供 HUD / 验收脚本读取。 */
+  furnaceStation(unit) {
+    return this.game?.stations?.stationFor?.(unit) ?? null;
+  }
+
+  furnaceInputInventory(unit) {
+    return this.furnaceStation(unit)?.inventory ?? null;
+  }
+
+  furnaceOutputInventory(unit) {
+    return this.furnaceStation(unit)?.outputInventory ?? null;
+  }
+
+  activeRecipe(record) {
+    const inventory = this.furnaceInputInventory(record.unit);
+    const slot = inventory?.slots?.[0] ?? null;
+    if (!slot?.itemId) return null;
+    const base = productionRecipeForInput(record.unit.type, slot.itemId);
+    if (!base) return null;
+    const patched = this.game?.research?.effectiveProductionRecipe?.(base) ?? base;
+    record.recipe = patched;
+    return patched;
+  }
+
   statusOf(unitOrId) {
     const unitId = typeof unitOrId === 'object' ? unitOrId?.id : unitOrId;
     const record = this.producers.get(unitId);
     if (!record) return null;
+    const recipe = this.activeRecipe(record) ?? record.recipe ?? record.template;
+    const inventory = this.furnaceInputInventory(record.unit);
+    const slot = inventory?.slots?.[0] ?? null;
+    const outInv = this.furnaceOutputInventory(record.unit);
     return {
       unitId: record.unit.id,
-      recipeId: record.recipe.id,
+      recipeId: recipe?.id ?? null,
+      inputItemId: slot?.itemId ?? null,
+      inputCount: slot?.count ?? 0,
+      outputCount: recipe?.output?.itemId ? (outInv?.countOf?.(recipe.output.itemId) ?? 0) : 0,
       progress: record.progress,
-      seconds: record.recipe.seconds,
+      seconds: recipe?.seconds ?? 0,
       stalled: record.stalled,
       reason: record.reason,
       activityMana: record.unit.activityMana ?? 0,
-      manaCapacity: record.recipe.manaCapacity
+      manaCapacity: recipe?.manaCapacity ?? record.template?.manaCapacity ?? 0,
+      drainPerSecond: recipe?.drainPerSecond ?? record.template?.drainPerSecond ?? 0,
+      hasOutputLine: this.game?.transport?.furnaceHasOutputLine?.(record.unit.id) ?? false
     };
   }
 
   update(dt) {
     if (!this.producers.size) return;
-    const inventory = this.game?.baseInventory ?? null;
     this.producers.forEach((record, unitId) => {
       const unit = record.unit;
       if (!unit?.alive) {
         this.unregisterProducer(unitId);
         return;
       }
-      this.tickProducer(record, inventory, dt);
+      this.tickProducer(record, dt);
     });
   }
 
-  /**
-   * 重新解析所有生产者的配方（研究完"高效烧炭"这类科技之后调用）。
-   *
-   * 事件驱动而不是每帧解析：配方补丁只会在研究完成的那一刻变化，
-   * 每帧给每座设施做一次对象合并是白白的 GC。
-   */
   refreshRecipes() {
     this.producers.forEach((record) => {
-      const base = record.baseRecipe ?? record.recipe;
-      record.baseRecipe = base;
-      record.recipe = this.game?.research?.effectiveProductionRecipe?.(base) ?? base;
+      record.baseRecipes = productionRecipesForUnitType(record.unit.type).map((entry) => {
+        const base = normalizeProductionRecipe(entry);
+        return this.game?.research?.effectiveProductionRecipe?.(base) ?? base;
+      });
     });
   }
 
-  tickProducer(record, inventory, dt) {
-    const { recipe, unit } = record;
-    const inputHave = inventory?.countOf?.(recipe.input.itemId) ?? 0;
-    const hasInput = inputHave >= recipe.input.count;
-    const hasMana = (unit.activityMana ?? 0) > 0;
+  tickProducer(record, dt) {
+    const { unit } = record;
+    const inputInv = this.furnaceInputInventory(unit);
+    const outputInv = this.furnaceOutputInventory(unit);
+    const slot = inputInv?.slots?.[0] ?? null;
+    const recipe = this.activeRecipe(record);
+    const transport = this.game?.transport;
 
-    // 停摆原因分得细一点：HUD 与验收脚本要能区分"缺料"和"没电"
+    if (!inputInv || !outputInv) {
+      record.stalled = true;
+      record.reason = 'no_inventory';
+      unit.drainPerSecond = 0;
+      return;
+    }
+
+    if (!slot?.itemId) {
+      record.stalled = true;
+      record.reason = 'no_input';
+      record.cycles = 0;
+      unit.drainPerSecond = 0;
+      this.stats.stalledTicks += 1;
+      return;
+    }
+
+    if (!recipe) {
+      record.stalled = true;
+      record.reason = 'unknown_material';
+      record.cycles = 0;
+      unit.drainPerSecond = 0;
+      this.stats.stalledTicks += 1;
+      return;
+    }
+
+    const hasInput = (slot.count ?? 0) >= recipe.input.count;
+    const hasMana = (unit.activityMana ?? 0) > 0;
+    const hasOutputLine = transport?.furnaceHasOutputLine?.(unit.id) ?? false;
+    const outputReady = transport?.furnaceOutputReady?.(unit.id, recipe) ?? false;
+
     let reason = 'working';
     if (!hasInput) reason = 'no_input';
     else if (!hasMana) reason = 'no_power';
+    else if (!hasOutputLine) reason = 'no_output_line';
+    else if (!outputReady) reason = 'output_blocked';
 
-    // 干活才吃魔：停摆时设回 0，让储备慢慢回满（供能系统只在有需求时补）
     unit.drainPerSecond = reason === 'working' ? recipe.drainPerSecond : 0;
 
     if (reason !== 'working') {
@@ -136,52 +186,36 @@ export class ProductionSystem {
       record.reason = reason;
       record.cycles = 0;
       this.stats.stalledTicks += 1;
-      // 注意：**进度保留**。材料接上之后接着烧，不从头再来。
       return;
     }
 
-    if (!inventory) {
-      record.stalled = true;
-      record.reason = 'no_inventory';
-      record.cycles = 0;
-      return;
-    }
+    const cyclesAllowed = maxCyclesForFurnace(recipe, slot, outputInv, {
+      stackLimit: itemStackLimit(recipe.output.itemId)
+    });
 
-    // 这一段最多能做几个周期：材料上限与产物空间取小。
-    // 产物空间用剩余可接受量算，避免"做了才发现放不下"。
-    const byInput = maxCyclesByInput(recipe, (itemId) => inventory.countOf(itemId));
-    const byOutput = maxCyclesByOutput(recipe, (itemId) => inventory.canAccept(itemId, Number.MAX_SAFE_INTEGER));
-    // 一个周期至少走完一个 seconds 才能结算，所以这一段的理论上限也受 dt 限制
     const step = advanceProduction({
       progress: record.progress,
       dt,
       seconds: recipe.seconds,
-      cyclesAllowed: Math.min(byInput, byOutput)
+      cyclesAllowed
     });
 
     if (step.cycles > 0) {
-      const amounts = productionCycleAmounts(recipe, step.cycles);
-      const removed = inventory.remove(amounts.consumed.itemId, amounts.consumed.count);
-      if (removed.ok) {
-        const added = inventory.add(amounts.produced.itemId, amounts.produced.count);
-        if (!added.ok) {
-          // 理论上前面的 canAccept 已经保证放得下；真到了这里必须把材料退回去，
-          // 否则就是"扣了木材但木炭没出来"。
-          inventory.add(amounts.consumed.itemId, amounts.consumed.count);
-          record.stalled = true;
-          record.reason = 'no_space';
-          record.cycles = 0;
-          return;
-        }
-        this.stats.cycles += step.cycles;
-        this.stats.consumed += amounts.consumed.count;
-        this.stats.produced += amounts.produced.count;
-      } else {
+      const settled = settleFurnaceProduction(inputInv, outputInv, recipe, step.cycles, {
+        stackLimit: itemStackLimit(recipe.output.itemId)
+      });
+      if (!settled.ok) {
         record.stalled = true;
-        record.reason = 'no_input';
+        record.reason = settled.reason === 'output_full' ? 'output_blocked' : settled.reason;
         record.cycles = 0;
         return;
       }
+      this.stats.cycles += step.cycles;
+      this.stats.consumed += recipe.input.count * step.cycles;
+      this.stats.produced += recipe.output.count * step.cycles;
+      this.game?.stationPanel?.markDirty?.();
+      this.game?.backpack?.markDirty?.();
+      this.game?.transportVisual?.markDirty?.();
     }
 
     record.progress = step.progress;
@@ -193,7 +227,7 @@ export class ProductionSystem {
   serialize() {
     return [...this.producers.values()].map((record) => ({
       unitId: record.unit.id,
-      recipeId: record.recipe.id,
+      recipeId: record.recipe?.id ?? record.template?.id ?? null,
       progress: record.progress
     }));
   }

@@ -48,6 +48,23 @@ export function productionRecipeForUnitType(unitType) {
   return found ?? null;
 }
 
+/** 熔炉格子里是哪种原料，就匹配哪条同 unitType 的配方。 */
+export function productionRecipeForInput(unitType, itemId) {
+  if (!unitType || !itemId) return null;
+  const id = String(itemId);
+  return Object.values(PRODUCTION_RECIPES)
+    .map(normalizeProductionRecipe)
+    .find((recipe) => recipe?.unitType === unitType && recipe.input.itemId === id)
+    ?? null;
+}
+
+export function productionRecipesForUnitType(unitType) {
+  if (!unitType) return [];
+  return Object.values(PRODUCTION_RECIPES)
+    .map(normalizeProductionRecipe)
+    .filter((recipe) => recipe?.unitType === unitType);
+}
+
 export function allProductionRecipes() {
   return Object.values(PRODUCTION_RECIPES).map(normalizeProductionRecipe).filter(Boolean);
 }
@@ -112,5 +129,103 @@ export function productionCycleAmounts(recipe, cycles = 1) {
   return {
     consumed: { itemId: normalized.input.itemId, count: normalized.input.count * times },
     produced: { itemId: normalized.output.itemId, count: normalized.output.count * times }
+  };
+}
+
+/**
+ * 熔炉：进料格 + 产物输出格；产物只进 outputInv，不写入基地。
+ */
+export function maxCyclesForFurnace(recipe, inputSlot, outputInv, { stackLimit = 64 } = {}) {
+  const normalized = normalizeProductionRecipe(recipe);
+  if (!normalized || !inputSlot?.itemId || inputSlot.itemId !== normalized.input.itemId) return 0;
+  if (!outputInv?.canAccept) return 0;
+  const have = Math.max(0, Math.floor(inputSlot.count ?? 0));
+  const byInput = Math.floor(have / normalized.input.count);
+  if (byInput <= 0) return 0;
+  const byOutput = maxCyclesByOutput(normalized, (itemId) => {
+    if (itemId !== normalized.output.itemId) return 0;
+    return outputInv.canAccept(itemId, Number.MAX_SAFE_INTEGER);
+  });
+  return Math.min(byInput, byOutput);
+}
+
+/** @deprecated 仅测试脚本兼容名 */
+export const maxCyclesForFurnaceSlot = maxCyclesForFurnace;
+
+export function settleFurnaceProduction(inputInv, outputInv, recipe, cycles, { stackLimit = 64 } = {}) {
+  const normalized = normalizeProductionRecipe(recipe);
+  const times = Math.max(0, Math.floor(Number(cycles) || 0));
+  if (!inputInv?.slots || !outputInv?.add || !normalized || times <= 0) {
+    return { ok: false, reason: 'invalid' };
+  }
+  const slot = inputInv.slots[0];
+  if (!slot?.itemId || slot.itemId !== normalized.input.itemId) {
+    return { ok: false, reason: 'no_input' };
+  }
+  const amounts = productionCycleAmounts(normalized, times);
+  if ((slot.count ?? 0) < amounts.consumed.count) {
+    return { ok: false, reason: 'no_input' };
+  }
+  const limit = Math.max(1, Math.floor(stackLimit));
+  const room = outputInv.canAccept(amounts.produced.itemId, amounts.produced.count);
+  if (room < amounts.produced.count) {
+    return { ok: false, reason: 'output_full' };
+  }
+  const taken = inputInv.removeAt(0, amounts.consumed.count);
+  if (!taken.ok) return { ok: false, reason: 'no_input' };
+  const added = outputInv.add(amounts.produced.itemId, amounts.produced.count, { allowPartial: false });
+  if (!added.ok) {
+    inputInv.add(slot.itemId, taken.removed);
+    return { ok: false, reason: 'output_full' };
+  }
+  return { ok: true, reason: 'none' };
+}
+
+/** @deprecated 旧单格+基地溢出逻辑，勿用于熔炉 */
+export function settleProductionOnSlot(inventory, slotIndex, recipe, cycles, { stackLimit = 64 } = {}) {
+  const normalized = normalizeProductionRecipe(recipe);
+  const times = Math.max(0, Math.floor(Number(cycles) || 0));
+  if (!inventory?.slots || !normalized || times <= 0) {
+    return { ok: false, reason: 'invalid', spill: 0, spillItemId: null };
+  }
+  const slot = inventory.slots[slotIndex];
+  if (!slot?.itemId || slot.itemId !== normalized.input.itemId) {
+    return { ok: false, reason: 'no_input', spill: 0, spillItemId: null };
+  }
+  const amounts = productionCycleAmounts(normalized, times);
+  if ((slot.count ?? 0) < amounts.consumed.count) {
+    return { ok: false, reason: 'no_input', spill: 0, spillItemId: null };
+  }
+  slot.count -= amounts.consumed.count;
+  const remInput = slot.count > 0 ? slot.count : 0;
+  if (slot.count <= 0) inventory.slots[slotIndex] = null;
+
+  const outId = amounts.produced.itemId;
+  const outCount = amounts.produced.count;
+  const limit = Math.max(1, Math.floor(stackLimit));
+  let spill = 0;
+
+  if (remInput > 0) {
+    spill = outCount;
+  } else if (!inventory.slots[slotIndex]) {
+    inventory.slots[slotIndex] = { itemId: outId, count: Math.min(outCount, limit) };
+    spill = Math.max(0, outCount - limit);
+  } else {
+    const target = inventory.slots[slotIndex];
+    if (target.itemId === outId) {
+      const room = Math.max(0, limit - (target.count ?? 0));
+      const placed = Math.min(room, outCount);
+      target.count = (target.count ?? 0) + placed;
+      spill = outCount - placed;
+    } else {
+      spill = outCount;
+    }
+  }
+
+  return {
+    ok: spill === 0,
+    reason: spill > 0 ? 'needs_spill' : 'none',
+    spill,
+    spillItemId: spill > 0 ? outId : null
   };
 }
