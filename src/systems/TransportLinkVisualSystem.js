@@ -5,13 +5,76 @@ import * as THREE from 'three';
 import { createSoftParticleSprite } from '../art/vfxMaterials.js';
 import { itemArtMarkup } from './itemArt.js';
 import { transportLinkEndpoints } from './transport.js';
+import { importPortSortKey, normalizeStationImportPort } from './transportPorts.js';
 
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
 const _mid = new THREE.Vector3();
 const _pos = new THREE.Vector3();
 const _dir = new THREE.Vector3();
+const _ctrl = new THREE.Vector3();
+const _right = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
+const _curve = new THREE.QuadraticBezierCurve3(
+  new THREE.Vector3(),
+  new THREE.Vector3(),
+  new THREE.Vector3()
+);
+const _curvePoints = [];
+
+function linkLateralOffset(link, allLinks, game) {
+  if (!link || !allLinks?.length) return 0;
+  const siblings = allLinks.filter((entry) => (
+    entry.fromStationId === link.fromStationId && entry.toStationId === link.toStationId
+  ));
+  if (siblings.length < 2) return 0;
+  const toStation = game?.stations?.stationById?.(link.toStationId);
+  const sorted = [...siblings].sort((a, b) => {
+    const pa = normalizeStationImportPort(toStation, a.toPort);
+    const pb = normalizeStationImportPort(toStation, b.toPort);
+    return importPortSortKey(pa) - importPortSortKey(pb);
+  });
+  const index = sorted.findIndex((entry) => entry.id === link.id);
+  const spread = 1.85;
+  return (index - (sorted.length - 1) / 2) * spread;
+}
+
+function linkBezierControl(start, end, lateral, target) {
+  _dir.subVectors(end, start);
+  const len = _dir.length();
+  if (len < 0.08 || Math.abs(lateral) < 0.01) {
+    target.copy(start).add(end).multiplyScalar(0.5);
+    return target;
+  }
+  _right.set(-_dir.z / len, 0, _dir.x / len).multiplyScalar(lateral);
+  return target.copy(start).add(end).multiplyScalar(0.5).add(_right);
+}
+
+function setLinkPathGeometry(geometry, start, end, lateral) {
+  if (!geometry) return;
+  if (Math.abs(lateral) < 0.01) {
+    setSegmentGeometry(geometry, start, end);
+    return;
+  }
+  linkBezierControl(start, end, lateral, _ctrl);
+  _curve.v0.copy(start);
+  _curve.v1.copy(_ctrl);
+  _curve.v2.copy(end);
+  const points = _curve.getPoints(28);
+  geometry.setFromPoints(points);
+}
+
+function pointOnLinkPath(start, end, lateral, t, target) {
+  const clamped = Math.max(0, Math.min(1, t));
+  if (Math.abs(lateral) < 0.01) {
+    return pointOnSegment(start, end, clamped, target);
+  }
+  linkBezierControl(start, end, lateral, _ctrl);
+  _curve.v0.copy(start);
+  _curve.v1.copy(_ctrl);
+  _curve.v2.copy(end);
+  return _curve.getPoint(clamped, target);
+}
 
 /** @type {Map<string, THREE.SpriteMaterial>} */
 const itemSpriteMaterials = new Map();
@@ -194,6 +257,9 @@ export class TransportLinkVisualSystem {
     const lineObjects = [];
     this.linkGroups.forEach((entry) => {
       if (entry.pickMesh?.visible) pickMeshes.push(entry.pickMesh);
+      entry.curvePickMeshes?.forEach((mesh) => {
+        if (mesh?.visible) pickMeshes.push(mesh);
+      });
       if (entry.line) lineObjects.push(entry.line);
     });
     if (pickMeshes.length) {
@@ -271,13 +337,55 @@ export class TransportLinkVisualSystem {
       flowSprites,
       link,
       flowDirection: 1,
+      lateral: 0,
+      curvePickMeshes: null,
       segmentStart: new THREE.Vector3(),
       segmentEnd: new THREE.Vector3()
     };
   }
 
+  updateCurvedPickMeshes(entry, start, end, lateral) {
+    if (!entry?.pickMesh) return;
+    entry.pickMesh.visible = false;
+    linkBezierControl(start, end, lateral, _ctrl);
+    _curve.v0.copy(start);
+    _curve.v1.copy(_ctrl);
+    _curve.v2.copy(end);
+    _curvePoints.length = 0;
+    _curvePoints.push(..._curve.getPoints(9));
+    if (!entry.curvePickMeshes) {
+      entry.curvePickMeshes = [];
+      for (let i = 0; i < 8; i += 1) {
+        const mesh = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.22, 0.22, 1, 6, 1, true),
+          new THREE.MeshBasicMaterial({
+            transparent: true,
+            opacity: 0.001,
+            depthWrite: false
+          })
+        );
+        entry.group.add(mesh);
+        entry.curvePickMeshes.push(mesh);
+      }
+    }
+    entry.curvePickMeshes.forEach((mesh, index) => {
+      const a = _curvePoints[index];
+      const b = _curvePoints[index + 1];
+      if (!a || !b) {
+        mesh.visible = false;
+        return;
+      }
+      updatePickVolume(mesh, a, b);
+    });
+  }
+
   disposeLink(entry) {
     if (!entry) return;
+    entry.curvePickMeshes?.forEach((mesh) => {
+      mesh.geometry?.dispose();
+      mesh.material?.dispose();
+      mesh.removeFromParent();
+    });
     entry.geometry?.dispose();
     entry.material?.dispose();
     entry.pickMesh?.geometry?.dispose();
@@ -348,8 +456,18 @@ export class TransportLinkVisualSystem {
     this.endpointPosition(to, _b);
     entry.segmentStart.copy(_a);
     entry.segmentEnd.copy(_b);
-    setSegmentGeometry(entry.geometry, _a, _b);
-    updatePickVolume(entry.pickMesh, _a, _b);
+    const allLinks = this.game?.transport?.links ?? [];
+    entry.lateral = linkLateralOffset(entry.link, allLinks, this.game);
+    setLinkPathGeometry(entry.geometry, _a, _b, entry.lateral);
+    if (Math.abs(entry.lateral) > 0.05) {
+      this.updateCurvedPickMeshes(entry, _a, _b, entry.lateral);
+    } else {
+      entry.curvePickMeshes?.forEach((mesh) => {
+        mesh.visible = false;
+      });
+      entry.pickMesh.visible = true;
+      updatePickVolume(entry.pickMesh, _a, _b);
+    }
     entry.flowDirection = linkFlowsFromTo(entry.link);
     const powered = this.game?.transport?.linkHasPower?.(entry.link) ?? false;
     const hovered = entry.link.id === this.hoveredLinkId;
@@ -374,7 +492,13 @@ export class TransportLinkVisualSystem {
       entry.flowSprites.forEach((sprite, index) => {
         const t = (this.flowTime * 0.55 * dir + sprite.userData.phase + index * 0.08) % 1;
         const tt = dir >= 0 ? t : 1 - t;
-        pointOnSegment(entry.segmentStart, entry.segmentEnd, Math.max(0, Math.min(1, tt)), _pos);
+        pointOnLinkPath(
+          entry.segmentStart,
+          entry.segmentEnd,
+          entry.lateral ?? 0,
+          Math.max(0, Math.min(1, tt)),
+          _pos
+        );
         sprite.position.copy(_pos);
         const fade = 0.35 + 0.65 * Math.sin(tt * Math.PI);
         sprite.material.opacity = 0.25 + fade * 0.55;

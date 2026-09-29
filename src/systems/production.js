@@ -3,7 +3,7 @@
 // 和 resources.js / crafting.js 一样刻意不依赖 THREE / DOM / Game：
 // "缺料就停摆""进度不会凭空跳""一段时间内产出不超过材料允许的次数"
 // 这些必须能单独断言。
-import { PRODUCTION_RECIPES } from '../data/gameData.js';
+import { ITEM_RULES, PRODUCTION_RECIPES } from '../data/gameData.js';
 
 export const PRODUCTION_ERROR = {
   none: 'none',
@@ -135,7 +135,55 @@ export function productionCycleAmounts(recipe, cycles = 1) {
 /**
  * 熔炉：进料格 + 产物输出格；产物只进 outputInv，不写入基地。
  */
-export function maxCyclesForFurnace(recipe, inputSlot, outputInv, { stackLimit = 64 } = {}) {
+export function furnaceFuelItemIds() {
+  const list = ITEM_RULES.furnaceFuelItemIds;
+  return Array.isArray(list) && list.length ? list.map(String) : ['wood', 'charcoal'];
+}
+
+export function isFurnaceFuelItem(itemId) {
+  if (!itemId) return false;
+  return furnaceFuelItemIds().includes(String(itemId));
+}
+
+export function countFurnaceFuel(fuelInv) {
+  if (!fuelInv?.slots) return 0;
+  const ids = new Set(furnaceFuelItemIds());
+  let total = 0;
+  for (const slot of fuelInv.slots) {
+    if (!slot?.itemId || !ids.has(slot.itemId)) continue;
+    total += Math.max(0, Math.floor(slot.count ?? 0));
+  }
+  return total;
+}
+
+export function maxCyclesByFurnaceFuel(fuelInv, cyclesWanted) {
+  const per = Math.max(1, Math.floor(Number(ITEM_RULES.furnaceFuelPerCycle) || 1));
+  const have = countFurnaceFuel(fuelInv);
+  const byFuel = Math.floor(have / per);
+  const want = Math.max(0, Math.floor(Number(cyclesWanted) || 0));
+  return Math.min(byFuel, want);
+}
+
+export function consumeFurnaceFuel(fuelInv, cycles) {
+  const times = Math.max(0, Math.floor(Number(cycles) || 0));
+  if (!fuelInv || times <= 0) return { ok: true, consumed: 0 };
+  const per = Math.max(1, Math.floor(Number(ITEM_RULES.furnaceFuelPerCycle) || 1));
+  let need = times * per;
+  const ids = new Set(furnaceFuelItemIds());
+  for (let index = 0; index < fuelInv.slots.length && need > 0; index += 1) {
+    const slot = fuelInv.slots[index];
+    if (!slot?.itemId || !ids.has(slot.itemId)) continue;
+    const take = Math.min(need, slot.count ?? 0);
+    if (take <= 0) continue;
+    const removed = fuelInv.removeAt(index, take);
+    if (!removed.ok) return { ok: false, consumed: 0 };
+    need -= removed.removed;
+  }
+  if (need > 0) return { ok: false, consumed: 0 };
+  return { ok: true, consumed: times * per };
+}
+
+export function maxCyclesForFurnace(recipe, inputSlot, outputInv, { stackLimit = 64, fuelInv = null } = {}) {
   const normalized = normalizeProductionRecipe(recipe);
   if (!normalized || !inputSlot?.itemId || inputSlot.itemId !== normalized.input.itemId) return 0;
   if (!outputInv?.canAccept) return 0;
@@ -146,7 +194,11 @@ export function maxCyclesForFurnace(recipe, inputSlot, outputInv, { stackLimit =
     if (itemId !== normalized.output.itemId) return 0;
     return outputInv.canAccept(itemId, Number.MAX_SAFE_INTEGER);
   });
-  return Math.min(byInput, byOutput);
+  let allowed = Math.min(byInput, byOutput);
+  if (fuelInv) {
+    allowed = Math.min(allowed, maxCyclesByFurnaceFuel(fuelInv, allowed));
+  }
+  return allowed;
 }
 
 /** @deprecated 仅测试脚本兼容名 */

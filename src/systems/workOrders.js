@@ -1,5 +1,7 @@
 // 傀儡作业状态机（纯逻辑）。
 //
+import { resourceNodeSurfaceDistance } from './resources.js';
+
 // 与 resources.js / power.js 一样不依赖 THREE / DOM / Game：作业决策必须能在
 // 没有渲染、没有寻路的情况下单独验证，否则「为什么这个傀儡站着不动」
 // 只能靠在游戏里盯着看。
@@ -74,6 +76,8 @@ const REASON_LABELS = {
 export const WORK_RULES = {
   // 采集判定距离：站到这个距离内才算够得着
   harvestRange: 2.6,
+  /** 每次采集命中消耗的工具耐久（木制工具满耐久 100）。 */
+  harvestToolWear: 1,
   // 卸货判定距离
   depositRange: 3.2,
   // 低于容量的这个比例就主动回供能区（与 POWER_RULES.lowManaRatio 同义，独立配置便于调）
@@ -231,7 +235,7 @@ export function planWorkerStep({
   }
 
   // 6) 够不够得着
-  const nodeDistance = distance2D(workerPosition, node);
+  const nodeDistance = resourceNodeSurfaceDistance(node, workerPosition);
   if (nodeDistance > resolved.harvestRange) {
     if (task.reachable === false) {
       return result(WORK_STATE.blocked, WORK_REASON.unreachable, WORK_ACTION.none, null);

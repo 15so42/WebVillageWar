@@ -21,11 +21,14 @@ import {
 import { Inventory } from './Inventory.js';
 import {
   countOfInWorkerCargo,
+  findBestPuppetWeaponSlotInToolZone,
   moveWorkerCargoSlotTo,
   workerCargoSlotCount,
   workerCargoSlotStart,
+  workerToolZoneSlots,
   workerCargoUsedSlots
 } from './workerInventory.js';
+import { itemMaxDurability, slotDurability } from './items.js';
 import { RESOURCE_ERROR } from './ResourceNodeSystem.js';
 import {
   advanceHarvestProgress,
@@ -129,6 +132,8 @@ export class WorkSystem {
     // 玩家框选出来的资源点：nodeId -> 优先级 1..12（数字小的先做）。
     // 没有标记就不派活。旧的「按资源种类需求自动采集」不再驱动傀儡。
     this.markedNodes = new Map();
+    /** workerId -> nodeId -> 冷却结束时间（该节点对该傀儡暂时跳过，换别的矿点） */
+    this.workerUnreachableNodes = new Map();
     this.inventories = new Map();
     this.records = new Map();
     this.board = new WorkTaskBoard();
@@ -371,6 +376,76 @@ export class WorkSystem {
     this.autoAssignCooldown = 0;
   }
 
+  isNodeClaimedByOther(nodeId, unitId) {
+    const owner = this.board.ownerOf(nodeId);
+    return owner != null && owner !== unitId;
+  }
+
+  rememberUnreachableNode(unitId, nodeId) {
+    if (!unitId || !nodeId) return;
+    const until = (this.game?.elapsedTime ?? 0) + 28;
+    let map = this.workerUnreachableNodes.get(unitId);
+    if (!map) {
+      map = new Map();
+      this.workerUnreachableNodes.set(unitId, map);
+    }
+    map.set(nodeId, until);
+  }
+
+  isNodeBlockedForWorker(unitId, nodeId) {
+    const map = this.workerUnreachableNodes.get(unitId);
+    if (!map) return false;
+    const until = map.get(nodeId);
+    if (!until) return false;
+    const now = this.game?.elapsedTime ?? 0;
+    if (now >= until) {
+      map.delete(nodeId);
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * 框选池里挑一个节点：先优先级，再离傀儡最近，跳过别人占用的与刚判定不可达的。
+   */
+  pickMarkedNodeForWorker(unitId, unitX, unitZ, reserved = new Set()) {
+    const activeNodes = this.game?.resourceNodes?.activeNodes?.() ?? [];
+    const pool = activeNodes.filter((node) => (
+      this.markedNodes.has(node.id)
+      && this.nodeIsWorkable(node)
+      && !reserved.has(node.id)
+      && !this.isNodeBlockedForWorker(unitId, node.id)
+      && !this.isNodeClaimedByOther(node.id, unitId)
+    ));
+    if (!pool.length) return null;
+    return pool.sort((a, b) => {
+      const priorityDelta = (this.markedNodes.get(a.id) ?? 12) - (this.markedNodes.get(b.id) ?? 12);
+      if (priorityDelta !== 0) return priorityDelta;
+      const distA = Math.hypot((a.x ?? 0) - unitX, (a.z ?? 0) - unitZ);
+      const distB = Math.hypot((b.x ?? 0) - unitX, (b.z ?? 0) - unitZ);
+      if (Math.abs(distA - distB) > 0.05) return distA - distB;
+      return this.nodeThreatAt(a) - this.nodeThreatAt(b);
+    })[0];
+  }
+
+  /** 当前目标走不到（常被别的矿点挡住）：放弃并换框选池里更近的另一个。 */
+  abandonUnreachableTask(record) {
+    const nodeId = record.task?.nodeId ?? null;
+    if (nodeId) this.rememberUnreachableNode(record.unitId, nodeId);
+    this.clearTask(record);
+    this.setLastError(record, null);
+    this.stats.unreachableAbandons = (this.stats.unreachableAbandons ?? 0) + 1;
+    const unit = record.unit;
+    const pick = this.pickMarkedNodeForWorker(
+      record.unitId,
+      unit?.position?.x ?? 0,
+      unit?.position?.z ?? 0
+    );
+    if (pick) this.assignNode(record.unitId, pick.id);
+    else this.pokeAssign();
+    return true;
+  }
+
   prepareErrand(record) {
     if (!record) return;
     record.progress = 0;
@@ -603,6 +678,8 @@ export class WorkSystem {
       unit.drainPerSecond = POWER_RULES.workerDrainMove;
       return false;
     }
+    this.checkWorkerWeaponBroken(unit);
+    this.autoEquipWorkerGear(unit);
     const gear = puppetGearFor({
       toolIds: record.pack.toolIds,
       weaponItemId: unit.weaponItemId ?? null
@@ -671,7 +748,7 @@ export class WorkSystem {
     // 免得傀儡站着不动却按上一帧的「搬运/采集」费率扣魔。
     unit.drainPerSecond = POWER_RULES.workerDrainIdle;
 
-    const task = this.refreshTask(record);
+    let task = this.refreshTask(record);
     const base = this.basePoint();
     const supply = this.supplyPoint();
     // 节点已经采空：任务到此结束，直接把预留还给任务板。
@@ -683,6 +760,11 @@ export class WorkSystem {
       this.game?.syncResourceGatherMarks?.();
       this.clearTask(record);
       this.stats.depletedTasks += 1;
+      task = this.refreshTask(record);
+    }
+    if (task && record.move.unreachable && !record.errand) {
+      this.abandonUnreachableTask(record);
+      task = this.refreshTask(record);
     }
     const validTask = task && (task.node?.amount ?? 0) > 0 ? task : null;
     if (validTask) {
@@ -731,6 +813,16 @@ export class WorkSystem {
     record.recharging = plan.state === WORK_STATE.lowPower
       || plan.action === WORK_ACTION.moveToBase
       || plan.action === WORK_ACTION.deposit;
+
+    if (
+      validTask
+      && !record.errand
+      && plan?.state === WORK_STATE.blocked
+      && plan?.reason === WORK_REASON.unreachable
+    ) {
+      this.abandonUnreachableTask(record);
+      return true;
+    }
 
     this.executeAction(record, unit, plan, step, validTask);
     return true;
@@ -1238,6 +1330,10 @@ export class WorkSystem {
     const result = this.harvestOnce(record, unit, node, completions);
     if (!result || result.blocked) return false;
     if ((result.harvested ?? 0) <= 0) return false;
+    const toolKind = requiredToolFor(node.definitionId);
+    if (toolKind) {
+      this.spendWorkerToolWear(record, toolKind, this.rules.harvestToolWear ?? 1);
+    }
     this.spawnWorkStrikeFeedback(unit, node);
     return true;
   }
@@ -1367,7 +1463,9 @@ export class WorkSystem {
       state: plan?.state ?? WORK_STATE.idle,
       reason: plan?.reason ?? WORK_REASON.noTask,
       note: plan?.note ?? workStateLabel(WORK_STATE.idle, WORK_REASON.noTask),
+      planAction: plan?.action ?? null,
       nodeId: record.task?.nodeId ?? null,
+      moveUnreachable: record.move?.unreachable === true,
       carrying,
       inventoryUsed: workerCargoUsedSlots(record.inventory),
       inventoryCapacity: workerCargoSlotCount(record.inventory),
@@ -1525,24 +1623,13 @@ export class WorkSystem {
       .sort();
     if (!idle.length) return;
 
-    const activeNodes = this.game?.resourceNodes?.activeNodes?.() ?? [];
-    const pool = activeNodes.filter((node) => (
-      this.markedNodes.has(node.id) && this.nodeIsWorkable(node)
-    ));
-    if (!pool.length) return;
     const claimed = new Set();
     idle.forEach((unitId) => {
       const record = this.records.get(unitId);
       if (!record) return;
       const unitX = record.unit?.position?.x ?? 0;
       const unitZ = record.unit?.position?.z ?? 0;
-      const pick = pool
-        .filter((node) => !claimed.has(node.id))
-        .sort((a, b) => {
-          const priorityDelta = (this.markedNodes.get(a.id) ?? 12) - (this.markedNodes.get(b.id) ?? 12);
-          if (priorityDelta !== 0) return priorityDelta;
-          return this.nodeWorkScore(a, unitX, unitZ) - this.nodeWorkScore(b, unitX, unitZ);
-        })[0];
+      const pick = this.pickMarkedNodeForWorker(unitId, unitX, unitZ, claimed);
       if (!pick) return;
       claimed.add(pick.id);
       this.assignNode(unitId, pick.id);
@@ -1701,6 +1788,67 @@ export class WorkSystem {
     return true;
   }
 
+  /**
+   * 傀儡工具区里的武器自动装上；迎战时优先用伤害最高的那件。
+   * 采集工具仍只显示在手上（setUnitHeldTool），不点「装备」。
+   */
+  autoEquipWorkerGear(unit) {
+    if (!unit?.isWorker || unit.alive === false) return false;
+    const record = this.recordFor(unit);
+    if (!record) return false;
+    this.refreshPack(record);
+    const engaging = record.engaging === true || record.combat?.phase === 'fight';
+    const best = findBestPuppetWeaponSlotInToolZone(record.inventory);
+    if (!best) {
+      if (unit.weaponItemId && (unit.weapon?.durability ?? 1) <= 0) {
+        this.game?.clearWorkerEquippedWeapon?.(unit);
+      }
+      return false;
+    }
+    if (unit.weaponItemId === best.slot.itemId && unit.weaponInstanceId === best.slot.instanceId) {
+      return true;
+    }
+    const currentId = unit.weaponItemId ?? null;
+    const currentDmg = currentId ? Number(ITEM_DEFINITIONS[currentId]?.weapon?.damage) || 0 : -1;
+    if (!engaging && currentId && currentDmg >= best.damage) return false;
+    if (engaging && currentId && best.damage < currentDmg) return false;
+    const result = this.game?.equipWeaponFromBag?.(unit, best.index, { silent: true });
+    return result?.ok === true;
+  }
+
+  spendWorkerToolWear(record, toolKind, amount = 1) {
+    if (!record?.inventory || !toolKind) return false;
+    const bag = record.inventory;
+    const end = workerToolZoneSlots();
+    const cost = Math.max(0, Number(amount) || 0);
+    if (cost <= 0) return false;
+    for (let i = 0; i < end; i += 1) {
+      const slot = bag.slots[i];
+      if (!slot) continue;
+      if (ITEM_DEFINITIONS[slot.itemId]?.tool !== toolKind) continue;
+      const max = itemMaxDurability(slot.itemId) || 30;
+      const current = slotDurability(slot, slot.itemId);
+      const next = current - cost;
+      if (!slot.data) slot.data = {};
+      slot.data.durability = Math.max(0, next);
+      if (slot.data.durability <= 0) {
+        bag.slots[i] = null;
+      }
+      this.markPackDirty(record);
+      this.game?.onUnitBackpackChanged?.(record.unit);
+      return true;
+    }
+    return false;
+  }
+
+  checkWorkerWeaponBroken(unit) {
+    if (!unit?.isWorker || !unit.weaponItemId) return false;
+    if ((unit.weapon?.durability ?? 1) > 0) return false;
+    this.game?.clearWorkerEquippedWeapon?.(unit);
+    this.autoEquipWorkerGear(unit);
+    return true;
+  }
+
   // 重算背包缓存：物品清单、工具列表、总件数。只在背包变化后调用。
   refreshPack(record) {
     const pack = record.pack;
@@ -1715,7 +1863,7 @@ export class WorkSystem {
       if (!slot) return;
       if (index < toolEnd) {
         const tool = ITEM_DEFINITIONS[slot.itemId]?.tool;
-        if (tool) {
+        if (tool && slotDurability(slot, slot.itemId) > 0) {
           if (!pack.toolSet.has(tool)) pack.toolSet.add(tool);
           if (!pack.toolIds.includes(tool)) pack.toolIds.push(tool);
         }

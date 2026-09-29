@@ -11,6 +11,7 @@ import {
   itemRules,
   itemStackLimit,
   itemStacksByMerging,
+  defaultItemInstanceData,
   nextItemInstanceId
 } from './items.js';
 
@@ -165,11 +166,12 @@ export class Inventory {
     for (let i = 0; i < this.slots.length && placed < count; i += 1) {
       if (this.slots[i]) continue;
       const provided = Array.isArray(instanceIds) ? instanceIds[placed] : null;
+      const resolvedData = data ? { ...data } : defaultItemInstanceData(itemId);
       this.slots[i] = {
         itemId,
         instanceId: provided ?? nextItemInstanceId(itemId),
         count: 1,
-        data: data ? { ...data } : null
+        data: resolvedData ? { ...resolvedData } : null
       };
       placed += 1;
     }

@@ -1,4 +1,13 @@
-import { itemDefinition, itemName, itemStackLimit, itemStacksByMerging, ITEM_USE } from './items.js';
+import { WOOD_PUPPET_KIT_ITEM_ID } from '../data/gameData.js';
+import {
+  itemDefinition,
+  itemMaxDurability,
+  itemName,
+  itemStackLimit,
+  itemStacksByMerging,
+  ITEM_USE,
+  slotDurability
+} from './items.js';
 import { CRAFT_ERROR_LABELS } from './crafting.js';
 import { insertIntoInventory, moveSlot, TRANSFER_ERROR_LABELS } from './inventoryTransfer.js';
 import { itemArtForSlot, itemStatLines } from './itemArt.js';
@@ -27,7 +36,7 @@ import {
 import { mountStationStoragePane, STATION_STORAGE_DATASETS } from './stationStorageUi.js';
 
 /**
- * 统一背包界面（B 键 / 点单位下方的「背包」按钮）。
+ * 统一背包界面（选中目标后按 B / 点单位下方的「背包」按钮）。
  *
  * 这是本轮改造的核心：**符文背包与基地库存合并成一个面板**。
  * 原因是需求里那句"背包就是背包"——符文石、魔力石、工具、材料都是物品，
@@ -651,6 +660,7 @@ export class BackpackUi {
     art.className = 'backpack-slot-art';
     art.innerHTML = itemArtForSlot(slot);
     cell.appendChild(art);
+    this.appendSlotDurabilityBar(cell, slot);
 
     // 符文石不可堆叠：左上角显示等级，右下角不显示数量（永远是 1）。
     if (isStone) {
@@ -666,8 +676,9 @@ export class BackpackUi {
       cell.appendChild(count);
     }
 
-    // 基地格：Ctrl+左键直接使用（见 `useBaseSlotDirect`）。单位格内保留「装备」小按钮。
-    if (entry.key === 'unit' && definition?.category === 'weapon') {
+    // 傀儡与工具区：武器/工具由作业 AI 自动装备，不弹「装备」按钮。
+    const workerAutoGear = this.unit?.isWorker === true || isWorkerToolSlotIndex(index);
+    if (entry.key === 'unit' && definition?.category === 'weapon' && !workerAutoGear) {
       cell.appendChild(this.createSlotAction('equip', '装备', index, {
         title: `把${itemName(slot.itemId)}装到${this.unit?.name ?? '单位'}手上`
       }));
@@ -675,6 +686,26 @@ export class BackpackUi {
 
     cell.title = this.slotTooltip(slot);
     return cell;
+  }
+
+  /** 有耐久定义的实例（木斧/木镐/傀儡武器等）：图标正下方一条小耐久条。 */
+  appendSlotDurabilityBar(cell, slot) {
+    if (!cell || !slot?.itemId) return;
+    const max = itemMaxDurability(slot.itemId);
+    if (max <= 0) return;
+    const current = slotDurability(slot, slot.itemId);
+    const ratio = Math.max(0, Math.min(1, current / max));
+    const track = document.createElement('div');
+    track.className = 'backpack-slot-durability';
+    track.setAttribute('aria-hidden', 'true');
+    const fill = document.createElement('span');
+    fill.className = 'backpack-slot-durability-fill';
+    if (ratio <= 0.25) fill.classList.add('is-low');
+    if (ratio <= 0.05) fill.classList.add('is-critical');
+    fill.style.width = `${ratio * 100}%`;
+    track.appendChild(fill);
+    cell.appendChild(track);
+    cell.classList.add('has-durability');
   }
 
   /** 格子右下角的小动作按钮（装备）。 */
@@ -706,8 +737,9 @@ export class BackpackUi {
       return lines.join('\n');
     }
     lines.push(...itemStatLines(slot.itemId, definition));
-    if (slot.data?.durability != null && definition?.weapon) {
-      lines.push(`当前耐久 ${Math.round(slot.data.durability)}/${definition.weapon.maxDurability}`);
+    const maxDur = itemMaxDurability(slot.itemId);
+    if (maxDur > 0) {
+      lines.push(`当前耐久 ${Math.round(slotDurability(slot, slot.itemId))}/${maxDur}`);
     }
     return lines.join('\n');
   }
@@ -1652,12 +1684,41 @@ export class BackpackUi {
       }
     }
     if (slotIndex < 0) {
+      if (destination === 'use' && outputItemId === WOOD_PUPPET_KIT_ITEM_ID) {
+        const baseSlot = inventory.slots?.findIndex((slot) => slot?.itemId === outputItemId) ?? -1;
+        if (baseSlot >= 0) {
+          const summoned = this.game?.useConsumable?.(outputItemId, {
+            source: { inventory, slotIndex: baseSlot }
+          });
+          if (summoned?.ok) {
+            this.close();
+            this.showFeedback(`${recipe.name} 已在基地旁召唤`, false);
+            this.markDirty();
+            return result;
+          }
+        }
+      }
       this.showFeedback(`${recipe.name} 做好了，但快捷栏已满，留在基地背包`, true);
       this.markDirty();
       return result;
     }
     this.game?.hotbar?.refresh?.();
     if (destination === 'use') {
+      if (outputItemId === WOOD_PUPPET_KIT_ITEM_ID) {
+        const summoned = this.game?.useConsumable?.(outputItemId, {
+          source: { inventory: hotbar, slotIndex }
+        });
+        if (summoned?.ok) {
+          this.close();
+          this.showFeedback(`${recipe.name} 已在基地旁召唤`, false);
+          this.markDirty();
+          return result;
+        }
+        this.close();
+        this.showFeedback(`${recipe.name} 召唤失败，套件在快捷栏里`, true);
+        this.markDirty();
+        return result;
+      }
       this.close();
       this.showFeedback(`${recipe.name} 已放进快捷栏，背包已关闭，可以直接使用`, false);
       return result;

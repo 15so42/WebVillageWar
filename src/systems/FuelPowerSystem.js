@@ -1,16 +1,9 @@
-// 燃料供能设施的运行时（目前是魔力炉）。
+// 燃料供能设施的运行时（魔力炉）。
 //
-// 它同时是两件事：
-//   1. 一个**供能源**：注册进 PowerSystem，按半径给周围的生产与战斗补魔力；
-//   2. 一个**消费者**：烧基地库存里的木炭换供能时间。
-//
-// 三条规则：
-//   - 有燃料才供能：燃料见底时 `supplyPerSecond` 直接设成 0，
-//     绝不能出现"没燃料还在白送电"；
-//   - 烧燃料是整笔原子的：先确认够、再扣，扣不动就不算这一周期；
-//   - 进度与生产设施一样保留：燃料接上之后接着烧，不从头再来。
-//
-// 更新顺序：必须在 `power.update` **之前**跑，否则这一段分配用的还是上一帧的功率。
+// 魔力炉是单格容器：运输线送入木炭，有燃料就按周期燃烧，把魔力充入炉内储备（上限与基地一致）。
+// 储备 > 0 时按基地相同的 supplyPerSecond / supplyRadius 向周围放电；储备耗尽则停止供能。
+// 更新顺序：必须在 `power.update` **之前**跑。
+import { POWER_RULES } from '../data/gameData.js';
 import {
   advanceFuelBurn,
   fuelPowerConfigForUnitType,
@@ -21,15 +14,16 @@ export class FuelPowerSystem {
   constructor(game, options = {}) {
     this.game = game ?? null;
     this.rules = options.rules ?? {};
-    /** @type {Map<number, object>} unitId → { unit, config, progress, burned, active, reason, supplierId } */
+    /** @type {Map<number, object>} unitId → burner record */
     this.burners = new Map();
-    this.stats = { registered: 0, cycles: 0, fuelBurned: 0, stalledTicks: 0 };
+    this.stats = { registered: 0, cycles: 0, fuelBurned: 0, manaCharged: 0, stalledTicks: 0 };
   }
 
   registerBurner(unit, { config = null } = {}) {
     if (!unit?.id) return null;
     const resolved = normalizeFuelPowerConfig(config) ?? fuelPowerConfigForUnitType(unit.type);
     if (!resolved) return null;
+    const powerRules = this.game?.power?.rules ?? POWER_RULES;
     const supplierId = `fuel-power:${unit.id}`;
     const supplier = this.game?.power?.registerSupplier?.({
       id: supplierId,
@@ -37,8 +31,13 @@ export class FuelPowerSystem {
       x: unit.position?.x ?? 0,
       z: unit.position?.z ?? 0,
       supplyPerSecond: 0,
-      supplyRadius: resolved.supplyRadius
+      supplyRadius: powerRules.baseSupplyRadius,
+      manaStored: 0
     }) ?? null;
+    if (supplier) {
+      supplier.manaCapacity = resolved.manaCapacity ?? powerRules.baseManaCapacity ?? 100;
+      supplier.manaStored = Math.max(0, Math.min(supplier.manaCapacity, supplier.manaStored ?? 0));
+    }
     const record = {
       unit,
       config: resolved,
@@ -63,10 +62,18 @@ export class FuelPowerSystem {
     return true;
   }
 
+  fuelInventoryFor(unit) {
+    return this.game?.stations?.stationFor?.(unit)?.inventory ?? null;
+  }
+
   statusOf(unitOrId) {
     const unitId = typeof unitOrId === 'object' ? unitOrId?.id : unitOrId;
     const record = this.burners.get(unitId);
     if (!record) return null;
+    const supplier = record.supplier;
+    const cap = supplier?.manaCapacity ?? record.config.manaCapacity ?? 100;
+    const stored = Math.max(0, Math.min(cap, supplier?.manaStored ?? 0));
+    const inv = this.fuelInventoryFor(record.unit);
     return {
       unitId: record.unit.id,
       configId: record.config.id,
@@ -74,33 +81,42 @@ export class FuelPowerSystem {
       cycleSeconds: record.config.cycleSeconds,
       active: record.active,
       reason: record.reason,
-      supplyPerSecond: record.supplier?.supplyPerSecond ?? 0,
-      supplyRadius: record.config.supplyRadius,
-      fuelItemId: record.config.fuelItemId
+      supplyPerSecond: supplier?.supplyPerSecond ?? 0,
+      supplyRadius: supplier?.supplyRadius ?? 0,
+      fuelItemId: record.config.fuelItemId,
+      fuelCount: inv?.countOf?.(record.config.fuelItemId) ?? 0,
+      manaStored: stored,
+      manaCapacity: cap
     };
   }
 
   update(dt) {
     if (!this.burners.size) return;
-    const inventory = this.game?.baseInventory ?? null;
     this.burners.forEach((record, unitId) => {
       const unit = record.unit;
       if (!unit?.alive) {
         this.unregisterBurner(unitId);
         return;
       }
-      this.tickBurner(record, inventory, dt);
+      this.tickBurner(record, dt);
     });
   }
 
-  tickBurner(record, inventory, dt) {
-    const { config, supplier } = record;
+  tickBurner(record, dt) {
+    const { config, supplier, unit } = record;
+    const inventory = this.fuelInventoryFor(unit);
+    const powerRules = this.game?.power?.rules ?? POWER_RULES;
+    const pos = unit.position;
+    if (pos && record.supplierId) {
+      this.game?.power?.updateSupplierPosition?.(record.supplierId, pos.x, pos.z);
+    }
     if (!inventory) {
       record.active = false;
       record.reason = 'no_inventory';
       if (supplier) supplier.supplyPerSecond = 0;
       return;
     }
+
     const step = advanceFuelBurn({
       progress: record.progress,
       dt,
@@ -110,19 +126,23 @@ export class FuelPowerSystem {
 
     if (step.burned > 0) {
       const removed = inventory.remove(config.fuelItemId, step.burned);
-      if (removed.ok) {
-        record.progress = step.progress;
-        this.stats.cycles += step.burned / config.fuelPerCycle;
-        this.stats.fuelBurned += step.burned;
-      } else {
-        // 理论上前面的 fuelCyclesAvailable 已经确认够烧；真到了这里就不推进进度，
-        // 也不能扣出半份燃料。
+      if (!removed.ok) {
         record.active = false;
         record.reason = 'no_fuel';
         if (supplier) supplier.supplyPerSecond = 0;
         this.stats.stalledTicks += 1;
         return;
       }
+      record.progress = step.progress;
+      this.stats.cycles += (step.cycles ?? 0);
+      this.stats.fuelBurned += step.burned;
+      if (supplier && step.manaGained > 0) {
+        const cap = supplier.manaCapacity ?? config.manaCapacity;
+        supplier.manaStored = Math.min(cap, Math.max(0, (supplier.manaStored ?? 0) + step.manaGained));
+        this.stats.manaCharged += step.manaGained;
+      }
+      this.game?.stationPanel?.markDirty?.();
+      this.game?.transportLinkPanel?.markDirty?.();
     } else {
       record.progress = step.progress;
     }
@@ -130,16 +150,20 @@ export class FuelPowerSystem {
     record.active = step.active;
     record.reason = step.reason;
     record.burned = step.burned;
-    // 供能源的功率跟着燃料走：没燃料就是 0，PowerSystem 这一段就分不出魔力
-    if (supplier) supplier.supplyPerSecond = step.supplyPerSecond;
-    if (!step.active) this.stats.stalledTicks += 1;
+
+    const stored = supplier?.manaStored ?? 0;
+    if (supplier) {
+      supplier.supplyPerSecond = stored > 0 ? powerRules.baseSupplyPerSecond : 0;
+    }
+    if (!step.active && stored <= 0) this.stats.stalledTicks += 1;
   }
 
   serialize() {
     return [...this.burners.values()].map((record) => ({
       unitId: record.unit.id,
       configId: record.config.id,
-      progress: record.progress
+      progress: record.progress,
+      manaStored: record.supplier?.manaStored ?? 0
     }));
   }
 }

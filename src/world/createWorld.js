@@ -2269,7 +2269,9 @@ const WORLD_PRESETS = {
       { node: 'oak', x: 42, z: 42, rx: 22, rz: 18, count: 20 },
       { node: 'pine', x: -48, z: -16, rx: 20, rz: 22, count: 24 },
       { node: 'pine', x: -8, z: -52, rx: 24, rz: 16, count: 24 },
-      // 石料：四片石堆，采空后这一带会明显空出来
+      // 石料：基地东南/西南两片（圆心距营地约 17–20m，落在清场圈外）
+      { node: 'stonePile', x: 16, z: 24, rx: 4.8, rz: 4.2, count: 10, spacing: 1.5 },
+      { node: 'stonePile', x: -10, z: 26, rx: 4.5, rz: 4, count: 8, spacing: 1.5 },
       { node: 'stonePile', x: -28, z: -8, rx: 10, rz: 8.8, count: 16, spacing: 1.5 },
       { node: 'stonePile', x: 40, z: -44, rx: 10, rz: 8.8, count: 16, spacing: 1.5 },
       { node: 'stonePile', x: -48, z: 28, rx: 9.2, rz: 8, count: 14, spacing: 1.5 },
@@ -2286,7 +2288,8 @@ const WORLD_PRESETS = {
     ],
     forestPassages: [],
     clearings: [
-      { x: 4, z: 40, r: 22 },
+      // 略缩小：仍给营地留空地，但允许 9m 外（isDecorationClear）布近处石堆
+      { x: 4, z: 40, r: 16 },
       { x: 52, z: -24, r: 16 },
       { x: -32, z: -52, r: 12 }
     ],

@@ -187,18 +187,28 @@ if (report.started) {
     // 另外：Inventory.remove 是**整笔成功或整笔失败**的，
     // remove('charcoal', 99) 在只有 16 个的时候会直接失败什么都不做。
     // 清空某个物品必须按实际数量来，不能随手写个大数字。
+    const manaStation = () => game.stations.stationFor(manaUnit);
     const clearItem = (itemId) => {
       const have = game.baseInventory.countOf(itemId);
       return have > 0 ? game.baseInventory.remove(itemId, have) : { ok: true, removed: 0 };
     };
+    const clearManaFuel = () => {
+      const inv = manaStation()?.inventory;
+      if (!inv) return { ok: true, removed: 0 };
+      const have = inv.countOf('charcoal');
+      return have > 0 ? inv.remove('charcoal', have) : { ok: true, removed: 0 };
+    };
+    const feedManaFuel = (count) => manaStation()?.inventory?.add?.('charcoal', count) ?? { ok: false };
     const stepWithNoCharcoal = async (n) => {
       for (let i = 0; i < n; i += 1) {
         game.tick();
         clearItem('charcoal');
+        clearManaFuel();
         if (i % 4 === 3) await new Promise((resolve) => setTimeout(resolve, 10));
       }
     };
     clearItem('charcoal');
+    clearManaFuel();
     game.baseInventory.add('wood', 120);
     out.charcoalAfterClear = game.baseInventory.countOf('charcoal');
     // 24 点储备 ÷ 2.4/秒 = 10 秒，跑 15 秒足够耗干
@@ -210,12 +220,14 @@ if (report.started) {
     out.remoteManaWithoutFuel = Math.round((furnaceUnit?.activityMana ?? 0) * 100) / 100;
     out.furnaceReasonWithoutFuel = game.production.statusOf(furnaceUnit)?.reason ?? null;
 
-    // ---- 4) 补上燃料：魔力炉供能 → 远处熔炉恢复并真的生产 ----
-    game.baseInventory.add('charcoal', 12);
-    await step(60);    // 3 秒：储备补到够开工
+    // ---- 4) 补上燃料：木炭进魔力炉单格 → 燃烧充魔后放电 → 远处熔炉恢复生产 ----
+    feedManaFuel(12);
+    await step(200);   // 10 秒模拟：至少完成 1 个 8 秒燃烧周期并充入魔力
     const manaWithFuel = game.fuelPower.statusOf(manaUnit);
+    out.manaStoredWithFuel = manaWithFuel?.manaStored ?? 0;
     out.manaActiveWithFuel = manaWithFuel?.active === true
-      && manaWithFuel?.supplyPerSecond > 0;
+      && (manaWithFuel?.supplyPerSecond ?? 0) > 0
+      && (manaWithFuel?.manaStored ?? 0) > 0;
     const woodBefore = game.baseInventory.countOf('wood');
     await step(600);   // 30 秒模拟时间
     const woodAfter = game.baseInventory.countOf('wood');
@@ -234,6 +246,7 @@ if (report.started) {
     // 储备自然停在满值——那是正确行为，不是 bug。"缺电会停摆"这条已经由第 3 阶段
     // （木料管够、唯独没燃料）证明过了，这里只验供能侧确实断了。
     clearItem('charcoal');
+    clearManaFuel();
     clearItem('wood');
     await step(400);
     const manaAfterEmpty = game.fuelPower.statusOf(manaUnit);

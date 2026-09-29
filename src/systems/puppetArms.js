@@ -16,6 +16,7 @@
 //   - 只读 `definition`，不查 buff / 装备加成。傀儡的决定必须能被单测复现，
 //     不能因为某帧刚好叠了一层 buff 就让同一份数据得出不同结论。
 import { ITEM_DEFINITIONS, UNIT_DEFINITIONS } from '../data/gameData.js';
+import { itemMaxDurability } from './items.js';
 
 export const PUPPET_GEAR = {
   unarmed: 'unarmed',
@@ -86,9 +87,8 @@ export function puppetGearFor({ toolIds = [], weaponItemId = null } = {}) {
       damage: IMPROVISED_TOOL_DAMAGE[tool],
       // 工具挥起来比真武器慢，沿用傀儡自己的 attackRate
       attackRate: 1,
-      maxDurability: Math.max(1, Number(ITEM_DEFINITIONS[tool]?.maxDurability) || 40),
-      // 工具不因为打架掉耐久：它本来就不该被这么用
-      durabilityCost: 0
+      maxDurability: Math.max(1, itemMaxDurability(tool) || 30),
+      durabilityCost: Math.max(0, Number(ITEM_DEFINITIONS[tool]?.durabilityCost) || 0)
     };
   }
   return {

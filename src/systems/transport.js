@@ -9,6 +9,7 @@
 // 每条线有自己的白/黑名单；目标容器自身的存放过滤仍然生效。
 
 import { PLAYER_BASE_STATION_ID } from './StationSystem.js';
+import { importPortLabel, stationNeedsImportPortPicker } from './transportPorts.js';
 
 
 
@@ -17,6 +18,17 @@ export const TRANSPORT_ENDPOINT = {
   station: 'station'
 
 };
+
+export {
+  FURNACE_IMPORT_PORT,
+  STATION_IMPORT_PORT,
+  importPortLabel,
+  importPortSortKey,
+  normalizeStationImportPort,
+  stationImportPortCount,
+  stationImportPortIds,
+  stationNeedsImportPortPicker
+} from './transportPorts.js';
 
 
 
@@ -130,19 +142,29 @@ export const TRANSPORT_LINK_ERROR_LABELS = Object.freeze({
 
   invalid: '无法建立这条运输线',
 
-  duplicate: '这条运输线已经存在'
+  duplicate: '该入料口已经接上线',
+  import_ports_full: '该容器的入料口都已接满，不能再连'
 
 });
 
 
 
-export function transportStationLabel(stationId, stations) {
+export function furnaceImportPortLabel(port) {
+  return importPortLabel({ kind: 'furnace' }, port);
+}
+
+export function transportStationLabel(stationId, stations, { importPort = null } = {}) {
 
   if (stationId === PLAYER_BASE_STATION_ID) return '基地';
 
   const station = stations?.stationById?.(stationId);
 
+  if (station && importPort && stationNeedsImportPortPicker(station)) {
+    const base = station.kind === 'furnace' ? '熔炉' : (station.kind === 'chest' ? '箱子' : '容器');
+    return `${base}·${importPortLabel(station, importPort)}`;
+  }
   if (station?.kind === 'furnace') return '熔炉';
+  if (station?.kind === 'manaFurnace') return '魔力炉';
   if (station?.kind === 'chest') return '箱子';
 
   if (station?.kind === 'manualWorkbench') return '工作台';

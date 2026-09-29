@@ -250,6 +250,9 @@ export function itemStatLines(itemId, definition) {
   if (!definition) return lines;
   if (definition.category === 'tool' && definition.tool) {
     lines.push(definition.tool === 'axe' ? '用途：砍树' : '用途：挖矿');
+    if (definition.maxDurability) {
+      lines.push(`耐久 ${definition.maxDurability}`);
+    }
   }
   if (definition.category === 'building') lines.push('可放置到地面上');
   if (definition.manaBonus) lines.push(`最大魔力 +${definition.manaBonus}`);

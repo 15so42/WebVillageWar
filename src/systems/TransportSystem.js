@@ -11,6 +11,11 @@ import {
 } from './transport.js';
 
 import {
+  normalizeStationImportPort,
+  stationImportPortCount
+} from './transportPorts.js';
+
+import {
 
   chestAcceptsItem,
 
@@ -50,10 +55,34 @@ export class TransportSystem {
 
 
 
-  linkIdFor(fromStationId, toStationId) {
+  linkIdFor(fromStationId, toStationId, toPort = null) {
 
-    return `link:${fromStationId}:${toStationId}`;
+    let id = `link:${fromStationId}:${toStationId}`;
 
+    if (toPort) id += `:${toPort}`;
+
+    return id;
+
+  }
+
+
+
+  linksBetween(fromStationId, toStationId) {
+    if (!fromStationId || !toStationId) return [];
+    return this.links.filter((link) => (
+      link.fromStationId === fromStationId && link.toStationId === toStationId
+    ));
+  }
+
+  usedImportPortsFrom(fromStationId, toStationId, toStation) {
+    return this.linksBetween(fromStationId, toStationId).map((link) => (
+      normalizeStationImportPort(toStation, link.toPort)
+    ));
+  }
+
+  isImportFullFrom(fromStationId, toStationId, toStation) {
+    if (!toStation) return false;
+    return this.linksBetween(fromStationId, toStationId).length >= stationImportPortCount(toStation);
   }
 
 
@@ -66,19 +95,27 @@ export class TransportSystem {
 
 
 
-  hasLink(fromStationId, toStationId) {
+  hasLink(fromStationId, toStationId, toPort = null) {
 
-    return this.links.some((link) => (
+    const toStation = this.stationRecord(toStationId);
 
-      link.fromStationId === fromStationId && link.toStationId === toStationId
+    const wantPort = normalizeStationImportPort(toStation, toPort);
 
-    ));
+    return this.links.some((link) => {
+
+      if (link.fromStationId !== fromStationId || link.toStationId !== toStationId) return false;
+
+      const linkPort = normalizeStationImportPort(toStation, link.toPort);
+
+      return linkPort === wantPort;
+
+    });
 
   }
 
 
 
-  tryAddLink(origin, target) {
+  tryAddLink(origin, target, options = {}) {
 
     const resolved = resolveTransportLink(origin, target);
 
@@ -100,7 +137,43 @@ export class TransportSystem {
 
     const toStationId = resolved.to.stationId;
 
-    if (this.hasLink(fromStationId, toStationId)) {
+    const toStation = this.stationRecord(toStationId);
+
+    const portCount = stationImportPortCount(toStation);
+    const between = this.linksBetween(fromStationId, toStationId);
+
+    if (between.length >= portCount) {
+
+      return {
+
+        ok: false,
+
+        reason: 'import_ports_full',
+
+        label: TRANSPORT_LINK_ERROR_LABELS.import_ports_full
+
+      };
+
+    }
+
+    const requestedPort = options.toPort ?? null;
+    if (portCount > 1 && !requestedPort) {
+
+      return {
+
+        ok: false,
+
+        reason: 'needs_import_port',
+
+        label: '请选择入料口'
+
+      };
+
+    }
+
+    const toPort = normalizeStationImportPort(toStation, requestedPort);
+
+    if (this.hasLink(fromStationId, toStationId, toPort)) {
 
       return { ok: false, reason: 'duplicate', label: TRANSPORT_LINK_ERROR_LABELS.duplicate };
 
@@ -108,11 +181,13 @@ export class TransportSystem {
 
     const link = {
 
-      id: this.linkIdFor(fromStationId, toStationId),
+      id: this.linkIdFor(fromStationId, toStationId, portCount > 1 ? toPort : null),
 
       fromStationId,
 
       toStationId,
+
+      toPort: portCount > 1 ? toPort : undefined,
 
       filter: normalizeChestFilter({ mode: 'blacklist', itemIds: [] }),
       transferCooldown: 0
@@ -259,10 +334,15 @@ export class TransportSystem {
 
 
 
-  /** 运输线目标端库存（熔炉=进料格） */
-  importInventory(stationId) {
+  /** 运输线目标端库存（熔炉=进料格 / 燃料格） */
+  importInventory(stationId, importPort = null) {
     const station = this.stationRecord(stationId);
-    if (station?.kind === 'furnace') return station.inventory ?? null;
+    if (!station) return this.stationInventory(stationId);
+    const port = normalizeStationImportPort(station, importPort);
+    if (station.kind === 'furnace') {
+      if (port === STATION_IMPORT_PORT.fuel) return station.fuelInventory ?? null;
+      return station.inventory ?? null;
+    }
     return this.stationInventory(stationId);
   }
 
@@ -271,53 +351,6 @@ export class TransportSystem {
   outgoingLinksFrom(stationId) {
     if (!stationId) return [];
     return this.links.filter((link) => link.fromStationId === stationId);
-  }
-
-
-
-  furnaceHasOutputLine(stationId) {
-    return this.outgoingLinksFrom(stationId).length > 0;
-  }
-
-
-
-  /** 至少有一条输出线现在能运走 1 个产物 */
-  furnaceOutputPortCanDrain(stationId) {
-    const fromInv = this.exportInventory(stationId);
-    if (!fromInv) return false;
-    for (const link of this.outgoingLinksFrom(stationId)) {
-      if (!this.linkCanFlow(link)) continue;
-      const index = this.findMovableSlot(fromInv, link.filter);
-      if (index < 0) continue;
-      const slot = fromInv.slots[index];
-      const toInv = this.importInventory(link.toStationId);
-      if (!toInv) continue;
-      const destFilter = this.stationFilter(link.toStationId);
-      if (!chestAcceptsItem(destFilter, slot.itemId)) continue;
-      if ((toInv.canAccept(slot.itemId, 1) ?? 0) > 0) return true;
-    }
-    return false;
-  }
-
-
-
-  furnaceOutputReady(stationId, recipe) {
-    if (!recipe?.output?.itemId) return false;
-    if (!this.furnaceHasOutputLine(stationId)) return false;
-    const outInv = this.exportInventory(stationId);
-    const batch = Math.max(1, Math.floor(recipe.output.count));
-    if ((outInv?.canAccept(recipe.output.itemId, batch) ?? 0) >= batch) return true;
-    return this.furnaceOutputPortCanDrain(stationId);
-  }
-
-
-
-  stationFilter(stationId) {
-
-    const station = this.stationRecord(stationId);
-
-    return station?.filter ?? normalizeChestFilter({});
-
   }
 
 
@@ -542,7 +575,7 @@ export class TransportSystem {
 
     const fromInv = this.exportInventory(link.fromStationId);
 
-    const toInv = this.importInventory(link.toStationId);
+    const toInv = this.importInventory(link.toStationId, link.toPort);
 
     if (!fromInv || !toInv) return null;
 
@@ -551,10 +584,6 @@ export class TransportSystem {
     if (index < 0) return null;
 
     const slot = fromInv.slots[index];
-
-    const destFilter = this.stationFilter(link.toStationId);
-
-    if (!chestAcceptsItem(destFilter, slot.itemId)) return null;
 
     if ((toInv.canAccept(slot.itemId, 1) ?? 0) <= 0) return null;
 

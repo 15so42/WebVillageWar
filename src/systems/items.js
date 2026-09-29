@@ -112,6 +112,30 @@ export function resetItemInstanceCounter(value = 0) {
   instanceCounter = Math.max(0, value);
 }
 
+/** 实例物品的满耐久：木制工具与武器写在定义上。 */
+export function itemMaxDurability(itemId) {
+  const definition = ITEM_DEFINITIONS[itemId];
+  if (!definition) return 0;
+  const fromRoot = Number(definition.maxDurability);
+  if (Number.isFinite(fromRoot) && fromRoot > 0) return fromRoot;
+  const fromWeapon = Number(definition.weapon?.maxDurability);
+  if (Number.isFinite(fromWeapon) && fromWeapon > 0) return fromWeapon;
+  return 0;
+}
+
+export function defaultItemInstanceData(itemId) {
+  const max = itemMaxDurability(itemId);
+  return max > 0 ? { durability: max } : null;
+}
+
+export function slotDurability(slot, itemId = slot?.itemId) {
+  const max = itemMaxDurability(itemId);
+  if (max <= 0) return 0;
+  const stored = slot?.data?.durability;
+  if (!Number.isFinite(stored)) return max;
+  return Math.max(0, Math.min(max, stored));
+}
+
 export function currentItemInstanceCounter() {
   return instanceCounter;
 }

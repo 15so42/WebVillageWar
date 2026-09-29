@@ -14,6 +14,7 @@ import {
   resourceNodeDefinition,
   resourceNodeDisplayName,
   resourceNodeDistance,
+  resourceNodeSurfaceDistance,
   resourceNodeIsDepleted,
   resourceNodeRequiredToolName,
   resourceNodeRules,
@@ -179,7 +180,7 @@ export class ResourceNodeSystem {
         requiredTool: node.definitionId ? resourceNodeRequiredToolName(node.definitionId) : null
       };
     }
-    if (position && resourceNodeDistance(node, position) > this.rules.harvestRange) {
+    if (position && resourceNodeSurfaceDistance(node, position) > this.rules.harvestRange) {
       return { ok: false, error: RESOURCE_ERROR.outOfRange };
     }
     return { ok: true, error: RESOURCE_ERROR.none };

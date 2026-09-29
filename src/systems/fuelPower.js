@@ -3,19 +3,19 @@
 // 生产设施把材料变成物品，这里把燃料变成**一段时间的供能功率**。
 // 周期推进的那点数学与生产完全一样（缺料停摆、空转不攒工作量），
 // 所以直接复用 `advanceProduction`——它是纯时间/周期计算，不碰任何物品。
-import { FUEL_POWER_CONFIGS } from '../data/gameData.js';
+import { FUEL_POWER_CONFIGS, POWER_RULES } from '../data/gameData.js';
 import { advanceProduction } from './production.js';
 
 export function normalizeFuelPowerConfig(config) {
   if (!config?.id || !config.fuelItemId) return null;
   const fuelPerCycle = Math.floor(Number(config.fuelPerCycle));
   const cycleSeconds = Number(config.cycleSeconds);
-  const supplyPerSecond = Number(config.supplyPerSecond);
-  const supplyRadius = Number(config.supplyRadius);
+  const manaPerCycle = Math.floor(Number(config.manaPerCycle));
+  const manaCapacity = Math.floor(Number(config.manaCapacity ?? POWER_RULES.baseManaCapacity));
   if (!Number.isFinite(fuelPerCycle) || fuelPerCycle <= 0) return null;
   if (!Number.isFinite(cycleSeconds) || cycleSeconds <= 0) return null;
-  if (!Number.isFinite(supplyPerSecond) || supplyPerSecond <= 0) return null;
-  if (!Number.isFinite(supplyRadius) || supplyRadius <= 0) return null;
+  if (!Number.isFinite(manaPerCycle) || manaPerCycle <= 0) return null;
+  if (!Number.isFinite(manaCapacity) || manaCapacity <= 0) return null;
   return {
     id: String(config.id),
     unitType: config.unitType != null ? String(config.unitType) : null,
@@ -23,8 +23,8 @@ export function normalizeFuelPowerConfig(config) {
     fuelItemId: String(config.fuelItemId),
     fuelPerCycle,
     cycleSeconds,
-    supplyPerSecond,
-    supplyRadius
+    manaPerCycle,
+    manaCapacity
   };
 }
 
@@ -77,10 +77,11 @@ export function advanceFuelBurn({ progress = 0, dt = 0, config, countOf } = {}) 
   });
   return {
     progress: step.progress,
+    cycles: step.cycles,
     burned: step.cycles * normalized.fuelPerCycle,
     active,
     reason: active ? 'none' : 'no_fuel',
-    supplyPerSecond: active ? normalized.supplyPerSecond : 0
+    manaGained: step.cycles * normalized.manaPerCycle
   };
 }
 

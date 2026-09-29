@@ -6602,6 +6602,10 @@ body:not(.is-game-active) .mobile-action-dock {
   }
 }
 
+.debug-scene-panel[hidden] {
+  display: none !important;
+}
+
 .debug-scene-panel {
   position: fixed;
   z-index: 35;
@@ -6799,6 +6803,57 @@ body.is-animation-preview-active .mobile-action-dock {
   body:not(.is-animation-preview-active) .mobile-action-dock {
     display: none;
   }
+}
+
+.resource-debug-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.resource-debug-close {
+  flex: 0 0 auto;
+  width: 32px;
+  min-height: 32px;
+  padding: 0;
+  line-height: 1;
+  font-size: 18px;
+}
+
+.resource-debug-panel .resource-debug-hint {
+  margin: 0;
+  font-size: 12px;
+  color: rgba(220, 235, 230, 0.72);
+}
+
+.resource-debug-panel .resource-debug-amount {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.resource-debug-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.resource-debug-grid button {
+  flex: 1 1 calc(50% - 6px);
+  font-size: 11px;
+  padding: 6px 8px;
+}
+
+.resource-debug-fill {
+  width: 100%;
+  margin-top: 4px;
+}
+
+body.is-transport-link-mode .canvas-wrap {
+  cursor: crosshair;
 }
 
 @media (max-width: 760px) {

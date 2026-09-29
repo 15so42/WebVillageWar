@@ -125,14 +125,20 @@ import {
 } from './crafting.js';
 import { BackpackUi } from './BackpackUi.js';
 import { UnitActionMenu } from './UnitActionMenu.js';
-import { FacilityPanelUi } from './FacilityPanelUi.js';
+import { FacilityPanelUi, facilityPanelFor } from './FacilityPanelUi.js';
+import { ResourceDebugPanel } from './ResourceDebugPanel.js';
 import { StationSystem } from './StationSystem.js';
-import { StationPanelUi } from './StationPanelUi.js';
+import { FurnaceTransportPickerUi } from './FurnaceTransportPickerUi.js';
+import { StationPanelUi, stationPanelFor } from './StationPanelUi.js';
+import { STATION_KIND } from './StationSystem.js';
 import { TransportSystem } from './TransportSystem.js';
 import { TransportLinkVisualSystem } from './TransportLinkVisualSystem.js';
 import { TransportLinkPanelUi } from './TransportPanelUi.js';
 import {
-  playerBaseTransportEndpoint
+  playerBaseTransportEndpoint,
+  stationImportPortIds,
+  stationNeedsImportPortPicker,
+  TRANSPORT_LINK_ERROR_LABELS
 } from './transport.js';
 import { ThreatFieldSystem } from './ThreatFieldSystem.js';
 import {
@@ -144,6 +150,7 @@ import { itemIsGivable, itemUseKind, ITEM_USE } from './items.js';
 import { isHostileEnemy } from './unitTeam.js';
 import { PowerSystem } from './PowerSystem.js';
 import { PowerSupplyVisualSystem } from './PowerSupplyVisualSystem.js';
+import { WorkerDebugVisualSystem } from './WorkerDebugVisualSystem.js';
 import { SpawnPointSystem } from './SpawnPointSystem.js';
 import {
   advanceDayNight,
@@ -1235,6 +1242,8 @@ export class Game {
     // 傀儡作业：采集状态机 + 每个傀儡自己的背包与活动魔力。
     // 与供能系统是上下游关系：这里决定傀儡干什么，power 负责给它的储备补魔。
     this.work = new WorkSystem(this);
+    this.workerDebugVisual = new WorkerDebugVisualSystem(this);
+    this.workerDebugVisual.attach(this.scene);
     // 手动工作台和箱子：库存、过滤、框选采集任务。傀儡的走位仍由 work 执行。
     this.stations = new StationSystem(this);
     this.transport = new TransportSystem(this);
@@ -1244,6 +1253,8 @@ export class Game {
     this.containerMenuTarget = null;
     /** @type {{ origin: object, label: string } | null} */
     this.transportLinkMode = null;
+    /** @type {{ origin: object, pointerId: number, startX: number, startY: number, active: boolean } | null} */
+    this.transportDrag = null;
     // 刷怪点：海岛关没有波次，持续压力来自地图上的点位；点被摧毁后永久停止产怪。
     this.spawnPoints = new SpawnPointSystem(this);
     // 地面遗物包：单位阵亡时背包与符文石一起落地，走近即转移进拾取者（物品守恒，方案第 7 节）。
@@ -1283,6 +1294,8 @@ export class Game {
       // 现在改成"走到那栋建筑、点它、从扇形菜单打开"。
       this.facilityPanel = new FacilityPanelUi(this);
       this.stationPanel = new StationPanelUi(this);
+      this.furnaceTransportPicker = new FurnaceTransportPickerUi(this);
+      this.resourceDebugPanel = new ResourceDebugPanel(this);
       this.transportLinkPanel = new TransportLinkPanelUi(this);
       this.transportPanel = this.transportLinkPanel;
       // 物品快捷栏：屏幕底部常驻的 9 格容器（与基地背包同类的 Inventory，
@@ -1543,6 +1556,7 @@ export class Game {
     this.hotbar?.destroy?.();
     this.facilityPanel?.destroy?.();
     this.stationPanel?.destroy?.();
+    this.resourceDebugPanel?.destroy?.();
     this.transportPanel?.destroy?.();
     this.transportVisual?.destroy?.();
     this.threat?.destroy?.();
@@ -1558,6 +1572,8 @@ export class Game {
     this.effects?.destroy?.();
     this.powerSupplyVisual?.destroy?.();
     this.powerSupplyVisual = null;
+    this.workerDebugVisual?.destroy?.();
+    this.workerDebugVisual = null;
     this.pathWorker?.terminate?.();
     this.pathWorker = null;
     this.pendingPathRequests.clear();
@@ -1661,6 +1677,7 @@ export class Game {
       runPerfStep('production', () => this.production.update(dt));
       // 傀儡作业：清掉已经不在注册表里的傀儡（不扫描资源节点）
       runPerfStep('work', () => this.work.update(dt));
+      runPerfStep('workerDebugVisual', () => this.workerDebugVisual?.update(dt));
       runPerfStep('transport', () => this.transport?.update?.(dt));
       runPerfStep('transportVisual', () => this.transportVisual?.update?.(dt));
       runPerfStep('spawnPoints', () => this.spawnPoints.update(dt));
@@ -1702,6 +1719,7 @@ export class Game {
       // 种植：长成时会往世界里加资源节点，所以放在采集之前
       runStep('planting', () => this.planting.update(dt));
       runStep('work', () => this.work.update(dt));
+      runStep('workerDebugVisual', () => this.workerDebugVisual?.update(dt));
       runStep('transport', () => this.transport?.update?.(dt));
       runStep('transportVisual', () => this.transportVisual?.update?.(dt));
       runStep('spawnPoints', () => this.spawnPoints.update(dt));
@@ -3210,40 +3228,108 @@ export class Game {
   }
 
   /**
-   * E 键：给鼠标指向的己方单位打开背包；鼠标没指向单位时用当前选中单位。
-   * 既没指向也没选中单位时不打开——否则玩家不知道开的是谁的背包，只给一句提示。
-   * 已经打开时再按一次 E 关闭。
-   *
-   * 主入口其实是"点击单位后在其下方展开的交互菜单"，E 只是给键盘玩家的快捷方式。
+   * B 键：统一打开当前选中目标的「背包」界面。
+   * - 傀儡/战斗单位 → 单位背包
+   * - 箱子/工作台/熔炉 → 建筑库存面板
+   * - 科研站/附魔台 → 设施面板
+   * - 选中营地（基地）→ 基地背包（含合成）
+   * 未选中可打开的目标时只提示，不再全局直接开基地背包。
    */
-  toggleUnitBackpack() {
-    if (!this.backpack) return false;
-    if (this.backpack.isOpen()) {
+  openInventoryForScreenTarget(clientX, clientY) {
+    if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return false;
+    if (this.pickPlayerBase(clientX, clientY)) {
+      this.selectPlayerBaseContainer();
+      this.facilityPanel?.close?.();
+      this.stationPanel?.close?.();
+      this.backpack?.toggleBase?.();
+      return true;
+    }
+    const unit = this.pickSelectableUnit(clientX, clientY, { includeEnemies: false });
+    if (unit?.alive && unit.team === TEAMS.PLAYER) {
+      if (unit.isBuilding) {
+        if (stationPanelFor(unit)) {
+          this.facilityPanel?.close?.();
+          this.stationPanel?.toggleForUnit?.(unit);
+          return true;
+        }
+        if (facilityPanelFor(unit)) {
+          this.stationPanel?.close?.();
+          this.facilityPanel?.toggleForUnit?.(unit);
+          return true;
+        }
+      } else {
+        this.facilityPanel?.close?.();
+        this.stationPanel?.close?.();
+        this.backpack?.openForUnit?.(unit);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  toggleInventoryShortcut() {
+    if (this.stationPanel?.isOpen()) {
+      this.stationPanel.close();
+      return true;
+    }
+    if (this.facilityPanel?.isOpen()) {
+      this.facilityPanel.close();
+      return true;
+    }
+    if (this.backpack?.isOpen()) {
       this.backpack.close();
       return true;
     }
-    // 两个面板都是居中的模态，同时开着会互相盖住：开一个就关掉另一个。
-    this.facilityPanel?.close?.();
-    const hovered = this.hoveredFriendlyUnitForBackpack();
-    const selected = this.selectedUnit;
-    const unit = hovered
-      ?? (selected?.team === TEAMS.PLAYER && selected.alive ? selected : null);
-    if (!unit) {
-      this.hints?.setHintOnce?.(
-        '把鼠标对准己方单位，或先选中一个单位，再按 E 打开它的背包。',
-        'unit-backpack'
-      );
-      return false;
+
+    const { x, y } = this.pointerScreen ?? {};
+    if (this.openInventoryForScreenTarget(x, y)) {
+      return true;
     }
-    this.backpack.openForUnit(unit);
-    return true;
+
+    const unit = this.selectedUnits?.length === 1 ? this.selectedUnit : null;
+    if (unit?.alive && unit.team === TEAMS.PLAYER) {
+      if (unit.isBuilding) {
+        if (stationPanelFor(unit)) {
+          this.facilityPanel?.close?.();
+          this.stationPanel?.toggleForUnit?.(unit);
+          return true;
+        }
+        if (facilityPanelFor(unit)) {
+          this.stationPanel?.close?.();
+          this.facilityPanel?.toggleForUnit?.(unit);
+          return true;
+        }
+      } else {
+        this.facilityPanel?.close?.();
+        this.stationPanel?.close?.();
+        this.backpack?.openForUnit?.(unit);
+        return true;
+      }
+    }
+
+    if (this.containerMenuTarget) {
+      this.facilityPanel?.close?.();
+      this.stationPanel?.close?.();
+      this.backpack?.toggleBase?.();
+      return true;
+    }
+
+    this.hints?.setHintOnce?.(
+      '把鼠标对准单位、建筑或营地，或先选中后再按 B。',
+      'inventory-shortcut'
+    );
+    return false;
   }
 
-  /**
-   * B 键：打开基地背包（左侧 6x8 网格 + 右侧「合成 / 资源」两个标签页）。
-   * 科技与附魔台**不在这里**了——它们改由科研站/附魔台的扇形菜单打开（FacilityPanelUi）。
-   */
+  /** @deprecated 使用 toggleInventoryShortcut */
+  toggleUnitBackpack() {
+    return this.toggleInventoryShortcut();
+  }
+
   toggleBaseBackpack() {
+    if (!this.containerMenuTarget) {
+      return this.toggleInventoryShortcut();
+    }
     if (!this.backpack) return false;
     if (!this.backpack.isOpen()) this.facilityPanel?.close?.();
     this.backpack.toggleBase();
@@ -5941,6 +6027,9 @@ export class Game {
     if (!unit) return null;
     this.refreshUnitManaCapacity(unit);
     this.work?.notifyInventoryChanged?.(unit);
+    if (unit.isWorker === true) {
+      this.work?.autoEquipWorkerGear?.(unit);
+    }
     this.backpack?.markDirty?.();
     return unit;
   }
@@ -6006,7 +6095,7 @@ export class Game {
    *      否则每换一次武器就凭空少一把；
    *   3. 背包放不下换下来的武器时**整笔失败**，不做半途而废的交换。
    */
-  equipWeaponFromBag(unit, slotIndex) {
+  equipWeaponFromBag(unit, slotIndex, { silent = false } = {}) {
     if (!unit?.alive) return { ok: false, reason: 'no_unit' };
     const bag = this.itemBagFor(unit, { create: false });
     if (!bag) return { ok: false, reason: 'unit_has_no_bag', label: '这个单位没有物品背包' };
@@ -6027,7 +6116,13 @@ export class Game {
     bagSlots[outgoingSlotIndex] = null;
     let returned = { ok: true };
     if (outgoingItemId) {
-      returned = bag.add(outgoingItemId, 1, { allowPartial: false });
+      const outgoingDurability = Number.isFinite(unit.weapon?.durability)
+        ? unit.weapon.durability
+        : null;
+      returned = bag.add(outgoingItemId, 1, {
+        allowPartial: false,
+        data: outgoingDurability != null ? { durability: outgoingDurability } : null
+      });
       if (!returned.ok) {
         // 放不回去就把新武器放回原格，整笔回滚
         bagSlots[outgoingSlotIndex] = slot;
@@ -6039,12 +6134,19 @@ export class Game {
       }
     }
 
-    this.applyWeaponToUnit(unit, slot.itemId);
+    const instanceId = slot.instanceId ?? null;
+    this.applyWeaponToUnit(unit, slot.itemId, {
+      durability: slot.data?.durability,
+      instanceId
+    });
+    unit.weaponInstanceId = instanceId;
     this.onUnitBackpackChanged(unit);
-    this.hints?.setHintOnce?.(
-      `${unit.name}换上了${ITEM_DEFINITIONS[slot.itemId]?.name ?? slot.itemId}`,
-      `equip:${unit.id}`
-    );
+    if (!silent) {
+      this.hints?.setHintOnce?.(
+        `${unit.name}换上了${ITEM_DEFINITIONS[slot.itemId]?.name ?? slot.itemId}`,
+        `equip:${unit.id}`
+      );
+    }
     return {
       ok: true,
       reason: 'none',
@@ -6064,7 +6166,7 @@ export class Game {
    * `durability` 是普通字段，可以写；换装按"新武器满耐久"处理。
    * 这里**不碰** activityMana（方案第 3 节：活动魔力与武器耐久互不混用）。
    */
-  applyWeaponToUnit(unit, itemId) {
+  applyWeaponToUnit(unit, itemId, { durability = null, instanceId = null } = {}) {
     const patch = weaponStatPatch(itemId);
     if (!patch || !unit) return null;
     const attributes = unit.attributes;
@@ -6075,13 +6177,38 @@ export class Game {
     }
     attributes?.setBase?.('maxDurability', patch.maxDurability, { min: 1 });
     attributes?.setBase?.('durabilityCost', patch.durabilityCost, { min: 0 });
+    const maxDur = attributes?.get?.('maxDurability') ?? patch.maxDurability;
+    const resolvedDurability = Number.isFinite(durability)
+      ? Math.max(0, Math.min(maxDur, durability))
+      : maxDur;
     if (unit.weapon) {
       unit.weapon.name = patch.name;
-      // 换装给的是满耐久的武器，和刚建出来时一致
-      unit.weapon.durability = attributes?.get?.('maxDurability') ?? patch.maxDurability;
+      unit.weapon.durability = resolvedDurability;
     }
     unit.weaponItemId = itemId;
+    if (instanceId != null) unit.weaponInstanceId = instanceId;
     return patch;
+  }
+
+  /** 傀儡武器耐久耗尽：卸下并恢复空手属性，再尝试工具区里的下一件。 */
+  clearWorkerEquippedWeapon(unit) {
+    if (!unit?.isWorker) return false;
+    unit.weaponItemId = null;
+    unit.weaponInstanceId = null;
+    const definition = UNIT_DEFINITIONS[unit.type];
+    const baseline = definition?.weapon;
+    if (baseline && unit.weapon) {
+      unit.weapon.name = baseline.name ?? '木质手臂';
+      unit.weapon.durability = baseline.maxDurability ?? 40;
+    }
+    const attributes = unit.attributes;
+    attributes?.setBase?.('physicalAttack', 0, { min: 0 });
+    attributes?.setBase?.('attackRate', definition?.attackRate ?? 1, { min: 0.05 });
+    attributes?.setBase?.('maxDurability', baseline?.maxDurability ?? 40, { min: 1 });
+    attributes?.setBase?.('durabilityCost', 0, { min: 0 });
+    attributes?.setBase?.('aggroRange', 0, { min: 0 });
+    this.work?.notifyInventoryChanged?.(unit);
+    return true;
   }
 
   /** 合成面板搬运失败时的中文原因，UI 直接显示。 */
@@ -6724,10 +6851,10 @@ export class Game {
     if (result?.ok) {
       // 背包缓存不会自己失效：工具列表与卸货清单都从缓存派生。
       this.onUnitBackpackChanged(unit);
-      this.hints?.setHint?.(
-        `${name} 已交给${unit.name}（在单位背包里点「装备」才会生效）`,
-        `hotbar-give:${unit.id}:${itemId}`
-      );
+      const hint = unit.isWorker === true
+        ? `${name} 已交给${unit.name}（工具区物品会自动装备）`
+        : `${name} 已交给${unit.name}（在单位背包里点「装备」才会生效）`;
+      this.hints?.setHint?.(hint, `hotbar-give:${unit.id}:${itemId}`);
       this.hotbar?.refresh?.();
       this.backpack?.markDirty?.();
     } else {
@@ -7136,6 +7263,10 @@ export class Game {
         this.cancelTransportLink();
         return;
       }
+      if (this.transportDrag?.active) {
+        this.endTransportDrag();
+        return;
+      }
       this.issueMoveCommand(event);
       return;
     }
@@ -7147,6 +7278,16 @@ export class Game {
       return;
     }
     event.preventDefault();
+    const dragOrigin = this.transportEndpointAt(event.clientX, event.clientY);
+    this.transportDrag = dragOrigin
+      ? {
+        origin: dragOrigin,
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        active: false
+      }
+      : null;
     this.beginSelectionDrag(event);
   }
 
@@ -7189,6 +7330,11 @@ export class Game {
     const tuningToggle = key === 'f4' && event.shiftKey && !event.repeat && tuningRoot && (
       !tuningRoot.hidden || tuningRoot.contains(event.target)
     );
+    if (key === 'l' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && !event.repeat) {
+      event.preventDefault();
+      this.resourceDebugPanel?.toggle?.();
+      return;
+    }
     if (isTextInputTarget(event.target) && !tuningToggle) return;
     if (this.networkTerminated) {
       event.preventDefault();
@@ -7202,17 +7348,9 @@ export class Game {
       return;
     }
     if (event.repeat) return;
-    // E：给鼠标指向（其次当前选中）的己方单位打开背包。背包界面只有一种，
-    // 左边是背包网格、右边是配方，所以 E 与 B 的差别只是"开谁的"。
-    if (key === 'e' && !event.ctrlKey && !event.metaKey && !event.altKey) {
-      event.preventDefault();
-      this.toggleUnitBackpack();
-      return;
-    }
-    // B：基地背包。左侧 6x8=48 格，右侧是已解锁的合成配方，底部是快捷栏。
     if (key === 'b' && !event.ctrlKey && !event.metaKey && !event.altKey) {
       event.preventDefault();
-      this.toggleBaseBackpack();
+      this.toggleInventoryShortcut();
       return;
     }
     // 数字键 1-9：用掉快捷栏对应的那一格（建筑进放置模式、消耗品直接用掉、
@@ -7258,6 +7396,14 @@ export class Game {
       }
       if (this.transportLinkMode) {
         this.cancelTransportLink();
+        return;
+      }
+      if (this.transportDrag?.active) {
+        this.endTransportDrag();
+        return;
+      }
+      if (this.resourceDebugPanel?.isOpen()) {
+        this.resourceDebugPanel.close();
         return;
       }
       // 放置模式优先取消，不要一点 Esc 就把整个游戏暂停了
@@ -7357,6 +7503,29 @@ export class Game {
     if (this.transportLinkMode) {
       this.updateTransportLinkPreview(event.clientX, event.clientY);
     }
+    if (this.transportDrag?.pointerId === event.pointerId) {
+      const dx = event.clientX - this.transportDrag.startX;
+      const dy = event.clientY - this.transportDrag.startY;
+      if (
+        !this.transportDrag.active
+        && !this.selectionDrag?.active
+        && Math.hypot(dx, dy) > 8
+      ) {
+        this.transportDrag.active = true;
+        this.selectionDrag.active = false;
+        this.hideSelectionBox();
+        document.body.classList.add('is-transport-link-mode');
+        this.transportVisual?.setLinkPreview?.(this.transportDrag.origin);
+        this.hints?.setHint?.(
+          '拖到目标容器松手连线；连入熔炉时选进料口或燃料口。',
+          'transport-link'
+        );
+      }
+      if (this.transportDrag.active) {
+        this.updateTransportDragPreview(event.clientX, event.clientY);
+        return;
+      }
+    }
     if (event.target === this.canvas) {
       this.updateHoverHighlight(event.clientX, event.clientY);
     }
@@ -7374,7 +7543,7 @@ export class Game {
 
     const dx = event.clientX - this.selectionDrag.startX;
     const dy = event.clientY - this.selectionDrag.startY;
-    if (Math.hypot(dx, dy) > 6) {
+    if (!this.transportDrag?.origin && Math.hypot(dx, dy) > 6) {
       this.selectionDrag.active = true;
     }
     this.updateSelectionBox();
@@ -7411,6 +7580,13 @@ export class Game {
       this.finishResourceBoxSelect(drag, event.clientX, event.clientY);
       return;
     }
+
+    if (this.transportDrag?.active) {
+      this.finishTransportDrag(event.clientX, event.clientY);
+      this.transportDrag = null;
+      return;
+    }
+    this.transportDrag = null;
 
     if (this.transportLinkMode && !drag.active) {
       this.tryCompleteTransportLink(event.clientX, event.clientY);
@@ -7454,6 +7630,9 @@ export class Game {
       this.setMobileBoxSelectMode(false);
     }
     this.selectionDrag = null;
+    if (this.transportDrag?.pointerId === event.pointerId) {
+      this.endTransportDrag();
+    }
     if (event.pointerId != null) {
       safeReleasePointerCapture(this.canvas, event.pointerId);
     }
@@ -7896,7 +8075,8 @@ export class Game {
   }
 
   updateTransportLinkPreview(clientX, clientY) {
-    if (!this.transportLinkMode?.origin) return;
+    const origin = this.transportLinkMode?.origin ?? this.transportDrag?.origin;
+    if (!origin) return;
     const endpoint = this.transportEndpointAt(clientX, clientY);
     if (endpoint) {
       this.transportVisual?.setLinkPreviewTargetEndpoint?.(endpoint);
@@ -7906,6 +8086,88 @@ export class Game {
     if (ground) {
       this.transportVisual?.setLinkPreviewTargetPoint?.(ground);
     }
+  }
+
+  updateTransportDragPreview(clientX, clientY) {
+    this.updateTransportLinkPreview(clientX, clientY);
+    this.updateTransportLinkHoverHighlight(clientX, clientY);
+  }
+
+  endTransportDrag() {
+    this.transportDrag = null;
+    this.transportVisual?.clearLinkPreview?.();
+    this.clearHoverHighlight();
+    document.body.classList.remove('is-transport-link-mode');
+    this.hints?.clearHint?.('transport-link');
+  }
+
+  finishTransportDrag(clientX, clientY) {
+    const origin = this.transportDrag?.origin;
+    if (!origin) {
+      this.endTransportDrag();
+      return;
+    }
+    this.completeTransportLink(origin, clientX, clientY, { fromDrag: true });
+    this.endTransportDrag();
+  }
+
+  completeTransportLink(origin, clientX, clientY, { fromDrag = false } = {}) {
+    const target = this.transportEndpointAt(clientX, clientY);
+    if (!target) {
+      this.hints?.setHintOnce?.(
+        fromDrag ? '松手对准箱子、工作台或基地' : '请点击箱子、工作台或基地',
+        'transport-link-miss'
+      );
+      return false;
+    }
+    const toStation = this.stations?.stationById?.(target.stationId);
+    const fromStationId = origin.stationId;
+    const toStationId = target.stationId;
+    const finishLink = (port) => {
+      const options = port ? { toPort: port } : {};
+      const result = this.transport?.tryAddLink?.(origin, target, options)
+        ?? { ok: false, label: '无法连线' };
+      if (result.ok) {
+        this.hints?.setHint?.('运输线已连接', 'transport-link-ok');
+        if (!fromDrag) this.cancelTransportLink(false);
+      } else {
+        this.hints?.setHintOnce?.(result.label ?? '无法连线', 'transport-link-fail');
+      }
+    };
+    if (this.transport?.isImportFullFrom?.(fromStationId, toStationId, toStation)) {
+      this.hints?.setHintOnce?.(
+        TRANSPORT_LINK_ERROR_LABELS.import_ports_full,
+        'transport-link-fail'
+      );
+      return false;
+    }
+    if (toStation && stationNeedsImportPortPicker(toStation)) {
+      const disabledPorts = this.transport?.usedImportPortsFrom?.(
+        fromStationId,
+        toStationId,
+        toStation
+      ) ?? [];
+      this.furnaceTransportPicker?.open?.({
+        station: toStation,
+        ports: stationImportPortIds(toStation),
+        disabledPorts,
+        onChoose: (port) => finishLink(port),
+        onCancel: () => {
+          if (!fromDrag) {
+            this.hints?.setHintOnce?.('已取消，请继续选择入料口', 'transport-link-port-cancel');
+          }
+        }
+      });
+      return true;
+    }
+    const result = this.transport?.tryAddLink?.(origin, target) ?? { ok: false, label: '无法连线' };
+    if (result.ok) {
+      this.hints?.setHint?.('运输线已连接', 'transport-link-ok');
+      if (!fromDrag) this.cancelTransportLink(false);
+    } else {
+      this.hints?.setHintOnce?.(result.label ?? '无法连线', 'transport-link-fail');
+    }
+    return result.ok;
   }
 
   pickHoverUnit(clientX, clientY) {
@@ -8534,13 +8796,14 @@ export class Game {
     this.transportVisual?.setLinkPreview?.(origin);
     this.updateTransportLinkPreview(this.pointerScreen.x, this.pointerScreen.y);
     this.hints?.setHint?.(
-      '运输连线：左键点目标容器完成连线，右键取消。连到熔炉=进料线；从熔炉连出=产物输出线。',
+      '运输连线：左键点目标容器完成连线，右键取消。连入熔炉时选择进料口或燃料口；从熔炉连出=产物线。',
       'transport-link'
     );
     return { ok: true };
   }
 
   cancelTransportLink(showHint = true) {
+    this.furnaceTransportPicker?.close?.();
     if (!this.transportLinkMode) return false;
     this.transportLinkMode = null;
     this.transportVisual?.clearLinkPreview?.();
@@ -8556,18 +8819,7 @@ export class Game {
   tryCompleteTransportLink(clientX, clientY) {
     const mode = this.transportLinkMode;
     if (!mode?.origin) return false;
-    const target = this.transportEndpointAt(clientX, clientY);
-    if (!target) {
-      this.hints?.setHintOnce?.('请点击箱子、工作台或基地', 'transport-link-miss');
-      return true;
-    }
-    const result = this.transport?.tryAddLink?.(mode.origin, target) ?? { ok: false, label: '无法连线' };
-    if (result.ok) {
-      this.hints?.setHint?.('运输线已连接', 'transport-link-ok');
-      this.cancelTransportLink(false);
-    } else {
-      this.hints?.setHintOnce?.(result.label ?? '无法连线', 'transport-link-fail');
-    }
+    this.completeTransportLink(mode.origin, clientX, clientY, { fromDrag: false });
     return true;
   }
 

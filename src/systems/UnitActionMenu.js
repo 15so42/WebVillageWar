@@ -1,13 +1,11 @@
 /**
  * 单选友方/可交互单位后，在屏幕底部快捷栏正上方展开操作按钮。
  *
- * 建筑：设施 / 工作台·箱子 + **运输连线**。
- * 选中基地（点营地）时同样显示 **背包 / 运输**。
+ * 建筑：设施 / 工作台·箱子背包（B）。
+ * 选中基地（点营地）时显示 **背包（B）**；运输线在容器上拖拽即可连线。
  */
 import { facilityPanelFor } from './FacilityPanelUi.js';
 import { stationPanelFor } from './StationPanelUi.js';
-import { playerBaseTransportEndpoint, transportEndpointFromUnit } from './transport.js';
-
 const BUTTON_SIZE = 52;
 
 export class UnitActionMenu {
@@ -32,11 +30,6 @@ export class UnitActionMenu {
     this.containerTarget = null;
   }
 
-  transportEndpointForUnit(unit) {
-    if (!unit?.alive) return null;
-    return transportEndpointFromUnit(unit, this.game?.stations);
-  }
-
   actionsForUnit(unit) {
     if (!unit?.alive) return [];
     const actions = [];
@@ -55,21 +48,10 @@ export class UnitActionMenu {
       if (station) {
         actions.push({
           id: 'station',
-          label: station.title,
+          label: '背包',
           icon: station.icon,
           disabled: false,
-          title: `打开${station.title}`
-        });
-      }
-      if (this.transportEndpointForUnit(unit)) {
-        actions.push({
-          id: 'transport',
-          label: '运输',
-          icon: '↝',
-          disabled: false,
-          title: unit.type === 'furnace'
-            ? '运输线：连入=进料，从熔炉连出=产物输出'
-            : '连接运输线：先点来源容器，再点目标容器'
+          title: `打开${station.title}（B）`
         });
       }
       return actions;
@@ -97,7 +79,7 @@ export class UnitActionMenu {
         label: '背包',
         icon: '▣',
         disabled: false,
-        title: '打开这个单位的背包（E）'
+        title: '打开这个单位的背包（B）'
       });
     }
     if (unit.team === 'player' && unit.isWorker !== true && this.game?.canControlUnit?.(unit)) {
@@ -120,14 +102,7 @@ export class UnitActionMenu {
         label: '背包',
         icon: '▣',
         disabled: false,
-        title: '打开基地背包（B）'
-      },
-      {
-        id: 'transport',
-        label: '运输',
-        icon: '↝',
-        disabled: false,
-        title: '从基地连到其他容器，或从其他容器连到基地'
+        title: '打开基地背包（B）；拖到其它容器可连运输线'
       }
     ];
   }
@@ -214,13 +189,6 @@ export class UnitActionMenu {
     if (action === 'station' && unit) {
       this.game?.stationPanel?.toggleForUnit?.(unit);
       this.sync();
-      return;
-    }
-    if (action === 'transport') {
-      const origin = unit
-        ? this.transportEndpointForUnit(unit)
-        : (container ?? playerBaseTransportEndpoint());
-      this.game?.beginTransportLink?.(origin);
       return;
     }
     if (action === 'backpack') {

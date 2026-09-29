@@ -3,9 +3,12 @@
 // 熔炉：进料格 + 产物输出格；产物只进输出格，由输出运输线运走（不自动进基地库存）。
 // 无输出运输线，或输出格满且端口运不走时，停止熔炼（进度保留）。
 // 工作时每秒消耗配方 drainPerSecond（熔炉默认 1），且须在供能范围内。
+import { ITEM_RULES } from '../data/gameData.js';
 import { itemStackLimit } from './items.js';
 import {
   advanceProduction,
+  consumeFurnaceFuel,
+  countFurnaceFuel,
   maxCyclesForFurnace,
   normalizeProductionRecipe,
   productionRecipeForInput,
@@ -78,6 +81,10 @@ export class ProductionSystem {
     return this.furnaceStation(unit)?.outputInventory ?? null;
   }
 
+  furnaceFuelInventory(unit) {
+    return this.furnaceStation(unit)?.fuelInventory ?? null;
+  }
+
   activeRecipe(record) {
     const inventory = this.furnaceInputInventory(record.unit);
     const slot = inventory?.slots?.[0] ?? null;
@@ -110,7 +117,7 @@ export class ProductionSystem {
       activityMana: record.unit.activityMana ?? 0,
       manaCapacity: recipe?.manaCapacity ?? record.template?.manaCapacity ?? 0,
       drainPerSecond: recipe?.drainPerSecond ?? record.template?.drainPerSecond ?? 0,
-      hasOutputLine: this.game?.transport?.furnaceHasOutputLine?.(record.unit.id) ?? false
+      fuelCount: countFurnaceFuel(this.furnaceFuelInventory(record.unit))
     };
   }
 
@@ -139,9 +146,9 @@ export class ProductionSystem {
     const { unit } = record;
     const inputInv = this.furnaceInputInventory(unit);
     const outputInv = this.furnaceOutputInventory(unit);
+    const fuelInv = this.furnaceFuelInventory(unit);
     const slot = inputInv?.slots?.[0] ?? null;
     const recipe = this.activeRecipe(record);
-    const transport = this.game?.transport;
 
     if (!inputInv || !outputInv) {
       record.stalled = true;
@@ -168,16 +175,19 @@ export class ProductionSystem {
       return;
     }
 
+    const fuelPerCycle = Math.max(1, Math.floor(Number(ITEM_RULES.furnaceFuelPerCycle) || 1));
     const hasInput = (slot.count ?? 0) >= recipe.input.count;
+    const hasFuel = countFurnaceFuel(fuelInv) >= fuelPerCycle;
     const hasMana = (unit.activityMana ?? 0) > 0;
-    const hasOutputLine = transport?.furnaceHasOutputLine?.(unit.id) ?? false;
-    const outputReady = transport?.furnaceOutputReady?.(unit.id, recipe) ?? false;
 
     let reason = 'working';
     if (!hasInput) reason = 'no_input';
+    else if (!hasFuel) reason = 'no_fuel';
     else if (!hasMana) reason = 'no_power';
-    else if (!hasOutputLine) reason = 'no_output_line';
-    else if (!outputReady) reason = 'output_blocked';
+    else if (maxCyclesForFurnace(recipe, slot, outputInv, {
+      stackLimit: itemStackLimit(recipe.output.itemId),
+      fuelInv
+    }) <= 0) reason = 'output_blocked';
 
     unit.drainPerSecond = reason === 'working' ? recipe.drainPerSecond : 0;
 
@@ -190,7 +200,8 @@ export class ProductionSystem {
     }
 
     const cyclesAllowed = maxCyclesForFurnace(recipe, slot, outputInv, {
-      stackLimit: itemStackLimit(recipe.output.itemId)
+      stackLimit: itemStackLimit(recipe.output.itemId),
+      fuelInv
     });
 
     const step = advanceProduction({
@@ -207,6 +218,13 @@ export class ProductionSystem {
       if (!settled.ok) {
         record.stalled = true;
         record.reason = settled.reason === 'output_full' ? 'output_blocked' : settled.reason;
+        record.cycles = 0;
+        return;
+      }
+      const burned = consumeFurnaceFuel(fuelInv, step.cycles);
+      if (!burned.ok) {
+        record.stalled = true;
+        record.reason = 'no_fuel';
         record.cycles = 0;
         return;
       }

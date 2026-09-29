@@ -6833,8 +6833,14 @@ export const ITEM_DEFINITIONS = {  wood: { id: 'wood', name: '木材', kind: 'st
   iron: { id: 'iron', name: '铁矿', kind: 'stack', stackLimit: 120, category: 'resource', resource: 'iron' },
   food: { id: 'food', name: '食物', kind: 'stack', stackLimit: 120, category: 'resource', resource: 'food' },
   fiber: { id: 'fiber', name: '纤维', kind: 'stack', stackLimit: 120, category: 'resource', resource: 'fiber' },
-  axe: { id: 'axe', name: '木斧', kind: 'instance', stackLimit: 1, category: 'tool', tool: 'axe' },
-  pickaxe: { id: 'pickaxe', name: '木镐', kind: 'instance', stackLimit: 1, category: 'tool', tool: 'pickaxe' },
+  axe: {
+    id: 'axe', name: '木斧', kind: 'instance', stackLimit: 1, category: 'tool', tool: 'axe',
+    maxDurability: 100, durabilityCost: 1
+  },
+  pickaxe: {
+    id: 'pickaxe', name: '木镐', kind: 'instance', stackLimit: 1, category: 'tool', tool: 'pickaxe',
+    maxDurability: 100, durabilityCost: 1
+  },
   // 附魔石也是实例物品：instanceId 就是石头自己的 id，掉落/拾取搬的是同一块。
   // 等级、魔力经验与累计成长都在 data 里跟随，绝不能按 itemId 合并成一块。
   runeStone: { id: 'runeStone', name: '符文石', kind: 'instance', stackLimit: 1, category: 'rune' },
@@ -7469,10 +7475,10 @@ export const FUEL_POWER_CONFIGS = {
     unitType: 'manaFurnace',
     name: '魔力炉',
     fuelItemId: 'charcoal',
-    fuelPerCycle: 2,
-    cycleSeconds: 20,
-    supplyPerSecond: 14,
-    supplyRadius: 16
+    fuelPerCycle: 1,
+    cycleSeconds: 8,
+    /** 每完成一周期充入炉内魔力储备的量（上限见 POWER_RULES.baseManaCapacity） */
+    manaPerCycle: 20
   }
 };
 
@@ -7486,8 +7492,7 @@ export const FUEL_POWER_CONFIGS = {
 //   3. 输入在熔炉进料格，产物进输出格，仅由输出运输线运走（不自动进基地）；
 //
 // 方案第 9 节要求整条链净产出为正、第一批燃料有启动路径：
-// 木炭的消费者是魔力炉（尚未实现），所以在魔力炉接上之前，
-// 这条链**只到燃料为止**，不要把它当成已经闭环的产出。
+// 木炭由魔力炉单格燃料格消耗，充入炉内魔力后再向周围放电。
 // ---------------------------------------------------------------------------
 export const PRODUCTION_RECIPES = {
   furnace: {
@@ -7519,8 +7524,15 @@ export const ITEM_RULES = {
   chestInventorySlots: 24,
   /** 熔炉进料格（单格；产物只进输出格，由输出运输线运走） */
   furnaceInputSlots: 1,
+  /** 熔炉燃料格（单格；烧制时按 furnaceFuelPerCycle 消耗） */
+  furnaceFuelSlots: 1,
+  /** 每完成一批熔炼从燃料格扣除的数量（可烧 wood / charcoal） */
+  furnaceFuelPerCycle: 2,
+  furnaceFuelItemIds: ['wood', 'charcoal'],
   /** 熔炉产物缓冲格（单格；满且输出线运不走时停炉） */
   furnaceOutputSlots: 1,
+  /** 魔力炉燃料格（单格，仅接收木炭） */
+  manaFurnaceFuelSlots: 1,
   /** 堆叠类物品单格上限（各物品 stackLimit 不超过此值） */
   defaultStackLimit: 64
 };

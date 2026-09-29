@@ -1,12 +1,14 @@
 // 木傀儡背包分区：前 N 格为工具区，不参与存放/卸货/采集落点；其余为物资区。
 import { INVENTORY_ERROR } from './Inventory.js';
-import { ITEM_RULES } from '../data/gameData.js';
+import { ITEM_DEFINITIONS, ITEM_RULES } from '../data/gameData.js';
 import {
   isKnownItem,
   itemStackLimit,
   itemStacksByMerging,
-  nextItemInstanceId
+  nextItemInstanceId,
+  slotDurability
 } from './items.js';
+import { isPuppetWeaponItem } from './puppetArms.js';
 import { chestAcceptsItem } from './workTasks.js';
 
 export function workerToolZoneSlots(rules = ITEM_RULES) {
@@ -175,6 +177,22 @@ export function moveWorkerCargoSlotTo(source, slotIndex, target, rules = ITEM_RU
   slot.count -= added.added;
   if (slot.count <= 0) source.slots[slotIndex] = null;
   return { ok: true, moved: added.added };
+}
+
+/** 工具区里伤害最高的傀儡武器（供自动装备）。 */
+export function findBestPuppetWeaponSlotInToolZone(inventory, rules = ITEM_RULES) {
+  const end = workerToolZoneSlots(rules);
+  let best = null;
+  for (let i = 0; i < end; i += 1) {
+    const slot = inventory?.slots?.[i];
+    if (!slot || !isPuppetWeaponItem(slot.itemId)) continue;
+    if (slotDurability(slot) <= 0) continue;
+    const damage = Number(ITEM_DEFINITIONS[slot.itemId]?.weapon?.damage) || 0;
+    if (!best || damage > best.damage) {
+      best = { index: i, slot, damage };
+    }
+  }
+  return best;
 }
 
 export function giveCarriedFromWorkerCargo(carrier, targetInventory, itemId, rules = ITEM_RULES) {

@@ -169,7 +169,9 @@ export class TransportLinkPanelUi {
     this.lastSignature = signature;
     const stations = this.game?.stations;
     const fromLabel = transportStationLabel(link.fromStationId, stations);
-    const toLabel = transportStationLabel(link.toStationId, stations);
+    const toLabel = transportStationLabel(link.toStationId, stations, {
+      importPort: link.toPort ?? null
+    });
     this.parts.title.textContent = `${fromLabel} → ${toLabel}`;
     const powered = this.game?.transport?.linkHasPower?.(link);
     this.parts.subtitle.textContent = powered

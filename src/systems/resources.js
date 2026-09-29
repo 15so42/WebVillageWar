@@ -74,6 +74,13 @@ export function resourceNodeDistance(node, point) {
   return Math.hypot(node.x - point.x, node.z - point.z);
 }
 
+/** 到资源点外表（扣掉 navRadius）的距离，采集站位按树干/石体算，不按圆心。 */
+export function resourceNodeSurfaceDistance(node, point) {
+  const center = resourceNodeDistance(node, point);
+  const radius = Math.max(0, Number(node.navRadius) || 0);
+  return Math.max(0, center - radius);
+}
+
 // 规范化：所有位置类型都要能安全往返，未知字段不能静默丢掉。
 export function normalizeResourceNodeState(raw, fallback = null) {
   const definitionId = raw?.definitionId ?? fallback?.definitionId ?? null;

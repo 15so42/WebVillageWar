@@ -32,6 +32,11 @@ export const STATION_PANELS = Object.freeze({
     unitType: STATION_KIND.furnace,
     title: '熔炉',
     icon: '炉'
+  },
+  manaFurnace: {
+    unitType: STATION_KIND.manaFurnace,
+    title: '魔力炉',
+    icon: '魔'
   }
 });
 
@@ -233,9 +238,11 @@ export class StationPanelUi {
       filter: station.filter,
       storePriority: resolveStorePriority(station),
       stationSlots: slots(station.inventory),
+      fuelSlots: slots(station.fuelInventory),
       outputSlots: slots(station.outputInventory),
       baseSlots: slots(this.game?.baseInventory),
       production: this.game?.production?.statusOf?.(this.unit) ?? null,
+      fuelPower: this.game?.fuelPower?.statusOf?.(this.unit) ?? null,
       cursor: this.cursor
         ? [this.cursor.itemId, this.cursor.count, this.cursor.instanceId ?? null]
         : null
@@ -245,8 +252,15 @@ export class StationPanelUi {
   render(station) {
     const config = this.config;
     this.parts.title.textContent = config?.title ?? '建筑';
+    this.parts.right.hidden = false;
+    this.parts.left.className = 'station-side';
+    this.parts.right.className = 'station-side';
     if (station.kind === STATION_KIND.furnace) {
       this.renderFurnace(station);
+      return;
+    }
+    if (station.kind === STATION_KIND.manaFurnace) {
+      this.renderManaFurnace(station);
       return;
     }
     if (station.kind === STATION_KIND.manualWorkbench) {
@@ -272,6 +286,36 @@ export class StationPanelUi {
     this.parts.base.textContent = '';
   }
 
+  renderManaFurnace(station) {
+    const status = this.game?.fuelPower?.statusOf?.(this.unit) ?? null;
+    const pct = status?.manaCapacity
+      ? Math.round(((status.manaStored ?? 0) / status.manaCapacity) * 100)
+      : 0;
+    const reasonLabels = {
+      none: '燃烧木炭充能中',
+      no_fuel: '燃料格无木炭',
+      no_inventory: '魔力炉库存异常'
+    };
+    this.parts.subtitle.textContent = `${reasonLabels[status?.reason] ?? '魔力炉'} · 储备 ${status?.manaStored ?? 0}/${status?.manaCapacity ?? 100}（${pct}%）`;
+    this.parts.right.hidden = true;
+    this.parts.left.className = 'station-side';
+    this.renderGrid(this.parts.left, {
+      key: 'station',
+      title: '木炭',
+      inventory: station.inventory,
+      columns: 1,
+      hint: '运输线送入木炭；有燃料即燃烧并为炉内充魔，满 100 后按基地相同功率向周围放电。'
+    });
+    this.parts.base.hidden = false;
+    this.parts.base.className = 'station-base';
+    this.renderGrid(this.parts.base, {
+      key: 'base',
+      title: '基地背包',
+      inventory: this.game?.baseInventory,
+      columns: 8
+    });
+  }
+
   renderFurnace(station) {
     const status = this.game?.production?.statusOf?.(this.unit) ?? null;
     const seconds = status?.seconds ?? 0;
@@ -280,53 +324,97 @@ export class StationPanelUi {
     const reasonLabels = {
       working: '烧制中',
       no_input: '进料格为空或数量不足',
+      no_fuel: '燃料不足（燃料口需木材或木炭）',
       no_power: '魔力不足（需在供能范围内）',
       unknown_material: '这种材料不能在此熔炼',
-      no_output_line: '未连接输出运输线',
-      output_blocked: '输出格已满或输出线端口堵住',
+      output_blocked: '出料口已满',
       no_inventory: '熔炉库存异常'
     };
     this.parts.subtitle.textContent = reasonLabels[status?.reason] ?? '熔炉';
-    this.renderGrid(this.parts.left, {
+    this.parts.right.hidden = true;
+    this.parts.left.className = 'station-side furnace-layout-host';
+    this.parts.left.textContent = '';
+    const layout = document.createElement('div');
+    layout.className = 'furnace-layout';
+    const portsCol = document.createElement('div');
+    portsCol.className = 'furnace-ports-col';
+    this.renderFurnacePort(portsCol, {
       key: 'station',
-      title: '进料',
+      title: '进料口',
       inventory: station.inventory,
-      columns: 1,
-      hint: '放入可熔炼原料。输入运输线连到熔炉时，物品进入此格。'
+      tip: '可熔炼原料；运输线连入时选进料口'
     });
-    this.parts.right.textContent = '';
-    this.parts.right.className = 'station-side furnace-side';
-    const panel = document.createElement('div');
-    panel.className = 'furnace-status';
-    const barWrap = document.createElement('div');
-    barWrap.className = 'furnace-progress-wrap';
-    barWrap.innerHTML = `
-      <div class="furnace-progress-label">熔炼进度 ${pct}%</div>
-      <div class="furnace-progress-track"><div class="furnace-progress-fill" style="width:${pct}%"></div></div>
-      <p class="backpack-grid-hint">${seconds > 0 ? `每 ${seconds} 秒完成一批` : '等待进料'} · ${status?.hasOutputLine ? '已接输出线' : '需要接输出运输线（从熔炉连出）'}</p>
+    this.renderFurnacePort(portsCol, {
+      key: 'station-fuel',
+      title: '燃料口',
+      inventory: station.fuelInventory,
+      tip: '木材或木炭，每批熔炼消耗燃料',
+      append: true
+    });
+    const flameCol = document.createElement('div');
+    flameCol.className = 'furnace-flame-col';
+    flameCol.innerHTML = `
+      <div class="furnace-flame-stack">
+        <div class="furnace-flame" aria-hidden="true" title="熔炼中">🔥</div>
+        <div class="furnace-progress-wrap">
+          <div class="furnace-progress-label">${pct}%</div>
+          <div class="furnace-progress-track"><div class="furnace-progress-fill" style="width:${pct}%"></div></div>
+          <div class="furnace-progress-meta">${seconds > 0 ? `${seconds}s` : '—'}<span class="furnace-progress-meta-sep">·</span>燃${status?.fuelCount ?? 0}</div>
+        </div>
+      </div>
     `;
-    panel.appendChild(barWrap);
-    this.renderGrid(panel, {
+    const outCol = document.createElement('div');
+    outCol.className = 'furnace-out-col';
+    this.renderFurnacePort(outCol, {
       key: 'station-out',
-      title: '产物（输出运输线）',
+      title: '出料口',
       inventory: station.outputInventory,
-      columns: 1,
-      hint: '产物落在此格后由输出线运走；格满且运不走时停炉。'
+      tip: '产物先进入出料口；格满停炉，可用输出运输线运走'
     });
-    this.parts.right.appendChild(panel);
+    layout.append(portsCol, flameCol, outCol);
+    this.parts.left.appendChild(layout);
     this.parts.base.hidden = false;
+    this.parts.base.className = 'station-base furnace-base';
     this.renderGrid(this.parts.base, {
       key: 'base',
-      title: '基地库存（可拖进进料格）',
+      title: '基地背包',
       inventory: this.game?.baseInventory,
-      columns: 8,
-      hint: ''
+      columns: 8
     });
   }
 
-  renderGrid(host, entry) {
+  renderFurnacePort(host, { key, title, inventory, tip = '', append = false }) {
     if (!host) return;
-    host.textContent = '';
+    if (!append) host.textContent = '';
+    const block = document.createElement('div');
+    block.className = 'backpack-grid-block furnace-port-block';
+    const head = document.createElement('div');
+    head.className = 'backpack-pane-head furnace-port-head';
+    const titleEl = document.createElement('span');
+    titleEl.className = 'backpack-pane-title';
+    titleEl.textContent = title;
+    if (tip) titleEl.title = tip;
+    const count = document.createElement('span');
+    count.className = 'backpack-pane-count';
+    const used = inventory?.usedSlots?.() ?? 0;
+    const capacity = inventory?.capacity ?? 0;
+    count.textContent = `${used}/${capacity}`;
+    head.append(titleEl, count);
+    block.appendChild(head);
+    const grid = document.createElement('div');
+    grid.className = 'backpack-grid furnace-port-grid';
+    grid.style.setProperty('--backpack-columns', '1');
+    const slots = inventory?.slots ?? [];
+    for (let index = 0; index < capacity; index += 1) {
+      grid.appendChild(this.createSlot(key, slots[index] ?? null, index));
+    }
+    block.appendChild(grid);
+    host.appendChild(block);
+  }
+
+  renderGrid(host, entry, options = {}) {
+    if (!host) return;
+    if (!options.append) host.textContent = '';
     const block = document.createElement('div');
     block.className = 'backpack-grid-block';
     const head = document.createElement('div');

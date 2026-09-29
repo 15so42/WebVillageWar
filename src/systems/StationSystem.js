@@ -35,18 +35,21 @@ export const STATION_KIND = {
   manualWorkbench: 'manualWorkbench',
   chest: 'chest',
   furnace: 'furnace',
+  manaFurnace: 'manaFurnace',
   playerBase: 'playerBase'
 };
 
 const STATION_SLOTS = {
   [STATION_KIND.manualWorkbench]: () => ITEM_RULES.workbenchInventorySlots,
   [STATION_KIND.chest]: () => ITEM_RULES.chestInventorySlots,
-  [STATION_KIND.furnace]: () => ITEM_RULES.furnaceInputSlots
+  [STATION_KIND.furnace]: () => ITEM_RULES.furnaceInputSlots,
+  [STATION_KIND.manaFurnace]: () => ITEM_RULES.manaFurnaceFuelSlots ?? 1
 };
 
 export function stationKindOf(unitOrType) {
   const type = typeof unitOrType === 'string' ? unitOrType : unitOrType?.type;
-  return STATION_SLOTS[type] ? type : null;
+  if (STATION_SLOTS[type]) return type;
+  return null;
 }
 
 export class StationSystem {
@@ -97,10 +100,30 @@ export class StationSystem {
     return this.stations.get(unit.id) ?? null;
   }
 
+  ensureFurnaceInventories(station) {
+    if (station?.kind !== STATION_KIND.furnace) return;
+    if (!station.outputInventory) {
+      station.outputInventory = new Inventory({
+        id: `station:${station.id}:out`,
+        capacity: ITEM_RULES.furnaceOutputSlots ?? 1
+      });
+    }
+    if (!station.fuelInventory) {
+      station.fuelInventory = new Inventory({
+        id: `station:${station.id}:fuel`,
+        capacity: ITEM_RULES.furnaceFuelSlots ?? 1
+      });
+    }
+  }
+
   registerBuilding(unit) {
     const kind = stationKindOf(unit);
     if (!kind || !unit?.id) return null;
-    if (this.stations.has(unit.id)) return this.stations.get(unit.id);
+    if (this.stations.has(unit.id)) {
+      const existing = this.stations.get(unit.id);
+      this.ensureFurnaceInventories(existing);
+      return existing;
+    }
     const capacity = STATION_SLOTS[kind]();
     const station = {
       id: unit.id,
@@ -109,6 +132,9 @@ export class StationSystem {
       inventory: new Inventory({ id: `station:${unit.id}`, capacity }),
       outputInventory: kind === STATION_KIND.furnace
         ? new Inventory({ id: `station:${unit.id}:out`, capacity: ITEM_RULES.furnaceOutputSlots ?? 1 })
+        : null,
+      fuelInventory: kind === STATION_KIND.furnace
+        ? new Inventory({ id: `station:${unit.id}:fuel`, capacity: ITEM_RULES.furnaceFuelSlots ?? 1 })
         : null,
       filter: normalizeChestFilter({ mode: 'blacklist', itemIds: [] }),
       craftPriority: CRAFT_IDLE_PRIORITY,
@@ -128,6 +154,13 @@ export class StationSystem {
     if (!station) return null;
     this.game?.work?.clearErrandsForStation?.(station.id);
     this.game?.transport?.removeLinksForStation?.(station.id);
+    if (station.kind === STATION_KIND.manaFurnace) {
+      this.game?.fuelPower?.unregisterBurner?.(unit);
+    }
+    if (station.kind === STATION_KIND.furnace) {
+      this.dumpToBase(station.outputInventory);
+      this.dumpToBase(station.fuelInventory);
+    }
     this.dumpToBase(station.inventory);
     const leftover = station.inventory.slots.filter(Boolean).map((slot) => ({
       itemId: slot.itemId,
@@ -581,6 +614,10 @@ export class StationSystem {
     if (key === 'base') return this.game?.baseInventory ?? null;
     if (key === 'station-out') {
       if (station?.kind === STATION_KIND.furnace) return station.outputInventory ?? null;
+      return null;
+    }
+    if (key === 'station-fuel') {
+      if (station?.kind === STATION_KIND.furnace) return station.fuelInventory ?? null;
       return null;
     }
     if (key === 'station') {
