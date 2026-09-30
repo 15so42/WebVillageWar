@@ -259,6 +259,14 @@ export class UnitLogicSystem {
           unit.aiState = 'idle';
         }
       }
+    } else if (
+      unit.team === TEAMS.PLAYER
+      && unit.homePoint
+      && distance2D(unit.position, unit.homePoint) > 0.42
+    ) {
+      unit.attackRangeHoldTargetId = null;
+      unit.aiState = 'returning';
+      unit.movement?.moveToward(unit.homePoint, dt, 0.34);
     } else {
       unit.attackRangeHoldTargetId = null;
       unit.aiState = 'idle';

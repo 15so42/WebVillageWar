@@ -88,6 +88,13 @@ export class ResourceDebugPanel {
       </label>
       <div class="resource-debug-grid">${buttons}</div>
       <button type="button" class="resource-debug-fill" data-resource-fill-common>常用一套（木石铁食纤各 64 + 木炭 32）</button>
+      <div class="resource-debug-spawn">
+        <span class="resource-debug-spawn-label">单位生成（数量同上）</span>
+        <div class="resource-debug-grid resource-debug-spawn-grid">
+          <button type="button" data-resource-spawn-archer="camera">友方弓手（镜头）</button>
+          <button type="button" data-resource-spawn-archer="base">友方弓手（基地旁）</button>
+        </div>
+      </div>
     `;
   }
 
@@ -118,6 +125,12 @@ export class ResourceDebugPanel {
       this.close();
       return;
     }
+    const spawnArcherBtn = event.target.closest('[data-resource-spawn-archer]');
+    if (spawnArcherBtn) {
+      event.preventDefault();
+      this.spawnFriendlyArchers(spawnArcherBtn.dataset.resourceSpawnArcher);
+      return;
+    }
     const addBtn = event.target.closest('[data-resource-add]');
     if (addBtn) {
       event.preventDefault();
@@ -136,5 +149,26 @@ export class ResourceDebugPanel {
       ];
       pack.forEach(([id, n]) => this.addResource(id, n));
     }
+  }
+
+  spawnFriendlyArchers(mode) {
+    const unitType = 'archer';
+    const count = Math.max(1, Math.min(20, this.amountValue()));
+    const base = this.game?.playerBase?.position;
+    if (mode === 'base' && !base) {
+      this.game?.hints?.setHintOnce?.('当前关卡没有玩家基地，请用镜头生成', 'resource-debug:archer');
+      return;
+    }
+    if (typeof this.game?.summonUnits !== 'function') {
+      this.game?.hints?.setHintOnce?.('当前场景无法召唤友方单位', 'resource-debug:archer');
+      return;
+    }
+    const center = mode === 'camera'
+      ? this.game.cameraTarget.clone()
+      : base.clone();
+    center.y = 0;
+    this.game.summonUnits(unitType, count, center, 1.15, { select: true });
+    const where = mode === 'camera' ? '镜头中心' : '基地旁';
+    this.game?.hints?.setHintOnce?.(`已在${where}生成 ${count} 个友方弓手`, 'resource-debug:archer');
   }
 }

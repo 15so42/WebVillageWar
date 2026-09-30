@@ -6,6 +6,7 @@
  */
 import { facilityPanelFor } from './FacilityPanelUi.js';
 import { stationPanelFor } from './StationPanelUi.js';
+import { isWorkerAutonomous } from './workOrders.js';
 const BUTTON_SIZE = 52;
 
 export class UnitActionMenu {
@@ -82,14 +83,28 @@ export class UnitActionMenu {
         title: '打开这个单位的背包（B）'
       });
     }
-    if (unit.team === 'player' && unit.isWorker !== true && this.game?.canControlUnit?.(unit)) {
+    if (unit.team === 'player' && unit.isWorker === true) {
+      const autonomous = isWorkerAutonomous(unit);
       actions.push({
-        id: 'stop',
-        label: '停止',
-        icon: '■',
+        id: 'worker-autonomous',
+        label: autonomous ? '自律' : '指挥',
+        icon: autonomous ? '◎' : '✋',
         disabled: false,
-        title: '停止当前命令'
+        title: autonomous
+          ? '自律模式：临时移动后会继续工作。点击切换为指挥模式'
+          : '指挥模式：与剑士/弓手相同（右键移动、索敌、战后回驻守点）。点击切换回自律模式'
       });
+    }
+    if (unit.team === 'player' && this.game?.canControlUnit?.(unit)) {
+      if (unit.isWorker !== true || !isWorkerAutonomous(unit)) {
+        actions.push({
+          id: 'stop',
+          label: '停止',
+          icon: '■',
+          disabled: false,
+          title: '停止当前命令'
+        });
+      }
     }
     return actions;
   }
@@ -122,7 +137,7 @@ export class UnitActionMenu {
     this.unit = unit;
     this.containerTarget = containerTarget;
     const signature = unit
-      ? `u:${unit.id}:${actions.map((a) => a.id).join('|')}`
+      ? `u:${unit.id}:${unit.workerAutonomous === false ? 'manual' : 'auto'}:${actions.map((a) => a.id).join('|')}`
       : `c:${containerTarget?.stationId ?? 'base'}:${actions.map((a) => a.id).join('|')}`;
     if (signature !== this.signature) {
       this.signature = signature;
@@ -198,6 +213,16 @@ export class UnitActionMenu {
     }
     if (action === 'recruit' && unit) {
       this.game?.recruitSelectedUnit?.();
+      this.sync();
+      return;
+    }
+    if (action === 'worker-autonomous' && unit) {
+      const nextAutonomous = !isWorkerAutonomous(unit);
+      this.game?.work?.setWorkerAutonomous?.(unit, nextAutonomous);
+      this.game?.hints?.setHint?.(
+        nextAutonomous ? `${unit.name}：自律模式` : `${unit.name}：指挥模式`,
+        `worker-mode:${unit.id}`
+      );
       this.sync();
       return;
     }

@@ -139,6 +139,11 @@ export function workerManaDepleted(worker) {
   return (worker?.activityMana ?? 0) <= 0;
 }
 
+/** 木傀儡是否处于自律作业（默认 true）。为 false 时由玩家像战斗单位一样指挥。 */
+export function isWorkerAutonomous(unit) {
+  return unit?.isWorker === true && unit.workerAutonomous !== false;
+}
+
 /**
  * 仅补魔决策（傀儡 AI 优先级 ①）。返回 null 表示魔力水位足够、不必维护。
  */

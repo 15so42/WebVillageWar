@@ -6852,6 +6852,23 @@ body.is-animation-preview-active .mobile-action-dock {
   margin-top: 4px;
 }
 
+.resource-debug-spawn {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.resource-debug-spawn-label {
+  display: block;
+  font-size: 11px;
+  opacity: 0.75;
+  margin-bottom: 6px;
+}
+
+.resource-debug-spawn-grid {
+  margin-top: 0;
+}
+
 body.is-transport-link-mode .canvas-wrap {
   cursor: crosshair;
 }

@@ -174,6 +174,7 @@ import {
 import { HotbarUi, HOTBAR_SLOT_COUNT } from './HotbarUi.js';
 import { planDeathDrop } from './drops.js';
 import { WorkSystem } from './WorkSystem.js';
+import { isWorkerAutonomous } from './workOrders.js';
 import { effectiveManaCapacity, transferManaFromBagStones } from './manaStones.js';
 import {
   RUNE_LOCATION_GROUND,
@@ -1376,7 +1377,7 @@ export class Game {
       mobileBoxSelectButton: document.querySelector('[data-command-action="box-select"]'),
       mobileBoxSelectHint: document.querySelector('#mobile-box-select-hint')
     };
-    this.renderTuningUi = createRenderTuningPanel();
+    this.renderTuningUi = null;
     this.networkAnalysisUi = new NetworkAnalysisUi({
       getSnapshot: () => this.networkBridge?.getNetworkDiagnosticsSnapshot?.() ?? null
     });
@@ -1460,18 +1461,6 @@ export class Game {
     this.dom.dprSlider?.addEventListener('input', (event) => this.onRenderSettingInput(event), { signal });
     this.dom.fpsLimitSlider?.addEventListener('pointerdown', stopUiPropagation, { signal });
     this.dom.dprSlider?.addEventListener('pointerdown', stopUiPropagation, { signal });
-    this.renderTuningUi.root.addEventListener('input', (event) => this.onRenderTuningInput(event), { signal });
-    this.renderTuningUi.root.addEventListener('change', (event) => this.onRenderTuningInput(event), { signal });
-    this.renderTuningUi.root.addEventListener('click', (event) => this.onRenderTuningPanelClick(event), { signal });
-    this.renderTuningUi.root.addEventListener('pointerdown', stopUiPropagation, { signal });
-    this.renderTuningUi.root.addEventListener('contextmenu', stopUiEvent, { signal });
-    this.renderTuningUi.button.addEventListener('click', (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      this.toggleRenderTuningPanel();
-    }, { signal });
-    this.renderTuningUi.button.addEventListener('pointerdown', stopUiPropagation, { signal });
-    this.renderTuningUi.button.addEventListener('contextmenu', stopUiEvent, { signal });
     this.resize();
     document.body.classList.add('is-game-active');
     // 生存玩法：把卡牌时代的界面（波次面板 / 银币 / 手牌区）整块压掉，
@@ -1601,8 +1590,6 @@ export class Game {
     if (this.dom.fpsMeter) this.dom.fpsMeter.hidden = true;
     if (this.dom.pauseOverlay) this.dom.pauseOverlay.hidden = true;
     if (this.dom.perfPanel) this.dom.perfPanel.hidden = true;
-    this.renderTuningUi?.root?.remove();
-    this.renderTuningUi?.button?.remove();
     this.canvas.style.filter = '';
     this.worldUi.innerHTML = '';
     if (window.__VILLAGE_WAR_DEBUG__?.game === this) {
@@ -2339,81 +2326,6 @@ export class Game {
     }
   }
 
-  toggleRenderTuningPanel(force = null) {
-    if (!this.renderTuningUi?.root) return;
-    const shouldShow = force == null ? this.renderTuningUi.root.hidden : Boolean(force);
-    this.renderTuningUi.root.hidden = !shouldShow;
-    this.renderTuningUi.button?.setAttribute('aria-pressed', shouldShow ? 'true' : 'false');
-    if (!this.renderTuningUi.root.hidden) {
-      this.syncRenderTuningPanel();
-    }
-  }
-
-  onRenderTuningInput(event) {
-    const field = event.target?.dataset?.renderTuning;
-    if (!field) return;
-    if (event.type === 'change' && event.target?.type === 'range') return;
-    event.stopPropagation();
-    const next = { ...this.renderTuning };
-    if (event.target.type === 'checkbox') {
-      next[field] = event.target.checked;
-      if (field === 'outlineEnabled' && event.target.checked && Number(next.outlineThickness) <= 0) {
-        next.outlineThickness = defaultRenderTuningForWorld(this.worldConfig).outlineThickness || 0.8;
-      }
-    } else if (event.target.type === 'color' || event.target.tagName?.toLowerCase() === 'select') {
-      next[field] = event.target.value;
-    } else {
-      next[field] = Number(event.target.value);
-    }
-    this.renderTuning = normalizeRenderTuning(next, this.worldConfig);
-    this.applyRenderTuning();
-    this.syncRenderTuningPanel();
-  }
-
-  onRenderTuningPanelClick(event) {
-    const action = event.target?.closest?.('[data-render-action]')?.dataset?.renderAction;
-    if (!action) return;
-    event.preventDefault();
-    event.stopPropagation();
-    if (action === 'reset') {
-      this.renderTuning = defaultRenderTuningForWorld(this.worldConfig);
-      this.applyRenderTuning();
-      this.syncRenderTuningPanel();
-      return;
-    }
-    if (action === 'copy') {
-      this.copyRenderTuningParameters();
-      return;
-    }
-    if (action === 'close') {
-      this.toggleRenderTuningPanel(false);
-      const active = document.activeElement;
-      if (active && this.renderTuningUi.root.contains(active)) active.blur();
-    }
-  }
-
-  async copyRenderTuningParameters() {
-    const text = renderTuningExportText(this.renderTuning, this.worldConfig, this.camera, this.cameraTarget);
-    try {
-      if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
-      await navigator.clipboard.writeText(text);
-      this.setRenderTuningCopyStatus('已复制');
-    } catch {
-      this.setRenderTuningCopyStatus('复制失败');
-    }
-    console.info('[VillageWar] Render tuning parameters', this.renderTuning);
-  }
-
-  setRenderTuningCopyStatus(text) {
-    const button = this.renderTuningUi?.copyButton;
-    if (!button) return;
-    button.textContent = text;
-    window.clearTimeout(this.renderTuningUi.copyStatusTimer);
-    this.renderTuningUi.copyStatusTimer = window.setTimeout(() => {
-      button.textContent = '复制参数';
-    }, 1200);
-  }
-
   applyRenderTuning() {
     if (!this.renderTuning || !this.renderer) return;
     const settings = normalizeRenderTuning(this.renderTuning, this.worldConfig);
@@ -2520,25 +2432,8 @@ export class Game {
   }
 
   syncRenderTuningPanel() {
-    const ui = this.renderTuningUi;
-    if (!ui?.root) return;
-    const settings = normalizeRenderTuning(this.renderTuning, this.worldConfig);
-    this.renderTuning = settings;
-    Object.entries(ui.controls).forEach(([key, input]) => {
-      if (!input) return;
-      if (input.type === 'checkbox') {
-        input.checked = Boolean(settings[key]);
-        return;
-      }
-      input.value = String(settings[key]);
-    });
-    Object.entries(ui.values).forEach(([key, value]) => {
-      if (!value) return;
-      value.textContent = formatRenderTuningValue(key, settings[key]);
-    });
-    if (ui.exportText) {
-      ui.exportText.textContent = renderTuningExportText(settings, this.worldConfig, this.camera, this.cameraTarget);
-    }
+    if (!this.renderTuning) return;
+    this.renderTuning = normalizeRenderTuning(this.renderTuning, this.worldConfig);
   }
 
   createPerfCounters({ takeNavStats = false } = {}) {
@@ -7424,18 +7319,12 @@ export class Game {
 
   onKeyDown(event) {
     const key = event.key.toLowerCase();
-    const tuningRoot = this.renderTuningUi?.root;
-    // 调参面板全是滑块和取色器，点过控件后焦点会留在 input 上。
-    // 这时仍要让 Shift+F4 把面板关掉，不能被下面的输入框拦截吃掉。
-    const tuningToggle = key === 'f4' && event.shiftKey && !event.repeat && tuningRoot && (
-      !tuningRoot.hidden || tuningRoot.contains(event.target)
-    );
     if (key === 'l' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && !event.repeat) {
       event.preventDefault();
       this.resourceDebugPanel?.toggle?.();
       return;
     }
-    if (isTextInputTarget(event.target) && !tuningToggle) return;
+    if (isTextInputTarget(event.target)) return;
     if (this.networkTerminated) {
       event.preventDefault();
       return;
@@ -7469,14 +7358,6 @@ export class Game {
       event.preventDefault();
       if (event.shiftKey) {
         if (functionIndex === 2) this.togglePerfChart();
-        if (functionIndex === 4) {
-          this.setPlayerBaseInvincible(true);
-          this.toggleRenderTuningPanel();
-          if (this.renderTuningUi?.root?.hidden) {
-            const active = document.activeElement;
-            if (active && this.renderTuningUi.root.contains(active)) active.blur();
-          }
-        }
         if (functionIndex === 6) this.toggleLevelTestMode();
         return;
       }
@@ -8388,16 +8269,18 @@ export class Game {
     const commandCenter = this.resolveCommandPoint(point);
     if (!commandCenter) return false;
     const workers = units.filter((unit) => unit.isWorker === true);
-    const movers = units.filter((unit) => unit.isWorker !== true);
-    if (workers.length && this.work?.beginRally) {
-      workers.forEach((unit) => this.work.beginRally(unit, commandCenter));
+    const autoWorkers = workers.filter((unit) => isWorkerAutonomous(unit));
+    const manualWorkers = workers.filter((unit) => !autoWorkers.includes(unit));
+    const movers = units.filter((unit) => unit.isWorker !== true).concat(manualWorkers);
+    if (autoWorkers.length && this.work?.beginRally) {
+      autoWorkers.forEach((unit) => this.work.beginRally(unit, commandCenter));
       this.effects.spawnMoveDestination(
         commandCenter,
-        Math.min(2.4, 0.55 + Math.sqrt(workers.length) * 0.42),
-        this.playerVisualColor(workers[0] ?? this.localPlayerSlot)
+        Math.min(2.4, 0.55 + Math.sqrt(autoWorkers.length) * 0.42),
+        this.playerVisualColor(autoWorkers[0] ?? this.localPlayerSlot)
       );
     }
-    if (!movers.length) return workers.length > 0;
+    if (!movers.length) return autoWorkers.length > 0 || manualWorkers.length > 0;
     const formationRadius = Math.min(2.4, 0.55 + Math.sqrt(movers.length) * 0.42);
     const commandedUnits = [];
     let commanded = false;
@@ -8407,6 +8290,9 @@ export class Game {
       );
       if (!destination) return;
       commanded = true;
+      if (unit.isWorker === true) {
+        this.work?.suspendWorkerJobs?.(this.work.recordFor(unit), unit);
+      }
       unit.commandMoveGoal = destination.clone();
       unit.moveGoal = null;
       unit.moveGoalUsesDirectSteering = false;
@@ -8419,7 +8305,7 @@ export class Game {
       unit.homePoint = null;
       commandedUnits.push(unit);
     });
-    if (!commanded && !workers.length) return false;
+    if (!commanded && !autoWorkers.length && !manualWorkers.length) return false;
     if (commandedUnits.length) {
       this.attacks.cancelPendingAttacksFor(commandedUnits);
     }
@@ -8454,7 +8340,7 @@ export class Game {
     if (!target) return false;
     let assigned = 0;
     units.forEach((unit) => {
-      if (unit.isWorker !== true) return;
+      if (!isWorkerAutonomous(unit)) return;
       if (this.work.assignNode(unit, target.id)) assigned += 1;
     });
     if (!assigned) return false;
@@ -10344,150 +10230,6 @@ function initialPerfJsonEnabled() {
   }
 }
 
-function createRenderTuningPanel() {
-  const button = document.createElement('button');
-  button.id = 'render-tuning-button';
-  button.className = 'render-tuning-button';
-  button.type = 'button';
-  button.setAttribute('aria-label', '渲染调参');
-  button.setAttribute('title', '渲染调参');
-  button.setAttribute('aria-pressed', 'false');
-  button.textContent = '☼';
-  button.hidden = true;
-  document.body.appendChild(button);
-
-  const root = document.createElement('section');
-  root.id = 'render-tuning-panel';
-  root.className = 'render-tuning-panel';
-  root.hidden = true;
-  root.setAttribute('aria-label', '渲染调参');
-  root.innerHTML = `
-    <div class="render-tuning-header">
-      <div class="render-tuning-title">
-        <strong>渲染调参</strong>
-        <span class="render-tuning-hint">Shift+F4 开关</span>
-      </div>
-      <div class="render-tuning-actions">
-        <button type="button" data-render-action="reset">重置</button>
-        <button type="button" data-render-action="copy">复制参数</button>
-        <button type="button" class="render-tuning-close" data-render-action="close" aria-label="关闭调参">×</button>
-      </div>
-    </div>
-    <div class="render-tuning-grid">
-      <fieldset>
-        <legend>调色</legend>
-        ${renderSelectControl('toneMapping', '映射', RENDER_TONE_MAPPING_OPTIONS)}
-        ${renderSliderControl('exposure', '曝光', 0.4, 1.8, 0.01)}
-        ${renderSliderControl('brightness', '亮度', 0.65, 1.35, 0.01)}
-        ${renderSliderControl('contrast', '对比', 0.65, 1.55, 0.01)}
-        ${renderSliderControl('saturation', '饱和', 0.45, 1.8, 0.01)}
-        ${renderSliderControl('hue', '色相', -32, 32, 1)}
-        ${renderSliderControl('warmth', '暖调', 0, 0.42, 0.01)}
-      </fieldset>
-      <fieldset>
-        <legend>阳光</legend>
-        ${renderColorControl('sunColor', '颜色')}
-        ${renderSliderControl('sunIntensity', '强度', 0, 8, 0.01)}
-        ${renderSliderControl('shadowIntensity', '阴影', 0, 1, 0.01)}
-        ${renderSliderControl('sunX', 'X', -140, 140, 1)}
-        ${renderSliderControl('sunY', 'Y', 8, 140, 1)}
-        ${renderSliderControl('sunZ', 'Z', -140, 140, 1)}
-      </fieldset>
-      <fieldset>
-        <legend>环境</legend>
-        ${renderSliderControl('hemiIntensity', '半球光', 0, 3.2, 0.01)}
-        ${renderColorControl('hemiSky', '天空色')}
-        ${renderColorControl('hemiGround', '地面色')}
-        ${renderColorControl('background', '背景色')}
-      </fieldset>
-      <fieldset>
-        <legend>场景材质</legend>
-        ${renderColorControl('snowColor', '雪')}
-        ${renderColorControl('rockColor', '岩石')}
-        ${renderColorControl('treeColor', '树木')}
-      </fieldset>
-      <fieldset>
-        <legend>雾</legend>
-        ${renderColorControl('fogColor', '颜色')}
-        ${renderSliderControl('fogNear', '近端', 20, 220, 1)}
-        ${renderSliderControl('fogFar', '远端', 80, 480, 1)}
-      </fieldset>
-      <fieldset>
-        <legend>环境遮蔽 (AO)</legend>
-        ${renderSliderControl('aoIntensity', '遮蔽强度', 0, 0.5, 0.01)}
-        ${renderSliderControl('aoScale', '遮蔽尺度', 0.1, 10, 0.1)}
-        ${renderSliderControl('aoKernelRadius', '采样半径', 1, 100, 1)}
-        ${renderSliderControl('aoBias', '遮蔽偏移', 0, 1, 0.01)}
-      </fieldset>
-      <fieldset>
-        <legend>描边效果</legend>
-        ${renderToggleControl('outlineEnabled', '开启场景描边')}
-        ${renderSliderControl('outlineThickness', '描边粗细', 0, 3.0, 0.1)}
-        ${renderColorControl('outlineColor', '描边颜色')}
-        ${renderSliderControl('outlineThreshold', '描边阈值', 0.05, 0.5, 0.01)}
-      </fieldset>
-    </div>
-    <pre class="render-tuning-export" data-render-export></pre>
-  `;
-  document.body.appendChild(root);
-
-  const controls = {};
-  root.querySelectorAll('[data-render-tuning]').forEach((input) => {
-    controls[input.dataset.renderTuning] = input;
-  });
-  const values = {};
-  root.querySelectorAll('[data-render-value]').forEach((value) => {
-    values[value.dataset.renderValue] = value;
-  });
-  return {
-    root,
-    button,
-    controls,
-    values,
-    exportText: root.querySelector('[data-render-export]'),
-    copyButton: root.querySelector('[data-render-action="copy"]'),
-    copyStatusTimer: null
-  };
-}
-
-function renderSliderControl(key, label, min, max, step) {
-  return `
-    <label class="render-tuning-row">
-      <span>${label}<strong data-render-value="${key}"></strong></span>
-      <input data-render-tuning="${key}" type="range" min="${min}" max="${max}" step="${step}" />
-    </label>
-  `;
-}
-
-function renderToggleControl(key, label) {
-  return `
-    <label class="render-tuning-row render-tuning-row-toggle">
-      <span>${label}<strong data-render-value="${key}"></strong></span>
-      <input data-render-tuning="${key}" type="checkbox" />
-    </label>
-  `;
-}
-
-function renderColorControl(key, label) {
-  return `
-    <label class="render-tuning-row render-tuning-row-color">
-      <span>${label}<strong data-render-value="${key}"></strong></span>
-      <input data-render-tuning="${key}" type="color" />
-    </label>
-  `;
-}
-
-function renderSelectControl(key, label, options) {
-  return `
-    <label class="render-tuning-row render-tuning-row-select">
-      <span>${label}<strong data-render-value="${key}"></strong></span>
-      <select data-render-tuning="${key}">
-        ${options.map((option) => `<option value="${option}">${RENDER_TONE_MAPPING_LABELS[option] ?? option}</option>`).join('')}
-      </select>
-    </label>
-  `;
-}
-
 function createRenderQualityProfile(settings = loadRenderSettings()) {
   const override = readRenderQualityOverride();
   const mobile = override === 'low' || (override !== 'high' && isProbablyMobileDevice());
@@ -10652,81 +10394,6 @@ function normalizeRenderTuning(settings = {}, worldConfig = BALANCE.world) {
     outlineColor: colorToHex(settings.outlineColor, defaults.outlineColor),
     outlineThreshold: clamp(finiteNumber(settings.outlineThreshold, defaults.outlineThreshold), 0.05, 0.5)
   };
-}
-
-function renderTuningExportText(settings, worldConfig = BALANCE.world, camera = null, cameraTarget = null) {
-  const normalized = normalizeRenderTuning(settings, worldConfig);
-  const cameraPosition = camera?.position;
-  return JSON.stringify({
-    toneMapping: normalized.toneMapping,
-    exposure: normalized.exposure,
-    colorGrade: {
-      brightness: normalized.brightness,
-      contrast: normalized.contrast,
-      saturation: normalized.saturation,
-      hue: normalized.hue,
-      warmth: normalized.warmth
-    },
-    sun: {
-      color: normalized.sunColor,
-      intensity: normalized.sunIntensity,
-      position: {
-        x: normalized.sunX,
-        y: normalized.sunY,
-        z: normalized.sunZ
-      },
-      shadowIntensity: normalized.shadowIntensity
-    },
-    hemisphere: {
-      intensity: normalized.hemiIntensity,
-      sky: normalized.hemiSky,
-      ground: normalized.hemiGround
-    },
-    fog: {
-      color: normalized.fogColor,
-      near: normalized.fogNear,
-      far: normalized.fogFar
-    },
-    ao: {
-      intensity: normalized.aoIntensity,
-      scale: normalized.aoScale,
-      kernelRadius: normalized.aoKernelRadius,
-      bias: normalized.aoBias
-    },
-    outline: {
-      enabled: normalized.outlineEnabled,
-      thickness: normalized.outlineThickness,
-      color: normalized.outlineColor,
-      threshold: normalized.outlineThreshold
-    },
-    materials: {
-      snow: normalized.snowColor,
-      rock: normalized.rockColor,
-      tree: normalized.treeColor
-    },
-    background: normalized.background,
-    camera: {
-      initialPosition: {
-        x: Number((cameraPosition?.x ?? 0).toFixed(3)),
-        y: Number((cameraPosition?.y ?? 0).toFixed(3)),
-        z: Number((cameraPosition?.z ?? 0).toFixed(3))
-      },
-      target: {
-        x: Number((cameraTarget?.x ?? 0).toFixed(3)),
-        y: Number((cameraTarget?.y ?? 4).toFixed(3)),
-        z: Number((cameraTarget?.z ?? 0).toFixed(3))
-      }
-    }
-  }, null, 2);
-}
-
-function formatRenderTuningValue(key, value) {
-  if (key === 'toneMapping') return RENDER_TONE_MAPPING_LABELS[value] ?? value;
-  if (key === 'outlineEnabled') return value ? '开' : '关';
-  if (typeof value === 'string') return value.toUpperCase();
-  if (key === 'hue') return `${Math.round(value)}°`;
-  if (['sunX', 'sunY', 'sunZ', 'fogNear', 'fogFar'].includes(key)) return `${Math.round(value)}`;
-  return Number(value).toFixed(2);
 }
 
 function finiteNumber(value, fallback) {

@@ -44,7 +44,8 @@ import {
   WorkTaskBoard,
   workerInventoryFull,
   workerManaDepleted,
-  workerManaRatio
+  workerManaRatio,
+  isWorkerAutonomous
 } from './workOrders.js';
 import {
   applyRepairToToolZone,
@@ -215,6 +216,7 @@ export class WorkSystem {
     });
     owned.id = owned.id ?? `worker:${unit.id}`;
     unit.isWorker = true;
+    if (unit.workerAutonomous !== false) unit.workerAutonomous = true;
     unit.kind = 'unit';
     // 基础容量记在 baseManaCapacity 上：背包里的魔力石会在此基础上叠加，
     // 每次重算都从基础值出发，所以反复刷新不会把加成越堆越高。
@@ -355,6 +357,7 @@ export class WorkSystem {
   assignNode(unitOrId, nodeId) {
     const record = this.recordFor(unitOrId);
     if (!record || !nodeId) return false;
+    if (!isWorkerAutonomous(record.unit)) return false;
     if (record.errand) this.clearErrand(record);
     const unitId = record.unitId;
     const node = this.game?.resourceNodes?.nodeById?.(nodeId) ?? null;
@@ -690,12 +693,37 @@ export class WorkSystem {
     const record = this.ensureRecord(unit);
     if (!record) return false;
 
+    if (!isWorkerAutonomous(unit)) {
+      return this.updateManualWorker(record, unit, step);
+    }
+
     if (record.rally) {
       this.applyWorkerTaskToolEquipment(unit, record, null);
       const rallyGear = puppetGearFor({
         toolIds: record.pack.toolIds,
         weaponItemId: unit.weaponItemId ?? null
       });
+      const rallyView = refreshView(record);
+      if (!workerManaDepleted(rallyView)) {
+        this.checkWorkerWeaponBroken(unit);
+        this.autoEquipWorkerGear(unit);
+        let rallyDecision = this.tickSelfDefense(record, unit, rallyView, rallyGear, step);
+        if (rallyDecision.action === 'engage') {
+          this.applyPuppetGear(unit, rallyGear, true);
+          this.applyWorkerTaskToolEquipment(unit, record, null);
+          record.engaging = true;
+          this.holdPosition(record, unit);
+          unit.homePoint = null;
+          unit.drainPerSecond = POWER_RULES.workerDrainIdle;
+          return false;
+        }
+        if (rallyDecision.action === 'hold') {
+          this.applyPuppetGear(unit, rallyGear, false);
+          this.holdPosition(record, unit);
+          unit.drainPerSecond = POWER_RULES.workerDrainIdle;
+          return true;
+        }
+      }
       return this.updateRally(record, unit, step, rallyGear);
     }
 
@@ -1743,9 +1771,105 @@ export class WorkSystem {
   /**
    * 右键临时点：先放下手里的活，走过去；路上不接战、不受击，到点立刻恢复采集任务。
    */
+  /**
+   * 自律 / 指挥模式切换。指挥模式下清空作业状态，保留或建立返回点。
+   */
+  setWorkerAutonomous(unit, autonomous) {
+    if (!unit?.isWorker) return false;
+    const enabled = autonomous !== false;
+    unit.workerAutonomous = enabled;
+    const record = this.recordFor(unit);
+    if (!record) return true;
+    if (enabled) {
+      unit.commandMoveGoal = null;
+      this.game?.clearUnitRoute?.(unit);
+      return true;
+    }
+    this.suspendWorkerJobs(record, unit);
+    if (!unit.homePoint) {
+      unit.homePoint = unit.position.clone();
+      unit.homePoint.y = this.game?.groundHeightAt?.(unit.homePoint) ?? unit.homePoint.y;
+    }
+    unit.controlMode = 'normal';
+    return true;
+  }
+
+  suspendWorkerJobs(record, unit) {
+    if (!record) return;
+    if (record.task?.nodeId) this.markedNodes.delete(record.task.nodeId);
+    this.clearTask(record);
+    record.rally = null;
+    record.errand = null;
+    record.recharging = false;
+    record.repairing = false;
+    record.engaging = false;
+    if (record.combat) {
+      this.closeCombatSession(record, {
+        now: Number(this.game?.elapsedTime) || 0,
+        calm: false
+      });
+    }
+    resetMoveGoal(record);
+    this.clearTransientTargets(unit);
+    unit.drainPerSecond = POWER_RULES.workerDrainIdle;
+  }
+
+  /**
+   * 指挥模式：与剑士/弓手相同，战斗与移动全部由 UnitLogicSystem 负责。
+   * 这里只处理傀儡特有的魔力见底与武器数值同步（不写作业、不走 combatReflex）。
+   */
+  updateManualWorker(record, unit, dt) {
+    const view = refreshView(record);
+    if (workerManaDepleted(view)) {
+      this.syncWorkerDisplayDurability(unit, record);
+      this.clearTransientTargets(unit);
+      this.holdPosition(record, unit);
+      unit.commandMoveGoal = null;
+      unit.drainPerSecond = POWER_RULES.workerDrainIdle;
+      unit.visualState = 'idle';
+      unit.aiState = 'idle';
+      record.lastPlan = {
+        state: WORK_STATE.lowPower,
+        reason: WORK_REASON.recharging,
+        action: WORK_ACTION.none,
+        target: null,
+        note: '魔力耗尽（指挥待命）',
+        gear: null
+      };
+      this.game?.transferManaFromBagStones?.(unit, dt);
+      return true;
+    }
+    this.refreshPack(record);
+    this.checkWorkerWeaponBroken(unit);
+    this.autoEquipWorkerGear(unit);
+    this.syncWorkerDisplayDurability(unit, record);
+    const gear = puppetGearFor({
+      toolIds: record.pack.toolIds,
+      weaponItemId: unit.weaponItemId ?? null
+    });
+    const canFight = (gear?.damage ?? 0) > 0 && (unit.weapon?.durability ?? 0) > 0.01;
+    // 与战斗单位一致：有战斗力时保持索敌半径，交给 TargetingSystem 每帧选目标
+    this.applyPuppetGear(unit, gear, canFight);
+    this.syncWorkerCombatDurabilityFromBag(unit, gear);
+    setUnitHeldTool(unit, null);
+    unit.drainPerSecond = unit.commandMoveGoal || unit.target?.alive
+      ? POWER_RULES.workerDrainMove
+      : POWER_RULES.workerDrainIdle;
+    record.lastPlan = {
+      state: WORK_STATE.idle,
+      reason: WORK_REASON.none,
+      action: WORK_ACTION.none,
+      target: null,
+      note: '指挥（战斗 AI）',
+      gear: gear.kind
+    };
+    return false;
+  }
+
   beginRally(unit, point) {
     const record = this.recordFor(unit);
     if (!record || !point) return false;
+    if (!isWorkerAutonomous(unit)) return false;
     const suspendedNodeId = record.task?.nodeId ?? record.rally?.suspendedNodeId ?? null;
     this.clearTask(record);
     record.rally = {
@@ -1825,7 +1949,8 @@ export class WorkSystem {
 
     const idle = [...this.records.entries()]
       .filter(([, record]) => (
-        !record.rally && !record.task && !record.errand && record.unit?.alive !== false
+        isWorkerAutonomous(record.unit)
+        && !record.rally && !record.task && !record.errand && record.unit?.alive !== false
       ))
       .map(([unitId]) => unitId)
       .sort();
