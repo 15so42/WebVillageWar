@@ -17,7 +17,7 @@
 //      一进一出，每进出一次就重开一场仗——用户报的「互相拉扯」。
 //   3. **开打之后不设冷却、不设闹钟**：终点只有一个，"没人再追我"。
 //      冷却只会在那几秒里让新出现的危险白打（Numen 实测四次重伤都发生在这个窗口）。
-import { combatPlanRules, isContactFoe } from './combatPlan.js';
+import { combatPlanRules, isContactFoe, isSkirmishFoe } from './combatPlan.js';
 
 /** 身体的两个持有者。固定顺序：自卫永远优先于作业。 */
 export const BODY_HOLDER = {
@@ -53,9 +53,16 @@ export const COMBAT_PHASE = {
  * 所以不会出现"触发进来了、挑目标时列表却是空的"这种开一场空仗的情况。
  * 两条也都不要求"附近有敌人"：威胁数组负责的是**选点**（去危险的地方干活），
  * 触发负责的是**打断**，两件事用的半径不同，故意不合并。
+ *
+ * ③ **敌人进了迎战索敌半径**（`aggroRange`，与 `engageAggroRange` 一致）。
+ *    木傀儡在能出手时应对范围内威胁主动接战，而不是等怪贴脸或先锁定自己。
+ *    空手 / 耐久归零时不传 `aggroRange`（或传 0），避免无武器时仍被远处敌人拖住。
  */
-export function defenseTriggered({ foes = [] } = {}) {
-  return foes.some(isContactFoe);
+export function defenseTriggered({ foes = [], aggroRange = 0 } = {}) {
+  if (foes.some(isContactFoe)) return true;
+  const range = Math.max(0, Number(aggroRange) || 0);
+  if (range <= 0) return false;
+  return foes.some((foe) => Number.isFinite(foe?.distance) && foe.distance <= range);
 }
 
 /**
@@ -96,8 +103,9 @@ export function selectBodyHolder(options = {}) {
  * 不用"血回到多少""打了多久"之类的判据：Numen 的注释点名过，
  * 给一个闹钟只会在打到一半时把她扔在原地。
  */
-export function fightResolved({ foes = [] } = {}) {
-  return !foes.some(isContactFoe);
+export function fightResolved({ foes = [], aggroRange = 0 } = {}) {
+  const range = Math.max(0, Number(aggroRange) || 0);
+  return !foes.some((foe) => isSkirmishFoe(foe, range));
 }
 
 /**

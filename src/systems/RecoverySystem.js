@@ -1,48 +1,10 @@
-const PASSIVE_DURABILITY_RECOVERY_INTERVAL_SECONDS = 3;
-const PASSIVE_DURABILITY_RECOVERY_AMOUNT = 1;
-
 export class RecoverySystem {
   constructor(game) {
     this.game = game;
-    this.passiveDurabilityTimer = 0;
   }
 
   update(dt) {
-    // 基地不再提供生命或耐久恢复，也不再创建基地恢复光环。
-    // 前线恢复改由祭坛承担（见 ALTAR_DEFINITIONS 的共享恢复效果）。
-    // 全局被动耐久回复与壁垒回复与基地恢复无关，必须继续独立推进。
     this.tickBulwarkRegen();
-    this.tickPassiveDurabilityRecovery(dt);
-  }
-
-  tickPassiveDurabilityRecovery(dt) {
-    this.passiveDurabilityTimer += Math.max(0, Number(dt) || 0);
-    while (this.passiveDurabilityTimer >= PASSIVE_DURABILITY_RECOVERY_INTERVAL_SECONDS) {
-      this.passiveDurabilityTimer -= PASSIVE_DURABILITY_RECOVERY_INTERVAL_SECONDS;
-      this.restoreAllUnitDurability();
-      this.restoreAllStructureDurability();
-    }
-  }
-
-  restoreAllUnitDurability() {
-    this.restoreUnitDurabilityList(this.game.friendlyUnits);
-    this.restoreUnitDurabilityList(this.game.enemyUnits);
-  }
-
-  restoreUnitDurabilityList(units = []) {
-    units.forEach((unit) => {
-      if (!unit?.alive || unit.underConstruction || !unit.weapon?.maxDurability) return;
-      unit.restoreDurability?.(PASSIVE_DURABILITY_RECOVERY_AMOUNT);
-    });
-  }
-
-  restoreAllStructureDurability() {
-    [this.game.playerBase, this.game.enemyCamp].forEach((structure) => {
-      if (!structure?.alive || structure.kind !== 'structure') return;
-      this.game.repairStructure?.(structure, {
-        durability: PASSIVE_DURABILITY_RECOVERY_AMOUNT
-      });
-    });
   }
 
   tickBulwarkRegen() {

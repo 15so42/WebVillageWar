@@ -75,6 +75,16 @@ check('两条触发线：它锁定我已逼近 / 它已经贴到我的刀口上'
     true,
     '一群里只要有一个成立，就触发'
   );
+  assert.equal(
+    defenseTriggered({ foes: [foe({ distance: 8, engaging: false, inMyReach: false })], aggroRange: 9 }),
+    true,
+    '进入索敌半径也应触发（木傀儡主动接战）'
+  );
+  assert.equal(
+    defenseTriggered({ foes: [foe({ distance: 8 })], aggroRange: 0 }),
+    false,
+    '无武器/耐久时不应被远处敌人拖进战斗'
+  );
 });
 
 check('触发与"这一场里有谁"是同一个判据（避免开一场空仗）', () => {

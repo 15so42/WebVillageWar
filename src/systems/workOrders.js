@@ -23,7 +23,8 @@ export const WORK_STATE = {
   // 威胁一散它照原路回去干活——半路清任务会让它把已经背上的货和预留都丢掉。
   fleeing: 'fleeing',
   // 附近有威胁，但战力判断认为打得过：这一帧交回常规战斗 AI。
-  engaging: 'engaging'
+  engaging: 'engaging',
+  repairing: 'repairing'
 };
 
 export const WORK_REASON = {
@@ -36,7 +37,9 @@ export const WORK_REASON = {
   lowPower: 'low_power',
   recharging: 'recharging',
   containerFull: 'container_full',
-  threatNearby: 'threat_nearby'
+  threatNearby: 'threat_nearby',
+  needRepair: 'need_repair',
+  noRepairStation: 'no_repair_station'
 };
 
 export const WORK_ACTION = {
@@ -45,7 +48,9 @@ export const WORK_ACTION = {
   harvest: 'harvest',
   moveToBase: 'move_to_base',
   deposit: 'deposit',
-  flee: 'flee'
+  flee: 'flee',
+  moveToRepair: 'move_to_repair',
+  repair: 'repair'
 };
 
 const STATE_LABELS = {
@@ -57,7 +62,8 @@ const STATE_LABELS = {
   [WORK_STATE.blocked]: '无法继续',
   [WORK_STATE.lowPower]: '魔力不足',
   [WORK_STATE.fleeing]: '逃跑',
-  [WORK_STATE.engaging]: '迎战'
+  [WORK_STATE.engaging]: '迎战',
+  [WORK_STATE.repairing]: '维修装备'
 };
 
 const REASON_LABELS = {
@@ -70,7 +76,9 @@ const REASON_LABELS = {
   [WORK_REASON.lowPower]: '供能不足',
   [WORK_REASON.recharging]: '正在补魔',
   [WORK_REASON.containerFull]: '容器已满',
-  [WORK_REASON.threatNearby]: '附近有敌人'
+  [WORK_REASON.threatNearby]: '附近有敌人',
+  [WORK_REASON.needRepair]: '工具耐久偏低',
+  [WORK_REASON.noRepairStation]: '没有可用的维修站'
 };
 
 export const WORK_RULES = {
@@ -131,6 +139,43 @@ export function workerManaDepleted(worker) {
   return (worker?.activityMana ?? 0) <= 0;
 }
 
+/**
+ * 仅补魔决策（傀儡 AI 优先级 ①）。返回 null 表示魔力水位足够、不必维护。
+ */
+export function planWorkerManaStep({
+  worker = {},
+  supplyPoint = null,
+  rules = WORK_RULES,
+  recharging = false
+} = {}) {
+  const resolved = workRules(rules);
+  const workerPosition = { x: worker.x ?? 0, z: worker.z ?? 0 };
+  const supply = supplyPoint ?? { x: 0, z: 0 };
+  const result = (state, reason, action, target) => ({
+    state,
+    reason,
+    action,
+    target: target ?? null,
+    note: workStateLabel(state, reason)
+  });
+
+  if (workerManaDepleted(worker)) {
+    return result(WORK_STATE.lowPower, WORK_REASON.recharging, WORK_ACTION.none, null);
+  }
+
+  const manaRatio = workerManaRatio(worker);
+  const needsPower = recharging
+    ? manaRatio < resolved.rechargeRatio
+    : manaRatio <= resolved.lowPowerRatio;
+  if (!needsPower) return null;
+
+  const atSupply = distance2D(workerPosition, supply) <= resolved.depositRange;
+  if (atSupply) {
+    return result(WORK_STATE.lowPower, WORK_REASON.recharging, WORK_ACTION.none, null);
+  }
+  return result(WORK_STATE.lowPower, WORK_REASON.lowPower, WORK_ACTION.moveToBase, supply);
+}
+
 // 单步决策。优先级顺序与文档一致：
 //   威胁（打/逃）> 满包回程 > 缺魔力返程 > 任务有效性 > 工具 > 距离 > 采集
 //
@@ -170,10 +215,7 @@ export function planWorkerStep({
     return result(WORK_STATE.lowPower, WORK_REASON.recharging, WORK_ACTION.none, null);
   }
 
-  // 0) 威胁：打不过就跑，打得过交回战斗 AI（体力耗尽时上面已拦截，不能移动）。
-  if (danger?.action === 'flee') {
-    return result(WORK_STATE.fleeing, WORK_REASON.threatNearby, WORK_ACTION.flee, danger.target ?? null);
-  }
+  // 威胁逃跑由 WorkSystem 自卫反射处理；规划器不再派发 flee（木傀儡逃跑逻辑暂关）。
   if (danger?.action === 'engage') {
     return result(WORK_STATE.engaging, WORK_REASON.threatNearby, WORK_ACTION.none, null);
   }
@@ -189,26 +231,14 @@ export function planWorkerStep({
     return result(WORK_STATE.haulingHome, WORK_REASON.inventoryFull, WORK_ACTION.moveToBase, base);
   }
 
-  // 2) 魔力过低：不要带着见底的魔力出发。
-  //    已经在供能点旁边就原地等补，否则（不管在不在供能半径里）都先走回供能点。
-  //    这正是文档说的「任务开始前估计工作和返程用量，保留返程储备」。
-  //
-  //    迟滞（两个阈值）：**进入**看 lowPowerRatio，**退出**看 rechargeRatio。
-  //    只用一个阈值时，傀儡在基地旁补到刚过 25% 就被判"够用了"、立刻出发，
-  //    玩家看到的是"回到基地站一下就又去采矿"——所以一旦进入补魔就必须补到
-  //    rechargeRatio（默认充满）为止。返回值本身不需要新状态：
-  //    `state === lowPower` 就是"这一帧还在补魔"，调用方据此维护跨帧的 recharging。
-  const manaRatio = workerManaRatio(worker);
-  const needsPower = recharging
-    ? manaRatio < resolved.rechargeRatio
-    : manaRatio <= resolved.lowPowerRatio;
-  if (needsPower) {
-    const atSupply = distance2D(workerPosition, supply) <= resolved.depositRange;
-    if (atSupply) {
-      return result(WORK_STATE.lowPower, WORK_REASON.recharging, WORK_ACTION.none, null);
-    }
-    return result(WORK_STATE.lowPower, WORK_REASON.lowPower, WORK_ACTION.moveToBase, supply);
-  }
+  // 2) 魔力过低（与 planWorkerManaStep 相同；执行层在迎战前已单独跑过补魔优先级）
+  const manaPlan = planWorkerManaStep({
+    worker,
+    supplyPoint: supply,
+    rules: resolved,
+    recharging
+  });
+  if (manaPlan) return manaPlan;
 
   // 3) 没有任务
   if (!task || !task.node) {

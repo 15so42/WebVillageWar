@@ -292,6 +292,13 @@ export function isContactFoe(foe) {
   return foe?.engaging === true || foe?.inMyReach === true;
 }
 
+/** 已进入接战范围：贴身/锁定，或进入迎战索敌半径。 */
+export function isSkirmishFoe(foe, aggroRange = 0) {
+  if (isContactFoe(foe)) return true;
+  const range = Math.max(0, Number(aggroRange) || 0);
+  return range > 0 && Number.isFinite(foe?.distance) && foe.distance <= range;
+}
+
 /**
  * 打谁。**先打近的，但选定之后打完再换**（Numen `AttackPlan.pick`）。
  *
@@ -341,7 +348,7 @@ export function decideCombatMove({
   const resolved = combatPlanRules(rules ?? {});
   // 判据只处理**这一场里的对手**：正在打我的，加上已经贴到我攻击距离的。
   // 旁边站着、还离得远的怪不算"我面对的战力"——它一动手（或一走近），下一刻自己会进这个列表。
-  const contact = foes.filter(isContactFoe);
+  const contact = foes.filter((foe) => isSkirmishFoe(foe, resolved.engageAggroRange));
   const verdict = outmatchedFor({ self, foes: contact, gearPower, engaged, rules: resolved });
 
   // ① 扛不住 → 脱离接触，**但前提是真的有对手**：

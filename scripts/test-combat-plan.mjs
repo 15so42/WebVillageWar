@@ -247,12 +247,15 @@ check('野生动物与未被招募的野外单位：前者算威胁，后者完�
 });
 
 // ---------------------------------------------------------------- 打还是逃
-check('远处站着敌人：照常干活（"遇上了才打"，不是"看见了就打"）', () => {
+check('索敌半径内的敌人：主动接战（未锁定也算）', () => {
   const self = makePuppet();
-  // 6m 外、没锁我：既够不着我，我也够不着它 → 什么都不该发生。
-  // 这一条就是用户第 4 轮报的「一开始为什么还朝狼走」的回归：
-  // 旧实现按威胁压力判定，8m 外的狼也算"危险"，傀儡会丢下工作朝它走过去。
-  const { move } = openFire(self, [makeFoe('goblinSoldier', 6)], { toolIds: ['axe'] });
+  const { move } = openFire(self, [makeFoe('wolf', 6)], { weaponItemId: 'puppetCudgel' });
+  assert.equal(move.action, COMBAT_ACTION.skirmish);
+});
+
+check('索敌半径外、未贴脸：仍视为「还没开打」', () => {
+  const self = makePuppet();
+  const { move } = openFire(self, [makeFoe('goblinSoldier', 11)], { toolIds: ['axe'] });
   assert.equal(move.action, COMBAT_ACTION.done);
   assert.equal(move.reason, 'clear');
 });
@@ -336,7 +339,7 @@ check('同一个敌人，距离远近不能改变结论（旧实现翻面的根�
   }
   // 再远就不是"距离改变结论"，而是"这一场还没开始"：锁定了我但还没逼近，
   // 判据压根不参与（`engaging` 为假）——这跟"迎战/逃跑翻面"是两件事。
-  const farWolf = engaging(makeFoe('wolf', 8), self);
+  const farWolf = engaging(makeFoe('wolf', 10), self);
   const farFoes = foesOf(self, [farWolf]);
   assert.equal(farFoes[0].lockedOn, true, '前提：它确实锁了我');
   assert.equal(farFoes[0].engaging, false);
@@ -346,7 +349,7 @@ check('同一个敌人，距离远近不能改变结论（旧实现翻面的根�
       engaged: false, cornered: false, last: null, rules
     }).action,
     COMBAT_ACTION.done,
-    '8m 外刚锁定我的怪不该让傀儡丢下工作'
+    '索敌半径外刚锁定我的怪仍不算接战对手'
   );
 });
 

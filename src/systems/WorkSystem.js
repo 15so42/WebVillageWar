@@ -34,6 +34,7 @@ import { itemMaxDurability, slotDurability } from './items.js';
 import { RESOURCE_ERROR } from './ResourceNodeSystem.js';
 import {
   advanceHarvestProgress,
+  planWorkerManaStep,
   planWorkerStep,
   WORK_ACTION,
   WORK_REASON,
@@ -42,8 +43,17 @@ import {
   workStateLabel,
   WorkTaskBoard,
   workerInventoryFull,
-  workerManaDepleted
+  workerManaDepleted,
+  workerManaRatio
 } from './workOrders.js';
+import {
+  applyRepairToToolZone,
+  pickNearestRepairStation,
+  repairBudgetForTick,
+  workerAtRepairStation,
+  workerNeedsGearRepair,
+  workerRepairRules
+} from './workerRepair.js';
 import {
   puppetGearFor,
   PUPPET_GEAR,
@@ -55,7 +65,7 @@ import {
   combatPlanRules,
   combatPowerOf,
   decideCombatMove,
-  isContactFoe
+  isSkirmishFoe
 } from './combatPlan.js';
 import {
   BODY_HOLDER,
@@ -88,6 +98,17 @@ import { CRAFT_READY_PRIORITY } from './workTasks.js';
 // 所以既在调度器里保证分配结果确定，也在这里限频。
 const AUTO_ASSIGN_INTERVAL_SECONDS = 1;
 
+/** 临时关闭木傀儡「打不过就跑」；要恢复时改为 true。 */
+const PUPPET_FLEE_ENABLED = false;
+
+function puppetCombatMove(move) {
+  if (PUPPET_FLEE_ENABLED || !move) return move;
+  if (move.action === COMBAT_ACTION.disengage) {
+    return { ...move, action: COMBAT_ACTION.engage, reason: 'flee_disabled' };
+  }
+  return move;
+}
+
 // 工具属于实例物品，永远不会被 transferTo 搬走（实例转移必须走 transferInstanceTo：
 // 重新发一个 instanceId 等于凭空复制一件新工具，带成长数据的实例会直接丢成长）。
 // 所以卸货时只搬堆叠类物品，工具留在傀儡背包里。
@@ -114,6 +135,7 @@ export class WorkSystem {
   constructor(game, options = {}) {
     this.game = game ?? null;
     this.rules = workRules(options.rules ?? {});
+    this.repairRules = workerRepairRules(options.repairRules ?? {});
     // 打还是逃的规则（迎战/脱离战力线、危险半径、冷静宽限、逃跑距离）。
     // 独立于作业规则，因为它们的调参节奏完全不同：一个是"多久走到"，一个是"敢不敢打"。
     this.combatRules = combatPlanRules(options.combat ?? {});
@@ -273,6 +295,8 @@ export class WorkSystem {
        * 「回到基地一点立刻又去采矿」。
        */
       recharging: false,
+      /** 维修会话：工具区耐久补满前不回去干活（迟滞，见 workerRepair.js）。 */
+      repairing: false,
       /** 合成 / 存放 / 取出。采集仍走 task，不和差事叠在同一次手上。 */
       errand: null
     };
@@ -700,10 +724,51 @@ export class WorkSystem {
     }
     this.checkWorkerWeaponBroken(unit);
     this.autoEquipWorkerGear(unit);
+    this.syncWorkerDisplayDurability(unit, record);
     const gear = puppetGearFor({
       toolIds: record.pack.toolIds,
       weaponItemId: unit.weaponItemId ?? null
     });
+    const supply = this.supplyPoint();
+
+    // 优先级 ①：维持活动魔力（见底已在上面 return；这里是低水位补魔）
+    const manaPlan = planWorkerManaStep({
+      worker: view,
+      supplyPoint: supply,
+      rules: this.rules,
+      recharging: record.recharging === true
+    });
+    if (manaPlan) {
+      record.recharging = true;
+      this.clearTransientTargets(unit);
+      unit.visualState = 'idle';
+      unit.aiState = 'working';
+      unit.drainPerSecond = POWER_RULES.workerDrainIdle;
+      record.lastPlan = { ...manaPlan, gear: gear.kind };
+      this.executeAction(record, unit, manaPlan, step, null);
+      return true;
+    }
+    if (record.recharging && workerManaRatio(view) >= (this.rules.rechargeRatio ?? 1)) {
+      record.recharging = false;
+    }
+
+    // 优先级 ②：工具/武器耐久 → 维修站（消耗傀儡自己的魔力）
+    const repairPlan = this.planWorkerRepairStep(record, view);
+    if (repairPlan) {
+      record.repairing = repairPlan.state === WORK_STATE.repairing
+        || repairPlan.action === WORK_ACTION.moveToRepair
+        || (record.repairing && repairPlan.reason !== WORK_REASON.noRepairStation);
+      if (repairPlan.reason === WORK_REASON.noRepairStation) record.repairing = false;
+      this.clearTransientTargets(unit);
+      unit.visualState = 'idle';
+      unit.aiState = 'working';
+      record.lastPlan = { ...repairPlan, gear: gear.kind };
+      this.executeAction(record, unit, repairPlan, step, null);
+      return true;
+    }
+    record.repairing = false;
+
+    // 优先级 ③：自卫 / 索敌范围内接战
     let decision = this.tickSelfDefense(record, unit, view, gear, step);
     if (manaDepleted && decision.action === 'engage') {
       decision = { action: 'flee', reason: 'no_mana', holder: decision.holder };
@@ -772,7 +837,6 @@ export class WorkSystem {
 
     let task = this.refreshTask(record);
     const base = this.basePoint();
-    const supply = this.supplyPoint();
     // 节点已经采空：任务到此结束，直接把预留还给任务板。
     // 这一步必须在这里做，而不是等规划器报 node_depleted——采空后再喂一个
     // 空节点给规划器，它只会回报「没有有效任务」，玩家看不到「为什么停下了」。
@@ -850,6 +914,83 @@ export class WorkSystem {
     return true;
   }
 
+  listRepairStations() {
+    const units = this.game?.friendlyUnits ?? [];
+    const stations = [];
+    for (let i = 0; i < units.length; i += 1) {
+      const unit = units[i];
+      if (!unit?.alive || unit.type !== 'repairStation' || unit.underConstruction) continue;
+      stations.push({
+        id: unit.id,
+        x: unit.position?.x ?? 0,
+        z: unit.position?.z ?? 0,
+        poweredDown: unit.poweredDown === true
+      });
+    }
+    return stations;
+  }
+
+  planWorkerRepairStep(record, view) {
+    const needs = workerNeedsGearRepair(
+      record?.inventory,
+      record?.repairing === true,
+      this.repairRules
+    );
+    if (!needs) return null;
+    const station = pickNearestRepairStation(
+      { x: view.x ?? 0, z: view.z ?? 0 },
+      this.listRepairStations(),
+      this.repairRules
+    );
+    const result = (state, reason, action, target) => ({
+      state,
+      reason,
+      action,
+      target: target ?? null,
+      note: workStateLabel(state, reason)
+    });
+    if (!station) {
+      return result(WORK_STATE.blocked, WORK_REASON.noRepairStation, WORK_ACTION.none, null);
+    }
+    if (workerAtRepairStation({ x: view.x ?? 0, z: view.z ?? 0 }, station, this.repairRules)) {
+      return result(WORK_STATE.repairing, WORK_REASON.needRepair, WORK_ACTION.repair, station);
+    }
+    return result(
+      WORK_STATE.repairing,
+      WORK_REASON.needRepair,
+      WORK_ACTION.moveToRepair,
+      { x: station.x, z: station.z }
+    );
+  }
+
+  applyWorkerRepairTick(record, unit, dt) {
+    const budget = repairBudgetForTick({
+      activityMana: unit.activityMana ?? 0,
+      dt,
+      overrides: this.repairRules
+    });
+    const { restored, manaSpent, touched } = applyRepairToToolZone(
+      record.inventory,
+      budget
+    );
+    if (manaSpent > 0) {
+      unit.activityMana = Math.max(0, (unit.activityMana ?? 0) - manaSpent);
+      refreshView(record);
+    }
+    if (!touched) return;
+    this.markPackDirty(record);
+    this.game?.onUnitBackpackChanged?.(unit);
+    const gear = puppetGearFor({
+      toolIds: record.pack.toolIds,
+      weaponItemId: unit.weaponItemId ?? null
+    });
+    this.syncWorkerCombatDurabilityFromBag(unit, gear);
+    this.syncWorkerDisplayDurability(unit, record);
+    if (restored > 0.01) {
+      this.game?.effects?.spawnRing?.(unit.position, '#9dd8ff', 0.38, 0.24);
+    }
+  }
+
   /**
    * 自卫反射：这一刻身体归谁，以及打还是逃。
    *
@@ -881,7 +1022,12 @@ export class WorkSystem {
     const reachOf = this.attackReachResolver();
     const threats = this.game?.threat?.threatsNear?.(view, rules.scanRadius) ?? [];
     const foes = combatFoes({ self: unit, threats, rules, reachOf, now });
-    const triggered = defenseTriggered({ foes });
+    const power = combatPowerOf({ unit, gear });
+    const canFight = power > 0 && (unit.weapon?.durability ?? 0) > 0.01;
+    const triggered = defenseTriggered({
+      foes,
+      aggroRange: canFight ? rules.engageAggroRange : 0
+    });
     const holder = selectBodyHolder({
       session: record.combat ?? null,
       triggered,
@@ -897,12 +1043,10 @@ export class WorkSystem {
       return { action: 'work', reason: 'clear', holder };
     }
 
-    const power = combatPowerOf({ unit, gear });
-
     if (!record.combat) {
       // 开一场新的：**当场判一次打还是逃**。
       const manaEmpty = (unit.manaCapacity ?? 0) > 0 && (unit.activityMana ?? 0) <= 0;
-      let move = decideCombatMove({
+      let move = puppetCombatMove(decideCombatMove({
         self: unit,
         foes,
         gearPower: power,
@@ -910,9 +1054,9 @@ export class WorkSystem {
         cornered: false,
         last: null,
         rules
-      });
-      if (manaEmpty && move.action !== COMBAT_ACTION.disengage && move.action !== COMBAT_ACTION.done) {
-        move = { ...move, action: COMBAT_ACTION.disengage, reason: 'no_mana' };
+      }));
+      if (manaEmpty && move.action !== COMBAT_ACTION.done) {
+        move = { ...move, action: COMBAT_ACTION.done, reason: 'no_mana' };
       }
       if (move.action === COMBAT_ACTION.done) {
         // 冷静宽限期里的空转：不新开一场，也不把身体交回作业
@@ -928,8 +1072,10 @@ export class WorkSystem {
         this.closeCombatSession(record, { now, calm: false });
         return { action: 'hold', reason: 'no_mana', holder };
       }
-      if (foes.some(isContactFoe)) record.combat.lastFoeSeenAt = now;
-      if (fightResolved({ foes })) {
+      if (foes.some((foe) => isSkirmishFoe(foe, rules.engageAggroRange))) {
+        record.combat.lastFoeSeenAt = now;
+      }
+      if (fightResolved({ foes, aggroRange: canFight ? rules.engageAggroRange : 0 })) {
         // 收场并进入**唯一**的那个冷静宽限：身体还归反射、站在原地警戒，
         // 但不再新开一场。宽限结束后 `combatCalmSince` 自然过期，身体交回作业。
         // 刻意在收场时返回 'hold' 而不是 'work'：后者会让这一帧先闪一下作业状态
@@ -937,7 +1083,7 @@ export class WorkSystem {
         this.closeCombatSession(record, { now, calm: true });
         return { action: 'hold', reason: 'calm', holder: BODY_HOLDER.selfDefense };
       }
-      const move = decideCombatMove({
+      const move = puppetCombatMove(decideCombatMove({
         self: unit,
         foes,
         gearPower: power,
@@ -945,7 +1091,7 @@ export class WorkSystem {
         cornered: record.combat.cornered === true,
         last: record.combat,
         rules
-      });
+      }));
       if (move.action === COMBAT_ACTION.disengage) {
         // 打不过了：转逃跑。**落点丢掉重算**，否则会沿着"迎战方向"的旧路线跑。
         record.combat.phase = COMBAT_PHASE.flee;
@@ -979,11 +1125,12 @@ export class WorkSystem {
   }
 
   combatPhaseAction(record) {
+    if (!PUPPET_FLEE_ENABLED && record?.combat?.phase === COMBAT_PHASE.flee) return 'engage';
     return record?.combat?.phase === COMBAT_PHASE.flee ? 'flee' : 'engage';
   }
 
   openCombatSession(record, view, move, now) {
-    const fleeing = move.action === COMBAT_ACTION.disengage;
+    const fleeing = PUPPET_FLEE_ENABLED && move.action === COMBAT_ACTION.disengage;
     record.combat = {
       phase: fleeing ? COMBAT_PHASE.flee : COMBAT_PHASE.fight,
       reason: move.reason,
@@ -1120,7 +1267,7 @@ export class WorkSystem {
     }
     const max = itemMaxDurability(slot.itemId) || gear.maxDurability || 1;
     const current = slotDurability(slot, slot.itemId);
-    unit.weapon.maxDurability = max;
+    unit.attributes?.setBase?.('maxDurability', max, { min: 1 });
     unit.weapon.durability = Math.min(current, max);
   }
 
@@ -1130,8 +1277,9 @@ export class WorkSystem {
       return;
     }
     const ratio = workerEquippedDurabilityRatio(unit, record?.inventory);
-    if (ratio !== unit.workerDurabilityRatio) {
-      unit.workerDurabilityRatio = ratio;
+    const next = ratio == null ? null : ratio;
+    if (next !== unit.workerDurabilityRatio) {
+      unit.workerDurabilityRatio = next;
       unit.statusUiDirty = true;
     }
   }
@@ -1168,6 +1316,15 @@ export class WorkSystem {
         // 逃跑按"赶路"计费：它确实在跑
         unit.drainPerSecond = POWER_RULES.workerDrainMove;
         this.applyFlee(record, unit, plan.target, dt);
+        return;
+      case 'move_to_repair':
+        this.applyMove(record, unit, plan.target, 'repair', dt);
+        unit.drainPerSecond = POWER_RULES.workerDrainMove;
+        return;
+      case 'repair':
+        unit.drainPerSecond = POWER_RULES.workerDrainIdle;
+        this.applyWorkerRepairTick(record, unit, dt);
+        this.holdPosition(record, unit);
         return;
       default:
         // none：原地不动。已经在基地旁边补魔的傀儡靠 PowerSystem 自己回魔，
@@ -1868,12 +2025,7 @@ export class WorkSystem {
     this.refreshPack(record);
     const engaging = record.engaging === true || record.combat?.phase === 'fight';
     const best = findBestPuppetWeaponSlotInToolZone(record.inventory);
-    if (!best) {
-      if (unit.weaponItemId && (unit.weapon?.durability ?? 1) <= 0) {
-        this.game?.clearWorkerEquippedWeapon?.(unit);
-      }
-      return false;
-    }
+    if (!best) return false;
     if (unit.weaponItemId === best.slot.itemId && unit.weaponInstanceId === best.slot.instanceId) {
       return true;
     }
@@ -1900,9 +2052,6 @@ export class WorkSystem {
       const next = current - cost;
       if (!slot.data) slot.data = {};
       slot.data.durability = Math.max(0, next);
-      if (slot.data.durability <= 0) {
-        bag.slots[i] = null;
-      }
       this.markPackDirty(record);
       this.game?.onUnitBackpackChanged?.(record.unit);
       return true;
@@ -1913,8 +2062,8 @@ export class WorkSystem {
   checkWorkerWeaponBroken(unit) {
     if (!unit?.isWorker || !unit.weaponItemId) return false;
     if ((unit.weapon?.durability ?? 1) > 0) return false;
-    this.game?.clearWorkerEquippedWeapon?.(unit);
-    this.autoEquipWorkerGear(unit);
+    this.game?.syncEquippedWeaponDurabilityToBag?.(unit);
+    this.syncWorkerDisplayDurability(unit, this.recordFor(unit));
     return true;
   }
 

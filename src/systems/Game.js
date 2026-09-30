@@ -8716,6 +8716,7 @@ export class Game {
       return;
     }
     const hpRatio = clamp(structure.health / structure.maxHealth, 0, 1);
+    const showStructureDurability = structure !== this.playerBase;
     const durabilityRatio = clamp(
       structure.structureDurability / Math.max(1, structure.maxStructureDurability),
       0,
@@ -8725,7 +8726,9 @@ export class Game {
     element.parts.hp.style.transform = `scaleX(${hpRatio})`;
     element.parts.healthLoss.style.transform = `scaleX(${structure.healthLagRatio})`;
     element.parts.healthLoss.hidden = structure.healthLagRatio <= hpRatio + 0.006;
-    if (element.parts.durability) {
+    const structureDurBar = element.querySelector('.world-durability-bar');
+    if (structureDurBar) structureDurBar.hidden = !showStructureDurability;
+    if (showStructureDurability && element.parts.durability) {
       element.parts.durability.style.transform = `scaleX(${durabilityRatio})`;
     }
     if (structure === this.playerBase && element.parts.baseMana) {

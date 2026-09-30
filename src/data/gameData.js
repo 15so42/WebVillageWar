@@ -940,6 +940,51 @@ export const UNIT_DEFINITIONS = {
       durabilityCost: 0
     }
   },
+  repairStation: {
+    name: '维修站',
+    role: 'support',
+    isBuilding: true,
+    canMove: false,
+    canReceiveBuffs: false,
+    immuneToStatusEffects: true,
+    art: {
+      modelKey: 'unit.repairStation',
+      rig: 'building',
+      clips: {
+        idle: 'Idle',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        hit: {
+          duration: 0.12
+        }
+      }
+    },
+    maxHealth: 48,
+    maxShield: 0,
+    speed: 0,
+    attackRange: 0,
+    attackRate: 0,
+    damage: 0,
+    armor: 0,
+    magicResistance: 0,
+    dodgeChance: 0,
+    knockback: 0,
+    aggroRange: 0,
+    collisionRadius: 0.72,
+    buildingAura: {
+      type: 'restoreDurability',
+      radius: 5.5,
+      tickSeconds: 1,
+      durabilityPerSecond: 0
+    },
+    weapon: {
+      name: '维修站',
+      maxDurability: 9999,
+      durabilityCost: 0
+    }
+  },
   miniTurret: {
     name: '小炮台',
     role: 'ranged',
@@ -6794,6 +6839,14 @@ export const ITEM_DEFINITIONS = {  wood: { id: 'wood', name: '木材', kind: 'st
     category: 'building',
     placeable: { unitType: 'arrowTower' }
   },
+  repairStation: {
+    id: 'repairStation',
+    name: '维修站',
+    kind: 'stack',
+    stackLimit: 5,
+    category: 'building',
+    placeable: { unitType: 'repairStation' }
+  },
   manualWorkbench: {
     id: 'manualWorkbench',
     name: '手动工作台',
@@ -7166,6 +7219,17 @@ export const RECIPES = {
     output: { itemId: 'arrowTower', count: 1 },
     description: '自动射击范围内敌人的箭塔。要消耗魔力，放在基地供能范围里才有用。'
   },
+  repairStation: {
+    id: 'repairStation',
+    name: '维修站',
+    inputs: [
+      { itemId: 'wood', count: 18 },
+      { itemId: 'iron', count: 6 },
+      { itemId: 'stone', count: 10 }
+    ],
+    output: { itemId: 'repairStation', count: 1 },
+    description: '木傀儡在工具耐久偏低时会前来维修，消耗傀儡自己的活动魔力。建筑本身需要供能才会运转。'
+  },
   manualWorkbench: {
     id: 'manualWorkbench',
     name: '手动工作台',
@@ -7305,6 +7369,14 @@ export const FACILITY_CONFIGS = {
     manaPerShot: 2,
     manaCapacity: 30,
     restartRatio: 0.4
+  },
+  repairStation: {
+    id: 'repairStation',
+    unitType: 'repairStation',
+    name: '维修站',
+    drainPerSecond: 0.12,
+    manaCapacity: 22,
+    restartRatio: 0.35
   }
 };
 
