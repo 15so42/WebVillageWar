@@ -12,6 +12,7 @@ import {
   clearedProgress,
   normalizeSpawnPoints,
   planSpawns,
+  spawnPointHasAliveCap,
   spawnPointRules,
   spawnPointState
 } from './spawnPoints.js';
@@ -137,15 +138,16 @@ export class SpawnPointSystem {
     const alive = this.aliveByPoint();
     const points = this.points.map((point) => {
       const aliveCount = alive[point.id] ?? 0;
+      const capped = spawnPointHasAliveCap(point);
       const reason = point.cleared
         ? 'cleared'
-        : (aliveCount >= point.maxAlive ? 'at_capacity' : (point.timer > 0 ? 'cooling_down' : 'none'));
+        : (capped && aliveCount >= point.maxAlive ? 'at_capacity' : (point.timer > 0 ? 'cooling_down' : 'none'));
       return {
         id: point.id,
         name: point.name ?? point.id,
         state: spawnPointState(point),
         aliveCount,
-        maxAlive: point.maxAlive,
+        maxAlive: capped ? point.maxAlive : null,
         timer: Number((point.timer ?? 0).toFixed(1)),
         blockedReason: reason,
         blockedLabel: SPAWN_BLOCK_LABELS[reason] ?? ''

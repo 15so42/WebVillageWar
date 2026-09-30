@@ -101,8 +101,10 @@ if (report.started) {
       await step(1);
     };
     const bagOf = (unit) => unit?.workerInventory ?? unit?.itemBag ?? null;
-    /** 面板里那一格上的「装备」按钮（单位视图下武器格才有）。 */
-    const equipButton = (index) => document.querySelector('#backpack [data-backpack-equip="' + index + '"]');
+    /** 面板里那一格上的「E」装备角标（单位视图下武器格才有）。 */
+    const equipBadge = (index) => document.querySelector(
+      '#backpack [data-backpack-grid] [data-backpack-slot="' + index + '"] .backpack-slot-equipped'
+    );
 
     // ---- 0) 找一个近战战斗单位 ----
     // ⚠️ 必须**自己造一个**：用户已要求「玩家一开始没有任何战斗单位」，
@@ -137,10 +139,7 @@ if (report.started) {
     out.bowMovedToBag = movedForeign.ok === true;
     out.bagCounts = bagOf(fighter)?.countsByItem?.() ?? null;
 
-    // ---- 2) 面板上：两把武器都画出了「装备」按钮 ----
-    // 新面板不再把"装不上"的武器置灰：按钮只负责派发，能不能装由
-    // equipWeaponFromBag 判定并把原因写进反馈条（[data-backpack-feedback]）。
-    // 所以这里既验按钮在，也验点异族那把**真的被拒**且原因可读。
+    // ---- 2) 面板上：两把武器都有只读 E 角标；异族武器不能通过 API 装备 ----
     await openPanel(fighter);
     const unitCells = [...document.querySelectorAll('#backpack [data-backpack-grid] [data-backpack-slot]')];
     out.unitCellCount = unitCells.length;
@@ -148,24 +147,21 @@ if (report.started) {
     const foreignIndex = bagOf(fighter)?.slots?.findIndex((slot) => slot?.itemId === foreignItem) ?? -1;
     out.swordSlotIndex = swordIndex >= 0 ? swordIndex : null;
     out.foreignSlotIndex = foreignIndex >= 0 ? foreignIndex : null;
-    const swordButton = swordIndex >= 0 ? equipButton(swordIndex) : null;
-    const foreignButton = foreignIndex >= 0 ? equipButton(foreignIndex) : null;
-    out.swordEquipButtonFound = Boolean(swordButton);
-    out.swordEquipEnabled = swordButton?.disabled === false;
-    out.foreignEquipButtonFound = Boolean(foreignButton);
-    // 点异族那把：被拒 + 反馈条给出原因 + 战斗数值与手上武器都没变
+    const swordBadge = swordIndex >= 0 ? equipBadge(swordIndex) : null;
+    const foreignBadge = foreignIndex >= 0 ? equipBadge(foreignIndex) : null;
+    out.swordEquipButtonFound = Boolean(swordBadge);
+    out.swordEquipEnabled = swordBadge?.classList.contains('is-readonly') === true;
+    out.foreignEquipButtonFound = Boolean(foreignBadge);
     const damageBeforeForeign = fighter?.physicalAttack ?? null;
-    foreignButton?.click();
+    foreignBadge?.click();
     await step(1);
-    out.bowBlockedReason = document.querySelector('#backpack [data-backpack-feedback]')?.textContent ?? null;
+    out.bowBlockedReason = null;
     out.foreignClickKeptDamage = (fighter?.physicalAttack ?? null) === damageBeforeForeign;
     out.foreignClickKeptWeapon = (fighter?.weaponItemId ?? null) === null;
 
-    // ---- 3) 点击装备：伤害与耐久真的变了，原配武器回到背包 ----
-    // 每次点击后 markDirty() 都会重建整个网格，旧节点已经脱离文档——
-    // 再点它不会有任何事发生，所以这里必须**重新查询**按钮。
+    // ---- 3) 系统换装：伤害与耐久真的变了，武器仍占背包格 ----
     const bagBefore = bagOf(fighter)?.countsByItem?.() ?? {};
-    equipButton(swordIndex)?.click();
+    game.equipWeaponFromBag(fighter, swordIndex, { silent: true, system: true });
     await step(2);
     out.damageAfterEquip = fighter?.physicalAttack ?? null;
     out.durabilityAfterEquip = fighter?.weapon?.maxDurability ?? null;
@@ -174,14 +170,14 @@ if (report.started) {
     const bagAfter = bagOf(fighter)?.countsByItem?.() ?? {};
     out.bagBeforeEquip = bagBefore;
     out.bagAfterEquip = bagAfter;
-    // 物品守恒：少了升级件，多了原配的旧武器
-    out.swordLeftBag = (bagBefore[similarItem] ?? 0) - (bagAfter[similarItem] ?? 0);
+    // 装备后武器仍占同一格，不消失、也不物化原配武器进背包
+    out.swordStillInBag = bagAfter[similarItem] ?? 0;
     out.baselineSwordReturned = (bagAfter.wornClub ?? 0) - (bagBefore.wornClub ?? 0);
     out.feedback = document.querySelector('#backpack [data-backpack-feedback]')?.textContent ?? null;
 
     // ---- 4) 跨族装备被拒，且什么都不变（直接走 API，确认拒绝理由本身） ----
     const foreignIndexBefore = bagOf(fighter)?.slots?.findIndex((slot) => slot?.itemId === foreignItem) ?? -1;
-    const direct = game.equipWeaponFromBag(fighter, foreignIndexBefore);
+    const direct = game.equipWeaponFromBag(fighter, foreignIndexBefore, { system: true });
     out.crossFamilyRejected = direct.ok === false && direct.reason === 'family_mismatch';
     out.crossFamilyLabel = direct.label ?? null;
     out.damageUnchangedAfterReject = fighter?.physicalAttack === out.damageAfterEquip;
@@ -257,7 +253,6 @@ report.verdict = r && !r.error ? {
   panelShowsEquipState: r.swordEquipButtonFound === true
     && r.swordEquipEnabled === true
     && r.foreignEquipButtonFound === true
-    && String(r.bowBlockedReason ?? '').includes('同类武器')
     && r.foreignClickKeptDamage === true
     && r.foreignClickKeptWeapon === true,
   // 装备真的改战斗数值（原始 6 伤害 / 32 耐久 → 11 / 46）
@@ -266,8 +261,8 @@ report.verdict = r && !r.error ? {
     && r.damageAfterEquip === 11
     && r.durabilityAfterEquip === 46
     && r.equippedItemId === 'spikedClub',
-  // 物品守恒：装上一把、换回一把
-  swapConservesItems: r.swordLeftBag === 1 && r.baselineSwordReturned === 1,
+  // 装备后仍在背包格内，不把原配武器物化进背包
+  swapConservesItems: r.swordStillInBag === 1 && r.baselineSwordReturned === 0,
   // 跨族被拒且无副作用
   crossFamilyBlocked: r.crossFamilyRejected === true
     && r.damageUnchangedAfterReject === true

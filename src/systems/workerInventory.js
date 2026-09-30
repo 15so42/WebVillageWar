@@ -3,6 +3,7 @@ import { INVENTORY_ERROR } from './Inventory.js';
 import { ITEM_DEFINITIONS, ITEM_RULES } from '../data/gameData.js';
 import {
   isKnownItem,
+  itemMaxDurability,
   itemStackLimit,
   itemStacksByMerging,
   nextItemInstanceId,
@@ -26,6 +27,47 @@ export function workerCargoSlotCount(inventory, rules = ITEM_RULES) {
 
 export function isWorkerToolSlotIndex(index, rules = ITEM_RULES) {
   return index < workerToolZoneSlots(rules);
+}
+
+/** 工具区里第一个匹配 toolKind（axe / pickaxe）的格子。 */
+export function findWorkerToolSlotIndex(inventory, toolKind, rules = ITEM_RULES) {
+  if (!inventory?.slots || !toolKind) return -1;
+  const end = workerToolZoneSlots(rules);
+  for (let i = 0; i < end; i += 1) {
+    const slot = inventory.slots[i];
+    if (!slot?.itemId) continue;
+    if (ITEM_DEFINITIONS[slot.itemId]?.tool === toolKind) return i;
+  }
+  return -1;
+}
+
+/** 该格是否为当前任务选中的工具（物品仍留在背包内）。 */
+export function isWorkerToolEquippedSlot(unit, index) {
+  if (!unit?.isWorker || !Number.isInteger(index)) return false;
+  return Number.isInteger(unit.activeToolBagIndex) && unit.activeToolBagIndex === index;
+}
+
+/**
+ * 傀儡 HUD 耐久条：按当前装备的武器或任务工具格实时百分比显示。
+ * 返回 null 表示不显示（空手等）。
+ */
+export function workerEquippedDurabilityRatio(unit, inventory) {
+  if (!unit?.isWorker || !inventory?.slots) return null;
+  let slot = null;
+  if (unit.weaponItemId) {
+    const index = Number.isInteger(unit.equippedWeaponBagIndex) ? unit.equippedWeaponBagIndex : -1;
+    slot = index >= 0 ? inventory.slots[index] : null;
+    if (!slot || slot.itemId !== unit.weaponItemId) {
+      slot = inventory.slots.find((entry) => entry?.itemId === unit.weaponItemId) ?? null;
+    }
+  } else if (Number.isInteger(unit.activeToolBagIndex) && unit.activeToolBagIndex >= 0) {
+    slot = inventory.slots[unit.activeToolBagIndex] ?? null;
+  }
+  if (!slot?.itemId) return null;
+  const max = itemMaxDurability(slot.itemId) || Number(unit.weapon?.maxDurability) || 0;
+  if (max <= 0) return null;
+  const current = slotDurability(slot, slot.itemId);
+  return Math.max(0, Math.min(1, current / max));
 }
 
 export function isWorkerInventory(inventory) {

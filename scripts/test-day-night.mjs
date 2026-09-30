@@ -63,22 +63,22 @@ check('黑夜走完进入第 2 天白天', () => {
   assert.equal(canRaidSpawn(state), false);
 });
 
-check('第 1 夜按原配置，之后每晚多 1 个存活上限、难度递增', () => {
+check('夜袭只抬难度，不再额外加每点刷怪数量', () => {
   const first = nightRaidModifiers(1);
   assert.equal(first.extraAlive, 0);
   assert.equal(first.extraPerTick, 0);
   assert.equal(first.difficulty, 1);
   const second = nightRaidModifiers(2);
-  assert.equal(second.extraAlive, 1);
+  assert.equal(second.extraAlive, 0);
   assert.equal(second.extraPerTick, 0);
-  assert.equal(second.difficulty, 1.4);
+  assert.equal(second.difficulty, 1.25);
   const third = nightRaidModifiers(3);
-  assert.equal(third.extraAlive, 2);
-  assert.equal(third.extraPerTick, 1);
-  assert.equal(third.difficulty, 1.8);
+  assert.equal(third.extraAlive, 0);
+  assert.equal(third.extraPerTick, 0);
+  assert.equal(third.difficulty, 1.5);
 });
 
-check('夜袭加量会让同一个点当晚能多留敌人', () => {
+check('满员时夜袭也不会突破单点存活上限', () => {
   const point = normalizeSpawnPoint({ id: 'sp', intervalSeconds: 10, maxAlive: 3, maxPerTick: 2 });
   point.timer = 0;
   const night2 = nightRaidModifiers(2);
@@ -88,8 +88,8 @@ check('夜袭加量会让同一个点当晚能多留敌人', () => {
     extraAlive: night2.extraAlive,
     extraPerTick: night2.extraPerTick
   });
-  assert.equal(result.reason, SPAWN_BLOCK_REASON.none);
-  assert.equal(result.spawnCount, 1, '第 2 夜上限 3+1，满 3 个时还能再补 1');
+  assert.equal(result.spawnCount, 0);
+  assert.equal(result.reason, SPAWN_BLOCK_REASON.atCapacity);
 });
 
 check('第 1 夜满员时仍然不能超产', () => {

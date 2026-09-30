@@ -175,6 +175,16 @@ export class PowerSystem {
     return { stored, capacity, supplier };
   }
 
+  /** 基地激光等从供能源池扣魔；魔力不足返回 false。 */
+  spendBaseSupplierMana(amount) {
+    const cost = Math.max(0, Number(amount) || 0);
+    if (cost <= 0) return true;
+    const { stored, supplier } = this.baseSupplierMana();
+    if (stored < cost || !supplier) return false;
+    supplier.manaStored = stored - cost;
+    return true;
+  }
+
   tick(dt) {
     const step = Math.max(0, dt);
     if (step <= 0) return this.lastReport;
@@ -271,6 +281,12 @@ export class PowerSystem {
         capacity: Math.max(0, entry.receiver.manaCapacity ?? 0),
         needRatio: powerNeedRatio(entry.receiver)
       });
+    });
+
+    entries.forEach((entry) => {
+      const receiver = entry.receiver;
+      if (receiver?.isWorker !== true) return;
+      this.game?.transferManaFromBagStones?.(receiver, step);
     });
 
     report.capacity = supplyCapacity;

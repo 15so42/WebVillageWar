@@ -534,7 +534,7 @@ if (report.started) {
     bag.add('puppetGlaive', 1);
     game.onUnitBackpackChanged(puppet);
     const bagIndex = bag.slots.findIndex((slot) => slot?.itemId === 'puppetGlaive');
-    const equip = game.equipWeaponFromBag(puppet, bagIndex);
+    const equip = game.equipWeaponFromBag(puppet, bagIndex, { system: true, silent: true });
     out.weaponEquipped = equip.ok === true;
     out.weaponEquipReason = equip.ok ? null : (equip.label ?? equip.reason ?? null);
     await step(2);

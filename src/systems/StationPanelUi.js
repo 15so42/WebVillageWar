@@ -3,10 +3,15 @@
 // 左边是容器真实仓库；右边是存放白/黑名单与任务优先级（默认黑名单，空名单=什么都收）。
 // 合成表仍在 B 键基地背包右侧。
 import { itemArtForSlot } from './itemArt.js';
+import { bindItemTooltip, getItemTooltipUi } from './ItemTooltipUi.js';
+import { RUNE_STONE_ITEM_ID } from './runeStones.js';
 import { itemName } from './items.js';
 import { insertIntoInventory } from './inventoryTransfer.js';
 import {
+  clearCursorPointerOrigin,
   handleInventorySlotClick,
+  pointerMovedForCursorDrop,
+  recordCursorPointerOrigin,
   removeInventoryCursorGhost,
   returnInventoryCursor,
   syncInventoryCursorGhostPosition,
@@ -58,6 +63,7 @@ export class StationPanelUi {
     this.cursorGhost = null;
     this.lastPointerX = null;
     this.lastPointerY = null;
+    this.cursorPointerOrigin = null;
     this.suppressClick = false;
     this.refreshTimer = null;
     this.bound = false;
@@ -108,6 +114,7 @@ export class StationPanelUi {
   }
 
   close() {
+    getItemTooltipUi().hide();
     this.stopAutoRefresh();
     this.returnCursor();
     this.unit = null;
@@ -464,7 +471,21 @@ export class StationPanelUi {
         count.textContent = String(slot.count);
         cell.appendChild(count);
       }
-      cell.title = itemName(slot.itemId);
+      bindItemTooltip(
+        cell,
+        () => slot,
+        () => {
+          if (slot.itemId !== RUNE_STONE_ITEM_ID) return {};
+          const stone = this.game?.runeStones?.stoneForSlot?.(slot) ?? null;
+          return {
+            runeStone: stone,
+            slotData: slot.data,
+            isInactiveDuplicate: Boolean(
+              stone && this.game?.runeStones?.isStoneInactiveDuplicate?.(stone)
+            )
+          };
+        }
+      );
     }
     return cell;
   }
@@ -548,6 +569,7 @@ export class StationPanelUi {
   }
 
   afterCursorChange() {
+    if (!this.cursor) clearCursorPointerOrigin(this);
     this.game?.stations?.touch?.(this.station());
     updateInventoryCursorGhost(this);
     this.lastSignature = '';
@@ -588,7 +610,7 @@ export class StationPanelUi {
     const inventory = this.inventoryForKey(containerKey);
     if (!inventory) return;
     if (event.button === 2) {
-      handleInventorySlotClick(this, inventory, index, { right: true });
+      handleInventorySlotClick(this, inventory, index, { right: true, containerKey });
       this.afterCursorChange();
       return;
     }
@@ -596,15 +618,22 @@ export class StationPanelUi {
     if (!this.cursor) {
       const slot = inventory.slots?.[index];
       if (!slot?.itemId) return;
-      handleInventorySlotClick(this, inventory, index, { right: false });
+      handleInventorySlotClick(this, inventory, index, { right: false, containerKey });
+      recordCursorPointerOrigin(this, event.clientX, event.clientY, containerKey, index);
       this.afterCursorChange();
+      return;
     }
+    handleInventorySlotClick(this, inventory, index, { right: false, containerKey });
+    clearCursorPointerOrigin(this);
+    this.afterCursorChange();
   }
 
   onPointerUp(event) {
     if (!this.isOpen() || event.button !== 0 || !this.cursor) return;
+    if (!pointerMovedForCursorDrop(this, event.clientX, event.clientY)) return;
     if (this.registerFilterItemFromCursor(event.clientX, event.clientY)) {
       this.suppressClick = true;
+      clearCursorPointerOrigin(this);
       return;
     }
     const cell = this.stationSlotFromPoint(event.clientX, event.clientY);
@@ -613,7 +642,17 @@ export class StationPanelUi {
     const containerKey = cell.dataset.stationContainer;
     const inventory = this.inventoryForKey(containerKey);
     if (!inventory || !Number.isFinite(index)) return;
-    handleInventorySlotClick(this, inventory, index, { right: false });
+    const from = this.cursor.from;
+    if (
+      from
+      && from.containerKey === containerKey
+      && from.index === index
+      && from.inventory === inventory
+    ) {
+      return;
+    }
+    handleInventorySlotClick(this, inventory, index, { right: false, containerKey });
+    clearCursorPointerOrigin(this);
     this.afterCursorChange();
   }
 }

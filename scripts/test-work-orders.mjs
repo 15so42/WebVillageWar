@@ -163,7 +163,7 @@ check('魔力低且不在供能范围时主动返程，在供能点旁则原地�
   assert.equal(inRangeButFar.action, WORK_ACTION.moveToBase, '应当先回供能点补魔');
 });
 
-check('魔力见底时不会硬撑着干活，而是回去补魔', () => {
+check('魔力见底时原地待机补魔，不再移动', () => {
   const step = planWorkerStep({
     worker: makeWorker({ x: 9, z: 0, activityMana: 0 }),
     task: makeTask(),
@@ -171,8 +171,8 @@ check('魔力见底时不会硬撑着干活，而是回去补魔', () => {
     inSupplyRange: true
   });
   assert.equal(step.state, WORK_STATE.lowPower);
-  assert.equal(step.reason, WORK_REASON.lowPower);
-  assert.equal(step.action, WORK_ACTION.moveToBase);
+  assert.equal(step.reason, WORK_REASON.recharging);
+  assert.equal(step.action, WORK_ACTION.none);
 });
 
 check('满包优先于缺魔力：手上的货必须先送回去', () => {
@@ -203,7 +203,7 @@ check('采集进度按时间推进，结算后把溢出时间带进下一轮', (
   assert.ok(Math.abs(long.progress - 0.5) < 1e-9, '溢出的 0.5 秒要带下去');
 });
 
-check('活动魔力见底时只回供能点，不迎战也不采集', () => {
+check('活动魔力见底时不迎战、不采集，原地待机', () => {
   const worker = makeWorker({ activityMana: 0, x: 10, z: 0 });
   const node = { id: 'oak-0', amount: 40, x: 12, z: 0 };
   const engage = planWorkerStep({
@@ -213,13 +213,13 @@ check('活动魔力见底时只回供能点，不迎战也不采集', () => {
     danger: { action: 'engage' }
   });
   assert.equal(engage.state, WORK_STATE.lowPower);
-  assert.equal(engage.action, WORK_ACTION.moveToBase);
+  assert.equal(engage.action, WORK_ACTION.none);
   const harvest = planWorkerStep({
     worker: makeWorker({ activityMana: 0, x: 12, z: 0 }),
     task: { node, toolSatisfied: true },
     base: { x: 0, z: 0 }
   });
-  assert.equal(harvest.action, WORK_ACTION.moveToBase);
+  assert.equal(harvest.action, WORK_ACTION.none);
   assert.equal(workerManaDepleted(worker), true);
 });
 

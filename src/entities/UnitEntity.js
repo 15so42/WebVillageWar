@@ -284,6 +284,7 @@ export class UnitEntity {
     );
     if (this.weapon.durability !== previousDurability) {
       this.statusUiDirty = true;
+      this.game?.syncEquippedWeaponDurabilityToBag?.(this);
     }
     return this.weapon.durability - previousDurability;
   }
@@ -298,6 +299,7 @@ export class UnitEntity {
     if (previousDurability > 0.001 && this.weapon.durability <= 0.001) {
       this.game?.buffs?.durabilityDepleted?.(this);
     }
+    this.game?.syncEquippedWeaponDurabilityToBag?.(this);
     return previousDurability - this.weapon.durability;
   }
 
@@ -773,7 +775,18 @@ function refreshStatusElement(unit, dt = 0) {
   if (!element?.parts) return;
   const hpRatio = clamp(unit.health / unit.maxHealth, 0, 1);
   const shieldRatio = unit.maxShield > 0 ? clamp(unit.shield / unit.maxShield, 0, 1) : 0;
-  const durabilityRatio = clamp(unit.weapon.durability / unit.weapon.maxDurability, 0, 1);
+  const workerDurability = Number.isFinite(unit.workerDurabilityRatio)
+    ? unit.workerDurabilityRatio
+    : null;
+  const durabilityRatio = workerDurability != null
+    ? clamp(workerDurability, 0, 1)
+    : clamp(unit.weapon.durability / Math.max(1, unit.weapon.maxDurability), 0, 1);
+  const hideDurability = unit.isBuilding === true
+    && (Number(unit.manaCapacity) || 0) > 0;
+  const durBar = element.querySelector('.world-durability-bar');
+  if (durBar) {
+    durBar.hidden = hideDurability || (unit.isWorker === true && workerDurability == null);
+  }
   updateHealthLag(unit, hpRatio, dt);
   unit.statusLagActive = unit.healthLagRatio > hpRatio + 0.006 || unit.healthLagDelay > 0;
   element.classList.toggle('has-shield', unit.maxShield > 0);

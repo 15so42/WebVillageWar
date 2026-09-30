@@ -9,7 +9,7 @@ import {
   updateProjectileVisual,
   updateUnitAnimation
 } from '../art/visualRegistry.js';
-import { TEAMS } from '../data/gameData.js';
+import { FACILITY_CONFIGS, TEAMS } from '../data/gameData.js';
 import { UnitEntity } from '../entities/UnitEntity.js';
 import { disposeObject3D } from '../utils/dispose.js';
 import { clamp, distance2D } from '../utils/math.js';
@@ -154,8 +154,19 @@ export class AttackSystem {
     return true;
   }
 
+  manaCostPerAttack(unit) {
+    if (!unit?.isBuilding) return 0;
+    const cfg = FACILITY_CONFIGS[unit.type];
+    const perShot = Number(cfg?.manaPerShot);
+    if (Number.isFinite(perShot) && perShot > 0) return perShot;
+    return 0;
+  }
+
   tryAttack(unit, target) {
-    if (unit.attackTimer > 0 || unit.weapon.durability <= 0) return false;
+    const manaShot = this.manaCostPerAttack(unit);
+    if (manaShot > 0) {
+      if (unit.attackTimer > 0 || (unit.activityMana ?? 0) < manaShot) return false;
+    } else if (unit.attackTimer > 0 || unit.weapon.durability <= 0) return false;
     unit.attackTimer = 1 / this.game.modifiers.getAttackRate(unit);
     unit.visualState = 'idle';
     const eventName = unit.definition.role === 'ranged' ? 'release' : 'impact';
@@ -173,7 +184,12 @@ export class AttackSystem {
       fireAt: getAnimationEventTime(unit, 'attack', eventName),
       duration
     });
-    unit.spendDurability(this.game.modifiers.getDurabilityCost(unit));
+    if (manaShot > 0) {
+      unit.activityMana = Math.max(0, (unit.activityMana ?? 0) - manaShot);
+      unit.statusUiDirty = true;
+    } else {
+      unit.spendDurability(this.game.modifiers.getDurabilityCost(unit));
+    }
     return true;
   }
 

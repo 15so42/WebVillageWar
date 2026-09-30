@@ -15,6 +15,7 @@
 // 这个模块不碰 THREE / DOM / Game，所以"跨族被拒""射程不一致被拒"这些
 // 可以单独断言，不必开游戏。
 import { ITEM_DEFINITIONS, UNIT_DEFINITIONS } from '../data/gameData.js';
+import { slotDurability } from './items.js';
 
 export const WEAPON_ERROR = {
   none: 'none',
@@ -77,6 +78,37 @@ export function weaponItem(itemId) {
 
 export function isWeaponItem(itemId) {
   return Boolean(ITEM_DEFINITIONS[itemId]?.weapon?.family);
+}
+
+/** 该背包格是否为当前单位已装备的武器（物品仍留在格子里）。 */
+/** 背包里伤害最高、且单位能装备的一件武器（战斗单位自动换装用）。 */
+export function findBestEquippableWeaponSlot(unit, inventory) {
+  const slots = inventory?.slots;
+  if (!slots?.length) return null;
+  let best = null;
+  for (let i = 0; i < slots.length; i += 1) {
+    const slot = slots[i];
+    if (!slot?.itemId || !isWeaponItem(slot.itemId)) continue;
+    if (!canEquipWeapon(slot.itemId, unit).ok) continue;
+    if (slotDurability(slot, slot.itemId) <= 0) continue;
+    const damage = Number(ITEM_DEFINITIONS[slot.itemId]?.weapon?.damage) || 0;
+    if (!best || damage > best.damage) {
+      best = { index: i, slot, damage };
+    }
+  }
+  return best;
+}
+
+export function isEquippedWeaponInSlot(unit, slot, index) {
+  if (!unit || !slot?.itemId || !isWeaponItem(slot.itemId)) return false;
+  if (unit.weaponInstanceId != null && slot.instanceId != null) {
+    return unit.weaponInstanceId === slot.instanceId;
+  }
+  if (unit.weaponItemId !== slot.itemId) return false;
+  if (Number.isInteger(unit.equippedWeaponBagIndex)) {
+    return unit.equippedWeaponBagIndex === index;
+  }
+  return true;
 }
 
 /** 单位当前的武器情况（家族 + 动作档位），完全来自它的定义。 */

@@ -3,7 +3,7 @@
 // 计划第 6 节的硬要求：
 //   - 持续怪物压力来自地图刷怪点，最终目标是清除全部刷怪点；
 //   - 摧毁刷怪点是「永久停止该点产怪」，不是只杀光当前这一批；
-//   - 每个点要有生成间隔、存活上限与出击规则，移除波次不等于每帧无上限生成。
+//   - 每个点按随机间隔（默认 30–60 秒）刷怪，无存活上限；移除波次不等于每帧无上限生成。
 //
 // 这里只做「什么时候该生、还能生几个、清没清干净」，不碰任何实体。
 // 真正生成敌人由调用方按 planSpawns 的结果执行。
@@ -29,27 +29,86 @@ export const SPAWN_BLOCK_LABELS = {
 };
 
 export const SPAWN_POINT_RULES = {
-  // 默认生成间隔与存活上限；每个点可以各自覆盖，避免全场同节奏
-  intervalSeconds: 12,
-  maxAlive: 6,
-  // 同一批最多一次生成几个，防止冷却结束后一口气堆一堆
-  maxPerTick: 2,
-  // 首次生成的额外延迟：刚进关就贴脸刷怪体验很差
-  initialDelaySeconds: 8,
-  // 击败一个存活单位后立刻重新计时的下限，避免「杀一个立刻补一个」
-  minimumIntervalSeconds: 4
+  intervalMinSeconds: 30,
+  intervalMaxSeconds: 60,
+  /** 0 或缺省表示不限制同点存活数量 */
+  maxAlive: 0,
+  maxPerTick: 1,
+  initialDelaySeconds: 12,
+  minimumIntervalSeconds: 30
 };
 
 export function spawnPointRules(overrides = {}) {
   return { ...SPAWN_POINT_RULES, ...(overrides ?? {}) };
 }
 
+function deterministicFraction(seed, id = 'spawn') {
+  let hash = Math.floor(Number(seed) || 0);
+  const text = String(id);
+  for (let i = 0; i < text.length; i += 1) {
+    hash = (hash * 31 + text.charCodeAt(i)) | 0;
+  }
+  return ((hash >>> 0) % 10000) / 10000;
+}
+
+/** 下一次刷怪等待秒数：在 [min, max] 内确定性随机（同点、同序号可复现）。 */
+export function rollSpawnIntervalSeconds(point, rules = SPAWN_POINT_RULES, seed = 0) {
+  const resolved = spawnPointRules(rules);
+  const min = Math.max(
+    resolved.minimumIntervalSeconds,
+    Number(point?.intervalMinSeconds) || resolved.intervalMinSeconds
+  );
+  const max = Math.max(
+    min,
+    Number(point?.intervalMaxSeconds) || resolved.intervalMaxSeconds
+  );
+  if (max <= min) return min;
+  const frac = deterministicFraction(seed, point?.id ?? 'spawn');
+  return min + frac * (max - min);
+}
+
+function definitionIntervalMin(definition, rules) {
+  if (Number.isFinite(definition.intervalMinSeconds)) return definition.intervalMinSeconds;
+  if (Number.isFinite(definition.intervalSeconds)) {
+    return Math.max(rules.minimumIntervalSeconds, definition.intervalSeconds);
+  }
+  return rules.intervalMinSeconds;
+}
+
+function definitionIntervalMax(definition, rules) {
+  if (Number.isFinite(definition.intervalMaxSeconds)) return definition.intervalMaxSeconds;
+  if (Number.isFinite(definition.intervalSeconds)) {
+    return Math.max(rules.minimumIntervalSeconds, definition.intervalSeconds);
+  }
+  return rules.intervalMaxSeconds;
+}
+
+function normalizeMaxAlive(raw, resolved) {
+  const value = raw ?? resolved.maxAlive;
+  if (value == null || Number(value) <= 0) return 0;
+  return Math.max(1, Math.round(Number(value)));
+}
+
 // 把配置规范成运行时可用的点。缺字段一律走默认值，不允许出现 undefined 参与计算。
 export function normalizeSpawnPoint(definition, index = 0, rules = SPAWN_POINT_RULES) {
   const resolved = spawnPointRules(rules);
-  const interval = Number.isFinite(definition.intervalSeconds)
-    ? Math.max(resolved.minimumIntervalSeconds, definition.intervalSeconds)
-    : resolved.intervalSeconds;
+  const intervalMin = Math.max(
+    resolved.minimumIntervalSeconds,
+    definitionIntervalMin(definition, resolved)
+  );
+  const intervalMax = Math.max(intervalMin, definitionIntervalMax(definition, resolved));
+  const id = definition.id ?? `spawn-${index}`;
+  const spawnSeq = Math.max(0, Math.floor(Number(definition.spawnSeq) || 0));
+  const pointShell = {
+    id,
+    intervalMinSeconds: intervalMin,
+    intervalMaxSeconds: intervalMax
+  };
+  const initialTimer = Number.isFinite(definition.timer)
+    ? definition.timer
+    : (Number.isFinite(definition.initialDelaySeconds)
+      ? definition.initialDelaySeconds
+      : rollSpawnIntervalSeconds(pointShell, resolved, spawnSeq + index));
   return {
     id: definition.id ?? `spawn-${index}`,
     // 名字要显式带过来：下面的映射是白名单，不带就等于没有，
@@ -57,9 +116,13 @@ export function normalizeSpawnPoint(definition, index = 0, rules = SPAWN_POINT_R
     name: definition.name != null ? String(definition.name) : null,
     x: Number(definition.x) || 0,
     z: Number(definition.z) || 0,
-    intervalSeconds: interval,
-    maxAlive: Math.max(1, Math.round(definition.maxAlive ?? resolved.maxAlive)),
+    intervalMinSeconds: intervalMin,
+    intervalMaxSeconds: intervalMax,
+    /** @deprecated 仅兼容旧数据；新逻辑用 intervalMin/Max */
+    intervalSeconds: intervalMin,
+    maxAlive: normalizeMaxAlive(definition.maxAlive, resolved),
     maxPerTick: Math.max(1, Math.round(definition.maxPerTick ?? resolved.maxPerTick)),
+    spawnSeq,
     // 出击半径：0 表示只守在原地，不做远距离追击
     leashRadius: Math.max(0, Number(definition.leashRadius) || 0),
     enemyPool: Array.isArray(definition.enemyPool) ? definition.enemyPool : [],
@@ -74,11 +137,7 @@ export function normalizeSpawnPoint(definition, index = 0, rules = SPAWN_POINT_R
     // 保证出生部队打得掉第一座巢穴（否则招募链是死循环）。
     nestHealth: Number(definition.nestHealth) > 0 ? Number(definition.nestHealth) : 0,
     cleared: definition.cleared === true,
-    timer: Number.isFinite(definition.timer)
-      ? definition.timer
-      : (Number.isFinite(definition.initialDelaySeconds)
-        ? definition.initialDelaySeconds
-        : resolved.initialDelaySeconds)
+    timer: initialTimer
   };
 }
 
@@ -124,14 +183,25 @@ export function spawnPointState(point) {
 export function spawnBlockReason(point, aliveCount = 0, { extraAlive = 0 } = {}) {
   if (!point) return SPAWN_BLOCK_REASON.cleared;
   if (point.cleared) return SPAWN_BLOCK_REASON.cleared;
-  const cap = effectiveAliveCap(point, extraAlive);
-  if (aliveCount >= cap) return SPAWN_BLOCK_REASON.atCapacity;
+  if (spawnPointHasAliveCap(point, extraAlive)) {
+    const cap = effectiveAliveCap(point, extraAlive);
+    if (aliveCount >= cap) return SPAWN_BLOCK_REASON.atCapacity;
+  }
   if ((point.timer ?? 0) > 0) return SPAWN_BLOCK_REASON.coolingDown;
   return SPAWN_BLOCK_REASON.none;
 }
 
+export function spawnPointHasAliveCap(point, extraAlive = 0) {
+  const base = Number(point?.maxAlive) || 0;
+  const extra = Math.max(0, Math.floor(Number(extraAlive) || 0));
+  return base > 0 || extra > 0;
+}
+
 function effectiveAliveCap(point, extraAlive = 0) {
-  return Math.max(1, (point?.maxAlive ?? 1) + Math.max(0, Math.floor(Number(extraAlive) || 0)));
+  const base = Number(point?.maxAlive) || 0;
+  const extra = Math.max(0, Math.floor(Number(extraAlive) || 0));
+  if (base <= 0 && extra <= 0) return Number.POSITIVE_INFINITY;
+  return Math.max(1, base + extra);
 }
 
 function effectivePerTick(point, extraPerTick = 0) {
@@ -161,19 +231,20 @@ export function advanceSpawnPoint(point, {
     return { spawnCount: 0, reason: SPAWN_BLOCK_REASON.outOfRange, point };
   }
   const cap = effectiveAliveCap(point, extraAlive);
-  if (aliveCount >= cap) {
+  if (Number.isFinite(cap) && aliveCount >= cap) {
     // 满员时不重置计时器：否则一旦有人死掉就会立刻补齐，读起来像「杀一个补一个」
     return { spawnCount: 0, reason: SPAWN_BLOCK_REASON.atCapacity, point };
   }
   if (point.timer > 0) {
     return { spawnCount: 0, reason: SPAWN_BLOCK_REASON.coolingDown, point };
   }
-  const room = Math.max(0, cap - aliveCount);
+  const room = Number.isFinite(cap) ? Math.max(0, cap - aliveCount) : effectivePerTick(point, extraPerTick);
   const spawnCount = Math.min(room, effectivePerTick(point, extraPerTick));
   if (spawnCount <= 0) {
     return { spawnCount: 0, reason: SPAWN_BLOCK_REASON.atCapacity, point };
   }
-  point.timer = Math.max(resolved.minimumIntervalSeconds, point.intervalSeconds);
+  point.spawnSeq = (point.spawnSeq ?? 0) + 1;
+  point.timer = rollSpawnIntervalSeconds(point, resolved, point.spawnSeq);
   return { spawnCount, reason: SPAWN_BLOCK_REASON.none, point };
 }
 

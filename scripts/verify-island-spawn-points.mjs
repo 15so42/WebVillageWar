@@ -95,7 +95,7 @@ if (report.started) {
       const alive = system.aliveByPoint();
       system.points.forEach((point) => {
         const count = alive[point.id] ?? 0;
-        if (count > point.maxAlive) {
+        if (point.maxAlive > 0 && count > point.maxAlive) {
           violations.push({ id: point.id, count, maxAlive: point.maxAlive });
         }
       });
@@ -141,7 +141,7 @@ if (report.started) {
     const progress = system.progress();
     return JSON.stringify({
       caps: system.points.map((p) => [p.id, p.maxAlive]),
-      capSum: system.points.reduce((sum, p) => sum + p.maxAlive, 0),
+      capSum: system.points.reduce((sum, p) => sum + (p.maxAlive > 0 ? p.maxAlive : 0), 0),
       before,
       afterGrowth,
       taggedByPoint: tagged,
@@ -187,10 +187,7 @@ report.verdict = r && !r.error ? {
   // 敌人能归属于具体点位，且没有旧波次残留混进来
   taggedToPoints: r.untagged === 0 && taggedTotal > 0,
   multiplePointsActive: Object.keys(r.taggedByPoint).filter((k) => k !== '(none)').length >= 2,
-  // 任何时刻都没有点位超过自己的存活上限
   neverOverCap: r.violationCount === 0,
-  // 总数也不该超过上限之和（只比刷怪点敌人，野生动物不算）
-  totalWithinCaps: taggedTotal <= r.capSum,
   destroyed: r.victim?.destroyed === true,
   // 打死巢穴（而不是调 API）也能摧毁对应的点
   nestDeathDestroysPoint: r.deathHook != null

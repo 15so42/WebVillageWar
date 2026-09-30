@@ -14,11 +14,10 @@ export const DAY_NIGHT_RULES = {
   nightSeconds: 3 * 60,
   // 等了整个白天之后，入夜不必再把开局那 8 秒初始延迟走完
   nightfallDelaySeconds: 2,
-  // 第 1 夜按刷怪点原配置；之后每多一夜：存活上限 +1，难度 +0.4
-  extraAlivePerNight: 1,
-  difficultyPerNight: 0.4,
-  // 每两夜才加一次同批数量，避免第 2 夜就变成倾泻
-  extraPerTickEveryNights: 2
+  // 夜袭只抬难度，不再给每个刷怪点额外加存活上限或同批数量
+  extraAlivePerNight: 0,
+  difficultyPerNight: 0.25,
+  extraPerTickEveryNights: 99
 };
 
 export function dayNightRules(overrides = {}) {

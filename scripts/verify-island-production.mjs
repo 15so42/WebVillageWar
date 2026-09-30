@@ -141,9 +141,7 @@ if (report.started) {
     out.panelClosedForPlacement = game.baseStorage.isOpen() === false;
     out.ghostInScene = Boolean(game.placementGhost);
 
-    // ---- 3) 不合规的落点必须什么都不扣 ----
-    // 远处：地面**可走**但离基地太远、拿不到供能。
-    // 不能随手写一个坐标——岛外是海，那种点会因为"不可走"被拒，测不到供能这条规则。
+    // ---- 3) 远处可走地面可以放下（没魔力只是不工作）；障碍上不能放 ----
     const farSpot = (() => {
       const base = game.playerBase.position;
       for (let radius = 24; radius <= 52; radius += 2) {
@@ -160,13 +158,9 @@ if (report.started) {
     out.farSpotFound = Boolean(farSpot);
     if (farSpot) {
       const farCheck = game.canPlaceAt(farSpot);
-      out.farRejected = farCheck.ok === false && farCheck.reason === 'no_power';
+      out.farAccepted = farCheck.ok === true;
+      out.farOutOfPower = farCheck.inPowerRange === false;
       out.farSpotWalkable = game.world.isWalkable(farSpot.x, farSpot.z) === true;
-      const beforeFar = game.baseInventory.countOf('furnace');
-      const farResult = game.confirmPlacement(farSpot);
-      out.farConfirmRejected = farResult.ok === false;
-      out.furnaceNotSpentOnReject = game.baseInventory.countOf('furnace') === beforeFar;
-      out.stillPlacingAfterReject = game.isPlacing() === true;
     }
 
     // 障碍上：不可走
@@ -186,6 +180,11 @@ if (report.started) {
     if (blockedSpot) {
       const blockedCheck = game.canPlaceAt(blockedSpot);
       out.blockedRejected = blockedCheck.ok === false && blockedCheck.reason === 'blocked';
+      const beforeBlocked = game.baseInventory.countOf('furnace');
+      const blockedResult = game.confirmPlacement(blockedSpot);
+      out.blockedConfirmRejected = blockedResult.ok === false;
+      out.furnaceNotSpentOnBlocked = game.baseInventory.countOf('furnace') === beforeBlocked;
+      out.stillPlacingAfterBlockedReject = game.isPlacing() === true;
     }
 
     // ---- 4) 合规落点：扣物品、建建筑、登记生产者 ----
@@ -297,10 +296,11 @@ report.verdict = r && !r.error ? {
   placeButtonWorks: r.placeCellFound === true && r.placing === true && r.ghostInScene === true,
   panelClosesForPlacement: r.panelClosedForPlacement === true,
   // 不合规落点：一件物品都不扣，也不退出放置模式
-  rejectsFarSpot: r.farSpotFound === true && r.farRejected === true
-    && r.farSpotWalkable === true && r.farConfirmRejected === true,
-  rejectsBlockedSpot: r.blockedSpotFound === true && r.blockedRejected === true,
-  rejectSpendsNothing: r.furnaceNotSpentOnReject === true && r.stillPlacingAfterReject === true,
+  acceptsFarWalkableSpot: r.farSpotFound === true && r.farAccepted === true
+    && r.farSpotWalkable === true && r.farOutOfPower === true,
+  rejectsBlockedSpot: r.blockedSpotFound === true && r.blockedRejected === true
+    && r.blockedConfirmRejected === true,
+  rejectSpendsNothing: r.furnaceNotSpentOnBlocked === true && r.stillPlacingAfterBlockedReject === true,
   // 合规落点
   placesValidSpot: r.validSpotAccepted === true && r.placementOk === true
     && r.furnaceConsumed === true && r.placingCleared === true && r.ghostCleared === true,

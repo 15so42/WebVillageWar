@@ -38,16 +38,17 @@ check('缺字段的配置会被补成可用默认值，不会出现 undefined �
   const point = normalizeSpawnPoint({}, 7);
   assert.equal(point.id, 'spawn-7');
   assert.equal(point.x, 0);
-  assert.ok(point.intervalSeconds > 0);
-  assert.ok(point.maxAlive >= 1);
+  assert.equal(point.intervalMinSeconds, 30);
+  assert.equal(point.intervalMaxSeconds, 60);
+  assert.equal(point.maxAlive, 0, '默认不限制同点存活数');
   assert.ok(point.timer >= 0, '首次生成要有初始延迟，不能刚进关就贴脸刷怪');
   assert.deepEqual(point.enemyPool, []);
 });
 
 check('生成间隔有下限，防止被配成 0 导致每帧刷怪', () => {
   const rules = spawnPointRules();
-  const point = normalizeSpawnPoint({ intervalSeconds: 0 }, 0, rules);
-  assert.equal(point.intervalSeconds, rules.minimumIntervalSeconds);
+  const point = normalizeSpawnPoint({ intervalMinSeconds: 0 }, 0, rules);
+  assert.equal(point.intervalMinSeconds, rules.minimumIntervalSeconds);
 });
 
 check('冷却未到不生怪，到点后一次最多生 maxPerTick 个', () => {
@@ -160,13 +161,21 @@ check('白天冻结出兵：到点也不生，且不把冷却重置成整段间�
 
 check('每个点可以有自己的节奏，不被全局默认抹平', () => {
   const points = normalizeSpawnPoints([
-    { id: 'slow', intervalSeconds: 30, maxAlive: 8 },
-    { id: 'fast', intervalSeconds: 5, maxAlive: 2 }
+    { id: 'slow', intervalMinSeconds: 40, intervalMaxSeconds: 55, maxAlive: 8 },
+    { id: 'fast', intervalMinSeconds: 30, intervalMaxSeconds: 38, maxAlive: 2 }
   ]);
-  assert.equal(points[0].intervalSeconds, 30);
-  assert.equal(points[1].intervalSeconds, 5);
+  assert.equal(points[0].intervalMinSeconds, 40);
+  assert.equal(points[1].intervalMaxSeconds, 38);
   assert.equal(points[0].maxAlive, 8);
   assert.equal(points[1].maxAlive, 2);
+});
+
+check('刷怪后进入 30–60 秒随机冷却（确定性随机，可复现）', () => {
+  const point = normalizeSpawnPoint({ id: 'roll-test', intervalMinSeconds: 30, intervalMaxSeconds: 60 });
+  point.timer = 0;
+  const result = advanceSpawnPoint(point, { dt: 0.05, aliveCount: 0 });
+  assert.equal(result.spawnCount, 1);
+  assert.ok(point.timer >= 30 && point.timer <= 60, `timer=${point.timer}`);
 });
 
 check('可招募奖励进白名单：配了就拿得到，配坏了不产生空洞', () => {

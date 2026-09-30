@@ -936,8 +936,8 @@ export const UNIT_DEFINITIONS = {
     collisionRadius: 0.62,
     weapon: {
       name: '箭塔',
-      maxDurability: 30,
-      durabilityCost: 1
+      maxDurability: 9999,
+      durabilityCost: 0
     }
   },
   miniTurret: {
@@ -1250,93 +1250,6 @@ export const UNIT_DEFINITIONS = {
     weapon: {
       name: '苗床',
       maxDurability: 30,
-      durabilityCost: 0
-    }
-  },
-  repairStation: {
-    name: '维修站',
-    role: 'support',
-    isBuilding: true,
-    canMove: false,
-    canReceiveBuffs: false,
-    immuneToStatusEffects: true,
-    art: {
-      modelKey: 'unit.repairStation',
-      rig: 'building',
-      clips: {
-        idle: 'Idle',
-        hit: 'Hit',
-        death: 'Death'
-      }
-    },
-    maxHealth: 56,
-    maxShield: 0,
-    speed: 0,
-    attackRange: 0,
-    attackRate: 0,
-    damage: 0,
-    armor: 0,
-    magicResistance: 0,
-    dodgeChance: 0,
-    knockback: 0,
-    aggroRange: 0,
-    projectileHitHeight: 2.1,
-    collisionRadius: 0.68,
-    buildingAura: {
-      type: 'restoreDurability',
-      radius: 4.1,
-      durabilityPerSecond: 2.6,
-      restorePerDurability: 1,
-      includeStructures: true,
-      includeBuildings: true,
-      structureHealthPercentPerSecond: 0.007,
-      structureDurabilityPercentPerSecond: 0.005,
-      buildingHealthPerSecond: 1.1
-    },
-    weapon: {
-      name: '维修储备',
-      maxDurability: 54,
-      durabilityCost: 0
-    }
-  },
-  canteen: {
-    name: '食堂',
-    role: 'support',
-    isBuilding: true,
-    canMove: false,
-    canReceiveBuffs: false,
-    immuneToStatusEffects: true,
-    art: {
-      modelKey: 'unit.canteen',
-      rig: 'building',
-      clips: {
-        idle: 'Idle',
-        hit: 'Hit',
-        death: 'Death'
-      }
-    },
-    maxHealth: 50,
-    maxShield: 0,
-    speed: 0,
-    attackRange: 0,
-    attackRate: 0,
-    damage: 0,
-    armor: 0,
-    magicResistance: 0,
-    dodgeChance: 0,
-    knockback: 0,
-    aggroRange: 0,
-    projectileHitHeight: 2.2,
-    collisionRadius: 0.72,
-    buildingAura: {
-      type: 'restoreHealthFromDurability',
-      radius: 8.2,
-      durabilityPerSecond: 2,
-      healthPerDurability: 1
-    },
-    weapon: {
-      name: '食材储备',
-      maxDurability: 88,
       durabilityCost: 0
     }
   },
@@ -4779,46 +4692,6 @@ export const CARD_DEFINITIONS = [
     color: '#8f6a3f'
   },
   {
-    id: 'repair-station',
-    name: '维修站',
-    kind: 'building',
-    label: '修',
-    artKey: 'repairStation',
-    summary: '5 秒建成；消耗自身耐久，缓慢修复周围单位与建筑的血量、耐久；基地在范围内也会受益',
-    target: 'ground',
-    radius: 1.45,
-    cooldown: 18,
-    energyCost: 4,
-    unitType: 'repairStation',
-    buildSeconds: 5,
-    effect: {
-      type: 'build-structure',
-      unitType: 'repairStation',
-      buildSeconds: 5
-    },
-    color: '#6b9ab8'
-  },
-  {
-    id: 'canteen',
-    name: '食堂',
-    kind: 'building',
-    label: '食',
-    artKey: 'canteen',
-    summary: '5 秒建成；消耗自身耐久，缓慢治疗周围受伤单位',
-    target: 'ground',
-    radius: 1.55,
-    cooldown: 18,
-    energyCost: 4,
-    unitType: 'canteen',
-    buildSeconds: 5,
-    effect: {
-      type: 'build-structure',
-      unitType: 'canteen',
-      buildSeconds: 5
-    },
-    color: '#b98758'
-  },
-  {
     id: 'beacon',
     name: '信标',
     kind: 'building',
@@ -6285,8 +6158,6 @@ export const STARTER_CARD_IDS = [
   'engineers',
   'physicians',
   'arrow-tower',
-  'repair-station',
-  'canteen',
   'beacon',
   'purifiers',
   'warders',
@@ -6406,14 +6277,6 @@ export const CARD_META = {
   'arrow-tower': {
     buyCost: 130,
     upgradeBaseCost: 40
-  },
-  'repair-station': {
-    buyCost: 160,
-    upgradeBaseCost: 44
-  },
-  canteen: {
-    buyCost: 160,
-    upgradeBaseCost: 44
   },
   beacon: {
     buyCost: 100,
@@ -6931,14 +6794,6 @@ export const ITEM_DEFINITIONS = {  wood: { id: 'wood', name: '木材', kind: 'st
     category: 'building',
     placeable: { unitType: 'arrowTower' }
   },
-  canteen: {
-    id: 'canteen',
-    name: '食堂',
-    kind: 'stack',
-    stackLimit: 5,
-    category: 'building',
-    placeable: { unitType: 'canteen' }
-  },
   manualWorkbench: {
     id: 'manualWorkbench',
     name: '手动工作台',
@@ -7446,16 +7301,9 @@ export const FACILITY_CONFIGS = {
     id: 'arrowTower',
     unitType: 'arrowTower',
     name: '箭塔',
-    drainPerSecond: 3,
+    drainPerSecond: 0,
+    manaPerShot: 2,
     manaCapacity: 30,
-    restartRatio: 0.4
-  },
-  canteen: {
-    id: 'canteen',
-    unitType: 'canteen',
-    name: '食堂',
-    drainPerSecond: 2,
-    manaCapacity: 24,
     restartRatio: 0.4
   }
 };
@@ -7588,7 +7436,6 @@ export const ISLAND_SPAWN_POINTS = [
     id: 'island-camp-north',
     name: '北岬巢穴',
     x: -13, z: 65,
-    intervalSeconds: 16, maxAlive: 2, maxPerTick: 1,
     leashRadius: 18,
     // 起始巢穴：blood 明显低于其余三个点，让出生护卫能打得下来。
     // 这是链条的起点（打掉它才拿到第一个深邃核心），必须先能打。
@@ -7615,7 +7462,6 @@ export const ISLAND_SPAWN_POINTS = [
     id: 'island-west-ridge',
     name: '西岭哨站',
     x: -47, z: -5,
-    intervalSeconds: 13, maxAlive: 5, maxPerTick: 2,
     leashRadius: 24,
     enemyPool: [{ type: 'goblinSoldier', weight: 2 }, { type: 'goblinArcher', weight: 2 }, { type: 'wolf', weight: 1 }],
     drops: [{ itemId: 'deepCore', count: 1 }, { itemId: 'iron', count: 6 }],
@@ -7626,7 +7472,6 @@ export const ISLAND_SPAWN_POINTS = [
     id: 'island-east-cape',
     name: '东岬营地',
     x: 56, z: 10,
-    intervalSeconds: 13, maxAlive: 5, maxPerTick: 2,
     leashRadius: 24,
     enemyPool: [{ type: 'goblinSoldier', weight: 2 }, { type: 'goblinArcher', weight: 2 }, { type: 'shieldBearer', weight: 1 }],
     drops: [{ itemId: 'deepCore', count: 1 }, { itemId: 'iron', count: 6 }],
@@ -7637,7 +7482,6 @@ export const ISLAND_SPAWN_POINTS = [
     id: 'island-south-woods',
     name: '南林深处',
     x: 3, z: -52,
-    intervalSeconds: 11, maxAlive: 6, maxPerTick: 2,
     leashRadius: 28,
     enemyPool: [{ type: 'goblinSoldier', weight: 2 }, { type: 'goblinHunter', weight: 2 }, { type: 'ogre', weight: 1 }],
     drops: [{ itemId: 'deepCore', count: 1 }, { itemId: 'iron', count: 8 }],
@@ -7790,7 +7634,8 @@ export const BALANCE = {
     //
     // 敌营那条保持不变（1）：它的耐久同时是攻城进度，被打就掉，掉光就不再还击
     // 对玩家是有利且合理的手感；玩家基地没有这个不对称的必要。
-    attackDurabilityCost: 0
+    attackDurabilityCost: 0,
+    attackManaCost: 2
   },
   enemyCamp: {
     position: { x: 0, y: 0, z: -30 },
@@ -7920,9 +7765,9 @@ export const BALANCE = {
       daySeconds: 5 * 60,
       nightSeconds: 3 * 60,
       nightfallDelaySeconds: 2,
-      extraAlivePerNight: 1,
-      difficultyPerNight: 0.4,
-      extraPerTickEveryNights: 2
+      extraAlivePerNight: 0,
+      difficultyPerNight: 0.25,
+      extraPerTickEveryNights: 99
     }
   }
 };

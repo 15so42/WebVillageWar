@@ -22,11 +22,13 @@ import { Inventory } from './Inventory.js';
 import {
   countOfInWorkerCargo,
   findBestPuppetWeaponSlotInToolZone,
+  findWorkerToolSlotIndex,
   moveWorkerCargoSlotTo,
   workerCargoSlotCount,
   workerCargoSlotStart,
   workerToolZoneSlots,
-  workerCargoUsedSlots
+  workerCargoUsedSlots,
+  workerEquippedDurabilityRatio
 } from './workerInventory.js';
 import { itemMaxDurability, slotDurability } from './items.js';
 import { RESOURCE_ERROR } from './ResourceNodeSystem.js';
@@ -665,6 +667,7 @@ export class WorkSystem {
     if (!record) return false;
 
     if (record.rally) {
+      this.applyWorkerTaskToolEquipment(unit, record, null);
       const rallyGear = puppetGearFor({
         toolIds: record.pack.toolIds,
         weaponItemId: unit.weaponItemId ?? null
@@ -674,9 +677,26 @@ export class WorkSystem {
 
     const view = refreshView(record);
     const manaDepleted = workerManaDepleted(view);
-    if (manaDepleted && unit.commandMoveGoal) {
-      unit.drainPerSecond = POWER_RULES.workerDrainMove;
-      return false;
+    if (manaDepleted) {
+      this.syncWorkerDisplayDurability(unit, record);
+      this.clearTransientTargets(unit);
+      this.holdPosition(record, unit);
+      unit.commandMoveGoal = null;
+      unit.drainPerSecond = POWER_RULES.workerDrainIdle;
+      unit.visualState = 'idle';
+      unit.aiState = 'working';
+      record.engaging = false;
+      if (record.combat) this.closeCombatSession(record, { now: this.game?.elapsedTime ?? 0, calm: false });
+      record.lastPlan = {
+        state: WORK_STATE.lowPower,
+        reason: WORK_REASON.recharging,
+        action: WORK_ACTION.none,
+        target: null,
+        note: workStateLabel(WORK_STATE.lowPower, WORK_REASON.recharging),
+        gear: null
+      };
+      this.game?.transferManaFromBagStones?.(unit, step);
+      return true;
     }
     this.checkWorkerWeaponBroken(unit);
     this.autoEquipWorkerGear(unit);
@@ -697,6 +717,7 @@ export class WorkSystem {
     if (action === 'flee') this.releaseTaskInDanger(record);
     this.applyPuppetGear(unit, gear, action === 'engage');
     if (action === 'engage') {
+      this.applyWorkerTaskToolEquipment(unit, record, null);
       record.engaging = true;
       // 把这一帧交回战斗 AI（返回 false）。作业任务**保留**，威胁散了自己回去干。
       this.holdPosition(record, unit);
@@ -713,6 +734,7 @@ export class WorkSystem {
       return false;
     }
     if (action === 'hold') {
+      this.applyWorkerTaskToolEquipment(unit, record, null);
       // 冷静宽限窗口：上一场刚打完，身体还没交回作业层，但也没有可打的目标。
       // 站在警戒里等窗口过去——**不能**这时候回去干活，否则刚被打断的活
       // 会在一帧之内又被同一只怪打断，玩家看到的就是"来回拉扯"。
@@ -767,18 +789,18 @@ export class WorkSystem {
       task = this.refreshTask(record);
     }
     const validTask = task && (task.node?.amount ?? 0) > 0 ? task : null;
+    let taskToolKind = null;
     if (validTask) {
       // toolSatisfied 必须和 resourceNodeToolSatisfied 同义：
       // 节点定义 tool 为 null（浆果、纤维草）时，任何傀儡都能采。
-      // 所以这里先判断「需不需要工具」，不能直接 pack.toolSet.has(null)。
       const requiredTool = requiredToolFor(validTask.node?.definitionId);
       validTask.toolSatisfied = !requiredTool || record.pack.toolSet.has(requiredTool);
       validTask.reachable = !record.move.unreachable;
-      // 手里的工具模型跟着"当前要采什么"走：砍树握斧、挖矿握镐。
-      // 工具不在背包里时**不显示**——不能让它空手却举着一把斧子。
-      // 每帧调用是安全的：setUnitHeldTool 只在工具真的换了的时候动节点。
-      setUnitHeldTool(unit, validTask.toolSatisfied ? requiredTool : null);
+      if (requiredTool && validTask.toolSatisfied) taskToolKind = requiredTool;
     }
+    if (action === 'flee') taskToolKind = null;
+    this.applyWorkerTaskToolEquipment(unit, record, taskToolKind);
+    this.syncWorkerDisplayDurability(unit, record);
     const plan = planWorkerStep({
       worker: view,
       task: validTask,
@@ -903,13 +925,8 @@ export class WorkSystem {
 
     if (record.combat.phase === COMBAT_PHASE.fight) {
       if ((unit.manaCapacity ?? 0) > 0 && (unit.activityMana ?? 0) <= 0) {
-        record.combat.phase = COMBAT_PHASE.flee;
-        record.combat.reason = 'no_mana';
-        record.combat.startedAt = now;
-        record.combat.stuckSeconds = 0;
-        record.flee = null;
-        this.stats.flees += 1;
-        return { action: 'flee', reason: 'no_mana', holder };
+        this.closeCombatSession(record, { now, calm: false });
+        return { action: 'hold', reason: 'no_mana', holder };
       }
       if (foes.some(isContactFoe)) record.combat.lastFoeSeenAt = now;
       if (fightResolved({ foes })) {
@@ -1076,13 +1093,47 @@ export class WorkSystem {
     attributes.setBase('aggroRange', engaging ? this.combatRules.engageAggroRange : 0, { min: 0 });
     if (unit.weapon) {
       unit.weapon.name = gear.name;
-      // 从真武器换回工具时，旧武器的满耐久会超过新的上限，夹一下免得 HUD 显示 90/40
-      if (Number.isFinite(unit.weapon.durability) && unit.weapon.durability > gear.maxDurability) {
-        unit.weapon.durability = gear.maxDurability;
-      }
+      this.syncWorkerCombatDurabilityFromBag(unit, gear);
     }
+    this.syncWorkerDisplayDurability(unit, this.recordFor(unit));
     unit.workerGearKind = gear.kind;
     unit.workerGearLabel = PUPPET_GEAR_LABELS[gear.kind] ?? gear.kind;
+  }
+
+  syncWorkerCombatDurabilityFromBag(unit, gear) {
+    const record = this.recordFor(unit);
+    const bag = record?.inventory;
+    if (!unit?.weapon || !bag?.slots) return;
+    let slot = null;
+    if (unit.weaponItemId) {
+      const index = Number.isInteger(unit.equippedWeaponBagIndex) ? unit.equippedWeaponBagIndex : -1;
+      slot = index >= 0 ? bag.slots[index] : null;
+      if (!slot || slot.itemId !== unit.weaponItemId) {
+        slot = bag.slots.find((entry) => entry?.itemId === unit.weaponItemId) ?? null;
+      }
+    } else if (gear?.kind === PUPPET_GEAR.tool && Number.isInteger(unit.activeToolBagIndex)) {
+      slot = bag.slots[unit.activeToolBagIndex] ?? null;
+    }
+    if (!slot) {
+      if (gear?.kind === PUPPET_GEAR.unarmed) unit.weapon.durability = 0;
+      return;
+    }
+    const max = itemMaxDurability(slot.itemId) || gear.maxDurability || 1;
+    const current = slotDurability(slot, slot.itemId);
+    unit.weapon.maxDurability = max;
+    unit.weapon.durability = Math.min(current, max);
+  }
+
+  syncWorkerDisplayDurability(unit, record) {
+    if (!unit?.isWorker) {
+      unit.workerDurabilityRatio = null;
+      return;
+    }
+    const ratio = workerEquippedDurabilityRatio(unit, record?.inventory);
+    if (ratio !== unit.workerDurabilityRatio) {
+      unit.workerDurabilityRatio = ratio;
+      unit.statusUiDirty = true;
+    }
   }
 
   ensureRecord(unit) {
@@ -1789,8 +1840,26 @@ export class WorkSystem {
   }
 
   /**
-   * 傀儡工具区里的武器自动装上；迎战时优先用伤害最高的那件。
-   * 采集工具仍只显示在手上（setUnitHeldTool），不点「装备」。
+   * 按当前任务切换「装备中的工具」：物品留在背包格，只更新手持模型与左下角 E。
+   * 砍树 → 斧；挖矿 → 镐；迎战/无采集任务 → 收起工具（武器由 autoEquipWorkerGear 管）。
+   */
+  applyWorkerTaskToolEquipment(unit, record, toolKind) {
+    if (!unit?.isWorker) return;
+    const inventory = record?.inventory;
+    const index = toolKind ? findWorkerToolSlotIndex(inventory, toolKind) : -1;
+    const visualKind = index >= 0 ? toolKind : null;
+    const prevKind = unit.equippedToolKind ?? null;
+    const prevIndex = unit.activeToolBagIndex ?? null;
+    unit.equippedToolKind = toolKind && index >= 0 ? toolKind : null;
+    unit.activeToolBagIndex = index >= 0 ? index : null;
+    setUnitHeldTool(unit, visualKind);
+    if (prevKind !== unit.equippedToolKind || prevIndex !== unit.activeToolBagIndex) {
+      this.game?.backpack?.markDirty?.();
+    }
+  }
+
+  /**
+   * 傀儡工具区里的武器：迎战任务时自动装备（仍占背包格，角标 E）。
    */
   autoEquipWorkerGear(unit) {
     if (!unit?.isWorker || unit.alive === false) return false;
@@ -1812,7 +1881,7 @@ export class WorkSystem {
     const currentDmg = currentId ? Number(ITEM_DEFINITIONS[currentId]?.weapon?.damage) || 0 : -1;
     if (!engaging && currentId && currentDmg >= best.damage) return false;
     if (engaging && currentId && best.damage < currentDmg) return false;
-    const result = this.game?.equipWeaponFromBag?.(unit, best.index, { silent: true });
+    const result = this.game?.equipWeaponFromBag?.(unit, best.index, { silent: true, system: true });
     return result?.ok === true;
   }
 

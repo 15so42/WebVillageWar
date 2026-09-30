@@ -80,5 +80,44 @@ export function effectiveManaCapacity(base, inventory, { rules = null } = {}) {
 /** 面板上显示的一句话说明。 */
 export function manaStoneHint() {
   const per = manaStoneBonus();
-  return `魔力石：每块 +${per} 最大魔力，不可堆叠、占一格，多块可叠加。`;
+  return `魔力石：每块 +${per} 最大体力，并可在背包内缓慢放电补魔；不可堆叠。`;
+}
+
+/** 魔力石格内剩余电量（缺省视为满电）。 */
+export function manaStoneStoredCharge(slot) {
+  if (!slot?.itemId || !isManaStoneItem(slot.itemId)) return 0;
+  const max = manaStoneBonus(slot.itemId);
+  const raw = Number(slot.data?.charge);
+  if (Number.isFinite(raw)) return Math.max(0, Math.min(max, raw));
+  return max;
+}
+
+const STONE_DISCHARGE_PER_SECOND = 14;
+
+/** 从背包魔力石向单位活动魔力放电（供能不足时的便携充电）。 */
+export function transferManaFromBagStones(unit, inventory, dt = 0) {
+  const capacity = Math.max(0, Number(unit?.manaCapacity) || 0);
+  if (capacity <= 0 || !inventory?.slots?.length) return 0;
+  const step = Math.max(0, dt);
+  let need = capacity - Math.max(0, Number(unit.activityMana) || 0);
+  if (need <= 0) return 0;
+  let budget = STONE_DISCHARGE_PER_SECOND * step;
+  let moved = 0;
+  for (let i = 0; i < inventory.slots.length; i += 1) {
+    const slot = inventory.slots[i];
+    if (!slot || !isManaStoneItem(slot.itemId)) continue;
+    const stored = manaStoneStoredCharge(slot);
+    if (stored <= 0) continue;
+    const take = Math.min(stored, need, budget);
+    if (take <= 0) continue;
+    if (!slot.data) slot.data = {};
+    slot.data.charge = stored - take;
+    unit.activityMana = Math.min(capacity, Math.max(0, Number(unit.activityMana) || 0) + take);
+    need -= take;
+    budget -= take;
+    moved += take;
+    if (need <= 0) break;
+  }
+  if (moved > 0) unit.statusUiDirty = true;
+  return moved;
 }

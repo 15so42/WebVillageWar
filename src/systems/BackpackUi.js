@@ -10,7 +10,8 @@ import {
 } from './items.js';
 import { CRAFT_ERROR_LABELS } from './crafting.js';
 import { insertIntoInventory, moveSlot, TRANSFER_ERROR_LABELS } from './inventoryTransfer.js';
-import { itemArtForSlot, itemStatLines } from './itemArt.js';
+import { itemArtForSlot } from './itemArt.js';
+import { bindItemTooltip, getItemTooltipUi } from './ItemTooltipUi.js';
 import {
   PRIORITY_MAX,
   PRIORITY_MIN,
@@ -20,8 +21,6 @@ import {
   RUNE_LOCATION_BASE,
   RUNE_LOCATION_UNIT,
   RUNE_STONE_ITEM_ID,
-  manaProgressForStone,
-  manaThresholdForLevel,
   runeColor
 } from './runeStones.js';
 import { isManaStoneItem } from './manaStones.js';
@@ -31,9 +30,16 @@ import {
   workerCargoSlotStart,
   workerCargoUsedSlots,
   isWorkerToolSlotIndex,
+  isWorkerToolEquippedSlot,
   workerToolZoneSlots
 } from './workerInventory.js';
+import { isEquippedWeaponInSlot, isWeaponItem } from './weapons.js';
 import { mountStationStoragePane, STATION_STORAGE_DATASETS } from './stationStorageUi.js';
+import {
+  clearCursorPointerOrigin,
+  pointerMovedForCursorDrop,
+  recordCursorPointerOrigin
+} from './inventoryCursorUi.js';
 
 /**
  * 统一背包界面（选中目标后按 B / 点单位下方的「背包」按钮）。
@@ -89,6 +95,8 @@ export class BackpackUi {
     this.cursorGhost = null;
     this.lastPointerX = null;
     this.lastPointerY = null;
+    /** @type {{ clientX: number, clientY: number, containerKey: string|null, index: number }|null} */
+    this.cursorPointerOrigin = null;
     this.refreshTimer = null;
     this.lastSignature = '';
     this.feedback = null;
@@ -179,6 +187,7 @@ export class BackpackUi {
   }
 
   close() {
+    getItemTooltipUi().hide();
     // 手上有东西时先放回去：关闭面板不允许吞掉物品。
     this.returnCursor();
     this.stopAutoRefresh();
@@ -676,15 +685,43 @@ export class BackpackUi {
       cell.appendChild(count);
     }
 
-    // 傀儡与工具区：武器/工具由作业 AI 自动装备，不弹「装备」按钮。
-    const workerAutoGear = this.unit?.isWorker === true || isWorkerToolSlotIndex(index);
-    if (entry.key === 'unit' && definition?.category === 'weapon' && !workerAutoGear) {
-      cell.appendChild(this.createSlotAction('equip', '装备', index, {
-        title: `把${itemName(slot.itemId)}装到${this.unit?.name ?? '单位'}手上`
-      }));
+    if (entry.key === 'unit' && this.unit) {
+      const isWeapon = isWeaponItem(slot.itemId);
+      const isTool = definition?.category === 'tool' && isWorkerToolSlotIndex(index);
+      const weaponEquipped = isWeapon && isEquippedWeaponInSlot(this.unit, slot, index);
+      const toolEquipped = isTool && isWorkerToolEquippedSlot(this.unit, index);
+      if (isWeapon || isTool) {
+        cell.classList.add('has-equip-badge');
+        if (isWeapon) {
+          cell.appendChild(this.createEquipBadge(index, weaponEquipped, {
+            title: weaponEquipped
+              ? '已装备：迎战时自动使用（无法手动切换）'
+              : `${itemName(slot.itemId)}：同类且更强时会自动装备`
+          }));
+        } else {
+          const kind = definition?.tool === 'pickaxe' ? '挖矿' : (definition?.tool === 'axe' ? '砍树' : '采集');
+          cell.appendChild(this.createEquipBadge(index, toolEquipped, {
+            title: toolEquipped
+              ? `任务已装备：${itemName(slot.itemId)}（${kind}）`
+              : `${itemName(slot.itemId)}：${kind}任务时自动装备（留在格内）`
+          }));
+        }
+      }
     }
 
-    cell.title = this.slotTooltip(slot);
+    bindItemTooltip(
+      cell,
+      () => slot,
+      () => {
+        if (slot.itemId !== RUNE_STONE_ITEM_ID) return {};
+        const stone = this.runeSystem()?.stoneForSlot?.(slot, entry.location) ?? null;
+        return {
+          runeStone: stone,
+          slotData: slot.data,
+          isInactiveDuplicate: Boolean(stone && this.runeSystem()?.isStoneInactiveDuplicate?.(stone))
+        };
+      }
+    );
     return cell;
   }
 
@@ -708,7 +745,17 @@ export class BackpackUi {
     cell.classList.add('has-durability');
   }
 
-  /** 格子右下角的小动作按钮（装备）。 */
+  /** 格子左上角「E」：仅标示自动装备状态，不可点击。 */
+  createEquipBadge(index, active, { title = '' } = {}) {
+    const el = document.createElement('span');
+    el.className = 'backpack-slot-equipped is-readonly';
+    if (active) el.classList.add('is-active');
+    el.textContent = 'E';
+    if (title) el.title = title;
+    return el;
+  }
+
+  /** 格子右下角的小动作按钮（放置等）。 */
   createSlotAction(action, label, index, { title = '' } = {}) {
     const button = document.createElement('button');
     button.type = 'button';
@@ -717,31 +764,6 @@ export class BackpackUi {
     button.textContent = label;
     if (title) button.title = title;
     return button;
-  }
-
-  /** 悬浮提示：物品名 + 关键数值 + 符文石进度。 */
-  slotTooltip(slot) {
-    const definition = itemDefinition(slot.itemId);
-    const lines = [`${itemName(slot.itemId)}${(slot.count ?? 1) > 1 ? ` ×${slot.count}` : ''}`];
-    if (slot.itemId === RUNE_STONE_ITEM_ID) {
-      const stone = this.runeSystem()?.stoneForSlot?.(slot) ?? null;
-      const progress = manaProgressForStone(stone ?? slot.data ?? {});
-      const need = manaThresholdForLevel(stone?.level ?? slot.data?.level ?? 1);
-      lines.push(Number.isFinite(need)
-        ? `等级 ${stone?.level ?? slot.data?.level ?? 1} · 魔力 ${Math.floor(progress.have)}/${need}`
-        : `等级 ${stone?.level ?? slot.data?.level ?? 1} · 已满级`);
-      if (stone && this.runeSystem()?.isStoneInactiveDuplicate?.(stone)) {
-        lines.push('同名备用石：不生效，但仍照常吃魔力升级');
-      }
-      lines.push('不可堆叠 · 放进单位背包即生效');
-      return lines.join('\n');
-    }
-    lines.push(...itemStatLines(slot.itemId, definition));
-    const maxDur = itemMaxDurability(slot.itemId);
-    if (maxDur > 0) {
-      lines.push(`当前耐久 ${Math.round(slotDurability(slot, slot.itemId))}/${maxDur}`);
-    }
-    return lines.join('\n');
   }
 
   renderStranded(grid) {
@@ -1087,17 +1109,21 @@ export class BackpackUi {
       return;
     }
     if (event.button !== 0) return;
+    const container = containerKey ? this.containerFor(containerKey) : this.container();
+    if (!container) return;
     if (!this.cursor) {
-      const container = containerKey ? this.containerFor(containerKey) : this.container();
       const slot = container?.slots?.[index];
       if (!slot?.itemId) return;
       this.handleSlotClick(index, {
         right: false,
         container: containerKey
       });
+      recordCursorPointerOrigin(this, event.clientX, event.clientY, containerKey, index);
       return;
     }
-    // 左键按住已有物品：等松手再落到格子或名单区
+    // 手上已有物品：左键点格子 = 放下 / 合并 / 交换（《我的世界》第二次点击）
+    this.handleSlotClick(index, { right: false, container: containerKey });
+    clearCursorPointerOrigin(this);
   }
 
   /**
@@ -1143,7 +1169,7 @@ export class BackpackUi {
       const take = right && itemStacksByMerging(slot.itemId)
         ? Math.max(1, Math.floor((slot.count ?? 1) / 2))
         : (slot.count ?? 1);
-      this.pickUpSlot(container, index, take);
+      this.pickUpSlot(container, index, take, containerKey);
       return;
     }
 
@@ -1184,7 +1210,7 @@ export class BackpackUi {
     this.swapCursorWith(container, index);
   }
 
-  pickUpSlot(container, index, count) {
+  pickUpSlot(container, index, count, containerKey = null) {
     const slot = container.slots[index];
     if (!slot?.itemId) return;
     const take = Math.max(1, Math.min(Math.floor(count) || 1, slot.count ?? 1));
@@ -1193,7 +1219,7 @@ export class BackpackUi {
       count: take,
       instanceId: slot.instanceId ?? null,
       data: slot.data ? { ...slot.data } : null,
-      from: { inventory: container, index }
+      from: { inventory: container, index, containerKey: containerKey ?? null }
     };
     if (take >= (slot.count ?? 1)) {
       container.slots[index] = null;
@@ -1268,6 +1294,7 @@ export class BackpackUi {
    *   2. 整个系统的"石头在哪"是从格子读出来的，格子变了要让它重新发现一次。
    */
   afterCursorChange() {
+    if (!this.cursor) clearCursorPointerOrigin(this);
     this.syncUnitState();
     this.updateCursorGhost();
     this.lastSignature = '';
@@ -1279,8 +1306,7 @@ export class BackpackUi {
     const unit = this.mode === 'unit' ? this.unit : null;
     if (unit) {
       system?.syncUnitEnchantments?.(unit);
-      this.game?.refreshUnitManaCapacity?.(unit);
-      this.game?.work?.notifyInventoryChanged?.(unit);
+      this.game?.onUnitBackpackChanged?.(unit);
     }
     system?.discoverAll?.();
   }
@@ -1419,6 +1445,15 @@ export class BackpackUi {
     const index = Number(cell.dataset.backpackSlot);
     const containerKey = cell.dataset.backpackContainer ?? null;
     if (!Number.isFinite(index)) return false;
+    const from = this.cursor.from;
+    if (
+      from
+      && from.containerKey === containerKey
+      && from.index === index
+      && from.inventory === this.containerFor(containerKey)
+    ) {
+      return false;
+    }
     this.handleSlotClick(index, { right: false, container: containerKey });
     return true;
   }
@@ -1426,11 +1461,16 @@ export class BackpackUi {
   onWindowPointerUp(event) {
     if (!this.isOpen() || event.button !== 0) return;
     if (!this.cursor) return;
+    // 几乎没移动 = 只是「拿起」，等下一次点击再放下；移动足够远 = 拖拽松手放下。
+    if (!pointerMovedForCursorDrop(this, event.clientX, event.clientY)) return;
     if (this.registerFilterItemFromCursor(event.clientX, event.clientY)) {
       this.suppressFilterClick = true;
+      clearCursorPointerOrigin(this);
       return;
     }
-    this.tryPlaceCursorOnSlotAt(event.clientX, event.clientY);
+    if (this.tryPlaceCursorOnSlotAt(event.clientX, event.clientY)) {
+      clearCursorPointerOrigin(this);
+    }
   }
 
   // ---- 交互：点击派发 ----
@@ -1453,13 +1493,6 @@ export class BackpackUi {
     if (event.target.closest('[data-backpack-recover-stranded]')) {
       event.preventDefault();
       this.recoverStranded();
-      return;
-    }
-    const equip = event.target.closest('[data-backpack-equip]');
-    if (equip) {
-      event.preventDefault();
-      // 「装备」只出现在单位那一块网格里。
-      this.equipWeapon(Number(equip.dataset.backpackEquip), 'unit');
       return;
     }
     if (event.target.closest('[data-backpack-trash]')) {
@@ -1853,29 +1886,6 @@ export class BackpackUi {
       this.showFeedback('这件东西不能放置', true);
     } else {
       this.showFeedback('无法使用这一格', true);
-    }
-    this.markDirty();
-    return result;
-  }
-
-  /** 单位背包里的「装备」：同类武器校验在 weapons.js，界面只派发与报结果。 */
-  equipWeapon(slotIndex, containerKey = 'unit') {
-    const unit = this.unit;
-    if (!unit) return null;
-    // 装备只认单位那一块网格：基地背包里的武器不在这里装（要先搬过去）。
-    if (containerKey !== 'unit') {
-      this.showFeedback('装备要在单位的背包那一块里点', true);
-      return null;
-    }
-    const result = this.game?.equipWeaponFromBag?.(unit, slotIndex)
-      ?? { ok: false, reason: 'no_equip_api', label: '无法装备' };
-    if (result.ok) {
-      const returned = result.returnedItemId
-        ? `，换下的${itemName(result.returnedItemId)}放回了背包`
-        : '';
-      this.showFeedback(`${unit.name ?? '单位'}换上了${itemName(result.itemId)}${returned}`, false);
-    } else {
-      this.showFeedback(result.label || '无法装备', true);
     }
     this.markDirty();
     return result;

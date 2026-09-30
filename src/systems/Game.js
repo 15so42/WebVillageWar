@@ -146,7 +146,7 @@ import {
   defaultPriorityFor,
   resourcePriorityRows
 } from './resourcePriority.js';
-import { itemIsGivable, itemUseKind, ITEM_USE } from './items.js';
+import { itemIsGivable, itemUseKind, ITEM_USE, slotDurability } from './items.js';
 import { isHostileEnemy } from './unitTeam.js';
 import { PowerSystem } from './PowerSystem.js';
 import { PowerSupplyVisualSystem } from './PowerSupplyVisualSystem.js';
@@ -168,12 +168,13 @@ import {
   WEAPON_ERROR_LABELS,
   baselineWeaponItemFor,
   canEquipWeapon,
+  findBestEquippableWeaponSlot,
   weaponStatPatch
 } from './weapons.js';
 import { HotbarUi, HOTBAR_SLOT_COUNT } from './HotbarUi.js';
 import { planDeathDrop } from './drops.js';
 import { WorkSystem } from './WorkSystem.js';
-import { effectiveManaCapacity } from './manaStones.js';
+import { effectiveManaCapacity, transferManaFromBagStones } from './manaStones.js';
 import {
   RUNE_LOCATION_GROUND,
   RUNE_STONE_ITEM_ID,
@@ -4062,18 +4063,8 @@ export class Game {
 
   updatePlayerBaseAttack(dt) {
     if (this.levelFinished || !this.playerBase?.alive) return;
-    // 开火消耗的是基地的**结构耐久**（`attackDurabilityCost`）。而结构耐久在生存模式里
-    // 没有任何自然回复——只有「维修」类建筑的 `restoreDurability` 光环能补。
-    // 于是旧数值（每发 1 点 / 上限 49 点）会让基地**打满 37 发、约 25 秒之后永久哑火**：
-    // 敌人还在射程里（findPlayerBaseAttackTarget 照样返回目标），但 durability 卡在 0，
-    // 这一段 return 掉，玩家看到的就是「基地的激光攻击怎么没了」。
-    // 实测复现：5 秒块 8/7/7/7/5 发 → durability 归零 → 之后 30 秒 0 发。
-    //
-    // 现在：消耗为 0 时不再拿耐久当门槛（激光是基地的常驻防御手段，不能用一件
-    // 拿不回来的资源当弹药）；消耗 > 0 时仍然要求攒够。基地被打破耐久依旧会掉，
-    // 那是 `damagePlayerBase` 的事，与开火无关。
-    const durabilityCost = Math.max(0, BALANCE.playerBase.attackDurabilityCost ?? 1);
-    if (durabilityCost > 0 && (this.playerBase.structureDurability ?? 0) < durabilityCost) return;
+    const manaCost = Math.max(0, BALANCE.playerBase.attackManaCost ?? 0);
+    if (manaCost > 0 && (this.power?.baseSupplierMana?.().stored ?? 0) < manaCost) return;
     this.playerBaseAttackTimer = Math.max(0, (this.playerBaseAttackTimer ?? 0) - dt);
     if (this.playerBaseAttackTimer > 0) return;
     const target = this.findPlayerBaseAttackTarget();
@@ -4120,9 +4111,8 @@ export class Game {
       ? 999
       : Math.max(0, BALANCE.playerBase.attackDamage ?? 7);
     if (damage <= 0) return;
-    const durabilityCost = Math.max(0, BALANCE.playerBase.attackDurabilityCost ?? 1);
-    if ((this.playerBase.structureDurability ?? 0) < durabilityCost) return;
-    this.spendStructureDurability(this.playerBase, durabilityCost);
+    const manaCost = Math.max(0, BALANCE.playerBase.attackManaCost ?? 0);
+    if (manaCost > 0 && !this.power?.spendBaseSupplierMana?.(manaCost)) return;
     const start = this.playerBase.position.clone();
     const attackEmitter = this.playerBase.model?.userData?.attackEmitter;
     if (attackEmitter) {
@@ -6025,13 +6015,105 @@ export class Game {
    */
   onUnitBackpackChanged(unit) {
     if (!unit) return null;
+    this.reconcileEquippedWeaponInBag(unit);
     this.refreshUnitManaCapacity(unit);
     this.work?.notifyInventoryChanged?.(unit);
     if (unit.isWorker === true) {
       this.work?.autoEquipWorkerGear?.(unit);
+    } else {
+      this.autoEquipCombatWeapon(unit);
     }
     this.backpack?.markDirty?.();
     return unit;
+  }
+
+  /** 战斗单位：背包里同类且更强的武器会自动装备（玩家不可手动切换）。 */
+  autoEquipCombatWeapon(unit) {
+    if (!unit?.alive || unit.isWorker === true) return false;
+    const bag = this.itemBagFor(unit, { create: false });
+    if (!bag) return false;
+    const best = findBestEquippableWeaponSlot(unit, bag);
+    if (!best) return false;
+    const nativeDamage = Number(unit.definition?.damage) || 0;
+    const currentDamage = unit.weaponItemId
+      ? Number(ITEM_DEFINITIONS[unit.weaponItemId]?.weapon?.damage) || 0
+      : nativeDamage;
+    const sameEquipped = unit.weaponItemId === best.slot.itemId
+      && (unit.weaponInstanceId == null || unit.weaponInstanceId === best.slot.instanceId)
+      && unit.equippedWeaponBagIndex === best.index;
+    if (sameEquipped) return true;
+    if (unit.weaponItemId && currentDamage > best.damage) return false;
+    if (!unit.weaponItemId && best.damage <= nativeDamage) return false;
+    const result = this.equipWeaponFromBag(unit, best.index, { silent: true, system: true });
+    return result?.ok === true;
+  }
+
+  /** 战斗/傀儡攻击后，把 runtime 耐久写回背包里仍占格的那件武器。 */
+  transferManaFromBagStones(unit, dt = 0) {
+    if (!unit?.isWorker) return 0;
+    const bag = this.itemBagFor(unit, { create: false });
+    if (!bag) return 0;
+    const moved = transferManaFromBagStones(unit, bag, dt);
+    if (moved > 0) this.backpack?.markDirty?.();
+    return moved;
+  }
+
+  syncEquippedWeaponDurabilityToBag(unit) {
+    if (unit?.isWorker && !unit.weaponItemId && Number.isInteger(unit.activeToolBagIndex) && unit.activeToolBagIndex >= 0) {
+      const bag = this.itemBagFor(unit, { create: false });
+      const slot = bag?.slots?.[unit.activeToolBagIndex];
+      if (slot?.itemId) {
+        if (!slot.data) slot.data = {};
+        slot.data.durability = unit.weapon?.durability ?? slotDurability(slot, slot.itemId);
+      }
+      return;
+    }
+    if (!unit?.weaponItemId) return;
+    const bag = this.itemBagFor(unit, { create: false });
+    if (!bag) return;
+    let index = Number.isInteger(unit.equippedWeaponBagIndex) ? unit.equippedWeaponBagIndex : -1;
+    let slot = index >= 0 ? bag.slots[index] : null;
+    if (!slot || (unit.weaponInstanceId != null && slot.instanceId !== unit.weaponInstanceId)) {
+      index = bag.slots.findIndex((entry) => entry?.instanceId === unit.weaponInstanceId);
+      if (index < 0) {
+        index = bag.slots.findIndex((entry) => entry?.itemId === unit.weaponItemId);
+      }
+      if (index >= 0) unit.equippedWeaponBagIndex = index;
+      slot = index >= 0 ? bag.slots[index] : null;
+    }
+    if (!slot) return;
+    if (!slot.data) slot.data = {};
+    slot.data.durability = unit.weapon?.durability ?? slotDurability(slot, slot.itemId);
+  }
+
+  reconcileEquippedWeaponInBag(unit) {
+    if (!unit?.weaponItemId) return;
+    const bag = this.itemBagFor(unit, { create: false });
+    if (!bag) return;
+    const index = Number.isInteger(unit.equippedWeaponBagIndex) ? unit.equippedWeaponBagIndex : -1;
+    const slot = index >= 0 ? bag.slots[index] : null;
+    const instanceOk = unit.weaponInstanceId != null
+      && slot?.instanceId === unit.weaponInstanceId;
+    const itemOk = !unit.weaponInstanceId && slot?.itemId === unit.weaponItemId;
+    if (instanceOk || itemOk) {
+      this.syncEquippedWeaponDurabilityToBag(unit);
+      return;
+    }
+    const found = bag.slots.findIndex((entry) => {
+      if (!entry || entry.itemId !== unit.weaponItemId) return false;
+      if (unit.weaponInstanceId != null) return entry.instanceId === unit.weaponInstanceId;
+      return true;
+    });
+    if (found >= 0) {
+      unit.equippedWeaponBagIndex = found;
+      this.syncEquippedWeaponDurabilityToBag(unit);
+      return;
+    }
+    if (unit.isWorker === true) {
+      this.clearWorkerEquippedWeapon(unit);
+    } else {
+      this.unequipWeaponFromBag(unit, { silent: true });
+    }
   }
 
   /**
@@ -6095,7 +6177,14 @@ export class Game {
    *      否则每换一次武器就凭空少一把；
    *   3. 背包放不下换下来的武器时**整笔失败**，不做半途而废的交换。
    */
-  equipWeaponFromBag(unit, slotIndex, { silent = false } = {}) {
+  equipWeaponFromBag(unit, slotIndex, { silent = false, system = false } = {}) {
+    if (!system) {
+      return {
+        ok: false,
+        reason: 'manual_forbidden',
+        label: '武器与工具由任务自动装备，无法手动切换'
+      };
+    }
     if (!unit?.alive) return { ok: false, reason: 'no_unit' };
     const bag = this.itemBagFor(unit, { create: false });
     if (!bag) return { ok: false, reason: 'unit_has_no_bag', label: '这个单位没有物品背包' };
@@ -6104,46 +6193,23 @@ export class Game {
     const check = canEquipWeapon(slot.itemId, unit);
     if (!check.ok) return { ok: false, reason: check.reason, label: check.label };
 
-    // 换下来的那把：优先用"上次装上去的那件"，否则把原配武器物化成物品
-    const outgoingItemId = unit.weaponItemId ?? baselineWeaponItemFor(check.weapon.family);
-    if (outgoingItemId && outgoingItemId === slot.itemId && unit.weaponItemId === slot.itemId) {
-      return { ok: false, reason: 'already_equipped', label: '已经装备着这件武器' };
-    }
-
-    // 先确认背包腾得出位置：换下来的武器要放回去（武器是实例，按 instanceId 移动）
-    const bagSlots = bag.slots;
-    const outgoingSlotIndex = slotIndex;
-    bagSlots[outgoingSlotIndex] = null;
-    let returned = { ok: true };
-    if (outgoingItemId) {
-      const outgoingDurability = Number.isFinite(unit.weapon?.durability)
-        ? unit.weapon.durability
-        : null;
-      returned = bag.add(outgoingItemId, 1, {
-        allowPartial: false,
-        data: outgoingDurability != null ? { durability: outgoingDurability } : null
-      });
-      if (!returned.ok) {
-        // 放不回去就把新武器放回原格，整笔回滚
-        bagSlots[outgoingSlotIndex] = slot;
-        return {
-          ok: false,
-          reason: 'no_space_for_old_weapon',
-          label: WEAPON_ERROR_LABELS.no_space_for_old_weapon
-        };
-      }
-    }
-
     const instanceId = slot.instanceId ?? null;
+    const alreadyOn = instanceId != null && instanceId === unit.weaponInstanceId
+      || (instanceId == null && unit.weaponItemId === slot.itemId && unit.equippedWeaponBagIndex === slotIndex);
+    if (alreadyOn) {
+      return this.unequipWeaponFromBag(unit, { silent });
+    }
+
+    this.syncEquippedWeaponDurabilityToBag(unit);
     this.applyWeaponToUnit(unit, slot.itemId, {
       durability: slot.data?.durability,
       instanceId
     });
-    unit.weaponInstanceId = instanceId;
+    unit.equippedWeaponBagIndex = slotIndex;
     this.onUnitBackpackChanged(unit);
     if (!silent) {
       this.hints?.setHintOnce?.(
-        `${unit.name}换上了${ITEM_DEFINITIONS[slot.itemId]?.name ?? slot.itemId}`,
+        `${unit.name}装备了${ITEM_DEFINITIONS[slot.itemId]?.name ?? slot.itemId}（仍在背包格内）`,
         `equip:${unit.id}`
       );
     }
@@ -6151,9 +6217,48 @@ export class Game {
       ok: true,
       reason: 'none',
       itemId: slot.itemId,
-      returnedItemId: outgoingItemId,
+      returnedItemId: null,
       stats: weaponStatPatch(slot.itemId)
     };
+  }
+
+  /** 卸下已装备武器：物品留在背包，只清战斗数值与装备标记。 */
+  unequipWeaponFromBag(unit, { silent = false } = {}) {
+    if (!unit?.alive) return { ok: false, reason: 'no_unit' };
+    if (!unit.weaponItemId && unit.weaponInstanceId == null) {
+      return { ok: false, reason: 'not_equipped', label: '没有装备武器' };
+    }
+    const itemId = unit.weaponItemId;
+    if (unit.isWorker === true) {
+      this.clearWorkerEquippedWeapon(unit);
+    } else {
+      const definition = UNIT_DEFINITIONS[unit.type];
+      const baseline = definition?.weapon;
+      unit.weaponItemId = null;
+      unit.weaponInstanceId = null;
+      unit.equippedWeaponBagIndex = null;
+      const attributes = unit.attributes;
+      const damage = Number(definition?.damage) || 0;
+      const damageType = definition?.damageType === 'magic' ? 'magic' : 'physical';
+      attributes?.setBase?.(damageType === 'magic' ? 'magicAttack' : 'physicalAttack', damage, { min: 0 });
+      if (Number.isFinite(definition?.attackRate)) {
+        attributes?.setBase?.('attackRate', definition.attackRate, { min: 0.05 });
+      }
+      attributes?.setBase?.('maxDurability', baseline?.maxDurability ?? 1, { min: 1 });
+      attributes?.setBase?.('durabilityCost', baseline?.durabilityCost ?? 0, { min: 0 });
+      if (unit.weapon && baseline) {
+        unit.weapon.name = baseline.name ?? unit.weapon.name;
+        unit.weapon.durability = baseline.maxDurability ?? unit.weapon.durability;
+      }
+    }
+    this.onUnitBackpackChanged(unit);
+    if (!silent && itemId) {
+      this.hints?.setHintOnce?.(
+        `${unit.name ?? '单位'}卸下了${ITEM_DEFINITIONS[itemId]?.name ?? itemId}`,
+        `unequip:${unit.id}`
+      );
+    }
+    return { ok: true, reason: 'none', unequipped: true, itemId };
   }
 
   /**
@@ -6187,14 +6292,17 @@ export class Game {
     }
     unit.weaponItemId = itemId;
     if (instanceId != null) unit.weaponInstanceId = instanceId;
+    this.syncEquippedWeaponDurabilityToBag(unit);
     return patch;
   }
 
   /** 傀儡武器耐久耗尽：卸下并恢复空手属性，再尝试工具区里的下一件。 */
   clearWorkerEquippedWeapon(unit) {
     if (!unit?.isWorker) return false;
+    this.syncEquippedWeaponDurabilityToBag(unit);
     unit.weaponItemId = null;
     unit.weaponInstanceId = null;
+    unit.equippedWeaponBagIndex = null;
     const definition = UNIT_DEFINITIONS[unit.type];
     const baseline = definition?.weapon;
     if (baseline && unit.weapon) {
@@ -6229,10 +6337,7 @@ export class Game {
   // 流程：合成面板里点「放置」→ 进入放置模式（地图上跟一个半透明预览）→
   // 左键落地 / 右键或 Esc 取消。落地时才扣物品，取消不扣。
   //
-  // 校验规则只有两条，都是"不满足就不能放"而不是"放了再说"：
-  //   1. 落点必须可走（`world.isWalkable`）——否则建筑会卡在障碍里；
-  //   2. 必须落在某个供能源的半径内——设施是供能接收者，没电的生产设施是摆设。
-  //      方案第 9 节的魔力炉就是"为周围生产和战斗提供魔力"，所以"紧邻供能"是既有模型。
+  // 校验：落点必须可走。不在供能范围内也能放下，只是设施/傀儡收不到魔力时不会工作。
 
   /**
    * 进入放置模式。物品不可放置时明确拒绝并给原因。
@@ -6354,21 +6459,16 @@ export class Game {
     if (!this.world?.isWalkable?.(point.x, point.z)) {
       return { ok: false, reason: 'blocked', label: '这里放不下（地面不可走）' };
     }
-    // 供能源自己不受"必须在供能范围内"约束——魔力炉就是来给远处供能的，
-    // 要求它先待在基地旁边等于把它的用途取消掉。它只需要地面可走。
-    if (definition?.powerSource === true) {
-      return { ok: true, reason: 'none', label: '', radius, supplierId: null };
-    }
     const supplier = this.power?.nearestSupplier?.(point.x, point.z) ?? null;
     const inRange = Boolean(supplier && supplier.distance <= supplier.supplier.supplyRadius);
-    if (!inRange) {
-      return {
-        ok: false,
-        reason: 'no_power',
-        label: `离供能范围太远（基地约 ${Math.round(this.power?.suppliers?.get?.('player-base')?.supplyRadius ?? 20)} 米内）`
-      };
-    }
-    return { ok: true, reason: 'none', label: '', radius, supplierId: supplier.supplier.id };
+    return {
+      ok: true,
+      reason: 'none',
+      label: '',
+      radius,
+      supplierId: inRange ? supplier.supplier.id : null,
+      inPowerRange: inRange
+    };
   }
 
   /** 放置预览跟着指针走，并用颜色交代"这里能不能放"。 */
@@ -6853,7 +6953,7 @@ export class Game {
       this.onUnitBackpackChanged(unit);
       const hint = unit.isWorker === true
         ? `${name} 已交给${unit.name}（工具区物品会自动装备）`
-        : `${name} 已交给${unit.name}（在单位背包里点「装备」才会生效）`;
+        : `${name} 已交给${unit.name}（同类且更强时会自动装备）`;
       this.hints?.setHint?.(hint, `hotbar-give:${unit.id}:${itemId}`);
       this.hotbar?.refresh?.();
       this.backpack?.markDirty?.();

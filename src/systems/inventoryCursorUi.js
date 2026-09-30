@@ -3,16 +3,39 @@ import { itemStackLimit, itemStacksByMerging } from './items.js';
 import { itemArtForSlot } from './itemArt.js';
 import { RUNE_STONE_ITEM_ID } from './runeStones.js';
 
+export const INVENTORY_CURSOR_DRAG_THRESHOLD_PX = 8;
+
 export function createInventoryCursorState() {
   return {
     cursor: null,
     cursorGhost: null,
     lastPointerX: null,
-    lastPointerY: null
+    lastPointerY: null,
+    cursorPointerOrigin: null
   };
 }
 
-export function pickUpInventorySlot(state, container, index, count) {
+/** 记录拿起物品时指针位置，用于区分「点击再点放下」与「拖过去松手放下」。 */
+export function recordCursorPointerOrigin(state, clientX, clientY, containerKey, index) {
+  state.cursorPointerOrigin = {
+    clientX,
+    clientY,
+    containerKey: containerKey ?? null,
+    index
+  };
+}
+
+export function clearCursorPointerOrigin(state) {
+  state.cursorPointerOrigin = null;
+}
+
+export function pointerMovedForCursorDrop(state, clientX, clientY, threshold = INVENTORY_CURSOR_DRAG_THRESHOLD_PX) {
+  const origin = state.cursorPointerOrigin;
+  if (!origin) return true;
+  return Math.hypot(clientX - origin.clientX, clientY - origin.clientY) >= threshold;
+}
+
+export function pickUpInventorySlot(state, container, index, count, containerKey = null) {
   const slot = container.slots[index];
   if (!slot?.itemId) return false;
   const take = Math.max(1, Math.min(Math.floor(count) || 1, slot.count ?? 1));
@@ -21,7 +44,7 @@ export function pickUpInventorySlot(state, container, index, count) {
     count: take,
     instanceId: slot.instanceId ?? null,
     data: slot.data ? { ...slot.data } : null,
-    from: { inventory: container, index, containerKey: null }
+    from: { inventory: container, index, containerKey: containerKey ?? null }
   };
   if (take >= (slot.count ?? 1)) {
     container.slots[index] = null;
@@ -31,7 +54,7 @@ export function pickUpInventorySlot(state, container, index, count) {
   return true;
 }
 
-export function handleInventorySlotClick(state, container, index, { right = false } = {}) {
+export function handleInventorySlotClick(state, container, index, { right = false, containerKey = null } = {}) {
   if (!container) return;
   const slot = container.slots[index] ?? null;
 
@@ -40,7 +63,7 @@ export function handleInventorySlotClick(state, container, index, { right = fals
     const take = right && itemStacksByMerging(slot.itemId)
       ? Math.max(1, Math.floor((slot.count ?? 1) / 2))
       : (slot.count ?? 1);
-    pickUpInventorySlot(state, container, index, take);
+    pickUpInventorySlot(state, container, index, take, containerKey);
     return;
   }
 
