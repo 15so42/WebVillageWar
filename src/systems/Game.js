@@ -6488,17 +6488,26 @@ export class Game {
 
   beginResourceBoxSelect(priority) {
     const level = Math.max(1, Math.min(12, Math.round(Number(priority) || 4)));
-    this.resourceBoxSelect = { priority: level };
+    this.resourceBoxSelect = { mode: 'mark', priority: level };
     this.selectionBox?.classList.add('is-resource');
+    this.selectionBox?.classList.remove('is-resource-cancel');
     this.syncInteractionPointerUi();
     this.syncResourceBoxSelectVisuals();
     this.hints?.setHint?.(`拖拽框选要采集的资源，优先级 ${level}（Esc 取消）`, 'resource-box');
   }
 
+  beginResourceBoxSelectCancel() {
+    this.resourceBoxSelect = { mode: 'cancel' };
+    this.selectionBox?.classList.add('is-resource', 'is-resource-cancel');
+    this.syncInteractionPointerUi();
+    this.syncResourceBoxSelectVisuals();
+    this.hints?.setHint?.('拖拽框选要取消采集标记的资源（Esc 退出）', 'resource-box');
+  }
+
   cancelResourceBoxSelect() {
     if (!this.resourceBoxSelect) return;
     this.resourceBoxSelect = null;
-    this.selectionBox?.classList.remove('is-resource');
+    this.selectionBox?.classList.remove('is-resource', 'is-resource-cancel');
     this.syncInteractionPointerUi();
     this.syncResourceBoxSelectVisuals();
     this.hints?.setHint?.('已取消资源框选', 'resource-box');
@@ -6513,7 +6522,16 @@ export class Game {
     hud.hidden = !active;
     if (!active) return;
     const priorityEl = hud.querySelector('[data-resource-box-priority]');
-    if (priorityEl) priorityEl.textContent = String(this.resourceBoxSelect.priority);
+    const titleEl = hud.querySelector('[data-resource-box-title]');
+    const hintEl = hud.querySelector('[data-resource-box-hint]');
+    const priorityRow = hud.querySelector('[data-resource-box-priority-row]');
+    const cancelMode = this.resourceBoxSelect.mode === 'cancel';
+    if (titleEl) titleEl.textContent = cancelMode ? '取消采集标记' : '资源框选';
+    if (hintEl) {
+      hintEl.textContent = cancelMode ? '拖拽框选 · Esc 退出' : '拖拽框选 · Esc 取消';
+    }
+    if (priorityRow) priorityRow.hidden = cancelMode;
+    if (priorityEl && !cancelMode) priorityEl.textContent = String(this.resourceBoxSelect.priority);
     this.updateResourceBoxSelectHudPosition(this.pointerScreen.x, this.pointerScreen.y);
   }
 
@@ -6546,6 +6564,7 @@ export class Game {
   }
 
   finishResourceBoxSelect(drag, clientX, clientY) {
+    const cancelMode = this.resourceBoxSelect?.mode === 'cancel';
     const priority = this.resourceBoxSelect?.priority ?? 4;
     let nodes = [];
     if (drag?.active) nodes = this.resourceNodesInScreenRect(drag);
@@ -6564,14 +6583,20 @@ export class Game {
       });
       if (best) nodes = [best];
     }
-    const marked = this.work?.markNodes?.(nodes.map((node) => node.id), priority) ?? 0;
+    const nodeIds = nodes.map((node) => node.id);
+    const changed = cancelMode
+      ? (this.work?.unmarkNodes?.(nodeIds) ?? 0)
+      : (this.work?.markNodes?.(nodeIds, priority) ?? 0);
     this.resourceBoxSelect = null;
-    this.selectionBox?.classList.remove('is-resource');
+    this.selectionBox?.classList.remove('is-resource', 'is-resource-cancel');
     this.syncInteractionPointerUi();
+    this.syncResourceBoxSelectVisuals();
     this.hints?.setHint?.(
-      marked
-        ? `已标记 ${marked} 个资源，优先级 ${priority}`
-        : '框选范围内没有可采集的资源',
+      cancelMode
+        ? (changed ? `已取消 ${changed} 个资源的采集标记` : '框选范围内没有已标记的资源')
+        : (changed
+          ? `已标记 ${changed} 个资源，优先级 ${priority}`
+          : '框选范围内没有可采集的资源'),
       'resource-box'
     );
   }
@@ -7367,6 +7392,11 @@ export class Game {
     if (key === 'g' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
       event.preventDefault();
       this.beginResourceBoxSelect(4);
+      return;
+    }
+    if (key === 'c' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && !this.levelTestMode) {
+      event.preventDefault();
+      this.beginResourceBoxSelectCancel();
       return;
     }
     if (key === 'escape') {
@@ -8272,16 +8302,21 @@ export class Game {
     const autoWorkers = workers.filter((unit) => isWorkerAutonomous(unit));
     const manualWorkers = workers.filter((unit) => !autoWorkers.includes(unit));
     const movers = units.filter((unit) => unit.isWorker !== true).concat(manualWorkers);
+    const formationRadius = Math.min(2.4, 0.55 + Math.sqrt(units.length) * 0.42);
     if (autoWorkers.length && this.work?.beginRally) {
-      autoWorkers.forEach((unit) => this.work.beginRally(unit, commandCenter));
+      autoWorkers.forEach((unit, index) => {
+        const destination = this.resolveCommandPoint(
+          commandCenter.clone().add(commandFormationOffset(index, units.length, formationRadius))
+        );
+        if (destination) this.work.beginRally(unit, destination);
+      });
       this.effects.spawnMoveDestination(
         commandCenter,
-        Math.min(2.4, 0.55 + Math.sqrt(autoWorkers.length) * 0.42),
+        formationRadius,
         this.playerVisualColor(autoWorkers[0] ?? this.localPlayerSlot)
       );
     }
     if (!movers.length) return autoWorkers.length > 0 || manualWorkers.length > 0;
-    const formationRadius = Math.min(2.4, 0.55 + Math.sqrt(movers.length) * 0.42);
     const commandedUnits = [];
     let commanded = false;
     movers.forEach((unit, index) => {
@@ -8292,17 +8327,26 @@ export class Game {
       commanded = true;
       if (unit.isWorker === true) {
         this.work?.suspendWorkerJobs?.(this.work.recordFor(unit), unit);
+        this.work?.clearWorkerStandby?.(unit);
       }
-      unit.commandMoveGoal = destination.clone();
-      unit.moveGoal = null;
-      unit.moveGoalUsesDirectSteering = false;
+      const forceMove = this.isUnitEngaged(unit);
       unit.directMoveBlocked = false;
       unit.directMoveBlockedTime = 0;
       unit.attackRangeHoldTargetId = null;
       this.clearUnitRoute(unit);
-      unit.target = null;
       unit.controlMode = 'normal';
-      unit.homePoint = null;
+      if (forceMove) {
+        // 已在接战或索敌范围内有敌人：强制直线赶路，途中不接战；到达后 completeMoveGoal 更新驻守点。
+        unit.commandMoveGoal = destination.clone();
+        unit.moveGoal = null;
+        unit.moveGoalUsesDirectSteering = true;
+        unit.target = null;
+      } else {
+        // 平时移动：走 UnitLogicSystem 的索敌/追击分支，打完再继续朝 moveGoal 前进。
+        unit.moveGoal = destination.clone();
+        unit.commandMoveGoal = null;
+        unit.moveGoalUsesDirectSteering = false;
+      }
       commandedUnits.push(unit);
     });
     if (!commanded && !autoWorkers.length && !manualWorkers.length) return false;
@@ -8382,7 +8426,12 @@ export class Game {
     const units = this.selectedUnits.filter((unit) => unit.alive && unit.team === TEAMS.PLAYER);
     if (!units.length) return;
     units.forEach((unit) => {
-      unit.controlMode = 'hold';
+      if (unit.isWorker === true) {
+        this.work?.enterWorkerStandby?.(unit);
+        return;
+      }
+      unit.workerStandby = false;
+      unit.controlMode = 'normal';
       unit.moveGoal = null;
       unit.commandMoveGoal = null;
       unit.moveGoalUsesDirectSteering = false;
@@ -8391,7 +8440,8 @@ export class Game {
       unit.attackRangeHoldTargetId = null;
       unit.target = null;
       this.clearUnitRoute(unit);
-      unit.homePoint = null;
+      unit.homePoint = unit.position.clone();
+      unit.homePoint.y = this.groundHeightAt(unit.homePoint);
       unit.knockbackVelocity.set(0, 0, 0);
     });
     this.attacks.cancelPendingAttacksFor(units);
@@ -9980,9 +10030,9 @@ function createResourceBoxSelectHudElement() {
   element.className = 'resource-box-select-hud';
   element.hidden = true;
   element.innerHTML = `
-    <span class="resource-box-select-hud__title">资源框选</span>
-    <span class="resource-box-select-hud__priority">优先级 <strong data-resource-box-priority>4</strong></span>
-    <span class="resource-box-select-hud__hint">拖拽框选 · Esc 取消</span>
+    <span class="resource-box-select-hud__title" data-resource-box-title>资源框选</span>
+    <span class="resource-box-select-hud__priority" data-resource-box-priority-row>优先级 <strong data-resource-box-priority>4</strong></span>
+    <span class="resource-box-select-hud__hint" data-resource-box-hint>拖拽框选 · Esc 取消</span>
   `;
   document.body.appendChild(element);
   return element;

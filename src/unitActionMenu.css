@@ -89,6 +89,37 @@ body.is-game-active .unit-action-button:disabled {
   white-space: nowrap;
 }
 
+body.is-game-active .unit-action-button.is-mode-toggle {
+  width: 58px;
+  font-size: 9.5px;
+  padding-top: 4px;
+}
+
+body.is-game-active .unit-action-button.is-mode-toggle .unit-action-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  opacity: 0.92;
+}
+
+body.is-game-active .unit-action-button.is-mode-toggle .unit-action-state {
+  display: block;
+  margin-top: 1px;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
+  color: rgba(210, 202, 180, 0.88);
+}
+
+body.is-game-active .unit-action-button.is-mode-toggle.is-on .unit-action-state {
+  color: #b8f0c4;
+  text-shadow: 0 0 6px rgba(120, 220, 150, 0.35);
+}
+
+body.is-game-active .unit-action-button.is-mode-toggle.is-on {
+  border-color: rgba(160, 230, 180, 0.65) !important;
+}
+
 @media (pointer: coarse) {
   body.is-game-active .unit-action-button {
     width: 56px;

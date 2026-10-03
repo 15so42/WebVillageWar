@@ -1,5 +1,5 @@
 // 木傀儡工具区耐久维护（纯逻辑）。
-import { ITEM_RULES } from '../data/gameData.js';
+import { ITEM_DEFINITIONS, ITEM_RULES } from '../data/gameData.js';
 import { itemMaxDurability, slotDurability } from './items.js';
 import { workerToolZoneSlots } from './workerInventory.js';
 
@@ -47,6 +47,34 @@ export function workerNeedsGearRepair(inventory, repairing = false, overrides = 
   return repairing
     ? min < resolved.rechargeDurabilityRatio
     : min <= resolved.lowDurabilityRatio;
+}
+
+/** 工具区内耐久高于该比例、且为采集工具的物品种类（axe / pickaxe 等）。 */
+export function workerGatherReadyToolKinds(inventory, minRatio, rules = ITEM_RULES, overrides = {}) {
+  const resolved = workerRepairRules(overrides);
+  const threshold = Math.max(0, Math.min(1, Number(minRatio) ?? resolved.lowDurabilityRatio));
+  const kinds = new Set();
+  if (!inventory?.slots) return kinds;
+  const end = workerToolZoneSlots(rules);
+  for (let i = 0; i < end; i += 1) {
+    const slot = inventory.slots[i];
+    if (!slot?.itemId) continue;
+    const toolKind = ITEM_DEFINITIONS[slot.itemId]?.tool;
+    if (!toolKind) continue;
+    const max = itemMaxDurability(slot.itemId);
+    if (max <= 0) continue;
+    const ratio = Math.max(0, Math.min(1, slotDurability(slot, slot.itemId) / max));
+    if (ratio > threshold) kinds.add(toolKind);
+  }
+  return kinds;
+}
+
+export function workerCanWorkWithoutRepairStation(inventory, overrides = {}) {
+  const resolved = workerRepairRules(overrides);
+  const min = workerMinToolZoneDurabilityRatio(inventory);
+  if (min == null) return true;
+  if (min > resolved.lowDurabilityRatio) return true;
+  return workerGatherReadyToolKinds(inventory, resolved.lowDurabilityRatio, ITEM_RULES, overrides).size > 0;
 }
 
 /**

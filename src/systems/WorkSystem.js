@@ -53,8 +53,18 @@ import {
   repairBudgetForTick,
   workerAtRepairStation,
   workerNeedsGearRepair,
-  workerRepairRules
+  workerRepairRules,
+  workerCanWorkWithoutRepairStation,
+  workerGatherReadyToolKinds
 } from './workerRepair.js';
+import {
+  applyFoePowerForPuppetDecision,
+  getPuppetCombatMode,
+  PUPPET_COMBAT_MODE,
+  pickNearestFriendlyCombatBuilding,
+  retreatPointNearBuilding,
+  setPuppetCombatMode
+} from './puppetCombatMode.js';
 import {
   puppetGearFor,
   PUPPET_GEAR,
@@ -99,13 +109,11 @@ import { CRAFT_READY_PRIORITY } from './workTasks.js';
 // 所以既在调度器里保证分配结果确定，也在这里限频。
 const AUTO_ASSIGN_INTERVAL_SECONDS = 1;
 
-/** 临时关闭木傀儡「打不过就跑」；要恢复时改为 true。 */
-const PUPPET_FLEE_ENABLED = false;
-
-function puppetCombatMove(move) {
-  if (PUPPET_FLEE_ENABLED || !move) return move;
-  if (move.action === COMBAT_ACTION.disengage) {
-    return { ...move, action: COMBAT_ACTION.engage, reason: 'flee_disabled' };
+function puppetCombatMove(move, unit) {
+  if (!move) return move;
+  const mode = getPuppetCombatMode(unit);
+  if (mode === PUPPET_COMBAT_MODE.fight && move.action === COMBAT_ACTION.disengage) {
+    return { ...move, action: COMBAT_ACTION.skirmish, reason: 'fight_mode' };
   }
   return move;
 }
@@ -697,33 +705,17 @@ export class WorkSystem {
       return this.updateManualWorker(record, unit, step);
     }
 
+    if (unit.workerStandby === true) {
+      return this.updateWorkerStandby(record, unit, step);
+    }
+
     if (record.rally) {
-      this.applyWorkerTaskToolEquipment(unit, record, null);
       const rallyGear = puppetGearFor({
         toolIds: record.pack.toolIds,
         weaponItemId: unit.weaponItemId ?? null
       });
-      const rallyView = refreshView(record);
-      if (!workerManaDepleted(rallyView)) {
-        this.checkWorkerWeaponBroken(unit);
-        this.autoEquipWorkerGear(unit);
-        let rallyDecision = this.tickSelfDefense(record, unit, rallyView, rallyGear, step);
-        if (rallyDecision.action === 'engage') {
-          this.applyPuppetGear(unit, rallyGear, true);
-          this.applyWorkerTaskToolEquipment(unit, record, null);
-          record.engaging = true;
-          this.holdPosition(record, unit);
-          unit.homePoint = null;
-          unit.drainPerSecond = POWER_RULES.workerDrainIdle;
-          return false;
-        }
-        if (rallyDecision.action === 'hold') {
-          this.applyPuppetGear(unit, rallyGear, false);
-          this.holdPosition(record, unit);
-          unit.drainPerSecond = POWER_RULES.workerDrainIdle;
-          return true;
-        }
-      }
+      this.applyWorkerTaskToolEquipment(unit, record, null);
+      this.applyPuppetGear(unit, rallyGear, false);
       return this.updateRally(record, unit, step, rallyGear);
     }
 
@@ -779,6 +771,8 @@ export class WorkSystem {
     if (record.recharging && workerManaRatio(view) >= (this.rules.rechargeRatio ?? 1)) {
       record.recharging = false;
     }
+
+    this.tryPivotTaskForUsableTools(record);
 
     // 优先级 ②：工具/武器耐久 → 维修站（消耗傀儡自己的魔力）
     const repairPlan = this.planWorkerRepairStep(record, view);
@@ -978,7 +972,12 @@ export class WorkSystem {
       note: workStateLabel(state, reason)
     });
     if (!station) {
-      return result(WORK_STATE.blocked, WORK_REASON.noRepairStation, WORK_ACTION.none, null);
+      if (workerCanWorkWithoutRepairStation(record?.inventory, this.repairRules)) {
+        record.repairing = false;
+        return null;
+      }
+      record.repairing = false;
+      return null;
     }
     if (workerAtRepairStation({ x: view.x ?? 0, z: view.z ?? 0 }, station, this.repairRules)) {
       return result(WORK_STATE.repairing, WORK_REASON.needRepair, WORK_ACTION.repair, station);
@@ -1049,8 +1048,23 @@ export class WorkSystem {
     const now = Number(this.game?.elapsedTime) || 0;
     const reachOf = this.attackReachResolver();
     const threats = this.game?.threat?.threatsNear?.(view, rules.scanRadius) ?? [];
-    const foes = combatFoes({ self: unit, threats, rules, reachOf, now });
-    const power = combatPowerOf({ unit, gear });
+    const combatMode = getPuppetCombatMode(unit);
+    const foes = applyFoePowerForPuppetDecision(
+      combatFoes({ self: unit, threats, rules, reachOf, now }),
+      combatMode
+    );
+    if (combatMode === PUPPET_COMBAT_MODE.auto || combatMode === PUPPET_COMBAT_MODE.fight) {
+      this.autoEquipWorkerGear(unit);
+    }
+    let decisionGear = gear;
+    const weaponGear = puppetGearFor({
+      weaponItemId: unit.weaponItemId ?? null,
+      toolIds: record.pack?.toolIds ?? []
+    });
+    if (weaponGear.kind !== PUPPET_GEAR.unarmed) {
+      decisionGear = weaponGear;
+    }
+    const power = combatPowerOf({ unit, gear: decisionGear });
     const canFight = power > 0 && (unit.weapon?.durability ?? 0) > 0.01;
     const triggered = defenseTriggered({
       foes,
@@ -1071,6 +1085,18 @@ export class WorkSystem {
       return { action: 'work', reason: 'clear', holder };
     }
 
+    if (combatMode === PUPPET_COMBAT_MODE.avoid && (triggered || record.combat)) {
+      if (!record.combat) {
+        const move = { action: COMBAT_ACTION.disengage, reason: 'avoid', foeId: null };
+        this.openCombatSession(record, view, move, unit, now);
+      } else if (record.combat.phase !== COMBAT_PHASE.flee) {
+        record.combat.phase = COMBAT_PHASE.flee;
+        record.combat.reason = 'avoid';
+        record.flee = null;
+      }
+      return { action: 'flee', reason: 'avoid', holder: BODY_HOLDER.selfDefense };
+    }
+
     if (!record.combat) {
       // 开一场新的：**当场判一次打还是逃**。
       const manaEmpty = (unit.manaCapacity ?? 0) > 0 && (unit.activityMana ?? 0) <= 0;
@@ -1082,7 +1108,7 @@ export class WorkSystem {
         cornered: false,
         last: null,
         rules
-      }));
+      }), unit);
       if (manaEmpty && move.action !== COMBAT_ACTION.done) {
         move = { ...move, action: COMBAT_ACTION.done, reason: 'no_mana' };
       }
@@ -1091,8 +1117,8 @@ export class WorkSystem {
         //（Numen 的 `tick` 在这个窗口里就是"返回 RUNNING 但什么也不做"）。
         return { action: 'hold', reason: 'calm', holder };
       }
-      this.openCombatSession(record, view, move, now);
-      return { action: this.combatPhaseAction(record), reason: record.combat.reason, holder };
+      this.openCombatSession(record, view, move, unit, now);
+      return { action: this.combatPhaseAction(record, unit), reason: record.combat.reason, holder };
     }
 
     if (record.combat.phase === COMBAT_PHASE.fight) {
@@ -1119,7 +1145,7 @@ export class WorkSystem {
         cornered: record.combat.cornered === true,
         last: record.combat,
         rules
-      }));
+      }), unit);
       if (move.action === COMBAT_ACTION.disengage) {
         // 打不过了：转逃跑。**落点丢掉重算**，否则会沿着"迎战方向"的旧路线跑。
         record.combat.phase = COMBAT_PHASE.flee;
@@ -1133,7 +1159,7 @@ export class WorkSystem {
         record.combat.foeId = move.foeId ?? record.combat.foeId;
         record.combat.reason = move.reason;
       }
-      return { action: this.combatPhaseAction(record), reason: record.combat.reason, holder };
+      return { action: this.combatPhaseAction(record, unit), reason: record.combat.reason, holder };
     }
 
     // ---- 逃跑阶段 ----
@@ -1149,16 +1175,21 @@ export class WorkSystem {
       this.closeCombatSession(record, { now, calm: false });
       return { action: 'work', reason: 'flee_timeout', holder: BODY_HOLDER.workOrder };
     }
-    return { action: this.combatPhaseAction(record), reason: record.combat.reason, holder };
+    return { action: this.combatPhaseAction(record, unit), reason: record.combat.reason, holder };
   }
 
-  combatPhaseAction(record) {
-    if (!PUPPET_FLEE_ENABLED && record?.combat?.phase === COMBAT_PHASE.flee) return 'engage';
+  combatPhaseAction(record, unit) {
+    const mode = getPuppetCombatMode(unit);
+    if (mode === PUPPET_COMBAT_MODE.fight && record?.combat?.phase === COMBAT_PHASE.flee) {
+      return 'engage';
+    }
     return record?.combat?.phase === COMBAT_PHASE.flee ? 'flee' : 'engage';
   }
 
-  openCombatSession(record, view, move, now) {
-    const fleeing = PUPPET_FLEE_ENABLED && move.action === COMBAT_ACTION.disengage;
+  openCombatSession(record, view, move, unit, now) {
+    const mode = getPuppetCombatMode(unit);
+    const fleeing = move.action === COMBAT_ACTION.disengage
+      && (mode === PUPPET_COMBAT_MODE.auto || mode === PUPPET_COMBAT_MODE.avoid);
     record.combat = {
       phase: fleeing ? COMBAT_PHASE.flee : COMBAT_PHASE.fight,
       reason: move.reason,
@@ -1205,6 +1236,9 @@ export class WorkSystem {
   trackFleeStuck(record, unit, view, foes, power, dt) {
     const combat = record.combat;
     if (!combat) return false;
+    if (getPuppetCombatMode(unit) === PUPPET_COMBAT_MODE.avoid || combat.reason === 'avoid') {
+      return false;
+    }
     const lastX = Number.isFinite(combat.lastX) ? combat.lastX : view?.x ?? 0;
     const lastZ = Number.isFinite(combat.lastZ) ? combat.lastZ : view?.z ?? 0;
     const moved = Math.hypot((view?.x ?? 0) - lastX, (view?.z ?? 0) - lastZ);
@@ -1414,6 +1448,23 @@ export class WorkSystem {
    */
   resolveFleeTarget(record, unit) {
     const now = Number(this.game?.elapsedTime) || 0;
+    if (
+      getPuppetCombatMode(unit) === PUPPET_COMBAT_MODE.avoid
+      || record.combat?.reason === 'avoid'
+    ) {
+      const building = pickNearestFriendlyCombatBuilding(this.game, unit);
+      const point = retreatPointNearBuilding(building, unit);
+      if (point) {
+        record.flee = {
+          x: point.x,
+          z: point.z,
+          threat: 0,
+          source: 'retreat-building',
+          expiresAt: now + FLEE_TARGET_SECONDS
+        };
+        return record.flee;
+      }
+    }
     const current = record.flee;
     if (current) {
       const distance = distance2D(unitPositionX(unit), unitPositionZ(unit), current.x, current.z);
@@ -1768,12 +1819,121 @@ export class WorkSystem {
     return marked;
   }
 
+  unmarkNodes(nodeIds) {
+    let cleared = 0;
+    (nodeIds ?? []).forEach((nodeId) => {
+      if (!this.markedNodes.has(nodeId)) return;
+      this.markedNodes.delete(nodeId);
+      cleared += 1;
+      this.records.forEach((record) => {
+        if (record.task?.nodeId === nodeId) this.clearTask(record);
+      });
+    });
+    if (cleared > 0) {
+      this.autoAssignCooldown = 0;
+      this.game?.syncResourceGatherMarks?.();
+    }
+    return cleared;
+  }
+
+  tryPivotTaskForUsableTools(record) {
+    if (!record?.inventory) return false;
+    const ready = workerGatherReadyToolKinds(
+      record.inventory,
+      this.repairRules.lowDurabilityRatio,
+      ITEM_RULES,
+      this.repairRules
+    );
+    if (!ready.size) return false;
+    const task = record.task;
+    if (!task?.nodeId) return false;
+    const required = requiredToolFor(task.node?.definitionId);
+    if (!required || ready.has(required)) return false;
+    this.clearTask(record);
+    this.pokeAssign();
+    return true;
+  }
+
+  enterWorkerStandby(unit) {
+    if (!unit?.isWorker) return false;
+    const record = this.recordFor(unit);
+    unit.workerStandby = true;
+    unit.controlMode = 'hold';
+    if (!record) return true;
+    record.rally = null;
+    record.repairing = false;
+    record.engaging = false;
+    if (record.combat) {
+      this.closeCombatSession(record, {
+        now: Number(this.game?.elapsedTime) || 0,
+        calm: false
+      });
+    }
+    record.errand = null;
+    this.clearTask(record);
+    resetMoveGoal(record);
+    this.clearTransientTargets(unit);
+    unit.target = null;
+    unit.moveGoal = null;
+    unit.commandMoveGoal = null;
+    unit.moveGoalUsesDirectSteering = false;
+    this.game?.clearUnitRoute?.(unit);
+    this.game?.attacks?.cancelPendingAttacksFor?.([unit]);
+    return true;
+  }
+
+  clearWorkerStandby(unit) {
+    if (!unit?.isWorker) return;
+    unit.workerStandby = false;
+    if (unit.controlMode === 'hold') unit.controlMode = 'normal';
+  }
+
+  updateWorkerStandby(record, unit, dt) {
+    const step = Math.max(0, dt);
+    const view = refreshView(record);
+    if (workerManaDepleted(view)) {
+      this.syncWorkerDisplayDurability(unit, record);
+      this.clearTransientTargets(unit);
+      this.holdPosition(record, unit);
+      unit.drainPerSecond = POWER_RULES.workerDrainIdle;
+      unit.visualState = 'idle';
+      unit.aiState = 'idle';
+      this.game?.transferManaFromBagStones?.(unit, step);
+      record.lastPlan = {
+        state: WORK_STATE.lowPower,
+        reason: WORK_REASON.recharging,
+        action: WORK_ACTION.none,
+        target: null,
+        note: '待机（魔力见底）',
+        gear: null
+      };
+      return true;
+    }
+    this.holdPosition(record, unit);
+    unit.drainPerSecond = POWER_RULES.workerDrainIdle;
+    unit.visualState = 'idle';
+    unit.aiState = 'idle';
+    record.lastPlan = {
+      state: WORK_STATE.idle,
+      reason: WORK_REASON.none,
+      action: WORK_ACTION.none,
+      target: null,
+      note: '待机',
+      gear: null
+    };
+    return true;
+  }
+
   /**
    * 右键临时点：先放下手里的活，走过去；路上不接战、不受击，到点立刻恢复采集任务。
    */
   /**
    * 自律 / 指挥模式切换。指挥模式下清空作业状态，保留或建立返回点。
    */
+  setWorkerCombatMode(unit, mode) {
+    return setPuppetCombatMode(unit, mode);
+  }
+
   setWorkerAutonomous(unit, autonomous) {
     if (!unit?.isWorker) return false;
     const enabled = autonomous !== false;
@@ -1819,6 +1979,21 @@ export class WorkSystem {
    * 这里只处理傀儡特有的魔力见底与武器数值同步（不写作业、不走 combatReflex）。
    */
   updateManualWorker(record, unit, dt) {
+    if (unit.workerStandby === true) {
+      this.holdPosition(record, unit);
+      unit.drainPerSecond = POWER_RULES.workerDrainIdle;
+      unit.visualState = 'idle';
+      unit.aiState = 'idle';
+      record.lastPlan = {
+        state: WORK_STATE.idle,
+        reason: WORK_REASON.none,
+        action: WORK_ACTION.none,
+        target: null,
+        note: '指挥待机',
+        gear: null
+      };
+      return true;
+    }
     const view = refreshView(record);
     if (workerManaDepleted(view)) {
       this.syncWorkerDisplayDurability(unit, record);
@@ -1852,7 +2027,7 @@ export class WorkSystem {
     this.applyPuppetGear(unit, gear, canFight);
     this.syncWorkerCombatDurabilityFromBag(unit, gear);
     setUnitHeldTool(unit, null);
-    unit.drainPerSecond = unit.commandMoveGoal || unit.target?.alive
+    unit.drainPerSecond = unit.commandMoveGoal || unit.moveGoal || unit.target?.alive
       ? POWER_RULES.workerDrainMove
       : POWER_RULES.workerDrainIdle;
     record.lastPlan = {
@@ -1870,15 +2045,37 @@ export class WorkSystem {
     const record = this.recordFor(unit);
     if (!record || !point) return false;
     if (!isWorkerAutonomous(unit)) return false;
+    this.clearWorkerStandby(unit);
     const suspendedNodeId = record.task?.nodeId ?? record.rally?.suspendedNodeId ?? null;
+    const suspendedErrand = record.errand
+      ? { ...record.errand }
+      : (record.rally?.suspendedErrand ? { ...record.rally.suspendedErrand } : null);
+    if (record.combat) {
+      this.closeCombatSession(record, {
+        now: Number(this.game?.elapsedTime) || 0,
+        calm: false
+      });
+    }
+    record.engaging = false;
+    record.recharging = false;
+    record.repairing = false;
     this.clearTask(record);
+    record.errand = null;
     record.rally = {
       x: point.x,
       z: point.z,
       phase: 'moving',
-      suspendedNodeId
+      suspendedNodeId,
+      suspendedErrand
     };
     resetMoveGoal(record);
+    this.clearTransientTargets(unit);
+    unit.target = null;
+    unit.moveGoal = null;
+    unit.commandMoveGoal = null;
+    unit.moveGoalUsesDirectSteering = false;
+    this.game?.clearUnitRoute?.(unit);
+    this.game?.attacks?.cancelPendingAttacksFor?.([unit]);
     return true;
   }
 
@@ -1928,12 +2125,19 @@ export class WorkSystem {
 
   finishRally(record, unit) {
     const nodeId = record.rally?.suspendedNodeId ?? null;
+    const suspendedErrand = record.rally?.suspendedErrand ?? null;
     record.rally = null;
     resetMoveGoal(record);
-    if (!nodeId) return;
-    const node = this.game?.resourceNodes?.nodeById?.(nodeId);
-    if (!node || (node.amount ?? 0) <= 0) return;
-    this.assignNode(unit, nodeId);
+    if (suspendedErrand) {
+      record.errand = suspendedErrand;
+      this.prepareErrand(record);
+    } else if (nodeId) {
+      const node = this.game?.resourceNodes?.nodeById?.(nodeId);
+      if (node && (node.amount ?? 0) > 0) {
+        this.assignNode(unit, nodeId);
+      }
+    }
+    this.pokeAssign();
   }
 
   // 自动派活。只处理「手上没有活、也没在赶临时点」的傀儡。
@@ -1950,6 +2154,7 @@ export class WorkSystem {
     const idle = [...this.records.entries()]
       .filter(([, record]) => (
         isWorkerAutonomous(record.unit)
+        && record.unit?.workerStandby !== true
         && !record.rally && !record.task && !record.errand && record.unit?.alive !== false
       ))
       .map(([unitId]) => unitId)

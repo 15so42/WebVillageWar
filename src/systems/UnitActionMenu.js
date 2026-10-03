@@ -87,24 +87,27 @@ export class UnitActionMenu {
       const autonomous = isWorkerAutonomous(unit);
       actions.push({
         id: 'worker-autonomous',
-        label: autonomous ? '自律' : '指挥',
-        icon: autonomous ? '◎' : '✋',
+        label: '自律模式',
+        stateOn: autonomous,
+        stateText: autonomous ? '开' : '关',
+        icon: autonomous ? '◎' : '○',
+        toggle: true,
         disabled: false,
         title: autonomous
-          ? '自律模式：临时移动后会继续工作。点击切换为指挥模式'
-          : '指挥模式：与剑士/弓手相同（右键移动、索敌、战后回驻守点）。点击切换回自律模式'
+          ? '自律模式：开 — 自动采集与作业；右键仅为临时集结。点击关闭（切换为指挥模式）'
+          : '自律模式：关 — 指挥模式，与剑士相同（移动、索敌、驻守）。点击开启自律模式'
       });
     }
     if (unit.team === 'player' && this.game?.canControlUnit?.(unit)) {
-      if (unit.isWorker !== true || !isWorkerAutonomous(unit)) {
-        actions.push({
-          id: 'stop',
-          label: '停止',
-          icon: '■',
-          disabled: false,
-          title: '停止当前命令'
-        });
-      }
+      actions.push({
+        id: 'stop',
+        label: unit.isWorker === true ? '待机' : '停止',
+        icon: '■',
+        disabled: false,
+        title: unit.isWorker === true
+          ? '进入待机：不作业、不接战（X）'
+          : '停止当前命令并在原地驻守'
+      });
     }
     return actions;
   }
@@ -137,7 +140,7 @@ export class UnitActionMenu {
     this.unit = unit;
     this.containerTarget = containerTarget;
     const signature = unit
-      ? `u:${unit.id}:${unit.workerAutonomous === false ? 'manual' : 'auto'}:${actions.map((a) => a.id).join('|')}`
+      ? `u:${unit.id}:${unit.workerAutonomous === false ? 'manual' : 'auto'}:${unit.workerStandby === true ? 'sb' : 'on'}:${actions.map((a) => a.id).join('|')}`
       : `c:${containerTarget?.stationId ?? 'base'}:${actions.map((a) => a.id).join('|')}`;
     if (signature !== this.signature) {
       this.signature = signature;
@@ -178,12 +181,23 @@ export class UnitActionMenu {
     actions.forEach((action) => {
       const button = document.createElement('button');
       button.type = 'button';
-      button.className = action.disabled ? 'unit-action-button is-disabled' : 'unit-action-button';
+      const classes = ['unit-action-button'];
+      if (action.disabled) classes.push('is-disabled');
+      if (action.toggle) classes.push('is-mode-toggle');
+      if (action.toggle && action.stateOn) classes.push('is-on');
+      button.className = classes.join(' ');
       button.dataset.unitAction = action.id;
       button.disabled = Boolean(action.disabled);
       button.title = action.title;
+      if (action.toggle) {
+        button.setAttribute('aria-pressed', action.stateOn ? 'true' : 'false');
+      }
+      const stateHtml = action.toggle
+        ? `<span class="unit-action-state" aria-hidden="true">${action.stateText}</span>`
+        : '';
       button.innerHTML = `<span class="unit-action-icon" aria-hidden="true">${action.icon}</span>`
-        + `<span class="unit-action-label">${action.label}</span>`;
+        + `<span class="unit-action-label">${action.label}</span>`
+        + stateHtml;
       root.appendChild(button);
     });
   }
@@ -220,7 +234,9 @@ export class UnitActionMenu {
       const nextAutonomous = !isWorkerAutonomous(unit);
       this.game?.work?.setWorkerAutonomous?.(unit, nextAutonomous);
       this.game?.hints?.setHint?.(
-        nextAutonomous ? `${unit.name}：自律模式` : `${unit.name}：指挥模式`,
+        nextAutonomous
+          ? `${unit.name}：自律模式已开启`
+          : `${unit.name}：自律模式已关闭（指挥模式）`,
         `worker-mode:${unit.id}`
       );
       this.sync();

@@ -34,6 +34,10 @@ import {
   workerToolZoneSlots
 } from './workerInventory.js';
 import { isEquippedWeaponInSlot, isWeaponItem } from './weapons.js';
+import {
+  PUPPET_COMBAT_MODE,
+  PUPPET_COMBAT_MODE_LABELS
+} from './puppetCombatMode.js';
 import { mountStationStoragePane, STATION_STORAGE_DATASETS } from './stationStorageUi.js';
 import {
   clearCursorPointerOrigin,
@@ -452,6 +456,7 @@ export class BackpackUi {
     const signature = JSON.stringify({
       mode: this.mode,
       unitId: this.unit?.id ?? null,
+      workerCombatMode: this.unit?.workerCombatMode ?? null,
       // 两块网格都要进签名：只算主容器的话，"往基地里放了东西"不会让 DOM 更新。
       containers: entries.map((entry) => [
         entry.key,
@@ -586,6 +591,7 @@ export class BackpackUi {
   }
 
   renderWorkerInventoryGrids(block, entry) {
+    this.renderWorkerCombatMode(block, entry.unit);
     const inventory = entry.inventory;
     const toolSlots = workerToolZoneSlots();
     const cargoStart = workerCargoSlotStart();
@@ -631,6 +637,34 @@ export class BackpackUi {
       cargoGrid.appendChild(this.createSlotElement(entry, inventory.slots[index] ?? null, index));
     }
     block.appendChild(cargoGrid);
+  }
+
+  renderWorkerCombatMode(block, unit) {
+    if (!unit?.isWorker) return;
+    const mode = unit.workerCombatMode ?? PUPPET_COMBAT_MODE.fight;
+    const wrap = document.createElement('div');
+    wrap.className = 'backpack-worker-combat-mode';
+    const head = document.createElement('div');
+    head.className = 'backpack-pane-head';
+    head.innerHTML = '<span class="backpack-pane-title">遇敌策略</span>';
+    wrap.appendChild(head);
+    const row = document.createElement('div');
+    row.className = 'backpack-worker-combat-mode-options';
+    [PUPPET_COMBAT_MODE.avoid, PUPPET_COMBAT_MODE.fight, PUPPET_COMBAT_MODE.auto].forEach((key) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'backpack-worker-combat-mode-btn';
+      button.dataset.puppetCombatMode = key;
+      if (mode === key) button.classList.add('is-active');
+      button.textContent = PUPPET_COMBAT_MODE_LABELS[key];
+      row.appendChild(button);
+    });
+    wrap.appendChild(row);
+    const hint = document.createElement('p');
+    hint.className = 'backpack-grid-hint';
+    hint.textContent = '避战：朝最近友方可攻击建筑撤退；战斗：主动迎战；自动：按战力与敌附魔估算打或逃。';
+    wrap.appendChild(hint);
+    block.appendChild(wrap);
   }
 
   createSlotElement(entry, slot, index) {
@@ -1482,6 +1516,15 @@ export class BackpackUi {
     if (event.target.closest('[data-backpack-close]')) {
       event.preventDefault();
       this.close();
+      return;
+    }
+    const combatModeButton = event.target.closest('[data-puppet-combat-mode]');
+    if (combatModeButton && this.unit?.isWorker === true) {
+      event.preventDefault();
+      const mode = combatModeButton.dataset.puppetCombatMode;
+      if (mode) this.game?.work?.setWorkerCombatMode?.(this.unit, mode);
+      this.markDirty?.();
+      this.refresh();
       return;
     }
     const tab = event.target.closest('[data-backpack-tab]');

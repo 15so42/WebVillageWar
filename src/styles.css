@@ -146,6 +146,41 @@ body.is-meta-open .mobile-box-select-hint {
   font-weight: 1000;
 }
 
+.selection-box.is-resource-cancel {
+  border-color: rgba(255, 140, 120, 0.92);
+  background: rgba(120, 40, 32, 0.14);
+}
+
+.backpack-worker-combat-mode {
+  margin-bottom: 10px;
+}
+
+.backpack-worker-combat-mode-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 4px;
+}
+
+.backpack-worker-combat-mode-btn {
+  flex: 1 1 auto;
+  min-width: 4.5em;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 226, 160, 0.45);
+  background: rgba(30, 26, 16, 0.85);
+  color: #ffeec2;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.backpack-worker-combat-mode-btn.is-active {
+  border-color: rgba(160, 230, 180, 0.75);
+  background: rgba(48, 72, 52, 0.92);
+  color: #d8ffe4;
+}
+
 .resource-box-select-hud__hint {
   color: rgba(247, 244, 232, 0.62);
   font-size: 11px;

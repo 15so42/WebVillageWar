@@ -156,13 +156,13 @@ export class UnitLogicSystem {
       return;
     }
 
-    if (unit.commandMoveGoal) {
+    if (unit.commandMoveGoal && unit.moveGoalUsesDirectSteering === true) {
       if (distance2D(unit.position, unit.commandMoveGoal) > 0.65) {
         unit.target = null;
         unit.attackRangeHoldTargetId = null;
         unit.aiState = 'moving';
         const moved = unit.movement?.moveToward(unit.commandMoveGoal, dt, 0.48, {
-          direct: unit.moveGoalUsesDirectSteering === true
+          direct: true
         });
         if (
           !moved &&
