@@ -8,7 +8,7 @@
 
 // 每条线有自己的白/黑名单；目标容器自身的存放过滤仍然生效。
 
-import { PLAYER_BASE_STATION_ID } from './StationSystem.js';
+import { PLAYER_BASE_STATION_ID, stationUsesFuelSlots } from './StationSystem.js';
 import { importPortLabel, stationNeedsImportPortPicker } from './transportPorts.js';
 
 
@@ -153,6 +153,14 @@ export function furnaceImportPortLabel(port) {
   return importPortLabel({ kind: 'furnace' }, port);
 }
 
+/** 三格设施的人话名字：熔炉 / 食堂 / 采石场 / 深矿井。 */
+const FUELED_STATION_LABELS = {
+  furnace: '熔炉',
+  canteen: '食堂',
+  quarry: '采石场',
+  deepMine: '深矿井'
+};
+
 export function transportStationLabel(stationId, stations, { importPort = null } = {}) {
 
   if (stationId === PLAYER_BASE_STATION_ID) return '基地';
@@ -160,10 +168,11 @@ export function transportStationLabel(stationId, stations, { importPort = null }
   const station = stations?.stationById?.(stationId);
 
   if (station && importPort && stationNeedsImportPortPicker(station)) {
-    const base = station.kind === 'furnace' ? '熔炉' : (station.kind === 'chest' ? '箱子' : '容器');
+    const base = FUELED_STATION_LABELS[station.kind]
+      ?? (station.kind === 'chest' ? '箱子' : '容器');
     return `${base}·${importPortLabel(station, importPort)}`;
   }
-  if (station?.kind === 'furnace') return '熔炉';
+  if (FUELED_STATION_LABELS[station?.kind]) return FUELED_STATION_LABELS[station.kind];
   if (station?.kind === 'manaFurnace') return '魔力炉';
   if (station?.kind === 'chest') return '箱子';
 

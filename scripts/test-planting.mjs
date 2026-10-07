@@ -34,9 +34,17 @@ function check(name, fn) {
 
 const config = () => normalizePlantingConfig(PLANTING_CONFIGS.treePit);
 
+// 种植地块分两类，判据是 `saplingItemId` 是不是 null：
+//   - 需要种子的（树坑）：保留量、净树苗产出、副产物三条纪律全都适用；
+//   - 不需要种子的（菜圃）：只要求"有生长秒数、有产出的节点定义、成本为 0"。
+// 分开断言，而不是把菜圃塞进树苗那一套里蒙过去，也不是删掉旧判据。
+const seedConfigs = () => allPlantingConfigs().filter((entry) => entry.saplingItemId);
+const seedlessConfigs = () => allPlantingConfigs().filter((entry) => !entry.saplingItemId);
+
 check('数据健全：树苗与长成的节点都有定义，长出的节点确实产木材', () => {
   assert.ok(allPlantingConfigs().length > 0);
-  allPlantingConfigs().forEach((entry) => {
+  assert.ok(seedConfigs().length > 0, '至少要有一块需要种子的地块（树坑）');
+  seedConfigs().forEach((entry) => {
     assert.ok(ITEM_DEFINITIONS[entry.saplingItemId], `树苗 ${entry.saplingItemId} 必须有物品定义`);
     const node = RESOURCE_NODE_DEFINITIONS[entry.nodeDefinitionId];
     assert.ok(node, `长成的节点 ${entry.nodeDefinitionId} 必须有定义`);
@@ -47,8 +55,29 @@ check('数据健全：树苗与长成的节点都有定义，长出的节点确�
   assert.equal(plantingConfigForUnitType('furnace'), null, '不是种植设施的建筑不该被当成地块');
 });
 
+check('免种子地块（菜圃）：成本为 0、产出节点有定义、生长与地块上限都合法', () => {
+  assert.ok(seedlessConfigs().length > 0, '至少要有一块免种子地块（菜圃）');
+  seedlessConfigs().forEach((entry) => {
+    assert.equal(entry.saplingItemId, null, '免种子地块不该拿到一个树苗 id');
+    assert.equal(entry.saplingCost, 0, '免种子地块的补种成本必须是 0');
+    assert.equal(entry.reserveSaplings, 0, '免种子地块没有保留量概念');
+    const node = RESOURCE_NODE_DEFINITIONS[entry.nodeDefinitionId];
+    assert.ok(node, `长成的节点 ${entry.nodeDefinitionId} 必须有定义`);
+    assert.ok(node.amount > 0, '作物节点必须有产量');
+    assert.equal(node.tool, null, '作物必须徒手可收，否则没工具就再也收不上粮');
+    assert.ok(entry.growthSeconds > 0 && entry.spawnRadius > 0 && entry.maxGrownNodes >= 1);
+  });
+  // 免种子地块只要有空位就能补种，不需要任何库存
+  const entry = seedlessConfigs()[0];
+  assert.equal(canPlant(entry, { saplings: 0, grownNodes: 0 }).ok, true);
+  assert.equal(
+    canPlant(entry, { saplings: 0, grownNodes: entry.maxGrownNodes }).reason,
+    PLANTING_ERROR.plotFull
+  );
+});
+
 check('方案要求的净产出为正：一棵树收回的树苗 > 补种消耗，木材严格为正', () => {
-  allPlantingConfigs().forEach((entry) => {
+  seedConfigs().forEach((entry) => {
     const result = plantingYield(entry);
     assert.ok(result, `${entry.id} 应当能算出产出`);
     assert.ok(result.netWood > 0, `净木材必须为正，实际 ${result.netWood}`);
@@ -60,7 +89,7 @@ check('方案要求的净产出为正：一棵树收回的树苗 > 补种消耗�
 });
 
 check('副产物配置必须真的能供给树苗（砍树掉苗的频率与上限都要能用）', () => {
-  allPlantingConfigs().forEach((entry) => {
+  seedConfigs().forEach((entry) => {
     const node = RESOURCE_NODE_DEFINITIONS[entry.nodeDefinitionId];
     assert.equal(node.byproduct?.itemId, entry.saplingItemId, '长成的树必须掉这种树苗');
     assert.ok(node.byproduct.perAmount > 0);

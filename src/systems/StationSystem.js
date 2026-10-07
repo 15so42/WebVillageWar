@@ -28,6 +28,7 @@ import {
   STORE_TASK_PRIORITY_MIN
 } from './workTasks.js';
 import { defaultPriorityFor } from './resourcePriority.js';
+import { tickLogicDevices as runLogicDevices, isLogicGate } from './logisticsStations.js';
 
 export const PLAYER_BASE_STATION_ID = 'player-base';
 
@@ -36,14 +37,45 @@ export const STATION_KIND = {
   chest: 'chest',
   furnace: 'furnace',
   manaFurnace: 'manaFurnace',
-  playerBase: 'playerBase'
+  // 食堂与深采设施与熔炉同构（进料格 + 燃料格 + 产物格），
+  // 所以它们共用 `ensureFurnaceInventories` 那一条初始化路径，
+  // 而不是各自再实现一份"三格容器"。
+  canteen: 'canteen',
+  quarry: 'quarry',
+  deepMine: 'deepMine',
+  playerBase: 'playerBase',
+  logicCounter: 'logicCounter',
+  logicGate: 'logicGate',
+  andGate: 'andGate',
+  orGate: 'orGate',
+  notGate: 'notGate'
 };
+
+/** 有"进料 + 燃料 + 产物"三格的设施。 */
+const FUELED_STATION_KINDS = new Set([
+  STATION_KIND.furnace,
+  STATION_KIND.canteen,
+  STATION_KIND.quarry,
+  STATION_KIND.deepMine
+]);
+
+export function stationUsesFuelSlots(kind) {
+  return FUELED_STATION_KINDS.has(kind);
+}
 
 const STATION_SLOTS = {
   [STATION_KIND.manualWorkbench]: () => ITEM_RULES.workbenchInventorySlots,
   [STATION_KIND.chest]: () => ITEM_RULES.chestInventorySlots,
   [STATION_KIND.furnace]: () => ITEM_RULES.furnaceInputSlots,
-  [STATION_KIND.manaFurnace]: () => ITEM_RULES.manaFurnaceFuelSlots ?? 1
+  [STATION_KIND.canteen]: () => ITEM_RULES.canteenInputSlots ?? 1,
+  [STATION_KIND.quarry]: () => ITEM_RULES.mineInputSlots ?? 1,
+  [STATION_KIND.deepMine]: () => ITEM_RULES.mineInputSlots ?? 1,
+  [STATION_KIND.manaFurnace]: () => ITEM_RULES.manaFurnaceFuelSlots ?? 1,
+  [STATION_KIND.logicCounter]: () => 4,
+  [STATION_KIND.logicGate]: () => 1,
+  [STATION_KIND.andGate]: () => 1,
+  [STATION_KIND.orGate]: () => 1,
+  [STATION_KIND.notGate]: () => 1
 };
 
 export function stationKindOf(unitOrType) {
@@ -101,17 +133,23 @@ export class StationSystem {
   }
 
   ensureFurnaceInventories(station) {
-    if (station?.kind !== STATION_KIND.furnace) return;
+    if (!stationUsesFuelSlots(station?.kind)) return;
+    const outputSlots = stationUsesFuelSlots(station.kind)
+      ? (ITEM_RULES.furnaceOutputSlots ?? 1)
+      : (station.kind === STATION_KIND.canteen ? (ITEM_RULES.canteenOutputSlots ?? 1) : (ITEM_RULES.mineOutputSlots ?? 1));
+    const fuelSlots = stationUsesFuelSlots(station.kind)
+      ? (ITEM_RULES.furnaceFuelSlots ?? 1)
+      : (station.kind === STATION_KIND.canteen ? (ITEM_RULES.canteenFuelSlots ?? 1) : (ITEM_RULES.mineFuelSlots ?? 1));
     if (!station.outputInventory) {
       station.outputInventory = new Inventory({
         id: `station:${station.id}:out`,
-        capacity: ITEM_RULES.furnaceOutputSlots ?? 1
+        capacity: outputSlots
       });
     }
     if (!station.fuelInventory) {
       station.fuelInventory = new Inventory({
         id: `station:${station.id}:fuel`,
-        capacity: ITEM_RULES.furnaceFuelSlots ?? 1
+        capacity: fuelSlots
       });
     }
   }
@@ -125,24 +163,80 @@ export class StationSystem {
       return existing;
     }
     const capacity = STATION_SLOTS[kind]();
+    const fueled = stationUsesFuelSlots(kind);
     const station = {
       id: unit.id,
       unit,
       kind,
       inventory: new Inventory({ id: `station:${unit.id}`, capacity }),
-      outputInventory: kind === STATION_KIND.furnace
-        ? new Inventory({ id: `station:${unit.id}:out`, capacity: ITEM_RULES.furnaceOutputSlots ?? 1 })
+      outputInventory: fueled
+        ? new Inventory({
+          id: `station:${unit.id}:out`,
+          capacity: kind === STATION_KIND.canteen
+            ? (ITEM_RULES.canteenOutputSlots ?? 1)
+            : (ITEM_RULES.mineOutputSlots ?? 1)
+        })
         : null,
-      fuelInventory: kind === STATION_KIND.furnace
-        ? new Inventory({ id: `station:${unit.id}:fuel`, capacity: ITEM_RULES.furnaceFuelSlots ?? 1 })
+      fuelInventory: fueled
+        ? new Inventory({
+          id: `station:${unit.id}:fuel`,
+          capacity: kind === STATION_KIND.canteen
+            ? (ITEM_RULES.canteenFuelSlots ?? 1)
+            : (ITEM_RULES.mineFuelSlots ?? 1)
+        })
         : null,
       filter: normalizeChestFilter({ mode: 'blacklist', itemIds: [] }),
+      watchStationId: null,
+      watchItemId: null,
+      compare: 'gt',
+      threshold: 0,
+      active: false,
+      op: kind === STATION_KIND.orGate ? 'or' : (kind === STATION_KIND.notGate ? 'not' : 'and'),
+      inputs: [],
+      registerStationId: null,
+      zeroStationId: null,
+      continueStationId: null,
+      pulseOutStationId: null,
+      mode: kind === STATION_KIND.logicCounter ? 'dec' : null,
       craftPriority: CRAFT_IDLE_PRIORITY,
       storePriority: STORE_PRIORITY,
       claimedBy: null
     };
     this.stations.set(unit.id, station);
     return station;
+  }
+
+  /** 刷新与门、或门、非门。运输线本帧读的是刷新后的通断。 */
+  tickLogicDevices() {
+    return runLogicDevices(this.stations);
+  }
+
+  configureLogicStation(stationId, config = {}) {
+    const station = this.stationById(stationId);
+    if (!station) return { ok: false, reason: 'missing' };
+    if (isLogicGate(station)) {
+      if (config.op === 'and' || config.op === 'or' || config.op === 'not') station.op = config.op;
+      if (config.toggleInput?.stationId) {
+        const itemId = config.toggleInput.itemId || null;
+        const inputs = Array.isArray(station.inputs) ? station.inputs : [];
+        const index = inputs.findIndex((input) => (
+          input?.stationId === config.toggleInput.stationId && (input?.itemId || null) === itemId
+        ));
+        if (index >= 0) inputs.splice(index, 1);
+        else inputs.push({ stationId: config.toggleInput.stationId, itemId });
+        station.inputs = inputs;
+      }
+      return { ok: true, station };
+    }
+    if (station.kind === STATION_KIND.logicCounter) {
+      if (config.mode === 'inc' || config.mode === 'dec') station.mode = config.mode;
+      if (config.registerStationId) station.registerStationId = config.registerStationId;
+      if (config.zeroStationId) station.zeroStationId = config.zeroStationId;
+      if (config.continueStationId) station.continueStationId = config.continueStationId;
+      if (config.pulseOutStationId) station.pulseOutStationId = config.pulseOutStationId;
+      return { ok: true, station };
+    }
+    return { ok: false, reason: 'not-logic' };
   }
 
   /**
@@ -157,7 +251,7 @@ export class StationSystem {
     if (station.kind === STATION_KIND.manaFurnace) {
       this.game?.fuelPower?.unregisterBurner?.(unit);
     }
-    if (station.kind === STATION_KIND.furnace) {
+    if (stationUsesFuelSlots(station.kind)) {
       this.dumpToBase(station.outputInventory);
       this.dumpToBase(station.fuelInventory);
     }
@@ -276,7 +370,9 @@ export class StationSystem {
     this.stations.forEach((station) => {
       if (!this.stationUsable(station)) return;
       if (station.kind === STATION_KIND.playerBase) return;
-      if (station.kind === STATION_KIND.furnace) return;
+      if (stationUsesFuelSlots(station.kind)) return;
+      if (station.kind === STATION_KIND.logicCounter) return;
+      if (isLogicGate(station)) return;
       if (station.kind === STATION_KIND.manualWorkbench) {
         const priority = this.refreshCraftPriority(station);
         errands.push({
@@ -408,7 +504,7 @@ export class StationSystem {
   }
 
   storeOffer(station, carrier = null) {
-    if (station?.kind === STATION_KIND.furnace) return null;
+    if (stationUsesFuelSlots(station?.kind)) return null;
     if (!station) return null;
     const target = station.kind === STATION_KIND.playerBase
       ? this.game?.baseInventory
@@ -613,11 +709,11 @@ export class StationSystem {
   inventoryFor(station, key) {
     if (key === 'base') return this.game?.baseInventory ?? null;
     if (key === 'station-out') {
-      if (station?.kind === STATION_KIND.furnace) return station.outputInventory ?? null;
+      if (stationUsesFuelSlots(station?.kind)) return station.outputInventory ?? null;
       return null;
     }
     if (key === 'station-fuel') {
-      if (station?.kind === STATION_KIND.furnace) return station.fuelInventory ?? null;
+      if (stationUsesFuelSlots(station?.kind)) return station.fuelInventory ?? null;
       return null;
     }
     if (key === 'station') {

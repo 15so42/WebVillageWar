@@ -79,7 +79,10 @@ export function workerCargoUsedSlots(inventory, rules = ITEM_RULES) {
   const start = workerCargoSlotStart(rules);
   let used = 0;
   for (let i = start; i < inventory.slots.length; i += 1) {
-    if (inventory.slots[i]) used += 1;
+    const slot = inventory.slots[i];
+    // 附魔石是装备，不是要送回基地的货。算进占格会让傀儡以为背包满了，
+    // 回家卸货时又卸不走这块石头，于是一直在基地门口打转。
+    if (slot?.itemId && slot.itemId !== 'runeStone') used += 1;
   }
   return used;
 }

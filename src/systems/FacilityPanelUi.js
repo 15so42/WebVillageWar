@@ -174,7 +174,7 @@ export class FacilityPanelUi {
     this.parts.paneTitle.textContent = config.tab === 'tech' ? '科技' : '附魔石';
     this.parts.subtitle.textContent = config.tab === 'tech'
       ? '投入资源解锁科技 · Esc 关闭'
-      : '用材料制作附魔石 · 产出的符文石在基地背包里';
+      : '用材料制作附魔石 · 放进傀儡背包后提供对应附魔';
   }
 
   refresh() {

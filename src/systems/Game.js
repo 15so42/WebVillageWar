@@ -19,16 +19,19 @@ import {
 import {
   BALANCE,
   COOP_ENEMY_SCALING,
+  FACILITY_CONFIGS,
   ISLAND_SPAWN_POINTS,
   ITEM_DEFINITIONS,
   ITEM_RULES,
   LEVEL_DEFINITIONS,
   POWER_RULES,
+  RECIPES,
   RECRUITMENT_ORDER_ITEM_ID,
   RESOURCE_NODE_RULES,
   TEAMS,
   UNIT_DEFINITIONS,
   WOOD_PUPPET_KIT_ITEM_ID,
+  IRON_PUPPET_KIT_ITEM_ID,
   WAVE_BOSS_TYPES,
   WAVE_MONSTER_TYPES,
   enemyManaFactor,
@@ -126,6 +129,7 @@ import {
 import { BackpackUi } from './BackpackUi.js';
 import { UnitActionMenu } from './UnitActionMenu.js';
 import { FacilityPanelUi, facilityPanelFor } from './FacilityPanelUi.js';
+import { TowerPanelUi } from './TowerPanelUi.js';
 import { ResourceDebugPanel } from './ResourceDebugPanel.js';
 import { StationSystem } from './StationSystem.js';
 import { FurnaceTransportPickerUi } from './FurnaceTransportPickerUi.js';
@@ -156,14 +160,24 @@ import {
   advanceDayNight,
   createDayNightState,
   nightBlend,
-  nightRaidModifiers
+  nightRaidModifiers,
+  phaseRemaining
 } from './dayNight.js';
 import { GroundDropSystem } from './GroundDropSystem.js';
 import { ProductionSystem } from './ProductionSystem.js';
 import { FuelPowerSystem } from './FuelPowerSystem.js';
 import { ResearchSystem } from './ResearchSystem.js';
+import { ExpeditionSystem } from './ExpeditionSystem.js';
+import { ExpeditionPanelUi } from './ExpeditionPanelUi.js';
+import { HelpPanelUi } from './HelpPanelUi.js';
 import { PlantingSystem } from './PlantingSystem.js';
 import { FacilitySystem } from './FacilitySystem.js';
+// 防御终端升级、建筑脱战维修、部队口粮、基础拾荒：本轮新增的四条循环。
+// 四者都是独立系统，Game 只做必要接线（不往 Game 堆业务规则）。
+import { TowerUpgradeSystem } from './TowerUpgradeSystem.js';
+import { RepairDispatchSystem } from './RepairDispatchSystem.js';
+import { ArmyNeedsSystem } from './ArmyNeedsSystem.js';
+import { SalvageSystem } from './SalvageSystem.js';
 import {
   WEAPON_ERROR_LABELS,
   baselineWeaponItemFor,
@@ -172,9 +186,19 @@ import {
   weaponStatPatch
 } from './weapons.js';
 import { HotbarUi, HOTBAR_SLOT_COUNT } from './HotbarUi.js';
-import { planDeathDrop } from './drops.js';
+import { planDeathDrop, magicStoneDropFor } from './drops.js';
 import { WorkSystem } from './WorkSystem.js';
 import { isWorkerAutonomous } from './workOrders.js';
+import { PUPPET_COMBAT_MODE, puppetCombatModeSummaryText, setPuppetCombatMode } from './puppetCombatMode.js';
+import { islandFieldCamps, islandOuterSpawnPoints } from './survivalExpansion.js';
+import {
+  createFieldCampState,
+  noteFieldCampDeath,
+  survivalClockText,
+  survivalObjectiveCompactText,
+  survivalObjectiveText
+} from './fieldCamps.js';
+import { setupLogicGateDemo, tickLogicGateDemo } from './logicDemoScene.js';
 import { effectiveManaCapacity, transferManaFromBagStones } from './manaStones.js';
 import {
   RUNE_LOCATION_GROUND,
@@ -1268,10 +1292,25 @@ export class Game {
     this.fuelPower = new FuelPowerSystem(this);
     // 科技与附魔台：研究解锁配方，附魔台用材料制作附魔石（不再依赖附魔卡）。
     this.research = new ResearchSystem(this);
+    // 远征与区域成长：四条路线的真实阶段、追踪、夜袭预报与目标句。
+    // 纯规则在 expedition.js，运行时在这里；不碰 DOM，面板是独立的 ExpeditionPanelUi。
+    this.expeditions = new ExpeditionSystem(this);
     // 树坑与种植：种下树苗 → 长成一棵真实资源节点 → 傀儡去砍 → 自动补种。
     this.planting = new PlantingSystem(this);
     // 需要魔力的功能设施（箭塔 / 食堂）：魔力耗尽就停机。
     this.facilities = new FacilitySystem(this);
+    // 防御终端升级：原地施工、交战暂停、材料原子结算（纯规则在 data/defenseTiers.js）。
+    this.towerUpgrades = new TowerUpgradeSystem(this);
+    // 建筑脱战维修：请求登记 + 优先级分派 + 材料结算（纯规则在 buildingRepair.js）。
+    // 傀儡真正走过去、取料、按批修复的那几个动作由 WorkSystem 执行，
+    // 这里只管"谁该修、修多少、材料从哪来"，不另造第二套抢任务系统。
+    this.repairDispatch = new RepairDispatchSystem(this);
+    // 人类部队的口粮与供餐（纯规则在 armyNeeds.js）。傀儡不吃饭。
+    this.armyNeeds = new ArmyNeedsSystem(this);
+    // 基础拾荒点：极低效率的木材/石料兜底（资源续航，防隐藏死锁）。
+    this.salvage = new SalvageSystem(this);
+    // 自动维修开关：玩家可以关掉自动维修或调整重要度，为主动安排劳动留空间。
+    this.autoBuildingRepair = this.autoBuildingRepair !== false;
     // 符文石背包权威：符文石现在就是背包里的一件普通物品（itemId === 'runeStone'），
     // 放在单位背包里才生效。
     this.runeStones = new RuneStoneSystem(this);
@@ -1295,6 +1334,15 @@ export class Game {
       // 科研站 / 附魔台的独立界面。以前科技与附魔台是背包右侧的两个标签页，
       // 现在改成"走到那栋建筑、点它、从扇形菜单打开"。
       this.facilityPanel = new FacilityPanelUi(this);
+      // 防御终端界面：类型 / 等级 / 用途 / 下一级材料与资格 / 当前耗能 / 施工状态。
+      // 与科研站界面分开，因为它的主体是"某一栋塔"，要跟着那栋塔的施工进度刷新。
+      this.towerPanel = new TowerPanelUi(this);
+      // 远征路线面板：可收起、非暂停、closed 不建 DOM（见 ExpeditionPanelUi）。
+      this.expeditionPanel = new ExpeditionPanelUi(this);
+      // 玩法帮助面板：长文说明的唯一常驻入口（顶部中央只留"眼下"一行）。
+      // 按钮元素在 this.dom 里（下面这一段之后才赋值），所以这里只建面板，
+      // 挂按钮的动作放到本段末尾（见 attachHelpPanelButton）。
+      this.helpPanel = new HelpPanelUi(this);
       this.stationPanel = new StationPanelUi(this);
       this.furnaceTransportPicker = new FurnaceTransportPickerUi(this);
       this.resourceDebugPanel = new ResourceDebugPanel(this);
@@ -1352,6 +1400,10 @@ export class Game {
       battleTime: document.querySelector('#battle-time'),
       unitCount: document.querySelector('#unit-count'),
     spawnPointMeter: document.querySelector('#spawn-point-meter'),
+    powerNetMeter: document.querySelector('#power-net-meter'),
+    powerNetValue: document.querySelector('#power-net-value'),
+    powerNetDetail: document.querySelector('#power-net-detail'),
+    survivalObjective: document.querySelector('#survival-objective'),
     spawnPointCount: document.querySelector('#spawn-point-count'),
       selectedPanel: document.querySelector('#selected-panel'),
       selectedName: document.querySelector('#selected-name'),
@@ -1360,6 +1412,7 @@ export class Game {
       cameraFollowButton: document.querySelector('#selected-camera-follow'),
       selectedRecruitButton: document.querySelector('#selected-recruit'),
       settingsButton: document.querySelector('#game-settings-button'),
+      helpButton: document.querySelector('#game-help-button'),
       commandDock: document.querySelector('#game-command-dock'),
       pauseOverlay: document.querySelector('#pause-overlay'),
       pauseReason: document.querySelector('#pause-reason'),
@@ -1378,6 +1431,8 @@ export class Game {
       mobileBoxSelectHint: document.querySelector('#mobile-box-select-hint')
     };
     this.renderTuningUi = null;
+    // `this.dom` 建好之后才能挂帮助按钮（见上面 helpPanel 的说明）。
+    this.helpPanel?.attachButton?.(this.dom.helpButton);
     this.networkAnalysisUi = new NetworkAnalysisUi({
       getSnapshot: () => this.networkBridge?.getNetworkDiagnosticsSnapshot?.() ?? null
     });
@@ -1465,8 +1520,14 @@ export class Game {
     document.body.classList.add('is-game-active');
     // 生存玩法：把卡牌时代的界面（波次面板 / 银币 / 手牌区）整块压掉，
     // 具体规则在 battleHud.css 里按这个类收敛。
-    document.body.classList.toggle('is-survival-level', this.isSurvivalLevel());
+    document.body.classList.toggle(
+      'is-survival-level',
+      this.isSurvivalLevel() || this.worldConfig?.sceneKey === 'logic-demo'
+    );
     if (this.dom.settingsButton) this.dom.settingsButton.hidden = false;
+    // 帮助入口与设置同排常驻：长文说明必须有一个稳定可发现的去处，
+    // 否则"顶部只留一行"就等于把玩法解释藏起来。
+    if (this.dom.helpButton) this.dom.helpButton.hidden = false;
     this.armReturnNavigationTrap();
     prewarmUnitModelTemplates(unitModelPrewarmEntries());
 
@@ -1492,6 +1553,7 @@ export class Game {
       this.pendingStrategyRewards = [];
       this.strategyEvent = null;
       this.setupSurvivalOpening();
+      setupLogicGateDemo(this);
     }
 
     window.__VILLAGE_WAR_DEBUG__ = {
@@ -1545,6 +1607,9 @@ export class Game {
     this.unitActionMenu?.destroy?.();
     this.hotbar?.destroy?.();
     this.facilityPanel?.destroy?.();
+    this.towerPanel?.destroy?.();
+    this.expeditionPanel?.destroy?.();
+    this.helpPanel?.destroy?.();
     this.stationPanel?.destroy?.();
     this.resourceDebugPanel?.destroy?.();
     this.transportPanel?.destroy?.();
@@ -1587,6 +1652,7 @@ export class Game {
     );
     this.canvas.classList.remove('is-camera-dragging');
     if (this.dom.settingsButton) this.dom.settingsButton.hidden = true;
+    if (this.dom.helpButton) this.dom.helpButton.hidden = true;
     if (this.dom.fpsMeter) this.dom.fpsMeter.hidden = true;
     if (this.dom.pauseOverlay) this.dom.pauseOverlay.hidden = true;
     if (this.dom.perfPanel) this.dom.perfPanel.hidden = true;
@@ -1626,6 +1692,7 @@ export class Game {
       this.effects.update(dt);
       this.updateSelection();
       this.syncUnitActionMenu();
+      this.expeditions?.update?.(dt);
       this.updateHud(dt);
       this.renderScene();
       return;
@@ -1666,6 +1733,7 @@ export class Game {
       // 傀儡作业：清掉已经不在注册表里的傀儡（不扫描资源节点）
       runPerfStep('work', () => this.work.update(dt));
       runPerfStep('workerDebugVisual', () => this.workerDebugVisual?.update(dt));
+      runPerfStep('logicDemo', () => tickLogicGateDemo(this, dt));
       runPerfStep('transport', () => this.transport?.update?.(dt));
       runPerfStep('transportVisual', () => this.transportVisual?.update?.(dt));
       runPerfStep('spawnPoints', () => this.spawnPoints.update(dt));
@@ -1681,6 +1749,15 @@ export class Game {
       runPerfStep('unitVisuals', () => this.updateUnitVisuals(dt));
       runPerfStep('navDebug', () => this.updateNavDebug(dt));
       runPerfStep('unitActionMenu', () => this.syncUnitActionMenu());
+      // 远征采样：每帧一次、按真实帧时间累加，0.5 秒才重建一次快照。
+      // 不能放进 updateHud——它有 0.1 秒节流，跟着它会变成"每 0.1 秒只推进一帧的时间"，
+      // 采样间隔随帧率漂移（60fps 约 3 秒、144fps 约 7 秒才刷新一次）。
+      runPerfStep('expedition', () => this.expeditions?.update?.(dt));
+      // 防御终端升级施工：在 buildings 之后（施工状态已经推进），在 work 之前
+      // （升级会停火，傀儡这一帧读到的 shouldHoldFire 要是最新的）。
+      runPerfStep('towerUpgrade', () => this.towerUpgrades?.update?.(dt));
+      // 塔界面跟着施工进度刷新：签名按 1% 量化，内容没变就不重建 DOM。
+      runPerfStep('towerPanel', () => this.towerPanel?.refresh?.());
       runPerfStep('hud', () => this.updateHud(dt));
       runPerfStep('render', () => this.renderScene());
       perf.endFrame(this.createPerfCounters({ takeNavStats: true }));
@@ -1708,6 +1785,7 @@ export class Game {
       runStep('planting', () => this.planting.update(dt));
       runStep('work', () => this.work.update(dt));
       runStep('workerDebugVisual', () => this.workerDebugVisual?.update(dt));
+      runStep('logicDemo', () => tickLogicGateDemo(this, dt));
       runStep('transport', () => this.transport?.update?.(dt));
       runStep('transportVisual', () => this.transportVisual?.update?.(dt));
       runStep('spawnPoints', () => this.spawnPoints.update(dt));
@@ -1723,6 +1801,16 @@ export class Game {
       runStep('unitVisuals', () => this.updateUnitVisuals(dt));
       runStep('navDebug', () => this.updateNavDebug(dt));
       runStep('unitActionMenu', () => this.syncUnitActionMenu());
+      // 远征采样（理由同 perf 分支）
+      runStep('expedition', () => this.expeditions?.update?.(dt));
+      // 建筑脱战维修：登记 + 按优先级给空闲傀儡派活（0.5 秒一次有限采样）
+      runStep('repair', () => this.repairDispatch?.update?.(dt));
+      // 部队口粮：饱食推进 + 随身口粮/食堂供餐 + 互斥减益（0.5 秒一次有限采样）
+      runStep('armyNeeds', () => this.armyNeeds?.update?.(dt));
+      // 基础拾荒点：模拟时间计时，暂停不产出（放在 drops 之前，本帧新冒的东西当帧就在地上）
+      runStep('salvage', () => this.salvage?.update?.(dt));
+      runStep('towerUpgrade', () => this.towerUpgrades?.update?.(dt));
+      runStep('towerPanel', () => this.towerPanel?.refresh?.());
       runStep('hud', () => this.updateHud(dt));
       runStep('render', () => this.renderScene());
     }
@@ -2694,7 +2782,15 @@ export class Game {
       unit.controllerPlayerId = unit.ownerPlayerId ?? this.localPlayerSlot;
     }
     this.applyUnitPlayerColor(unit);
-    return this.unitRegistry.register(unit, options);
+    const registered = this.unitRegistry.register(unit, options);
+    // 科技的单位属性修正按唯一 source 重挂（幂等）：箭塔/弩炮射程、移动战斗单位的
+    // 武器耐久折扣都在这里落到**这一个单位**身上，不改共享 UNIT_DEFINITIONS。
+    this.research?.applyUnitTechAttributes?.(unit);
+    // 人类部队的口粮需求在**成功归队**时初始化（设计文档第三节 B）。
+    // 判据是 definition.foodConsumer，所以建筑/傀儡/敌人不会被喂饱；
+    // initializeFor 自己按 unit id 幂等，重复登记不会每次刷新都回满。
+    if (unit.team === TEAMS.PLAYER) this.armyNeeds?.initializeFor?.(unit);
+    return registered;
   }
 
   applyUnitPlayerColor(unit, explicitIndex = null) {
@@ -3015,10 +3111,15 @@ export class Game {
       // 敌方单位若真有背包或符文石，同样按方案第 7 节掉落；没有则什么也不发生。
       // 这里不是"给所有装饰武器模型自动生成战利品"——只有真实持有物才会落地。
       this.dropUnitBelongingsOnDeath(unit);
+      this.resolveFieldCampDeath(unit);
     } else if (unit?.team === TEAMS.PLAYER) {
       // 死亡掉落（方案第 7 节）：背包里的东西与身上的符文石一起落地。
       // 不再是"石头留在阵亡单位档案里"，也不自动传回基地。
       this.dropUnitBelongingsOnDeath(unit);
+      // 玩家建筑被打毁 → 残骸回收（约 20% 的真实投入落地，需要傀儡搬运）。
+      // 主动拆除走 SalvageSystem.demolishBuilding，那条已经打过标记，
+      // 所以这里不会对同一栋建筑再结算一次。
+      if (unit.isBuilding === true) this.salvage?.settleWreck?.(unit);
       // 单位阵亡时必须关掉它的背包，避免面板停在一个已经不存在的单位上。
       this.backpack?.closeIfUnit?.(unit);
       // 科研站 / 附魔台被拆掉时同理：界面不能停在一栋不存在的建筑上。
@@ -3056,6 +3157,8 @@ export class Game {
     const stoneStacks = this.runeStones?.detachStonesOnDeath?.(unit, { x, z, dropId }) ?? [];
     stoneStacks.forEach((stack) => stacks.push(stack));
     this.rollWildlifeEnchantmentDrops(unit).forEach((stack) => stacks.push(stack));
+    const magicStone = magicStoneDropFor(unit);
+    if (magicStone) stacks.push(magicStone);
 
     // 傀儡背包里的货物与工具：已经搬进背包的跟着背包掉落，
     // 尚未取出的留在源容器（资源节点的剩余量归 ResourceNodeSystem）。
@@ -3143,18 +3246,10 @@ export class Game {
     const unit = this.pickSelectableUnit(clientX, clientY, { includeEnemies: false });
     if (unit?.alive && unit.team === TEAMS.PLAYER) {
       if (unit.isBuilding) {
-        if (stationPanelFor(unit)) {
-          this.facilityPanel?.close?.();
-          this.stationPanel?.toggleForUnit?.(unit);
-          return true;
-        }
-        if (facilityPanelFor(unit)) {
-          this.stationPanel?.close?.();
-          this.facilityPanel?.toggleForUnit?.(unit);
-          return true;
-        }
+        if (this.toggleBuildingPanel(unit)) return true;
       } else {
         this.facilityPanel?.close?.();
+        this.towerPanel?.close?.();
         this.stationPanel?.close?.();
         this.backpack?.openForUnit?.(unit);
         return true;
@@ -3163,7 +3258,41 @@ export class Game {
     return false;
   }
 
+  /**
+   * 建筑的默认界面入口（B 键与"点建筑"共用同一条路）。
+   *
+   * 优先级：容器背包（要装货的建筑）> 防御终端 > 设施（科研站 / 附魔台）。
+   * 防御终端排在前面的理由：塔没有进料格，没有"背包"这回事，
+   * 而它唯一能做的事就是升级——把升级页藏到第三层入口是没必要的绕路。
+   */
+  toggleBuildingPanel(unit) {
+    if (!unit?.isBuilding) return false;
+    if (stationPanelFor(unit)) {
+      this.facilityPanel?.close?.();
+      this.towerPanel?.close?.();
+      this.stationPanel?.toggleForUnit?.(unit);
+      return true;
+    }
+    if (this.towerUpgrades?.status?.(unit)) {
+      this.stationPanel?.close?.();
+      this.facilityPanel?.close?.();
+      this.towerPanel?.toggleForUnit?.(unit);
+      return true;
+    }
+    if (facilityPanelFor(unit)) {
+      this.stationPanel?.close?.();
+      this.towerPanel?.close?.();
+      this.facilityPanel?.toggleForUnit?.(unit);
+      return true;
+    }
+    return false;
+  }
+
   toggleInventoryShortcut() {
+    if (this.towerPanel?.isOpen()) {
+      this.towerPanel.close();
+      return true;
+    }
     if (this.stationPanel?.isOpen()) {
       this.stationPanel.close();
       return true;
@@ -3185,18 +3314,10 @@ export class Game {
     const unit = this.selectedUnits?.length === 1 ? this.selectedUnit : null;
     if (unit?.alive && unit.team === TEAMS.PLAYER) {
       if (unit.isBuilding) {
-        if (stationPanelFor(unit)) {
-          this.facilityPanel?.close?.();
-          this.stationPanel?.toggleForUnit?.(unit);
-          return true;
-        }
-        if (facilityPanelFor(unit)) {
-          this.stationPanel?.close?.();
-          this.facilityPanel?.toggleForUnit?.(unit);
-          return true;
-        }
+        if (this.toggleBuildingPanel(unit)) return true;
       } else {
         this.facilityPanel?.close?.();
+        this.towerPanel?.close?.();
         this.stationPanel?.close?.();
         this.backpack?.openForUnit?.(unit);
         return true;
@@ -3205,6 +3326,7 @@ export class Game {
 
     if (this.containerMenuTarget) {
       this.facilityPanel?.close?.();
+      this.towerPanel?.close?.();
       this.stationPanel?.close?.();
       this.backpack?.toggleBase?.();
       return true;
@@ -3818,17 +3940,24 @@ export class Game {
     // 规划器判断「缺工具」时读的就是这份背包。
     const workerInventory = this.createWorkerBootstrapInventory(worker.id);
     this.work.registerWorker(worker, { inventory: workerInventory });
+    // 开局唯一的工人默认「避战」：用户要求初始工人**优先经营**，而不是在采集路上
+    // 跟野狼/路边哨兵换血。复用现有三种遇敌策略，玩家随时可以在背包里切回
+    // 战斗/自动（`maxNodeThreat` 会把危险资源点直接排除，夜袭压力由基地与箭塔承担）。
+    // 必须放在 registerWorker 之后：`isWorker` 是 WorkSystem.registerWorker 打上的标记，
+    // 提前调用会被 setPuppetCombatMode 的 `!unit.isWorker` 静默拒绝。
+    setPuppetCombatMode(worker, PUPPET_COMBAT_MODE.avoid);
     // 默认采集需求：交给资源优先级那张表算（需求 8：「Ai 根据优先级去做相关任务」）。
     // 这里只给一组默认优先级，具体派谁、去哪棵树仍然由调度器按可执行性与距离决定，
     // 但那一步的权重与目标库存现在完全来自"玩家在资源 tab 上点出来的优先级"，
     // 不再是写死的一份数组——否则界面调完了后台还在按旧表派活。
     this.resourcePriorities = this.resourcePriorities ?? {};
     // 开局不按资源优先级表派活。傀儡只采玩家框选过的资源点。
-    // 海岛不跑波次，敌人由这 4 个刷怪点持续产生，全部摧毁才通关。
-    this.spawnPoints.attach(ISLAND_SPAWN_POINTS);
+    // 海岛不跑波次。内圈手摆，外圈在陆地上再加四座巢穴；全部摧毁才通关。
+    this.spawnPoints.attach([...ISLAND_SPAWN_POINTS, ...islandOuterSpawnPoints()]);
     // 巢穴用惰性建筑类型 spawnPointNest：早前拿 spiderEgg 当占位，
     // 它其实是会孵化的活单位，会衍生出不带点位归属的敌人（验收 20→24）。
     this.spawnSpawnPointNests();
+    this.spawnFieldCamps();
     // 可招募的战斗单位**不再开局摆在野外**：它们的唯一来源是打掉刷怪点，
     // 打掉哪个点就在那个点位上留下一支（见 grantSpawnPointRecruitReward）。
     // 需求原文：「可招募敌人改成击破刷怪点时生成在刷怪点，不默认到处都有」。
@@ -3836,6 +3965,10 @@ export class Game {
     this.baseInventory.add('wood', 20);
     this.baseInventory.add('stone', 12);
     this.baseInventory.add('manaCore', 1);
+    // 起始口粮：12 份。设计文档要求"帮助首次招募平稳进入食品链"，
+    // 同时明确"不要附带新增开局人类护卫"——所以只给粮，不给人。
+    // 12 份 × 40 饱食 ≈ 一名士兵 6.4 个满周期，够把菜圃与食堂建起来。
+    this.baseInventory.add('ration', 12);
     return worker;
   }
 
@@ -3858,6 +3991,13 @@ export class Game {
     });
     unit.ownerPlayerId = options.ownerPlayerId ?? this.localPlayerSlot;
     unit.controllerPlayerId = unit.ownerPlayerId;
+    // 「实际投入」的唯一权威：建造那一刻支付的材料清单。
+    // 三级回收、拆除退款都读它——凭等级猜一份资源会返出没付过的成本
+    // （免费生成对象、奖励对象、初始基地都不该产出无本资源）。
+    unit.paidInvestment = (options.paidInvestment ?? []).map((entry) => ({
+      itemId: entry.itemId,
+      count: Math.max(0, Math.floor(Number(entry.count) || 0))
+    }));
     assignUnitSourceCard(unit, options.sourceCard);
     this.applySummonCardLevel(unit, options.sourceCard);
     this.abilitiesFor(unit)?.applyNewBuildingDurability(unit);
@@ -4214,6 +4354,71 @@ export class Game {
     return nests;
   }
 
+  /** 一次性路边营地。成员不挂刷怪点，所以不占巢穴名额，也不会挡住通关。 */
+  spawnFieldCamps() {
+    this.fieldCampState = createFieldCampState(islandFieldCamps());
+    const spawned = [];
+    this.fieldCampState.camps.forEach((camp) => {
+      const guardRadius = Math.max(0, Number(camp.guardRadius) || 0);
+      camp.members.forEach((member, index) => {
+        const unit = this.spawnEnemyAt(member.type, { x: camp.x, z: camp.z }, {
+          radius: 1.1,
+          index,
+          difficulty: 1,
+          // 守卫领地：营地成员只打走进这块领地的人，不会跨岛追进基地。
+          // 这是本轮修掉"开局 1.4 秒唯一傀儡被接战"的关键一条（详见
+          // docs/DSH_OPENING_FREEDOM_RESULT.md 第 2 节）。
+          guardRadius
+        });
+        if (!unit) return;
+        unit.fieldCampId = camp.id;
+        unit.spawnPointId = null;
+        unit.moveGoal = null;
+        unit.raidResumeGoal = null;
+        unit.commandMoveGoal = null;
+        spawned.push(unit);
+      });
+      this.effects?.spawnRing?.(
+        { x: camp.x, y: this.groundHeightAt({ x: camp.x, z: camp.z }), z: camp.z },
+        '#d2b981',
+        1.4,
+        0.7
+      );
+    });
+    return spawned;
+  }
+
+  resolveFieldCampDeath(unit) {
+    const campId = unit?.fieldCampId;
+    if (!campId || !this.fieldCampState) return null;
+    const result = noteFieldCampDeath(this.fieldCampState, campId, this.enemyUnits);
+    if (!result.justCleared) return result;
+    const camp = result.camp;
+    const stacks = (camp.drops ?? [])
+      .filter((drop) => drop?.itemId && drop.count > 0)
+      .map((drop) => ({ itemId: drop.itemId, count: drop.count }));
+    if (stacks.length) {
+      this.drops?.spawnFromStacks?.(stacks, { x: camp.x, z: camp.z });
+    }
+    this.hints?.setHintOnce?.(`${camp.name}已清空，战利品在原地。`, `camp:${camp.id}`);
+    return result;
+  }
+
+  /**
+   * 夜袭路线的**内部锚点**。
+   *
+   * 岛图上每座刷怪点带一个 `raidRally`（早期叫 `defenseSlot`）。它唯一的作用是
+   * `orderEnemyAttack()` 里的第一段路：被夜袭点名的敌方单位先走到这个点，再扑向基地。
+   * 这是"敌军从哪个方向压过来"的路线数据，属于内部实现。
+   *
+   * **它不再是玩家建筑的落点。** 历史上这个字段兼任箭塔吸附位（`defenseSnapPoint`）
+   * 与「箭塔位」标签（`placeDefenseSlotMarkers`），玩家明确否定这种预设塔位引导，
+   * 所以吸附、地面圈、世界标签、`built` 建成状态全部移除。防御建筑由玩家在合法地形上
+   * 自由选址，合法性仍然由碰撞、地形、供能范围与成本决定（见 `Game.canPlaceAt` 与
+   * docs/DSH_OPENING_FREEDOM_RESULT.md 第 1 节）。
+   */
+
+
   // 在指定位置生成一个敌人，供刷怪点使用。
   // 走的是和波次生成完全相同的注册路径（属性、难度、魔力、状态条、注册表），
   // 只是来源不是波次配置，而是某个刷怪点；unit.spawnPoint 是这个点和敌人的唯一关联，
@@ -4237,6 +4442,13 @@ export class Game {
     // 供拴绳/游荡使用）。刷怪点的归属必须用独立字段，否则两套语义会互相覆盖，
     // 表现为「按点位统计存活数」时多出一个 "[object Object]" 分组。
     unit.spawnPointId = options.spawnPointId ?? null;
+    // 守卫领地（路边营地 / 野生动物）：只打进入领地的目标，不会跨岛追进基地。
+    // 巢穴夜袭单位不传这项，保持"一路扑基地"的既有行为。
+    const guardRadius = Math.max(0, Number(options.guardRadius) || 0);
+    if (guardRadius > 0) {
+      unit.guardRadius = guardRadius;
+      unit.homePoint = new THREE.Vector3(basePoint.x, 0, basePoint.z);
+    }
     this.orderEnemyAttack(unit, index, 6);
     return unit;
   }
@@ -4559,9 +4771,86 @@ export class Game {
       )
     );
     goal.y = this.groundHeightAt(goal);
-    unit.moveGoal = goal;
     unit.commandMoveGoal = null;
     unit.moveGoalUsesDirectSteering = false;
+    const rally = this.raidRallyFor(unit.spawnPointId);
+    if (rally) {
+      const gate = new THREE.Vector3(rally.x, 0, rally.z);
+      gate.y = this.groundHeightAt(gate);
+      unit.raidResumeGoal = goal;
+      unit.moveGoal = gate;
+      return;
+    }
+    unit.raidResumeGoal = null;
+    unit.moveGoal = goal;
+  }
+
+  /** 夜袭路线的内部锚点（先到这里，再扑基地）。与玩家建筑选址无关。 */
+  raidRallyFor(spawnPointId) {
+    if (!spawnPointId) return null;
+    const rally = this.spawnPoints?.pointById?.(spawnPointId)?.raidRally;
+    if (!rally || !Number.isFinite(rally.x) || !Number.isFinite(rally.z)) return null;
+    return rally;
+  }
+
+  hasFinishedBuilding(type) {
+    return (this.friendlyUnits ?? []).some((unit) => (
+      unit?.alive && unit.underConstruction !== true && unit.type === type
+    ));
+  }
+
+  /** 已经建成、且确实是防御塔的那一类建筑（等级塔也算）。 */
+  hasFinishedDefenseTower() {
+    return (this.friendlyUnits ?? []).some((unit) => (
+      unit?.alive
+      && unit.underConstruction !== true
+      && Boolean(FACILITY_CONFIGS[unit.type]?.towerId)
+    ));
+  }
+
+  manaFurnaceHasFuel() {
+    const furnaces = (this.friendlyUnits ?? []).filter((unit) => (
+      unit?.alive && unit.underConstruction !== true && unit.type === 'manaFurnace'
+    ));
+    if (!furnaces.length) return false;
+    return furnaces.some((unit) => {
+      const status = this.fuelPower?.statusOf?.(unit);
+      return (status?.fuelCount ?? 0) > 0 || (status?.manaStored ?? 0) > 0;
+    });
+  }
+
+  defenseTowerPoweredDown() {
+    return (this.friendlyUnits ?? []).some((unit) => (
+      unit?.alive
+      && (unit.type === 'arrowTower' || unit.type === 'ballista')
+      && unit.poweredDown === true
+    ));
+  }
+
+  survivalObjectiveInput() {
+    const base = this.playerBase?.position;
+    return {
+      camps: this.fieldCampState?.camps ?? [],
+      clearedIds: this.fieldCampState?.cleared ?? new Set(),
+      isNight: this.dayNight?.phase === 'night',
+      secondsRemaining: phaseRemaining(this.dayNight),
+      baseX: base?.x ?? 4,
+      baseZ: base?.z ?? 40,
+      nests: (this.spawnPoints?.points ?? []).map((point) => ({
+        id: point.id,
+        name: point.name,
+        x: point.x,
+        z: point.z,
+        cleared: point.cleared === true,
+        gateNestId: point.gateNestId || null
+      })),
+      hasFurnace: this.hasFinishedBuilding('furnace'),
+      hasManaFurnace: this.hasFinishedBuilding('manaFurnace'),
+      manaFurnaceFueled: this.manaFurnaceHasFuel(),
+      hasDefenseTower: this.hasFinishedDefenseTower(),
+      towerPoweredDown: this.defenseTowerPoweredDown(),
+      transportLinkCount: this.transport?.links?.length ?? 0
+    };
   }
 
   /**
@@ -4620,6 +4909,15 @@ export class Game {
       this.attachUnitStatus(unit);
       unit.isWildlife = true;
       unit.spawnPoint = unit.position.clone();
+      // 野兽的领地半径：数据里一直有 `radius`，但从来没接到行为上，于是"被咬一口 →
+      // 它追着你一路进基地、永不脱战"。接上之后它只在自己的地盘里捕猎，超出就回窝，
+      // 基地周围因此有真正的安全经营空间，同时野外仍然有风险。
+      const territory = Math.max(0, Number(spawn.radius) || 0);
+      if (territory > 0) {
+        unit.guardRadius = territory;
+        unit.homePoint = new THREE.Vector3(spawn.x, 0, spawn.z);
+        unit.homePoint.y = this.groundHeightAt(unit.homePoint);
+      }
       unit.attackTimer += index * 0.08;
       this.registerUnit(unit);
       this.effects.spawnRing(unit.position, spawn.type === 'bear' ? '#9b6b45' : '#8aa0a8', 0.66, 0.5);
@@ -5047,8 +5345,19 @@ export class Game {
     unit.nextRouteRepathAt = this.elapsedTime + routeRepathCooldown(unit, delay);
   }
 
+  /**
+   * 把任意 `{x,z}` 落点吸附到边界内、贴合地面、并保证可走。
+   *
+   * 入参既接受 THREE.Vector3，也接受普通 `{x,z}`（拾荒点、矿址选址这类
+   * 纯数据位置）。以前这里直接 `point.clone()`，于是任何传普通对象的调用方
+   * 都会在构造阶段抛 `point.clone is not a function`，把整局游戏打挂——
+   * 同一个 API 不该一半接受 Vector3、一半要求 Vector3。
+   */
   resolveWalkablePoint(point, padding = 0) {
-    const resolved = point.clone();
+    const source = point ?? { x: 0, z: 0 };
+    const resolved = typeof source.clone === 'function'
+      ? source.clone()
+      : new THREE.Vector3(Number(source.x) || 0, Number(source.y) || 0, Number(source.z) || 0);
     void padding;
     const bounds = this.battlefieldBounds();
     resolved.x = clamp(resolved.x, bounds.minX, bounds.maxX);
@@ -5523,6 +5832,9 @@ export class Game {
 
     const workers = this.grantSpawnPointWorkerReward(point, x, z);
     const recruits = this.grantSpawnPointRecruitReward(point, x, z);
+    // 远征：清掉内圈巢穴当帧发"区域图纸到手"提示，并警告外圈解除封印开始出兵。
+    // 这句话刻意**不说**"这个方向安全了"——外巢还在，只是从封印变成会出兵。
+    const expedition = this.expeditions?.onSpawnPointCleared?.(point) ?? null;
 
     const label = [
       drop ? '遗物落地' : null,
@@ -5543,7 +5855,7 @@ export class Game {
         baseHeight: 0.5
       });
     }
-    return { drop, workers, recruits };
+    return { drop, workers, recruits, expedition };
   }
 
   /**
@@ -5755,17 +6067,25 @@ export class Game {
     };
   }
 
-  /**
-   * 使用「木傀儡」套件：消耗一件合成产物，在基地旁召唤一支木傀儡（含斧/镐背包）。
-   */
   summonWoodPuppetFromKit({ source = null } = {}) {
+    return this.summonPuppetFromKit(WOOD_PUPPET_KIT_ITEM_ID, 'woodPuppet', { source });
+  }
+
+  summonIronPuppetFromKit({ source = null } = {}) {
+    return this.summonPuppetFromKit(IRON_PUPPET_KIT_ITEM_ID, 'ironPuppet', { source });
+  }
+
+  /**
+   * 使用傀儡套件：消耗一件合成产物，在基地旁召唤对应工人（含斧/镐背包）。
+   */
+  summonPuppetFromKit(kitItemId, unitType, { source = null } = {}) {
     if (!this.isSurvivalLevel()) return { ok: false, reason: 'not_survival_level' };
-    if (!UNIT_DEFINITIONS.woodPuppet || !this.work) return { ok: false, reason: 'unavailable' };
-    const from = this.resolveItemSource(WOOD_PUPPET_KIT_ITEM_ID, source);
+    if (!UNIT_DEFINITIONS[unitType] || !this.work) return { ok: false, reason: 'unavailable' };
+    const from = this.resolveItemSource(kitItemId, source);
     if (!from?.inventory) return { ok: false, reason: 'not_in_stock' };
     const slotIndex = Number.isInteger(from.slotIndex)
       ? from.slotIndex
-      : (from.inventory.slots?.findIndex((slot) => slot?.itemId === WOOD_PUPPET_KIT_ITEM_ID) ?? -1);
+      : (from.inventory.slots?.findIndex((slot) => slot?.itemId === kitItemId) ?? -1);
     if (slotIndex < 0) return { ok: false, reason: 'not_in_stock' };
     const removed = from.inventory.removeAt(slotIndex, 1);
     if (!removed.ok) return { ok: false, reason: 'not_in_stock' };
@@ -5773,10 +6093,10 @@ export class Game {
     const spawnPoint = this.playerBase.position.clone().add(new THREE.Vector3(-3.6, 0, 3.4));
     const position = this.resolveWalkablePoint(spawnPoint);
     position.y = this.groundHeightAt(position);
-    this.summonUnits('woodPuppet', 1, position, 0.7, { select: false });
-    const unit = this.findNewestFriendlyUnit('woodPuppet');
+    this.summonUnits(unitType, 1, position, 0.7, { select: false });
+    const unit = this.findNewestFriendlyUnit(unitType);
     if (!unit) {
-      from.inventory.add(WOOD_PUPPET_KIT_ITEM_ID, 1);
+      from.inventory.add(kitItemId, 1);
       return { ok: false, reason: 'spawn_failed' };
     }
     const workerInventory = this.createWorkerBootstrapInventory(unit.id);
@@ -5787,7 +6107,7 @@ export class Game {
     this.baseStorage?.markDirty?.();
     this.hotbar?.refresh?.();
     this.backpack?.markDirty?.();
-    return { ok: true, unit, itemId: WOOD_PUPPET_KIT_ITEM_ID };
+    return { ok: true, unit, itemId: kitItemId };
   }
 
   /**
@@ -5820,6 +6140,11 @@ export class Game {
     unit.statusUiDirty = true;
     // 招募后它是自己人了：别让"野生动物/敌人"那套按类型做的加成继续套用。
     unit.isWildlife = false;
+    // 归队即享受己方科技（军械保养的耐久折扣）：换队发生在 register 之后，
+    // 不在这一步重挂的话，招募来的单位会一直按"敌方"口径消耗耐久。
+    this.research?.applyUnitTechAttributes?.(unit);
+    // 成功归队时初始化口粮需求：新兵带着满饱食度入列，之后按模拟时间掉。
+    this.armyNeeds?.initializeFor?.(unit);
 
     this.effects?.spawnRing?.(unit.position, '#ffe6a3', 1.0, 0.62);
     this.effects?.spawnDamageNumber?.(unit.position, 1, {
@@ -6188,6 +6513,9 @@ export class Game {
     unit.weaponItemId = itemId;
     if (instanceId != null) unit.weaponInstanceId = instanceId;
     this.syncEquippedWeaponDurabilityToBag(unit);
+    // 换武器会重写 durabilityCost 的**基础值**，科技乘数必须跟着重挂一次，
+    // 否则"换装后折扣消失"（先按唯一 source 移除再加，不会叠乘）。
+    this.research?.applyUnitTechAttributes?.(unit);
     return patch;
   }
 
@@ -6351,7 +6679,18 @@ export class Game {
     if (!placing || !point) return { ok: false, reason: 'not_placing', label: '没有正在放置的建筑' };
     const definition = UNIT_DEFINITIONS[placing.unitType];
     const radius = Math.max(0.2, Number(definition?.collisionRadius) || 0.8);
-    if (!this.world?.isWalkable?.(point.x, point.z)) {
+    // 深采设施必须在**矿点旁边**：矿点就是那个可识别的矿址标记，
+    // 而且它自己有寻路阻挡，所以建筑落点要按半径而不是按圆心判可走。
+    // 不允许"随处放一台凭空造铁的机器"。
+    const site = this.resolveResourceSiteFor(placing.unitType, point);
+    if (definition?.resourceSiteRequired === true && !site) {
+      return {
+        ok: false,
+        reason: 'no_resource_site',
+        label: `${definition.name}要建在${definition.resourceSiteName ?? '矿点'}旁边`
+      };
+    }
+    if (!this.canStructureStandAt(point, radius)) {
       return { ok: false, reason: 'blocked', label: '这里放不下（地面不可走）' };
     }
     const supplier = this.power?.nearestSupplier?.(point.x, point.z) ?? null;
@@ -6361,9 +6700,95 @@ export class Game {
       reason: 'none',
       label: '',
       radius,
+      resourceSite: site,
       supplierId: inRange ? supplier.supplier.id : null,
       inPowerRange: inRange
     };
+  }
+
+  /**
+   * 深采设施要求的矿点：在定义给的半径内找同矿种的选址资格。
+   *
+   * 两条来源，优先级从高到低：
+   *   1. **还活着的资源节点**（地表富集层还在，深采与手采可以并存）；
+   *   2. **贫矿址**（富集层已经采完，但地质还在）。
+   *
+   * 第 2 条是资源续航的关键：没有它，最后一块石堆被采完的那一刻，
+   * 采石场就再也建不起来了——"地表采完 → 转向深采"这条路会直接断在终点。
+   */
+  resolveResourceSiteFor(unitType, point) {
+    const definition = UNIT_DEFINITIONS[unitType];
+    const wanted = definition?.resourceSiteResource ?? null;
+    if (!wanted) return null;
+    const radius = Math.max(2, Number(definition.resourceSiteRadius) || 8);
+    const nodes = this.resourceNodes?.activeNodes?.() ?? [];
+    let best = null;
+    nodes.forEach((node) => {
+      if ((node.amount ?? 0) <= 0) return;
+      if (node.resource !== wanted) return;
+      const distance = Math.hypot((node.x ?? 0) - point.x, (node.z ?? 0) - point.z);
+      if (distance > radius) return;
+      if (!best || distance < best.distance) best = { node, distance, kind: 'rich' };
+    });
+    if (best) return best;
+    const depleted = this.resourceNodes?.depletedOreSiteNear?.(wanted, point, radius) ?? null;
+    if (depleted) return { site: depleted.site, node: null, distance: depleted.distance, kind: 'depleted' };
+    return null;
+  }
+
+  /**
+   * 给深采设施找一个真正放得下的落点。
+   *
+   * 为什么不能直接返回矿点坐标：采石场/深矿井有 `collisionRadius`，
+   * 而资源节点自己就是寻路阻挡（即使采空，残堆也在原地）。
+   * 直接在节点中心放置会被 `canStructureStandAt` 拒绝，玩家看到的
+   * 就是"站在矿边上怎么点都放不下"。所以绕一圈找第一个合法落点。
+   */
+  findResourceSiteSpot(unitType, point, { rings = [2.6, 3.6, 4.6, 5.6], spokes = 8 } = {}) {
+    const origin = {
+      x: Number(point?.x) || 0,
+      z: Number(point?.z) || 0
+    };
+    const definition = UNIT_DEFINITIONS[unitType] ?? null;
+    if (!definition?.resourceSiteRequired) return null;
+    const radius = Math.max(0.2, Number(definition.collisionRadius) || 0.8);
+    const candidates = [{ x: origin.x, z: origin.z }];
+    (rings ?? []).forEach((ring) => {
+      const count = Math.max(1, Math.floor(spokes));
+      for (let i = 0; i < count; i += 1) {
+        const angle = (i / count) * Math.PI * 2;
+        candidates.push({
+          x: origin.x + Math.cos(angle) * ring,
+          z: origin.z + Math.sin(angle) * ring
+        });
+      }
+    });
+    for (const candidate of candidates) {
+      const resolved = this.resolveWalkablePoint?.(candidate) ?? candidate;
+      const spot = new THREE.Vector3(
+        Number(resolved.x) || 0,
+        this.groundHeightAt({ x: resolved.x, z: resolved.z }) ?? 0,
+        Number(resolved.z) || 0
+      );
+      if (!this.resolveResourceSiteFor(unitType, spot)) continue;
+      if (!this.canStructureStandAt(spot, radius)) continue;
+      return { point: spot, site: this.resolveResourceSiteFor(unitType, spot) };
+    }
+    return null;
+  }
+
+  /**
+   * 建筑能不能站在这个点上：按**半径**采样可走性，而不是只看圆心。
+   * 资源节点自己就是寻路阻挡，只判圆心会让"矿点旁边"整片都放不下。
+   */
+  canStructureStandAt(point, radius = 0.8) {
+    if (!this.world?.isWalkable) return true;
+    if (!this.world.isWalkable(point.x, point.z)) return false;
+    const reach = Math.max(0.2, Number(radius) || 0.8) * 0.75;
+    const probes = [
+      [reach, 0], [-reach, 0], [0, reach], [0, -reach]
+    ];
+    return probes.some(([dx, dz]) => this.world.isWalkable(point.x + dx, point.z + dz));
   }
 
   /** 放置预览跟着指针走，并用颜色交代"这里能不能放"。 */
@@ -6371,6 +6796,8 @@ export class Game {
     if (!this.placingItem) return null;
     const point = this.groundPointFromClient(clientX, clientY);
     if (!point) return null;
+    // 没有任何吸附：落点就是指针指到的那块地面。能不能放由 canPlaceAt 如实回答
+    //（碰撞 / 地形 / 矿点要求 / 供能范围），不再把玩家拽到预设塔位。
     const check = this.canPlaceAt(point);
     if (this.placementGhost) {
       this.placementGhost.position.copy(point);
@@ -6390,9 +6817,11 @@ export class Game {
     // 统一成 Vector3 再往下走：canPlaceAt 只读 x/z（可以接受普通对象），
     // 但 buildStructureUnit 会调 point.clone()。同一个 API 不该一半接受普通对象、
     // 一半要求 Vector3——调用方传 {x,z} 时直接 TypeError 是最难查的那种错。
-    const spot = point?.clone
+    const rawSpot = point?.clone
       ? point
       : new THREE.Vector3(Number(point?.x) || 0, 0, Number(point?.z) || 0);
+    // 玩家点哪就建哪：不做任何槽位吸附（原先箭塔会被吸到巢穴的防守圈心）。
+    const spot = rawSpot;
     const check = this.canPlaceAt(spot);
     if (!check.ok) {
       this.hints?.setHintOnce?.(check.label, 'placement-blocked');
@@ -6403,7 +6832,16 @@ export class Game {
       this.cancelPlacement();
       return { ok: false, reason: 'not_in_stock' };
     }
-    const unit = this.buildStructureUnit(placing.unitType, spot, { buildSeconds: 6 });
+    // 建造时支付的材料就是这栋建筑的"实际投入"：回收/退款按它算。
+    // 来源是合成配方（同类建筑一份权威），不是凭类型猜的价目表。
+    const paidInvestment = (RECIPES[placing.itemId]?.inputs ?? []).map((entry) => ({
+      itemId: entry.itemId,
+      count: entry.count
+    }));
+    const unit = this.buildStructureUnit(placing.unitType, spot, {
+      buildSeconds: 6,
+      paidInvestment
+    });
     const station = this.stations?.registerBuilding?.(unit) ?? null;
     const producer = this.production?.registerProducer?.(unit) ?? null;
     // 燃料供能设施（魔力炉）注册成供能源；它没有生产配方，所以 producer 为空。
@@ -6587,15 +7025,20 @@ export class Game {
     const changed = cancelMode
       ? (this.work?.unmarkNodes?.(nodeIds) ?? 0)
       : (this.work?.markNodes?.(nodeIds, priority) ?? 0);
+    // 框到一片"在敌人地盘里"的林子是开局最容易踩的坑：`nodeIsWorkable` 会把它们
+    // 挡在派活池外（傀儡不会去送死），但玩家只看到标记亮着、工人不动。
+    // 这里把真实原因直接说出来，别让"不派活"变成静默失败。
+    const inTerritory = cancelMode ? 0 : (this.work?.countNodesInEnemyTerritory?.(nodeIds) ?? 0);
     this.resourceBoxSelect = null;
     this.selectionBox?.classList.remove('is-resource', 'is-resource-cancel');
     this.syncInteractionPointerUi();
     this.syncResourceBoxSelectVisuals();
+    const territoryNote = inTerritory > 0 ? `（其中 ${inTerritory} 个在敌人地盘里，傀儡不会去）` : '';
     this.hints?.setHint?.(
       cancelMode
         ? (changed ? `已取消 ${changed} 个资源的采集标记` : '框选范围内没有已标记的资源')
         : (changed
-          ? `已标记 ${changed} 个资源，优先级 ${priority}`
+          ? `已标记 ${changed} 个资源，优先级 ${priority}${territoryNote}`
           : '框选范围内没有可采集的资源'),
       'resource-box'
     );
@@ -6836,6 +7279,9 @@ export class Game {
     }
     if (itemId === WOOD_PUPPET_KIT_ITEM_ID) {
       return this.summonWoodPuppetFromKit({ source });
+    }
+    if (itemId === IRON_PUPPET_KIT_ITEM_ID) {
+      return this.summonIronPuppetFromKit({ source });
     }
     this.hints?.setHintOnce?.(
       `${ITEM_DEFINITIONS[itemId]?.name ?? itemId}现在没有可以使用的地方`,
@@ -7362,6 +7808,18 @@ export class Game {
       return;
     }
     if (event.repeat) return;
+    // H / ? ：玩法帮助（与右上角「?」按钮等价）。长文说明的键盘入口。
+    if ((key === 'h' || key === '?') && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault();
+      this.helpPanel?.toggle?.();
+      return;
+    }
+    // P ：远征路线面板（与右上角「远征」按钮等价）。只在有内容可看时才展开。
+    if (key === 'p' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault();
+      if (this.isSurvivalLevel?.()) this.expeditionPanel?.toggle?.();
+      return;
+    }
     if (key === 'b' && !event.ctrlKey && !event.metaKey && !event.altKey) {
       event.preventDefault();
       this.toggleInventoryShortcut();
@@ -7430,6 +7888,16 @@ export class Game {
       // 科研站 / 附魔台界面同理
       if (this.facilityPanel?.isOpen()) {
         this.facilityPanel.close();
+        return;
+      }
+      // 远征面板：Esc 收起面板，**不**顺手把游戏暂停（它是非暂停面板）。
+      if (this.expeditionPanel?.isOpen()) {
+        this.expeditionPanel.close();
+        return;
+      }
+      // 帮助面板同理：它是可关闭的阅读面板，不暂停、不吃地图手势。
+      if (this.helpPanel?.isOpen()) {
+        this.helpPanel.close();
         return;
       }
       if (this.stationPanel?.isOpen()) {
@@ -7514,7 +7982,10 @@ export class Game {
     if (this.transportLinkMode) {
       this.updateTransportLinkPreview(event.clientX, event.clientY);
     }
-    if (this.transportDrag?.pointerId === event.pointerId) {
+    // 判据必须要求 transportDrag 真的存在：`undefined === undefined` 会让
+    // 「没有拖拽」+「没有 pointerId 的 mousemove」也进这个分支，随后读
+    // `this.transportDrag.startX` 直接抛 TypeError（真实鼠标每次移动都触发）。
+    if (this.transportDrag && this.transportDrag.pointerId === event.pointerId) {
       const dx = event.clientX - this.transportDrag.startX;
       const dy = event.clientY - this.transportDrag.startY;
       if (
@@ -7548,7 +8019,10 @@ export class Game {
       if (this.updateTouchGesture(event)) return;
     }
     if (this.updateCameraDrag(event)) return;
-    if (!this.isCurrentSelectionEvent(event)) return;
+    // `isCurrentSelectionEvent` 在没有拖拽时返回 false，但这里再显式判一次：
+    // 真实鼠标的 mousemove 没有 pointerId，任何"两边都 undefined"的相等判断
+    // 都可能把它放进这个分支，然后读 null 上的字段。
+    if (!this.selectionDrag || !this.isCurrentSelectionEvent(event)) return;
     this.selectionDrag.currentX = event.clientX;
     this.selectionDrag.currentY = event.clientY;
 
@@ -7652,7 +8126,9 @@ export class Game {
 
   isCurrentSelectionEvent(event) {
     if (!this.selectionDrag) return false;
-    return event.pointerId == null || this.selectionDrag.pointerId == null || this.selectionDrag.pointerId === event.pointerId;
+    if (event.pointerId == null) return this.selectionDrag.pointerId == null;
+    if (this.selectionDrag.pointerId == null) return false;
+    return this.selectionDrag.pointerId === event.pointerId;
   }
 
   beginCameraDrag(event, options = {}) {
@@ -8300,6 +8776,9 @@ export class Game {
     if (!commandCenter) return false;
     const workers = units.filter((unit) => unit.isWorker === true);
     const autoWorkers = workers.filter((unit) => isWorkerAutonomous(unit));
+    // 注意：右键**不是**采集指令。采集走 G 键资源框选（beginResourceBoxSelect →
+    // finishResourceBoxSelect → work.markNodes），由 WorkSystem.updateAutoAssign 派活。
+    // 这里保持右键 = 集结/移动的原语义。
     const manualWorkers = workers.filter((unit) => !autoWorkers.includes(unit));
     const movers = units.filter((unit) => unit.isWorker !== true).concat(manualWorkers);
     const formationRadius = Math.min(2.4, 0.55 + Math.sqrt(units.length) * 0.42);
@@ -8644,6 +9123,68 @@ export class Game {
     }
   }
 
+  /**
+   * 供能净供需。
+   *
+   * 设计文档第三节 A 原文：「UI 同时显示活动储备与净供需，避免"大容量"看上去
+   * 等于"无限持续功率"。缺口提示说明燃料、运输或输出瓶颈；估计剩余时间时只用
+   * 真实消耗率，零消耗显示稳定而非除零/无穷。」
+   *
+   * 数据全部来自 PowerSystem 的真实账本（supplier 的 manaStored / supplyPerSecond、
+   * receiver 的 drainPerSecond 与 activityMana），不写第二份。
+   */
+  renderPowerNetMeter() {
+    const parts = this.dom;
+    if (!parts?.powerNetMeter) return;
+    const power = this.power;
+    if (!power || !this.isSurvivalLevel?.()) {
+      parts.powerNetMeter.hidden = true;
+      return;
+    }
+    const { stored, capacity } = power.baseSupplierMana?.() ?? { stored: 0, capacity: 0 };
+    const supplier = power.suppliers?.get?.('player-base')
+      ?? power.supplierList?.().find?.((entry) => entry.kind === 'base')
+      ?? null;
+    const regen = Math.max(0, Number(supplier?.supplyPerSecond) || 0);
+    const receivers = power.receiverList?.() ?? [];
+    let demandPerSecond = 0;
+    receivers.forEach((receiver) => {
+      demandPerSecond += Math.max(0, Number(receiver?.drainPerSecond) || 0);
+    });
+    const net = regen - demandPerSecond;
+    // 剩余时间只用真实消耗率算：净额为 0 或正数时没有"耗尽"这回事。
+    const deficit = Math.max(0, -net);
+    const secondsLeft = deficit > 0 ? stored / deficit : null;
+    const round1 = (value) => Math.round(value * 10) / 10;
+    const valueLabel = deficit > 0
+      ? `净缺口 ${round1(deficit)}/秒`
+      : `净余 ${round1(Math.max(0, net))}/秒`;
+    const secondsLabel = secondsLeft === null
+      ? '稳定'
+      : `${Math.floor(secondsLeft / 60)}:${String(Math.floor(secondsLeft % 60)).padStart(2, '0')}`;
+    // 瓶颈提示：燃料/运输/输出，按真实原因给一条，不轮播一堆告警。
+    let hint = '';
+    if (deficit > 0) {
+      const starved = power.summary?.().states?.starved ?? 0;
+      const fuel = this.fuelPower?.summary?.() ?? null;
+      const noFuel = (fuel?.stalled ?? 0) > 0 || (fuel?.missingFuel ?? 0) > 0;
+      if (noFuel) hint = '魔力炉缺木炭';
+      else if (starved > 0) hint = `${starved} 个接收者断电`;
+      else hint = '供给不足，先停部分防塔';
+    }
+    const detail = `${round1(stored)}/${round1(capacity)} · 供 ${round1(regen)}/秒 · 需 ${round1(demandPerSecond)}/秒`
+      + (hint ? ` · ${hint}` : '');
+    if (parts.powerNetValue && parts.powerNetValue.textContent !== valueLabel) {
+      parts.powerNetValue.textContent = valueLabel;
+    }
+    if (parts.powerNetDetail && parts.powerNetDetail.textContent !== detail) {
+      parts.powerNetDetail.textContent = detail;
+    }
+    parts.powerNetMeter.dataset.powerNet = deficit > 0 ? 'deficit' : 'surplus';
+    parts.powerNetMeter.dataset.powerSecondsLeft = secondsLabel;
+    parts.powerNetMeter.hidden = false;
+  }
+
   updateStructureStatusElement(structure, dt = 0) {
     const element = structure.statusElement;
     if (!element?.parts) return;
@@ -8938,6 +9479,28 @@ export class Game {
         }
       }
     }
+    this.renderPowerNetMeter();
+    if (this.dom.survivalObjective) {
+      const showObjective = this.isSurvivalLevel() && this.fieldCampState;
+      this.dom.survivalObjective.hidden = !showObjective;
+      if (showObjective) {
+        // 顶部这一行只放"眼下做什么"（短句）与倒计时；详细的合成材料、玩法解释
+        // 整体迁到帮助面板（见 helpPanelText）。原先这里塞的是完整目标句，
+        // 开局就是 106 字的合成指南，把顶部中央整块占满。
+        const clock = survivalClockText(this.survivalObjectiveInput());
+        const goal = this.expeditions?.objectiveCompactText?.()
+          ?? survivalObjectiveCompactText(this.survivalObjectiveInput());
+        const text = `${clock}｜${goal}`;
+        if (this.dom.survivalObjective.textContent !== text) {
+          this.dom.survivalObjective.textContent = text;
+        }
+      }
+    }
+    // 面板与按钮的同步走 updateHud（暂停分支也会调用 updateHud(0)，所以"暂停后继续、
+    // 重开"之后面板不会卡在旧状态）。采样本身**不在这里**——updateHud 有 0.1 秒节流，
+    // 而 0.5 秒采样必须按真实帧时间累加（见 tick 里的 expedition 步骤）。
+    this.expeditionPanel?.syncButton?.();
+    this.expeditionPanel?.refresh?.();
     if (this.selectedUnits.length > 1) {
       if (this.dom.selectedPanel) {
         this.dom.selectedPanel.hidden = false;
@@ -8958,7 +9521,12 @@ export class Game {
       const types = countBy(this.selectedUnits, (unit) => unit.name);
       this.dom.selectedName.textContent = `已选中 ${this.selectedUnits.length} 个单位`;
       this.dom.selectedStats.textContent = `总 HP ${totalHealth} / 总耐久 ${totalDurability}/${totalMaxDurability} / ${formatCounts(types)}`;
-      this.dom.selectedEnchants.textContent = '右键地面移动，遇敌自动战斗';
+      // 多选里只要包含木傀儡，就把"遇敌策略"的当前状态写出来：
+      // 三个按钮住在背包面板里，不写这一行的话多选状态下模式完全不可见。
+      const workerCount = this.selectedUnits.filter((unit) => unit.isWorker === true).length;
+      this.dom.selectedEnchants.textContent = workerCount
+        ? `木傀儡×${workerCount} 遇敌策略：${puppetCombatModeSummaryText(this.selectedUnits)}（按 B 打开背包切换）`
+        : '右键地面移动，遇敌自动战斗';
     } else if (this.selectedUnit) {
       if (this.dom.selectedPanel) {
         this.dom.selectedPanel.hidden = false;
@@ -8998,7 +9566,10 @@ export class Game {
       const bagSize = bag?.capacity ?? 0;
       const stoneCount = this.runeStones?.stonesForUnit?.(unit)?.length ?? 0;
       this.dom.selectedEnchants.textContent =
-        `物攻 ${physicalAttack} / 魔攻 ${magicAttack} / 护甲 ${armor} / 魔抗 ${magicResistance} / 闪避 ${dodgeChance}% / 抗击退 ${knockbackResistance}% / 背包 ${bagUsed}/${bagSize} / 最大魔力 ${Math.round(unit.manaCapacity ?? 0)} / 符文石 ${stoneCount} 块`;
+        `物攻 ${physicalAttack} / 魔攻 ${magicAttack} / 护甲 ${armor} / 魔抗 ${magicResistance} / 闪避 ${dodgeChance}% / 抗击退 ${knockbackResistance}% / 背包 ${bagUsed}/${bagSize} / 最大魔力 ${Math.round(unit.manaCapacity ?? 0)} / 符文石 ${stoneCount} 块`
+        // 木傀儡的遇敌策略是当前操作状态，写在详情最后一段：不打开背包也能读到，
+        // 而且它读的是单位自身字段，重新选中/读档后与实际一致。
+        + (unit.isWorker === true ? ` / 遇敌策略 ${puppetCombatModeSummaryText(unit)}` : '');
     } else {
       if (this.dom.selectedPanel) {
         this.dom.selectedPanel.hidden = true;

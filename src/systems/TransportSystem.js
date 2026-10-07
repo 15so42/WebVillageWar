@@ -14,6 +14,7 @@ import {
   normalizeStationImportPort,
   stationImportPortCount
 } from './transportPorts.js';
+import { stationUsesFuelSlots } from './StationSystem.js';
 
 import {
 
@@ -24,6 +25,8 @@ import {
 } from './workTasks.js';
 
 import { moveSlotCount } from './inventoryTransfer.js';
+
+import { linkAllowedByGate, isLogicGate } from './logisticsStations.js';
 
 export { TRANSPORT_LINK_ERROR_LABELS };
 
@@ -201,6 +204,21 @@ export class TransportSystem {
 
   }
 
+  setLinkGate(linkId, { gateStationId = null, gateBranch = 'then' } = {}) {
+    const link = this.linkById(linkId);
+    if (!link) return { ok: false, reason: 'missing' };
+    if (!gateStationId) {
+      link.gateStationId = null;
+      link.gateBranch = null;
+      return { ok: true, link };
+    }
+    const gate = this.game?.stations?.stationById?.(gateStationId);
+    if (!isLogicGate(gate)) return { ok: false, reason: 'not-gate' };
+    link.gateStationId = gateStationId;
+    link.gateBranch = gateBranch === 'else' ? 'else' : 'then';
+    return { ok: true, link };
+  }
+
 
 
   removeLink(linkId) {
@@ -328,7 +346,7 @@ export class TransportSystem {
   /** 运输线来源端库存（熔炉=产物输出格） */
   exportInventory(stationId) {
     const station = this.stationRecord(stationId);
-    if (station?.kind === 'furnace') return station.outputInventory ?? null;
+    if (stationUsesFuelSlots(station?.kind)) return station.outputInventory ?? null;
     return this.stationInventory(stationId);
   }
 
@@ -339,7 +357,7 @@ export class TransportSystem {
     const station = this.stationRecord(stationId);
     if (!station) return this.stationInventory(stationId);
     const port = normalizeStationImportPort(station, importPort);
-    if (station.kind === 'furnace') {
+    if (stationUsesFuelSlots(station.kind)) {
       if (port === STATION_IMPORT_PORT.fuel) return station.fuelInventory ?? null;
       return station.inventory ?? null;
     }
@@ -543,6 +561,8 @@ export class TransportSystem {
 
     if (!this.linkHasPower(link)) return false;
 
+    if (!linkAllowedByGate(link, this.game?.stations?.stations)) return false;
+
     const fromPos = this.stationPosition(link.fromStationId);
 
     const toPos = this.stationPosition(link.toStationId);
@@ -610,6 +630,8 @@ export class TransportSystem {
   update(dt) {
 
     const step = Math.max(0, dt);
+
+    this.game?.stations?.tickLogicDevices?.();
 
     this.advanceTransit(step);
 

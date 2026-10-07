@@ -7,7 +7,84 @@
 import { facilityPanelFor } from './FacilityPanelUi.js';
 import { stationPanelFor } from './StationPanelUi.js';
 import { isWorkerAutonomous } from './workOrders.js';
+import { REPAIR_REQUEST_STATE, REPAIR_STATE_LABELS } from './buildingRepair.js';
 const BUTTON_SIZE = 52;
+
+/**
+ * 防御终端在扇形菜单里那一项：显示等级与"能不能升级"。
+ *
+ * 点它打开塔界面（材料 / 资格 / 施工进度都在那里），
+ * 而不是在这里直接扣材料——升级是一次有材料、有资格、有施工时间的投资，
+ * 一次误触不该花掉 24 木材。
+ */
+export function towerActionFor(status) {
+  if (!status) return null;
+  const label = status.upgrading
+    ? `升级 ${Math.round((status.progress ?? 0) * 100)}%`
+    : (status.maxed ? `${status.tierLabel} 级` : `升级到 ${status.targetTier} 级`);
+  return {
+    id: 'tower',
+    label,
+    icon: status.maxed ? '★' : '⇧',
+    disabled: false,
+    title: [
+      `${status.role?.name ?? ''}（${status.tierLabel} 级）`,
+      status.role?.purpose ?? '',
+      status.maxed ? '已经三级' : (status.ok ? '材料齐备，可以升级' : (status.label || '暂不可升级'))
+    ].filter(Boolean).join(' · ')
+  };
+}
+
+/**
+ * 脱战维修状态：只在**真的有请求**时出现一项，而且是只读的。
+ *
+ * 「用少量克制的状态标记，维修动作与粒子复用既有材质；没有任务时不常驻大图标」——
+ * 所以这里不画世界大图标，只在选中这栋建筑时给一行状态。
+ */
+export function repairActionFor(request) {
+  if (!request) return null;
+  const state = request.state ?? REPAIR_REQUEST_STATE.waiting;
+  const label = REPAIR_STATE_LABELS[state] ?? '待维修';
+  const material = request.status?.material ?? request.lastMaterial ?? null;
+  const gap = Math.round(request.status?.healthGap ?? 0);
+  return {
+    id: 'repair-status',
+    label,
+    icon: state === REPAIR_REQUEST_STATE.assigned ? '🔧'
+      : state === REPAIR_REQUEST_STATE.missingMaterial ? '⚠' : '⛭',
+    disabled: true,
+    statusOnly: true,
+    title: [
+      `脱战维修：${label}`,
+      gap > 0 ? `生命缺口 ${gap}` : '',
+      material ? `材料 ${material}` : '',
+      state === REPAIR_REQUEST_STATE.pending ? '交战中不施工，脱战后自动派工' : '',
+      state === REPAIR_REQUEST_STATE.missingMaterial ? '库存里没有这种材料，修好前先补料' : ''
+    ].filter(Boolean).join(' · ')
+  };
+}
+
+/**
+ * 主动拆除：只有"玩家真的付过材料"的建筑才给这个入口。
+ *
+ * 初始基地、免费生成对象与奖励对象没有 `paidInvestment`，
+ * `recyclePreview().ok` 就会是 false——返还不出没支付过的成本，也不能拆基地绕过败局规则
+ * （见 docs/DSH_RESOURCE_SUSTAINABILITY.md「材料回收缓冲失误」）。
+ * 按钮标题直接写清比例与返还清单，因为回收物是**落地掉落**、要傀儡搬。
+ */
+export function demolishActionFor(game, unit) {
+  const preview = game?.salvage?.recyclePreview?.(unit) ?? null;
+  if (!preview?.ok) return null;
+  const refund = (preview.refunded ?? []).map((entry) => `${entry.itemId}×${entry.count}`).join('、');
+  return {
+    id: 'demolish',
+    label: '拆除',
+    icon: '⛏',
+    disabled: false,
+    title: `拆除这栋建筑：回收约 ${Math.round((preview.ratio ?? 0) * 100)}% 的材料`
+      + `（${refund || '无'}），落在地上需要傀儡搬运`
+  };
+}
 
 export class UnitActionMenu {
   constructor(game, options = {}) {
@@ -35,6 +112,17 @@ export class UnitActionMenu {
     if (!unit?.alive) return [];
     const actions = [];
     if (unit.isBuilding === true) {
+      // 防御终端：扇形菜单直接给"升级 / 已满级"，并把脱战维修状态写成一行字。
+      // 塔没有进料格，没有"背包"这回事，所以它不该走 station 分支。
+      const tower = this.game?.towerUpgrades?.status?.(unit) ?? null;
+      if (tower) {
+        actions.push(towerActionFor(tower));
+        const repair = this.game?.repairDispatch?.requestFor?.(unit.id) ?? null;
+        if (repair) actions.push(repairActionFor(repair));
+        const demolish = demolishActionFor(this.game, unit);
+        if (demolish) actions.push(demolish);
+        return actions;
+      }
       const facility = facilityPanelFor(unit);
       if (facility) {
         actions.push({
@@ -55,6 +143,10 @@ export class UnitActionMenu {
           title: `打开${station.title}（B）`
         });
       }
+      const repair = this.game?.repairDispatch?.requestFor?.(unit.id) ?? null;
+      if (repair) actions.push(repairActionFor(repair));
+      const demolish = demolishActionFor(this.game, unit);
+      if (demolish) actions.push(demolish);
       return actions;
     }
     const recruit = this.game?.recruitStatusFor?.(unit);
@@ -139,8 +231,17 @@ export class UnitActionMenu {
     this.ensureUi();
     this.unit = unit;
     this.containerTarget = containerTarget;
+    // 防御终端那一项的标签会随等级/施工进度变化，所以签名必须带上它的状态，
+    // 否则"升级到 2 级"会在升级完成后继续挂在菜单上。
+    const towerSignature = unit?.isBuilding
+      ? (() => {
+        const tower = this.game?.towerUpgrades?.status?.(unit) ?? null;
+        if (!tower) return 'none';
+        return `${tower.tier}/${tower.upgrading ? Math.round(tower.progress * 50) : 'idle'}/${tower.maxed ? 'max' : tower.targetTier}`;
+      })()
+      : 'none';
     const signature = unit
-      ? `u:${unit.id}:${unit.workerAutonomous === false ? 'manual' : 'auto'}:${unit.workerStandby === true ? 'sb' : 'on'}:${actions.map((a) => a.id).join('|')}`
+      ? `u:${unit.id}:${unit.workerAutonomous === false ? 'manual' : 'auto'}:${unit.workerStandby === true ? 'sb' : 'on'}:${towerSignature}:${actions.map((a) => a.id + (a.statusOnly ? `:${a.label}` : '')).join('|')}`
       : `c:${containerTarget?.stationId ?? 'base'}:${actions.map((a) => a.id).join('|')}`;
     if (signature !== this.signature) {
       this.signature = signature;
@@ -215,6 +316,11 @@ export class UnitActionMenu {
       this.sync();
       return;
     }
+    if (action === 'tower' && unit) {
+      this.game?.towerPanel?.toggleForUnit?.(unit);
+      this.sync();
+      return;
+    }
     if (action === 'station' && unit) {
       this.game?.stationPanel?.toggleForUnit?.(unit);
       this.sync();
@@ -239,6 +345,11 @@ export class UnitActionMenu {
           : `${unit.name}：自律模式已关闭（指挥模式）`,
         `worker-mode:${unit.id}`
       );
+      this.sync();
+      return;
+    }
+    if (action === 'demolish' && unit) {
+      this.game?.salvage?.demolishBuilding?.(unit);
       this.sync();
       return;
     }

@@ -346,16 +346,45 @@ export class BuildingSystem {
     const targets = this.getAuraTargets(building, aura);
     const spendRate = Math.max(0, aura.durabilityPerSecond ?? 0) * tickSeconds;
     const healthPerDurability = Math.max(0.01, aura.healthPerDurability ?? 2);
+    // 食堂的"自然恢复"是有代价的恢复：没有口粮就没有治疗。
+    // 设计文档明确「不能用旧免费治疗代替食品」，所以这里把治疗产能直接挂在
+    // 食堂产物格里的口粮上——运一车口粮上前线，才换来一段治疗窗口。
+    const rationsPerHealth = Math.max(0, Number(aura.rationsPerHealth) || 0);
+    const rationStore = rationsPerHealth > 0 ? this.game?.stations?.stationFor?.(building)?.outputInventory ?? null : null;
+    let rationBudget = rationStore ? (rationStore.countOf?.('ration') ?? 0) : 0;
+    if (rationsPerHealth > 0 && rationBudget <= 0) {
+      building.rationStarved = true;
+      return false;
+    }
+    building.rationStarved = false;
     let didWork = false;
     for (const target of targets) {
       if (building.weapon.durability <= 0) return didWork;
       const missing = Math.max(0, target.maxHealth - target.health);
       if (missing <= 0.01) continue;
-      const wantedCost = Math.min(spendRate, missing / healthPerDurability);
+      // 饿着的部队自己也恢复得慢（与 armyNeeds 的减益档同一件事，这里是它的表现面）
+      const recoveryScale = this.game?.armyNeeds?.recoveryScaleFor?.(target) ?? 1;
+      if (recoveryScale <= 0) continue;
+      let wantedCost = Math.min(spendRate, missing / healthPerDurability) * recoveryScale;
+      let rationNeeded = 0;
+      if (rationsPerHealth > 0) {
+        // 口粮不够就只治"买得起"的那一部分，不做欠账
+        const affordableHealth = rationBudget / rationsPerHealth;
+        const wantedHealth = Math.min(wantedCost * healthPerDurability, missing) * recoveryScale;
+        const cappedHealth = Math.min(wantedHealth, affordableHealth);
+        if (cappedHealth <= 0.01) continue;
+        wantedCost = cappedHealth / healthPerDurability;
+        rationNeeded = Math.ceil(cappedHealth * rationsPerHealth);
+      }
       const spent = Math.min(building.weapon.durability, wantedCost);
       if (spent <= 0) return didWork;
       const healed = target.restoreHealth(spent * healthPerDurability);
       building.spendDurability(healed / healthPerDurability);
+      if (rationNeeded > 0 && rationStore) {
+        rationStore.remove('ration', rationNeeded);
+        rationBudget = Math.max(0, rationBudget - rationNeeded);
+        this.game?.stationPanel?.markDirty?.();
+      }
       didWork = true;
       this.game.effects.spawnHealNumber(target.position, healed, {
         displayAmount: spent * healthPerDurability,

@@ -107,6 +107,16 @@ export class ProductionSystem {
     return {
       unitId: record.unit.id,
       recipeId: recipe?.id ?? null,
+      /**
+       * 解析后的配方本体（输入 / 燃料 / 产物 / 周期）。
+       *
+       * 为什么不只给 recipeId：界面与验收都要能说清"进什么、出什么、几秒一轮、
+       * 每轮吃几份燃料"。以前只有 recipeId，读配方的人就得自己去 import
+       * PRODUCTION_RECIPES 再拼一份口径——那正是"第二份数据"的开头。
+       * 这里用 normalizeProductionRecipe 生成一份新对象：既有唯一口径，
+       * 又不会把 gameData 里的共享配方实例交出去被改动。
+       */
+      recipe: normalizeProductionRecipe(recipe),
       inputItemId: slot?.itemId ?? null,
       inputCount: slot?.count ?? 0,
       outputCount: recipe?.output?.itemId ? (outInv?.countOf?.(recipe.output.itemId) ?? 0) : 0,
@@ -175,7 +185,10 @@ export class ProductionSystem {
       return;
     }
 
-    const fuelPerCycle = Math.max(1, Math.floor(Number(ITEM_RULES.furnaceFuelPerCycle) || 1));
+    const fuelPerCycle = Math.max(
+      1,
+      Math.floor(Number(recipe.fuelPerCycle) || Number(ITEM_RULES.furnaceFuelPerCycle) || 1)
+    );
     const hasInput = (slot.count ?? 0) >= recipe.input.count;
     const hasFuel = countFurnaceFuel(fuelInv) >= fuelPerCycle;
     const hasMana = (unit.activityMana ?? 0) > 0;
@@ -221,7 +234,7 @@ export class ProductionSystem {
         record.cycles = 0;
         return;
       }
-      const burned = consumeFurnaceFuel(fuelInv, step.cycles);
+      const burned = consumeFurnaceFuel(fuelInv, step.cycles, fuelPerCycle);
       if (!burned.ok) {
         record.stalled = true;
         record.reason = 'no_fuel';

@@ -101,23 +101,44 @@ export class TargetingSystem {
       return this.nearestUnit(unit, TEAMS.ENEMY, aggroRange)
         ?? this.nearestStructure(unit, this.game.enemyCamp, aggroRange);
     }
-    const friendly = this.nearestUnit(unit, TEAMS.PLAYER, aggroRange);
+    // 有领地的敌方单位（路边营地 / 野生动物）只索敌**进入自己地盘**的目标。
+    // 没有领地的巢穴夜袭单位照旧：先扑最近的玩家单位，再扑基地。
+    const inZone = (candidate) => this.isInsideGuardZone(unit, candidate);
+    const friendly = this.nearestUnit(unit, TEAMS.PLAYER, aggroRange, inZone);
     if (friendly) return friendly;
-    return this.nearestStructure(unit, this.game.playerBase, aggroRange);
+    return this.nearestStructure(unit, this.game.playerBase, aggroRange, inZone);
+  }
+
+  /**
+   * 目标是否在单位的守卫领地内。
+   *
+   * 领地半径来自 `unit.guardRadius`（路边营地 / 野生动物），圆心是 `homePoint`。
+   * 判定用的是**目标**的位置而不是单位自己的位置：这样单位不会因为追出去一点就
+   * 脱战-重锁-再脱战来回抖，语义也清楚——"我的地盘里有人我才动手"。
+   * 半径 ≤0 或没有 homePoint 一律视为不限制。
+   */
+  isInsideGuardZone(unit, target) {
+    const radius = Number(unit?.guardRadius) || 0;
+    if (radius <= 0) return true;
+    const home = unit.homePoint;
+    if (!home) return true;
+    const position = getTargetPosition(target);
+    if (!position) return false;
+    return distance2D(position, home) <= radius;
   }
 
   isCurrentTargetValid(unit, target) {
     if (!target?.alive || !unit?.position) return false;
     const targetPosition = getTargetPosition(target);
     if (!targetPosition) return false;
+    // 有领地的敌方单位：目标走出领地就脱离（回自己的地盘）。
+    if (unit.team === TEAMS.ENEMY && unit.isRecruitable !== true) {
+      return this.isInsideGuardZone(unit, target);
+    }
     const distance = Math.max(
       0,
       distance2D(unit.position, targetPosition) - targetCombatRadius(target)
     );
-    // 敌方：接上目标后一直追，不因距离或「离出生点多远」脱战
-    if (unit.team === TEAMS.ENEMY && unit.isRecruitable !== true) {
-      return true;
-    }
     return distance <= this.game.modifiers.getAggroRange(unit);
   }
 

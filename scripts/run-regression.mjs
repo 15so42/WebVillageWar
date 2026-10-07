@@ -46,6 +46,8 @@ const VERIFICATIONS = [
   'verify-island-planting',
   'verify-island-facilities',
   'verify-island-tech-effects',
+  'verify-island-expedition',
+  'verify-island-defense-survival',
   'verify-backpack-ui',
   'verify-backpack-transfer',
   'verify-backpack-craft-refund',

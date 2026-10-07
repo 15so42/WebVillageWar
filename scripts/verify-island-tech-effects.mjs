@@ -131,31 +131,54 @@ if (report.started) {
     const furnace = await place('furnace', 5.5, 1.5);
     out.furnacePlaced = Boolean(furnace);
     // 熔炉自身的供能：基地在 20 米内，够
+    // 熔炉的进料 / 燃料 / 产物现在都在**它自己的站点格子**里
+    // （见 StationSystem.registerBuilding + ProductionSystem.tickProducer）。
+    // 旧夹具把木材塞进基地背包、再从基地背包量木炭：站点改造之后熔炉进料格恒为空，
+    // 于是永远量到 cycles 0、stalledTicks 数千——那是夹具过期，不是"设施不工作"。
+    // 这里改成按真实链路装料与读数，断言一条不减（产出 2 → 研究 → 3）。
+    const furnaceStation = () => game.stations?.stationFor?.(furnace) ?? null;
+    const loadFurnace = (wood = 200) => {
+      const station = furnaceStation();
+      if (!station) return { inputAdded: 0, fuelAdded: 0, error: 'no_station' };
+      station.inventory.slots.fill(null);
+      // 进料格只有 1 格且单格上限 200：整笔 add 遇到超容会**整笔失败**（added 0），
+      // 必须显式 allowPartial，否则又变成"装了 0 个"。
+      const input = station.inventory.add('wood', wood, { allowPartial: true });
+      station.fuelInventory.slots.fill(null);
+      const fuel = station.fuelInventory.add('wood', 120, { allowPartial: true });
+      station.outputInventory.slots.fill(null);
+      if (!(furnace.activityMana > 0)) furnace.activityMana = furnace.manaCapacity || 24;
+      return { inputAdded: input.added, fuelAdded: fuel.added, error: null };
+    };
     // 按**完成的周期数**驱动，而不是按固定秒数：固定秒数会被
     // "进来时进度已经攒了一半""这一段刚好只做了 0 个周期"这类时序问题搞成随机失败。
     const runCycles = async (minCycles) => {
+      const station = furnaceStation();
+      if (!station) {
+        return { cycles: 0, woodUsed: 0, charcoalGained: 0, inputPerCycle: null, outputPerCycle: null, error: 'no_station' };
+      }
       const cyclesStart = game.production.stats.cycles;
-      const woodStart = inventory.countOf('wood');
-      const charcoalStart = inventory.countOf('charcoal');
+      const inputStart = station.inventory.countOf('wood');
+      const outputStart = station.outputInventory.countOf('charcoal');
       let guard = 0;
       while (game.production.stats.cycles - cyclesStart < minCycles && guard < 1600) {
         await step(2);
         guard += 2;
       }
       const cycles = game.production.stats.cycles - cyclesStart;
-      const woodUsed = woodStart - inventory.countOf('wood');
-      const charcoalGained = inventory.countOf('charcoal') - charcoalStart;
+      const woodUsed = inputStart - station.inventory.countOf('wood');
+      const charcoalGained = station.outputInventory.countOf('charcoal') - outputStart;
       return {
         cycles,
         woodUsed,
         charcoalGained,
         inputPerCycle: cycles > 0 ? woodUsed / cycles : null,
-        outputPerCycle: cycles > 0 ? charcoalGained / cycles : null
+        outputPerCycle: cycles > 0 ? charcoalGained / cycles : null,
+        error: null
       };
     };
 
-    inventory.slots.fill(null);
-    inventory.add('wood', 200);
+    out.furnaceLoad = loadFurnace(200);
     await step(4);
     const baseRun = await runCycles(2);
     out.baseCycles = baseRun.cycles;
@@ -212,8 +235,7 @@ if (report.started) {
     out.furnaceRecipeOutputAfter = game.production.producers.get(furnace?.id)?.recipe?.output?.count ?? null;
 
     // ---- 同一座熔炉再跑两个周期，产出应当是 3 ----
-    inventory.slots.fill(null);
-    inventory.add('wood', 200);
+    out.furnaceReload = loadFurnace(200);
     await step(4);
     const techRun = await runCycles(2);
     out.techCycles = techRun.cycles;

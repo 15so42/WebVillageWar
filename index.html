@@ -26,6 +26,10 @@
             <button id="game-settings-button" class="game-settings-button" type="button" aria-label="设置" title="设置" hidden>
               ⚙
             </button>
+            <!-- 玩法帮助：长文说明的唯一常驻入口（顶部中央只留"眼下"一行）。 -->
+            <button id="game-help-button" class="game-help-button" type="button" aria-label="玩法帮助" title="玩法帮助" hidden>
+              ?
+            </button>
             <div id="fps-meter" class="fps-meter" aria-label="frame rate" hidden>FPS --</div>
           </div>
         </div>
@@ -44,6 +48,17 @@
             <span>刷怪点</span>
             <strong id="spawn-point-count">0/0</strong>
           </div>
+          <!--
+            供能净供需：同时显示活动储备与净吞吐，避免"大容量"看上去等于"无限持续功率"。
+            缺口时说明瓶颈（燃料 / 运输 / 输出不足），并按真实消耗率估计剩余时间；
+            零消耗显示"稳定"，不做除零。
+          -->
+          <div class="meter meter-power-net" id="power-net-meter" hidden>
+            <span>供能</span>
+            <strong id="power-net-value">稳定</strong>
+            <em id="power-net-detail"></em>
+          </div>
+          <p class="survival-objective" id="survival-objective" hidden></p>
           <div class="hud-resource-data" aria-hidden="true" hidden>
             <strong id="base-health">100%</strong>
             <strong id="silver-count">0</strong>
@@ -56,6 +71,7 @@
           <span class="desktop-hint">WASD 移动镜头</span>
           <span class="desktop-hint">F 跟随选中单位</span>
           <span class="desktop-hint">右键移动</span>
+          <span class="desktop-hint">G 框选资源</span>
           <span class="desktop-hint">X 停止</span>
           <span class="desktop-hint">N 调试面板</span>
         </div>
@@ -72,6 +88,15 @@
             </svg>
           </span>
           <span class="run-shop-toggle-label">军需铺</span>
+        </button>
+        <!--
+          海岛生存：远征路线面板的入口。这里**不再是屏幕顶部的横幅**：
+          它住在右上角工具条里（和设置齿轮同一排、同一材质），而且只在
+          "有追踪路线 / 有巢穴正在威胁基地" 时出现——平时不催促玩家。
+          面板本身是可收起、不暂停的（见 ExpeditionPanelUi）。
+        -->
+        <button id="expedition-toggle" class="expedition-toggle" type="button" title="远征路线" aria-expanded="false" hidden>
+          <span class="expedition-toggle-label">远征</span>
         </button>
       </section>
 

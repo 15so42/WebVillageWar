@@ -233,7 +233,15 @@ if (report.started) {
     const furnaceInv = furnaceStation?.inventory;
     furnaceInv?.slots?.fill(null);
     furnaceStation?.outputInventory?.slots?.fill(null);
-    furnaceInv?.add('wood', 20);
+    // 熔炉现在有**独立的燃料格**（ProductionSystem 每完成一个周期扣 furnaceFuelPerCycle，
+    // 默认 2）。旧夹具只装进料不装燃料，于是永远停在 no_fuel、量到 0 个周期——
+    // 那是夹具过期，不是熔炉不工作。这里按真实链路把燃料也装上。
+    furnaceStation?.fuelInventory?.slots?.fill(null);
+    const fuelLoaded = furnaceStation?.fuelInventory?.add('wood', 40, { allowPartial: true });
+    out.fuelLoaded = fuelLoaded?.added ?? 0;
+    out.fuelError = fuelLoaded?.error ?? 'no_station';
+    const inputLoaded = furnaceInv?.add('wood', 20, { allowPartial: true });
+    out.inputLoaded = inputLoaded?.added ?? 0;
     await step(4);
     const woodBefore = furnaceInv?.countOf('wood') ?? 0;
     const charcoalBefore = (furnaceStation?.outputInventory?.countOf('charcoal') ?? 0)
@@ -252,8 +260,12 @@ if (report.started) {
     out.statusWhileWorking = game.production.statusOf(furnaceUnit)?.reason ?? null;
 
     // ---- 6) 缺料停摆：不凭空产出，进度保留 ----
+    // 清空的是**进料格**（燃料仍然充足）：这样停摆原因应该是 no_input，
+    // 而不是 no_fuel——两者要分得清，否则"缺料停摆"这条断言量的是别的东西。
     game.baseInventory.slots.fill(null);
     game.baseInventory.add('charcoal', 0);
+    furnaceInv?.slots?.fill(null);
+    furnaceStation?.outputInventory?.slots?.fill(null);
     await step(60);
     const stalledStatus = game.production.statusOf(furnaceUnit);
     out.stalledReason = stalledStatus?.reason ?? null;
@@ -308,7 +320,7 @@ report.verdict = r && !r.error ? {
     && r.furnaceInFriendlyList === true && r.furnaceOnWalkable === true && r.buildingsAfter === true,
   registeredAsProducer: r.producerRegistered === true && r.powerReceiverRegistered === true,
   // 生产
-  buildsThenProduces: r.built === true && (r.cycles ?? 0) >= 2,
+  buildsThenProduces: r.built === true && r.inputLoaded > 0 && r.fuelLoaded > 0 && (r.cycles ?? 0) >= 2,
   productionIsExact: r.ratioExact === true,
   // 缺料停摆
   stallsWithoutInput: r.stalledReason === 'no_input'

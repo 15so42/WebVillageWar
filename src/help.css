@@ -1,0 +1,145 @@
+/* 游戏内帮助面板（用户第 3 项：长篇玩法说明不能占战斗画面）。
+ *
+ * 皮肤沿用远征面板那套棕灰材质语言（见 expedition.css 顶部说明），
+ * 所以这里不重造一套颜色，只写布局。三条约束与远征面板一致：
+ *   1. 容器不吃全屏指针——只有 `.help-frame` 自己接事件；
+ *   2. 不铺全屏遮罩、不暂停游戏；
+ *   3. 窄屏不横向溢出，纵向可滚动。
+ */
+
+.help-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 12px;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.help-panel[hidden] {
+  display: none !important;
+}
+
+/* 容器永远不吃指针：只有 `.help-frame` 自己接事件。
+   这样面板左右两侧的空白仍然是地图手势区，面板就不是模态。 */
+.help-frame {
+  display: flex;
+  flex-direction: column;
+  width: min(560px, 100%);
+  max-height: 100%;
+  min-width: 0;
+  padding: 14px 16px 16px;
+  box-sizing: border-box;
+  border: 1px solid #77736b;
+  clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px);
+  color: #e8ddca;
+  background:
+    linear-gradient(112deg, rgba(255, 255, 255, 0.06), transparent 40%),
+    linear-gradient(180deg, #3f423f, #242726);
+  box-shadow:
+    inset 0 0 0 1px #191c1b,
+    0 18px 42px rgba(0, 0, 0, 0.55);
+  pointer-events: auto;
+}
+
+.help-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(232, 221, 202, 0.18);
+}
+
+.help-heading {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.help-kicker {
+  color: #b6a887;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+.help-title {
+  color: #fdf3d8;
+  font-size: 17px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+}
+
+.help-close {
+  margin-left: auto;
+  width: 30px;
+  height: 30px;
+  border: 1px solid #6f6a61;
+  border-radius: 3px;
+  color: #e8ddca;
+  background: linear-gradient(180deg, #454845, #292c2b);
+  cursor: pointer;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.help-close:hover {
+  border-color: #aaa08f;
+  filter: brightness(1.1);
+}
+
+.help-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  margin-top: 10px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+
+.help-section {
+  padding: 8px 10px;
+  border: 1px solid rgba(232, 221, 202, 0.14);
+  border-radius: 4px;
+  background: rgba(20, 22, 21, 0.45);
+}
+
+.help-section-title {
+  margin: 0 0 4px;
+  color: #f0e2c2;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+}
+
+.help-section-list {
+  margin: 0;
+  padding-left: 18px;
+  color: #ddd3bf;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.help-section-list strong {
+  color: #ffe9b0;
+}
+
+@media (max-width: 640px) {
+  .help-panel {
+    padding: 28px 8px;
+  }
+
+  .help-frame {
+    padding: 10px 10px 12px;
+  }
+
+  .help-section-list {
+    font-size: 12px;
+  }
+}

@@ -846,6 +846,22 @@ const DEVELOPMENT_CHANGELOG_ARCHIVE = [
 
 const CHANGELOG_ENTRIES = [
   {
+    date: '2026-10-07',
+    title: '自由建塔、防御升级维修与资源续航',
+    items: [
+      '**开局能经营**：木傀儡 **G** 框选资源后会真的自己采集、走回基地卸货，库存真实增长；顶部不再压一条全屏远征横幅，只留一行「眼下该干什么」，玩法说明改到右上角 **?** 按钮（可关、不暂停）。',
+      '**自由选址**：移除预设「箭塔位」圈选与标签，箭塔等防御建筑在合法地形上自己选位置；成本、供能、建造范围与碰撞照旧生效。地图上的路边营地打光后留下战利品，营地不刷新。',
+      '**防御终端三级投资**：箭塔 / 弩炮 / 法师塔各有定位，可在原地升到二、三级（材料一次性扣除，施工期间停火、被攻击则暂停，不白送回血）。二级要完工科研站，三级还要清空对应路线。',
+      '**战后维修**：建筑脱战一段时间且结构受损时自动登记维修请求，傀儡带真实材料去修，按优先级分派；每栋建筑有工位上限，材料按实际缺口结算，不会多个傀儡各扣一次。',
+      '**远征与区域成长**：北 / 西 / 东 / 南四条路线，清掉内巢解封外巢并说明威胁，清完整线只停止新出兵、残敌仍要消灭；区域图纸解锁四项科技（生产提速、采集增产、己方防御射程、战场装备磨损），夜袭预报与清线回报在右上角的「远征」面板里（可收起、不暂停）。',
+      '**资源续航**：地表石料 / 铁矿采完后留下矿址，可建慢速深采设施（要燃料、活动魔力与傀儡搬运）；补种树苗、菜圃与食堂链、基础拾荒点提供长期木材、石料与口粮，不会凭空把地图资源刷回原状。',
+      '**军队口粮**：人类部队按饱食度吃随身口粮或去食堂就餐，饿着会有减益；吃饭不打断当前攻击 / 驻守 / 移动指令，减益也不会重复叠加。木傀儡、敌人、动物与建筑不吃。',
+      '**供能读数**：HUD 新增供能净供需，同时显示活动储备与净吞吐、缺口原因（燃料 / 运输 / 输出）和按真实消耗估算的续航时间；零消耗显示「稳定」。',
+      '**流水线逻辑门**：与门 / 或门 / 非门可放置，按所接箱子里有没有货判定，运输线可绑定到门的「通」或「不通」分支；箱子本身当记忆，主菜单新增「逻辑门演示」临时场景。附魔台可把每一种附魔做成附魔石，成本是实打实的岛上材料。',
+      '**修复**：资源节点缺少 `userData` 时建采集状态表会抛 `TypeError`（只影响轻量测试桩，正式流程不受影响）。'
+    ]
+  },
+  {
     date: '2026-10-04',
     title: '单位移动、木傀儡作业与遇敌策略',
     items: [
@@ -1964,6 +1980,10 @@ export class MetaGameSystem {
       this.startGame();
       return;
     }
+    if (action === 'logic-demo') {
+      this.startLogicDemo();
+      return;
+    }
     if (action === 'coop') {
       this.onOpenCoop?.();
       return;
@@ -2316,6 +2336,9 @@ export class MetaGameSystem {
                   <span class="btn-text-main">开始游戏</span>
                   <span class="btn-text-sub">Survive</span>
               </button>
+              <button class="med-btn-epic mw-menu-button mw-menu-button-secondary" type="button" data-action="logic-demo">
+                  <span class="mw-button-label">逻辑门演示</span><span class="mw-button-caption">临时场景</span>
+              </button>
               <!-- 联机入口保留但暂不可用：联机规则建立在双牌组双经济上，卡牌移除后需要改造 -->
               <button class="med-btn-epic mw-menu-button mw-menu-button-secondary" type="button" data-action="coop" disabled title="卡牌与牌组移除后，联机需要重新改造">
                   <span class="mw-button-label">多人联机</span><span class="mw-button-caption">暂不可用</span>
@@ -2462,6 +2485,21 @@ export class MetaGameSystem {
     };
     this.hide();
     this.onStartLevel?.(session);
+  }
+
+  /** 临时入口：只进逻辑门演示，不改「开始游戏」的海岛。 */
+  startLogicDemo() {
+    const level = LEVEL_DEFINITIONS.find((entry) => entry.id === 'logic-demo');
+    if (!level) return;
+    this.hide();
+    this.onStartLevel?.({
+      level,
+      difficulty: 1,
+      challengeMode: CHALLENGE_MODE.STANDARD,
+      deck: [],
+      cardLevels: {},
+      startedAt: Date.now()
+    });
   }
 
   /** 生存模式唯一的那张地图。 */

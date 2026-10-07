@@ -167,6 +167,12 @@ export class AttackSystem {
     if (manaShot > 0) {
       if (unit.attackTimer > 0 || (unit.activityMana ?? 0) < manaShot) return false;
     } else if (unit.attackTimer > 0 || unit.weapon.durability <= 0) return false;
+    // 「脱战」的判定包含"最后发起攻击"。建筑开火同样算交战：
+    // 正在压制敌人的塔不应该同时被木傀儡拆开修理（那既是免费治疗，也让维修暴露在炮火里）。
+    // 时间戳权威在 UnitEntity.takeRawDamage（受伤那一半），这里补上发起攻击那一半。
+    if (unit.isBuilding === true && Number.isFinite(this.game?.elapsedTime)) {
+      unit.lastCombatAt = this.game.elapsedTime;
+    }
     unit.attackTimer = 1 / this.game.modifiers.getAttackRate(unit);
     unit.visualState = 'idle';
     const eventName = unit.definition.role === 'ranged' ? 'release' : 'impact';
@@ -1337,6 +1343,69 @@ export class AttackSystem {
       isProjectile: true
     });
     if (landed) projectile.onHit?.(target, projectile);
+    // 震荡塔的小范围魔力脉冲：命中点周围再吃一发次级伤害 + 轻微减速。
+    // 只对"主目标命中"的那一次触发，不对每个被溅射到的目标递归触发。
+    if (landed) this.applyAttackSplash(projectile, target);
+    return landed;
+  }
+
+  /**
+   * 范围脉冲（震荡塔）。
+   *
+   * 数值全部来自定义里的 `attackSplash`，射程/半径与预警尺寸共用同一个真值，
+   * 所以视觉半径与实际伤害半径不会各说各话。
+   * 对单体的效率刻意低于箭塔：次级伤害只有 55%，主目标伤害本身也不高。
+   */
+  applyAttackSplash(projectile, primaryTarget) {
+    const splash = projectile?.source?.definition?.attackSplash ?? null;
+    if (!splash) return { hits: 0 };
+    const source = projectile.source;
+    const radius = Math.max(0.2, Number(splash.radius) || 0);
+    const center = projectile.object?.position ?? primaryTarget?.position ?? null;
+    if (!center) return { hits: 0 };
+    const targetTeam = source.team === TEAMS.PLAYER ? TEAMS.ENEMY : TEAMS.PLAYER;
+    const candidates = this.game.targeting?.query(targetTeam, center, radius + PROJECTILE_TARGET_QUERY_PADDING)
+      ?? (targetTeam === TEAMS.ENEMY ? this.game.enemyUnits : this.game.friendlyUnits);
+    const maxTargets = Math.max(1, Math.floor(Number(splash.maxTargets) || 4));
+    const secondaryMultiplier = Math.max(0, Math.min(1, Number(splash.secondaryDamageMultiplier) ?? 0.55));
+    const slowSeconds = Math.max(0, Number(splash.slowSeconds) || 0);
+    const slowMaxRatio = Math.max(0, Math.min(0.25, Number(splash.slowMaxRatio) ?? 0.25));
+    let hits = 0;
+    for (const target of candidates) {
+      if (hits >= maxTargets) break;
+      if (!target?.alive || target === primaryTarget) continue;
+      const distance = Math.hypot(
+        (target.position?.x ?? 0) - (center.x ?? 0),
+        (target.position?.z ?? 0) - (center.z ?? 0)
+      );
+      if (distance > radius + targetCombatRadius(target)) continue;
+      const falloff = 1 - Math.max(0, Math.min(1, distance / radius)) * 0.35;
+      this.game.combat.applyAttack(source, target, {
+        damage: projectile.damage * secondaryMultiplier * falloff,
+        attackDamageType: projectile.attackDamageType,
+        knockback: (projectile.knockback ?? 0) * 0.4,
+        damageTypes: projectile.damageTypes,
+        isProjectile: true,
+        isSplashDamage: true
+      });
+      if (slowSeconds > 0) {
+        // 减速上限 25%、约 0.7 秒，不做持续锁死。倍率现场算，Buff 定义只做形状。
+        this.game.buffs?.applyBuff?.(target, 'shockPulseSlow', source, {
+          duration: slowSeconds,
+          modifiers: [{
+            stat: 'moveSpeed',
+            type: 'multiply',
+            factor: 1 - slowMaxRatio
+          }]
+        });
+      }
+      hits += 1;
+    }
+    if (hits > 0) {
+      this.game.effects?.spawnRing?.(center, '#b79bff', radius, 0.34);
+      this.game.effects?.spawnHit?.(center);
+    }
+    return { hits };
   }
 
   removeProjectileAt(index) {

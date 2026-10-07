@@ -181,6 +181,38 @@ body.is-meta-open .mobile-box-select-hint {
   color: #d8ffe4;
 }
 
+/* 多选里"这一项被部分傀儡选中"：既不是激活也不是未选，用虚线边框交代混合态。 */
+.backpack-worker-combat-mode-btn.is-partial {
+  border-style: dashed;
+  border-color: rgba(255, 214, 140, 0.72);
+  color: #ffe6b4;
+}
+
+/* 当前模式徽标：常驻在"遇敌策略"标题右侧，不用打开提示就能读到状态。 */
+.backpack-worker-combat-mode-state {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(160, 230, 180, 0.6);
+  background: rgba(40, 62, 44, 0.85);
+  color: #d8ffe4;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.backpack-worker-combat-mode-state.is-mixed {
+  border-color: rgba(255, 214, 140, 0.72);
+  background: rgba(66, 52, 26, 0.9);
+  color: #ffe6b4;
+}
+
+.backpack-worker-combat-mode-meaning {
+  margin: 2px 0 0;
+}
+
+
 .resource-box-select-hud__hint {
   color: rgba(247, 244, 232, 0.62);
   font-size: 11px;
@@ -644,6 +676,10 @@ body.is-meta-open .resource-box-select-hud {
   bottom: 42%;
 }
 
+.world-enchantments.is-brownout {
+  color: #ffb089;
+}
+
 .world-enchantments {
   width: 132px;
   max-width: 132px;
@@ -677,7 +713,7 @@ body.is-meta-open .resource-box-select-hud {
   backdrop-filter: blur(16px);
 }
 
-.game-settings-button {
+.game-settings-button, .game-help-button {
   position: static;
   width: 34px;
   height: 30px;
@@ -696,12 +732,14 @@ body.is-meta-open .resource-box-select-hud {
   line-height: 1;
 }
 
-.game-settings-button:hover {
+.game-settings-button:hover,
+.game-help-button:hover {
   border-color: rgba(158, 238, 219, 0.58);
   background: rgba(54, 91, 86, 0.82);
 }
 
-.game-settings-button[hidden] {
+.game-settings-button[hidden],
+.game-help-button[hidden] {
   display: none;
 }
 
@@ -875,14 +913,14 @@ body.is-meta-open .resource-box-select-hud {
   margin-left: auto;
 }
 
-.hud-toolbar .game-settings-button,
+.hud-toolbar .game-settings-button, .hud-toolbar .game-help-button,
 .hud-toolbar .fps-meter {
   position: static;
   transform: none;
   transform-origin: center;
 }
 
-.hud-toolbar .game-settings-button {
+.hud-toolbar .game-settings-button, .hud-toolbar .game-help-button {
   width: 28px;
   height: 26px;
   font-size: 15px;
@@ -5181,7 +5219,7 @@ body:not(.is-game-active) .mobile-action-dock {
     -webkit-overflow-scrolling: touch;
   }
 
-  .game-settings-button,
+  .game-settings-button, .game-help-button,
   .render-tuning-button,
   .fps-meter,
   .hud-primary,
@@ -5192,17 +5230,17 @@ body:not(.is-game-active) .mobile-action-dock {
     transform: scale(var(--mobile-ui-scale));
   }
 
-  .game-settings-button,
+  .game-settings-button, .game-help-button,
   .hud-primary,
   .pile-button.is-draw,
   .game-command-dock {
     transform-origin: left bottom;
   }
 
-  .game-settings-button,
+  .game-settings-button, .game-help-button,
   .hud-primary {}
 
-  .game-settings-button,
+  .game-settings-button, .game-help-button,
   .render-tuning-button,
   .hud-selected,
   .fps-meter,
@@ -5330,7 +5368,7 @@ body:not(.is-game-active) .mobile-action-dock {
     padding: 3px 12px 12px;
   }
 
-  .game-settings-button {
+  .game-settings-button, .game-help-button {
     top: auto;
     bottom: 68px;
     left: 8px;
@@ -5486,7 +5524,7 @@ body:not(.is-game-active) .mobile-action-dock {
 }
 
 @media (max-width: 760px) {
-  .game-settings-button {
+  .game-settings-button, .game-help-button {
     top: 10px;
     right: 10px;
     left: auto;
@@ -5750,7 +5788,7 @@ body:not(.is-game-active) .mobile-action-dock {
 }
 
 @media (pointer: coarse) and (orientation: landscape) and (max-width: 760px) {
-  .game-settings-button {
+  .game-settings-button, .game-help-button {
     top: auto;
     bottom: 68px;
     left: 8px;
@@ -6343,7 +6381,7 @@ body:not(.is-game-active) .mobile-action-dock {
 }
 
 @media (pointer: coarse) and (orientation: portrait) {
-  .game-settings-button {
+  .game-settings-button, .game-help-button {
     top: 108px;
     left: 8px;
     width: 34px;
@@ -7636,7 +7674,7 @@ button:active, .btn:active, .run-shop-toggle:active {
   display: flex !important;
   gap: 12px;
 }
-.game-settings-button {
+.game-settings-button, .game-help-button {
   width: 40px !important;
   height: 40px !important;
   display: flex !important;
@@ -8803,7 +8841,7 @@ button:active, .btn:active, .run-shop-toggle:active {
     gap: 5px;
   }
 
-  body.is-game-active .game-settings-button {
+  body.is-game-active .game-settings-button, body.is-game-active .game-help-button {
     width: 34px !important;
     height: 34px !important;
     font-size: 16px !important;

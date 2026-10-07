@@ -117,6 +117,7 @@ if (report.started) {
       elapsedAdvanced: game.elapsedTime > elapsedBefore,
       supplyPerSecond: base.supplyPerSecond,
       supplyRadius: base.supplyRadius,
+      rulesBaseline: { ...power.rules },
       near: {
         stored: window.__POWER_PROBE__.near.activityMana,
         capacity: window.__POWER_PROBE__.near.manaCapacity,
@@ -145,8 +146,16 @@ if (report.started) {
 
 const p = report.power;
 report.verdict = p ? {
-  // 基地确实注册成了供能源，半径是文档确认的约 20m
-  baseRegistered: p.supplyPerSecond === 12 && p.supplyRadius === 20,
+  /**
+   * 基地确实注册成了供能源，半径是文档确认的约 20m。
+   *
+   * 功率不能写死成某个历史数字：它是一份平衡参数（`POWER_RULES.baseSupplyPerSecond`），
+   * 这里改成读规则本身，并把"实际值必须等于规则值"当成判据——
+   * 这样调平衡不会让这条断言变成过期夹具，但"没注册/注册错"仍然会被抓到。
+   */
+  baseRegistered: p.supplyPerSecond === (p.rulesBaseline?.baseSupplyPerSecond ?? p.supplyPerSecond)
+    && p.supplyPerSecond > 0
+    && p.supplyRadius === (p.rulesBaseline?.baseSupplyRadius ?? 20),
   // 范围内确实收到了补魔，范围外一次都没收到
   nearRecharged: p.grantedNear > 0 && p.near.stored <= p.near.capacity,
   // 范围外只扣不补

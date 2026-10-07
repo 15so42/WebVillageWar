@@ -52,12 +52,17 @@ const rowOf = (itemId) => rows.find((row) => row.itemId === itemId) ?? null;
 // ---------------------------------------------------------------- 可采集资源
 check('可采集资源来自资源节点表，去重且顺序稳定', () => {
   const resources = gatherableResources();
-  assert.ok(resources.length >= 5, `至少要有 5 种可采资源，实得 ${resources.length}`);
+  assert.ok(resources.length >= 4, `至少要有 4 种可采资源，实得 ${resources.length}`);
   assert.deepEqual(resources, [...resources].sort(), '必须排序，否则每次刷新界面行序会跳');
   const fromNodes = new Set(Object.values(RESOURCE_NODE_DEFINITIONS).map((node) => node.resource));
   fromNodes.forEach((resource) => {
+    if (resource === 'food') return;
+    // 谷物同样不自动派活：菜圃成熟后由玩家自己框选采收（与浆果丛同一条手动路径）。
+    if (resource === 'grain') return;
     assert.ok(resources.includes(resource), `${resource} 必须有对应资源行`);
   });
+  assert.equal(resources.includes('food'), false, '食物不进采集表');
+  assert.equal(resources.includes('grain'), false, '谷物不进采集表（菜圃产物由玩家手动采收）');
   assert.ok(resources.includes('wood') && resources.includes('stone') && resources.includes('iron'));
 });
 
@@ -71,10 +76,9 @@ check('优先级被夹在 [min, max] 里，并且取整', () => {
   assert.ok(PRIORITY_MIN < 0, '必须允许负数，否则表达不了"禁止采集"');
 });
 
-check('默认优先级：木材 > 石料 > 食物 > 其他', () => {
+check('默认优先级：木材 > 石料，食物不开局采集', () => {
   assert.ok(defaultPriorityFor('wood') > defaultPriorityFor('stone'));
-  assert.ok(defaultPriorityFor('stone') > defaultPriorityFor('food'));
-  assert.equal(defaultPriorityFor('food'), 1);
+  assert.equal(defaultPriorityFor('food'), 0);
   assert.equal(defaultPriorityFor('fiber'), 0);
   assert.equal(defaultPriorityFor('furnace'), 0, '合成产物默认不加权');
 });
@@ -155,9 +159,9 @@ check('配方环不会让折算变成死循环', () => {
 
 // ---------------------------------------------------------------- 行 → 采集需求
 check('资源行的优先级直接变成采集权重与目标库存', () => {
-  const demands = demandsFromPriorities({ wood: 4, stone: 0, food: 1, iron: 0, fiber: 0 });
+  const demands = demandsFromPriorities({ wood: 4, stone: 0, iron: 0, fiber: 1 });
   const wood = demands.find((demand) => demand.resource === 'wood');
-  const food = demands.find((demand) => demand.resource === 'food');
+  const fiber = demands.find((demand) => demand.resource === 'fiber');
   assert.ok(wood, '木材必须在需求表里');
   assert.equal(wood.enabled, true);
   assert.equal(
@@ -165,7 +169,7 @@ check('资源行的优先级直接变成采集权重与目标库存', () => {
     RESOURCE_PRIORITY_RULES.baseWeight + RESOURCE_PRIORITY_RULES.weightStep * 4
   );
   assert.equal(wood.targetStock, 4 * RESOURCE_PRIORITY_RULES.targetStockPerLevel);
-  assert.ok(food.weight < wood.weight, '优先级低的权重必须更小');
+  assert.ok(fiber.weight < wood.weight, '优先级低的权重必须更小');
 });
 
 check('优先级 <= 0 的资源不会出现在需求表里（或明确 enabled=false）', () => {
@@ -182,7 +186,8 @@ check('没被点过的资源走默认优先级（否则开局没人采石料）'
   // "部分覆盖 + 其余走默认"这个语义——如果漏了默认值，开局只会采木材。
   const demands = demandsFromPriorities({});
   const resources = demands.map((demand) => demand.resource);
-  assert.ok(resources.includes('wood') && resources.includes('stone') && resources.includes('food'));
+  assert.ok(resources.includes('wood') && resources.includes('stone'));
+  assert.equal(resources.includes('food'), false);
   const partial = demandsFromPriorities({ iron: 3 });
   const partialResources = partial.map((demand) => demand.resource);
   assert.ok(partialResources.includes('iron'), '点过的项必须生效');
@@ -249,12 +254,12 @@ check('确定性：同样的优先级永远得到同样的需求表', () => {
   }
 });
 
-check('默认开局的需求与旧硬编码口径一致：木 > 石 > 食，且三者都启用', () => {
+check('默认开局只采木材和石料，不派去采食物', () => {
   const demands = demandsFromPriorities({});
   const byResource = Object.fromEntries(demands.map((demand) => [demand.resource, demand]));
-  assert.ok(byResource.wood && byResource.stone && byResource.food, '开局必须采木石食');
+  assert.ok(byResource.wood && byResource.stone, '开局必须采木和石');
+  assert.equal(byResource.food, undefined);
   assert.ok(byResource.wood.weight > byResource.stone.weight);
-  assert.ok(byResource.stone.weight > byResource.food.weight);
   assert.ok(demands.every((demand) => demand.enabled !== false));
   // 采不到的东西（没有节点）不该被派活
   assert.equal(byResource.charcoal, undefined);

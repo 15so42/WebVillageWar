@@ -79,6 +79,16 @@ export function dropIsPickable(drop) {
   return Boolean(drop) && drop.state === DROP_STATE.onGround && !dropIsEmpty(drop);
 }
 
+/** 怪物死亡掉落的魔石。玩家单位和建筑不掉。体型越大掉得越多。 */
+export function magicStoneDropFor(unit) {
+  if (!unit || unit.isBuilding === true || unit.team === 'player') return null;
+  const hostile = unit.team === 'enemy' || unit.isWildlife === true;
+  if (!hostile) return null;
+  const health = Number(unit.definition?.maxHealth ?? unit.maxHealth) || 0;
+  const count = health >= 80 ? 3 : health >= 40 ? 2 : 1;
+  return { itemId: 'magicStone', count };
+}
+
 export function dropInRange(drop, point, rules = DROP_RULES) {
   if (!drop || !point) return false;
   const range = dropRules(rules).pickUpRange;

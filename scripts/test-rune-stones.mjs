@@ -539,4 +539,37 @@ const THORNS_CARD = { id: 'thorns-enchant', kind: 'enchant', level: 1, enchantme
   effects.destroy();
 }
 
+{
+  const { ResearchSystem } = await import('../src/systems/ResearchSystem.js');
+  const { game } = makeGame();
+  const runes = new RuneStoneSystem(game);
+  game.runeStones = runes;
+  const table = makeUnit('enchant-table');
+  table.type = 'enchantTable';
+  game.friendlyUnits.push(table);
+  const knight = makeUnit('enchant-knight');
+  game.friendlyUnits.push(knight);
+  const baseAttack = knight.physicalAttack;
+  const baseMagic = knight.magicAttack;
+
+  game.baseInventory.add('iron', 40);
+  game.baseInventory.add('charcoal', 24);
+  const missingCore = new ResearchSystem(game).enchant('power');
+  assert.equal(missingCore.ok, false);
+  assert.equal(knight.physicalAttack, baseAttack);
+
+  game.baseInventory.add('magicStone', 8);
+  const made = new ResearchSystem(game).enchant('power');
+  assert.equal(made.ok, true, made.label || made.reason);
+  assert.equal(knight.enchantments.has('power'), false, '石头还在基地背包时不应加强单位');
+  assert.equal(game.baseInventory.countOf('magicStone'), 0);
+  assert.equal(game.baseInventory.countOf('iron'), 0);
+  assert.equal(game.baseInventory.countOf('charcoal'), 0);
+
+  const moved = runes.moveStone(made.stone.id, { kind: 'unit', unit: knight }, { playerId: 'p1' });
+  assert.equal(moved.ok, true);
+  assert.equal(knight.physicalAttack, baseAttack + 1.5);
+  assert.equal(knight.magicAttack, baseMagic + 1.5);
+}
+
 console.log('rune stone system checks passed');

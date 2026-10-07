@@ -103,6 +103,8 @@ if (report.started) {
     // ---- 1) 找一个基地供能半径之外的落点 ----
     const baseSupplier = game.power.suppliers.get('player-base');
     out.baseRadius = baseSupplier?.supplyRadius ?? null;
+    out.baseSupplyPerSecond = baseSupplier?.supplyPerSecond ?? null;
+    out.maxRechargePerSecond = game.power.rules?.maxRechargePerSecond ?? null;
     const farSpot = (() => {
       const base = game.playerBase.position;
       for (let radius = (baseSupplier?.supplyRadius ?? 20) + 4; radius <= 50; radius += 1.5) {
@@ -281,6 +283,8 @@ if (report.started) {
 }
 
 const r = report.result;
+// 基地功率是平衡参数，不能写死历史数字：从游戏里的规则读，供能上限必须不超过它。
+const BASE_SUPPLY_PER_SECOND = report.baseSupplyPerSecond ?? null;
 report.verdict = r && !r.error ? {
   booted: true,
   // 启动路径：魔力炉不需要木炭

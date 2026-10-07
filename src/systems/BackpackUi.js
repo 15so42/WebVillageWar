@@ -36,7 +36,12 @@ import {
 import { isEquippedWeaponInSlot, isWeaponItem } from './weapons.js';
 import {
   PUPPET_COMBAT_MODE,
-  PUPPET_COMBAT_MODE_LABELS
+  PUPPET_COMBAT_MODE_HINTS,
+  PUPPET_COMBAT_MODE_LABELS,
+  PUPPET_COMBAT_MODE_MEANINGS,
+  PUPPET_COMBAT_MODE_MIXED_LABEL,
+  setPuppetCombatModeForUnits,
+  summarizePuppetCombatModes
 } from './puppetCombatMode.js';
 import { mountStationStoragePane, STATION_STORAGE_DATASETS } from './stationStorageUi.js';
 import {
@@ -456,6 +461,9 @@ export class BackpackUi {
     const signature = JSON.stringify({
       mode: this.mode,
       unitId: this.unit?.id ?? null,
+      // 遇敌策略要与**全部选中单位**一致才跳过重画：多选下别的傀儡改了模式，
+      // 这块 toggle 的"混合/一致"显示也必须跟着变。
+      combatModes: (this.game?.selectedUnits ?? []).map((u) => `${u?.id ?? '?'}:${u?.workerCombatMode ?? ''}`),
       workerCombatMode: this.unit?.workerCombatMode ?? null,
       // 两块网格都要进签名：只算主容器的话，"往基地里放了东西"不会让 DOM 更新。
       containers: entries.map((entry) => [
@@ -607,7 +615,7 @@ export class BackpackUi {
     block.appendChild(toolHead);
     const toolHint = document.createElement('p');
     toolHint.className = 'backpack-grid-hint';
-    toolHint.textContent = '斧、镐等工具放这里；不参与自动存放与卸货。';
+    toolHint.textContent = '斧、镐和附魔石放这里。附魔石留在背包里就会生效，也不会被卸货送走。';
     block.appendChild(toolHint);
     const toolGrid = document.createElement('div');
     toolGrid.className = 'backpack-grid is-worker-tool-zone';
@@ -627,7 +635,7 @@ export class BackpackUi {
     block.appendChild(cargoHead);
     const cargoHint = document.createElement('p');
     cargoHint.className = 'backpack-grid-hint';
-    cargoHint.textContent = '采集物与要送进箱子/基地的货放这里。';
+    cargoHint.textContent = '采集来的货放这里。附魔石放这里也会生效，但会占掉一格存货。';
     block.appendChild(cargoHint);
     const cargoGrid = document.createElement('div');
     cargoGrid.className = 'backpack-grid is-worker-cargo-zone';
@@ -639,15 +647,38 @@ export class BackpackUi {
     block.appendChild(cargoGrid);
   }
 
+  /**
+   * 遇敌策略：**显式互斥 toggle**。
+   *
+   * 三条要求（用户第 1 项）：
+   *   1. 复用现有模式与规则（避战/战斗/自动，改的是同一个 `workerCombatMode`），不另造战斗模式；
+   *   2. 持续显示当前激活模式 + 简短含义，不让玩家靠提示消息猜；
+   *   3. 多选不同模式时显示混合状态，切换作用于全部选中的木傀儡。
+   * 状态本身来自单位字段，所以重新选中、面板重开、读档后显示都与实际一致。
+   */
   renderWorkerCombatMode(block, unit) {
     if (!unit?.isWorker) return;
-    const mode = unit.workerCombatMode ?? PUPPET_COMBAT_MODE.fight;
+    const units = this.combatModeTargets(unit);
+    const summary = summarizePuppetCombatModes(units);
     const wrap = document.createElement('div');
     wrap.className = 'backpack-worker-combat-mode';
+    wrap.dataset.puppetCombatModeGroup = 'true';
+    wrap.setAttribute('role', 'radiogroup');
+    wrap.setAttribute('aria-label', '遇敌策略');
+
     const head = document.createElement('div');
     head.className = 'backpack-pane-head';
-    head.innerHTML = '<span class="backpack-pane-title">遇敌策略</span>';
+    const title = document.createElement('span');
+    title.className = 'backpack-pane-title';
+    title.textContent = '遇敌策略';
+    const state = document.createElement('span');
+    state.className = 'backpack-worker-combat-mode-state';
+    state.dataset.puppetCombatModeState = 'true';
+    if (summary.mixed) state.classList.add('is-mixed');
+    state.textContent = summary.mixed ? PUPPET_COMBAT_MODE_MIXED_LABEL : PUPPET_COMBAT_MODE_LABELS[summary.mode];
+    head.append(title, state);
     wrap.appendChild(head);
+
     const row = document.createElement('div');
     row.className = 'backpack-worker-combat-mode-options';
     [PUPPET_COMBAT_MODE.avoid, PUPPET_COMBAT_MODE.fight, PUPPET_COMBAT_MODE.auto].forEach((key) => {
@@ -655,16 +686,39 @@ export class BackpackUi {
       button.type = 'button';
       button.className = 'backpack-worker-combat-mode-btn';
       button.dataset.puppetCombatMode = key;
-      if (mode === key) button.classList.add('is-active');
+      button.setAttribute('role', 'radio');
+      const active = summary.mixed !== true && summary.mode === key;
+      button.setAttribute('aria-checked', active ? 'true' : 'false');
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+      if (active) button.classList.add('is-active');
+      if (summary.mixed && summary.modes.includes(key)) button.classList.add('is-partial');
       button.textContent = PUPPET_COMBAT_MODE_LABELS[key];
+      button.title = PUPPET_COMBAT_MODE_MEANINGS[key];
       row.appendChild(button);
     });
     wrap.appendChild(row);
-    const hint = document.createElement('p');
-    hint.className = 'backpack-grid-hint';
-    hint.textContent = '避战：朝最近友方可攻击建筑撤退；战斗：主动迎战；自动：按战力与敌附魔估算打或逃。';
-    wrap.appendChild(hint);
+
+    const meaning = document.createElement('p');
+    meaning.className = 'backpack-grid-hint backpack-worker-combat-mode-meaning';
+    meaning.dataset.puppetCombatModeMeaning = 'true';
+    if (summary.mixed) {
+      meaning.textContent = `选中 ${summary.count} 支木傀儡，策略不一致（${summary.modes
+        .map((mode) => PUPPET_COMBAT_MODE_LABELS[mode]).join(' / ')}）。点一项统一改成同一个。`;
+    } else if (!summary.count) {
+      meaning.textContent = '没有选中木傀儡。';
+    } else {
+      // 一致时这里不重复上面的含义（标题右侧已经写了当前模式），改成写清"这条策略做什么"。
+      meaning.textContent = PUPPET_COMBAT_MODE_HINTS[summary.mode];
+    }
+    wrap.appendChild(meaning);
     block.appendChild(wrap);
+  }
+
+  /** 遇敌策略的作用对象：多选里所有木傀儡；没有多选时就是面板当前单位。 */
+  combatModeTargets(unit) {
+    const selected = (this.game?.selectedUnits ?? []).filter((entry) => entry?.isWorker === true && entry.alive !== false);
+    if (selected.length > 1) return selected;
+    return unit ? [unit] : selected;
   }
 
   createSlotElement(entry, slot, index) {
@@ -1522,7 +1576,17 @@ export class BackpackUi {
     if (combatModeButton && this.unit?.isWorker === true) {
       event.preventDefault();
       const mode = combatModeButton.dataset.puppetCombatMode;
-      if (mode) this.game?.work?.setWorkerCombatMode?.(this.unit, mode);
+      if (mode) {
+        // 互斥 toggle：多选不同模式时一次统一成同一个；单选就是它自己。
+        const targets = this.combatModeTargets(this.unit);
+        setPuppetCombatModeForUnits(targets, mode);
+        if (targets.length > 1) {
+          this.game?.hints?.setHintOnce?.(
+            `已把 ${targets.length} 支木傀儡改为「${PUPPET_COMBAT_MODE_LABELS[mode]}」`,
+            'puppet-combat-mode'
+          );
+        }
+      }
       this.markDirty?.();
       this.refresh();
       return;

@@ -1,3 +1,11 @@
+import {
+  DEFENSE_TOWER_IDS,
+  TIER3_ROUTE_BY_TOWER,
+  TOWER_TIER_MAX,
+  applyTierStats,
+  towerUnitTypeFor
+} from './defenseTiers.js';
+
 export const TEAMS = {
   PLAYER: 'player',
   ENEMY: 'enemy'
@@ -23,6 +31,7 @@ export function isTerrainCard(card) {
 
 export const UNIT_DEFINITIONS = {
   knight: {
+    foodConsumer: true,
     name: '骑士',
     role: 'melee',
     art: {
@@ -66,6 +75,7 @@ export const UNIT_DEFINITIONS = {
     }
   },
   swordsman: {
+    foodConsumer: true,
     name: '剑士',
     role: 'melee',
     art: {
@@ -117,6 +127,7 @@ export const UNIT_DEFINITIONS = {
     ]
   },
   berserker: {
+    foodConsumer: true,
     name: '狂战士',
     role: 'melee',
     art: {
@@ -165,6 +176,7 @@ export const UNIT_DEFINITIONS = {
     ]
   },
   archer: {
+    foodConsumer: true,
     name: '弓兵',
     role: 'ranged',
     art: {
@@ -209,6 +221,7 @@ export const UNIT_DEFINITIONS = {
     }
   },
   spearman: {
+    foodConsumer: true,
     name: '长矛兵',
     role: 'melee',
     art: {
@@ -251,6 +264,7 @@ export const UNIT_DEFINITIONS = {
     }
   },
   towerShield: {
+    foodConsumer: true,
     name: '塔盾兵',
     role: 'melee',
     art: {
@@ -294,6 +308,7 @@ export const UNIT_DEFINITIONS = {
     }
   },
   crossbowman: {
+    foodConsumer: true,
     name: '弩手',
     role: 'ranged',
     art: {
@@ -338,6 +353,7 @@ export const UNIT_DEFINITIONS = {
     }
   },
   waterMage: {
+    foodConsumer: true,
     name: '水法师',
     role: 'ranged',
     art: {
@@ -389,6 +405,7 @@ export const UNIT_DEFINITIONS = {
     }
   },
   lightningMage: {
+    foodConsumer: true,
     name: '雷法师',
     role: 'ranged',
     art: {
@@ -455,6 +472,7 @@ export const UNIT_DEFINITIONS = {
     }
   },
   windMage: {
+    foodConsumer: true,
     name: '风法师',
     role: 'ranged',
     art: {
@@ -512,6 +530,7 @@ export const UNIT_DEFINITIONS = {
     }
   },
   rogue: {
+    foodConsumer: true,
     name: '盗贼',
     role: 'melee',
     art: {
@@ -571,6 +590,7 @@ export const UNIT_DEFINITIONS = {
     }
   },
   engineer: {
+    foodConsumer: true,
     name: '矮人工匠',
     role: 'melee',
     art: {
@@ -720,7 +740,61 @@ export const UNIT_DEFINITIONS = {
       attackRate: 1
     }
   },
+  ironPuppet: {
+    name: '铁傀儡',
+    role: 'worker',
+    workRate: 1.4,
+    art: {
+      modelKey: 'unit.woodPuppet',
+      rig: 'humanoid',
+      clips: {
+        idle: 'Idle',
+        walk: 'Walk',
+        chop: 'Chop',
+        mine: 'Mine',
+        attack: 'Attack',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        chop: { duration: 0.72, events: { strike: 0.46 } },
+        mine: { duration: 0.6, events: { strike: 0.42 } },
+        attack: { duration: 0.38, events: { strike: 0.4 } },
+        hit: { duration: 0.2 }
+      }
+    },
+    maxHealth: 48,
+    maxShield: 0,
+    speed: 3.4,
+    canMove: true,
+    physicalAttack: 0,
+    magicAttack: 0,
+    damage: 0,
+    aggroRange: 0,
+    attackRange: 0.9,
+    attackRate: 1,
+    attackRadius: 0.36,
+    armor: 4,
+    magicResistance: 0,
+    dodgeChance: 0,
+    knockback: 0,
+    projectileHitHeight: 1.55,
+    collisionRadius: 0.46,
+    statusHeight: 1.86,
+    traits: [],
+    weapon: {
+      name: '铁质手臂',
+      family: 'puppetArm',
+      profile: { attackRange: 0.9, projectileType: null, attackAnimation: 'Attack' },
+      damage: 0,
+      damageType: 'physical',
+      maxDurability: 55,
+      durabilityCost: 0,
+      attackRate: 1
+    }
+  },
   physician: {
+    foodConsumer: true,
     name: '牧师',
     role: 'ranged',
     art: {
@@ -783,6 +857,7 @@ export const UNIT_DEFINITIONS = {
     ]
   },
   purifier: {
+    foodConsumer: true,
     name: '净咒师',
     role: 'ranged',
     art: {
@@ -837,6 +912,7 @@ export const UNIT_DEFINITIONS = {
     }
   },
   warder: {
+    foodConsumer: true,
     name: '结界师',
     role: 'ranged',
     art: {
@@ -892,6 +968,8 @@ export const UNIT_DEFINITIONS = {
     }
   },
   arrowTower: {
+    defenseTowerId: 'arrowTower',
+    defenseTowerTier: 1,
     name: '箭塔',
     role: 'ranged',
     isBuilding: true,
@@ -936,6 +1014,53 @@ export const UNIT_DEFINITIONS = {
     collisionRadius: 0.62,
     weapon: {
       name: '箭塔',
+      maxDurability: 9999,
+      durabilityCost: 0
+    }
+  },
+  ballista: {
+    defenseTowerId: 'ballista',
+    defenseTowerTier: 1,
+    name: '弩炮',
+    role: 'ranged',
+    isBuilding: true,
+    canMove: false,
+    canReceiveBuffs: false,
+    immuneToStatusEffects: true,
+    art: {
+      modelKey: 'unit.arrowTower',
+      rig: 'building',
+      clips: {
+        idle: 'Idle',
+        attack: 'Tower_Shot',
+        hit: 'Hit',
+        death: 'Death'
+      },
+      timelines: {
+        attack: {
+          duration: 0.72,
+          events: { release: 0.62 }
+        },
+        hit: { duration: 0.12 }
+      }
+    },
+    maxHealth: 78,
+    maxShield: 0,
+    speed: 0,
+    attackRange: 13.5,
+    attackRate: 0.42,
+    damage: 16,
+    armor: 1,
+    magicResistance: 0,
+    dodgeChance: 0,
+    knockback: 1.4,
+    aggroRange: 16.5,
+    projectileSpeed: 28,
+    projectileType: 'arrow',
+    projectileHitHeight: 3.1,
+    collisionRadius: 0.72,
+    weapon: {
+      name: '弩炮',
       maxDurability: 9999,
       durabilityCost: 0
     }
@@ -1266,7 +1391,87 @@ export const UNIT_DEFINITIONS = {
       durabilityCost: 0
     }
   },
-  // 树坑：一块整好的苗床。不生产物品，靠 PlantingSystem 驱动"种下 → 长成 → 砍伐"。
+  andGate: {
+    name: '与门',
+    role: 'support',
+    isBuilding: true,
+    canMove: false,
+    canReceiveBuffs: false,
+    immuneToStatusEffects: true,
+    art: {
+      modelKey: 'unit.chest',
+      rig: 'building',
+      clips: { idle: 'Idle', hit: 'Hit', death: 'Death' }
+    },
+    maxHealth: 50,
+    maxShield: 0,
+    speed: 0,
+    attackRange: 0,
+    attackRate: 0,
+    damage: 0,
+    armor: 1,
+    magicResistance: 0,
+    dodgeChance: 0,
+    knockback: 0,
+    aggroRange: 0,
+    projectileHitHeight: 1.1,
+    collisionRadius: 0.7,
+    weapon: { name: '门板', maxDurability: 20, durabilityCost: 0 }
+  },
+  orGate: {
+    name: '或门',
+    role: 'support',
+    isBuilding: true,
+    canMove: false,
+    canReceiveBuffs: false,
+    immuneToStatusEffects: true,
+    art: {
+      modelKey: 'unit.chest',
+      rig: 'building',
+      clips: { idle: 'Idle', hit: 'Hit', death: 'Death' }
+    },
+    maxHealth: 50,
+    maxShield: 0,
+    speed: 0,
+    attackRange: 0,
+    attackRate: 0,
+    damage: 0,
+    armor: 1,
+    magicResistance: 0,
+    dodgeChance: 0,
+    knockback: 0,
+    aggroRange: 0,
+    projectileHitHeight: 1.1,
+    collisionRadius: 0.7,
+    weapon: { name: '门板', maxDurability: 20, durabilityCost: 0 }
+  },
+  notGate: {
+    name: '非门',
+    role: 'support',
+    isBuilding: true,
+    canMove: false,
+    canReceiveBuffs: false,
+    immuneToStatusEffects: true,
+    art: {
+      modelKey: 'unit.chest',
+      rig: 'building',
+      clips: { idle: 'Idle', hit: 'Hit', death: 'Death' }
+    },
+    maxHealth: 50,
+    maxShield: 0,
+    speed: 0,
+    attackRange: 0,
+    attackRate: 0,
+    damage: 0,
+    armor: 1,
+    magicResistance: 0,
+    dodgeChance: 0,
+    knockback: 0,
+    aggroRange: 0,
+    projectileHitHeight: 1.1,
+    collisionRadius: 0.7,
+    weapon: { name: '门板', maxDurability: 20, durabilityCost: 0 }
+  },
   treePit: {
     name: '树坑',
     role: 'support',
@@ -1291,6 +1496,41 @@ export const UNIT_DEFINITIONS = {
     knockback: 0,
     aggroRange: 0,
     projectileHitHeight: 1.4,
+    collisionRadius: 0.8,
+    weapon: {
+      name: '苗床',
+      maxDurability: 30,
+      durabilityCost: 0
+    }
+  },
+  // 菜圃：一块逻辑作物地块。种植、生长、成熟复用树坑那一套（PlantingSystem），
+  // 成熟后在圃边长成一片**真实的谷物资源节点**，必须由傀儡实际采收再搬运，
+  // 不是设施自己按周期吐粮食。一个逻辑节点可以用数株低模植株表现（见 buildGrainGeometry），
+  // 所以视觉植株数不是产量倍数。
+  cropPlot: {
+    name: '菜圃',
+    role: 'support',
+    isBuilding: true,
+    canMove: false,
+    canReceiveBuffs: false,
+    immuneToStatusEffects: true,
+    art: {
+      modelKey: 'unit.treePit',
+      rig: 'building',
+      clips: { idle: 'Idle', hit: 'Hit', death: 'Death' }
+    },
+    maxHealth: 55,
+    maxShield: 0,
+    speed: 0,
+    attackRange: 0,
+    attackRate: 0,
+    damage: 0,
+    armor: 1,
+    magicResistance: 0,
+    dodgeChance: 0,
+    knockback: 0,
+    aggroRange: 0,
+    projectileHitHeight: 1.2,
     collisionRadius: 0.8,
     weapon: {
       name: '苗床',
@@ -3120,6 +3360,318 @@ export const UNIT_DEFINITIONS = {
   }
 };
 
+// ---------------------------------------------------------------------------
+// 食堂：既是既有治疗设施（耐久换生命的恢复光环），也是**食品加工设施**
+// （谷物 + 木炭 → 口粮）。设计文档明确「食堂原有治疗/恢复功能兼容，
+// 不能用旧免费治疗代替食品」，所以治疗产能直接挂在口粮库存上：
+// 没有口粮就没有恢复（见 BuildingSystem.restoreNearbyHealth 的 rations 检查）。
+// ---------------------------------------------------------------------------
+UNIT_DEFINITIONS.canteen = {
+  name: '食堂',
+  role: 'support',
+  isBuilding: true,
+  canMove: false,
+  canReceiveBuffs: false,
+  immuneToStatusEffects: true,
+  art: {
+    modelKey: 'unit.canteen',
+    rig: 'building',
+    clips: { idle: 'Idle', hit: 'Hit', death: 'Death' }
+  },
+  maxHealth: 72,
+  maxShield: 0,
+  speed: 0,
+  attackRange: 0,
+  attackRate: 0,
+  damage: 0,
+  armor: 2,
+  magicResistance: 1,
+  dodgeChance: 0,
+  knockback: 0,
+  aggroRange: 0,
+  projectileHitHeight: 1.9,
+  collisionRadius: 0.86,
+  buildingAura: {
+    type: 'restoreHealthFromDurability',
+    radius: 6.5,
+    tickSeconds: 1,
+    // 每秒消耗的灶台耐久（16 点灶台耐久 ≈ 24 秒治疗窗口，之后要回维修站/换料）
+    durabilityPerSecond: 0.66,
+    healthPerDurability: 2.4,
+    /** 恢复光环必须有口粮才工作；每点治疗折算多少份口粮。 */
+    rationsPerHealth: 0.05
+  },
+  weapon: {
+    name: '灶台',
+    maxDurability: 16,
+    durabilityCost: 0
+  }
+};
+
+// ---------------------------------------------------------------------------
+// 深采设施：地表富集层采完之后，把供给从"捡地上的"转成"烧燃料换产量"。
+//
+// 两类分工，不是一炉同时产两种：采石场吃石料地质，深矿井吃铁矿地质。
+// 它们必须有**真实燃料 + 活动魔力 + 傀儡搬运**（走既有的生产/站点/运输链），
+// 而且只在附近还有对应矿点时才开工——矿点就是那个可识别的矿址标记，
+// 不做"随处一放就凭空造铁"的机器。
+// ---------------------------------------------------------------------------
+UNIT_DEFINITIONS.quarry = {
+  resourceSiteResource: 'stone',
+  resourceSiteName: '石堆',
+  resourceSiteRadius: 8,
+  name: '采石场',
+  role: 'support',
+  isBuilding: true,
+  canMove: false,
+  canReceiveBuffs: false,
+  immuneToStatusEffects: true,
+  resourceSiteRequired: true,
+  art: {
+    modelKey: 'unit.furnace',
+    rig: 'building',
+    clips: { idle: 'Idle', hit: 'Hit', death: 'Death' }
+  },
+  maxHealth: 88,
+  maxShield: 0,
+  speed: 0,
+  attackRange: 0,
+  attackRate: 0,
+  damage: 0,
+  armor: 3,
+  magicResistance: 0,
+  dodgeChance: 0,
+  knockback: 0,
+  aggroRange: 0,
+  projectileHitHeight: 2.2,
+  collisionRadius: 0.92,
+  weapon: { name: '石砌场体', maxDurability: 44, durabilityCost: 0 }
+};
+
+UNIT_DEFINITIONS.deepMine = {
+  resourceSiteResource: 'iron',
+  resourceSiteName: '铁矿脉',
+  resourceSiteRadius: 8,
+  name: '深矿井',
+  role: 'support',
+  isBuilding: true,
+  canMove: false,
+  canReceiveBuffs: false,
+  immuneToStatusEffects: true,
+  resourceSiteRequired: true,
+  art: {
+    modelKey: 'unit.manaFurnace',
+    rig: 'building',
+    clips: { idle: 'Idle', hit: 'Hit', death: 'Death' }
+  },
+  maxHealth: 92,
+  maxShield: 0,
+  speed: 0,
+  attackRange: 0,
+  attackRate: 0,
+  damage: 0,
+  armor: 3,
+  magicResistance: 1,
+  dodgeChance: 0,
+  knockback: 0,
+  aggroRange: 0,
+  projectileHitHeight: 2.6,
+  collisionRadius: 0.92,
+  weapon: { name: '井架', maxDurability: 46, durabilityCost: 0 }
+};
+
+// ---------------------------------------------------------------------------
+// 防御终端：三定位 × 三级。
+//
+// 一级保留既有箭塔/弩炮的战斗定位与攻击链，**一级单位类型 id 不带后缀**，
+// 与既有存档、刷怪点防守位数据、既有验收脚本完全兼容；
+// 二三级由 `defenseTiers.js` 的倍率表生成，倍率**相对一级**，不在二级上再乘。
+//
+// 数值口径：`damage` 会被下面的归一化循环折成 physicalAttack / magicAttack，
+// 所以这里只写 legacy `damage` 字段，避免两份伤害来源。
+// ---------------------------------------------------------------------------
+const DEFENSE_TOWER_DATA = {
+  arrowTower: {
+    defenseTowerId: 'arrowTower',
+    defenseTowerTier: 1,
+    power: 3.6,
+    manaCapacity: 30,
+    projectileType: 'arrow',
+    projectileColor: '#f2e6c8',
+    attackDamageType: 'physical',
+    art: {
+      timelines: {
+        attack: { duration: 0.48, events: { release: 0.45 } }
+      }
+    }
+  },
+  ballista: {
+    defenseTowerId: 'ballista',
+    defenseTowerTier: 1,
+    power: 3.6 * 1.35,
+    manaCapacity: 36,
+    projectileType: 'bolt',
+    projectileColor: '#dff8ff',
+    attackDamageType: 'physical',
+    art: {
+      timelines: {
+        attack: { duration: 0.72, events: { release: 0.62 } }
+      }
+    }
+  },
+  shockTower: {
+    // 设计文档：「较高功率，约同级箭塔的 1.8 倍；射程短于弩炮」。
+    // 1.8 已经含在基准功率里，二三级再按 1.2 / 1.45 走同一张倍率表，
+    // 不能把 1.8 也乘进等级倍率（那会变成 1.8 × 1.45 的双重加权）。
+    power: 3.6 * 1.8,
+    manaCapacity: 48,
+    projectileType: 'shockPulse',
+    projectileColor: '#b79bff',
+    attackDamageType: 'magic',
+    art: {
+      timelines: {
+        attack: { duration: 0.66, events: { release: 0.5 } }
+      }
+    },
+    /**
+     * 小范围魔力脉冲：主目标满伤，半径内其它敌人吃次级伤害并被轻微减速。
+     * 0.25 上限、0.7 秒，不做持续锁死（设计文档原文）。
+     */
+    splash: {
+      radius: 2.2,
+      secondaryDamageMultiplier: 0.55,
+      slowSeconds: 0.7,
+      slowMaxRatio: 0.25,
+      maxTargets: 6,
+      vfxRadius: 2.2
+    }
+  }
+};
+
+export const DEFENSE_TOWER_BASE_STATS = {
+  arrowTower: { maxHealth: 54, damage: 7, attackRange: 9.2, attackRate: 1.08, aggroRange: 14.3, projectileSpeed: 23.25, hitHeight: 3.25, collisionRadius: 0.62, armor: 0, weaponDurability: 120, knockback: 0.9 },
+  ballista: { maxHealth: 78, damage: 16, attackRange: 13.5, attackRate: 0.42, aggroRange: 16.5, projectileSpeed: 28, hitHeight: 3.1, collisionRadius: 0.72, armor: 1, weaponDurability: 160, knockback: 1.4 },
+  shockTower: { maxHealth: 58, damage: 5.6, attackRange: 10, attackRate: 0.4, aggroRange: 12, projectileSpeed: 20, hitHeight: 3.9, collisionRadius: 0.66, armor: 0, weaponDurability: 130, knockback: 0.7 }
+};
+
+/** 每个等级生成的属性，供测试与 UI 直接读，避免各处重算。 */
+export const DEFENSE_TOWER_TIER_STATS = {};
+
+DEFENSE_TOWER_IDS.forEach((towerId) => {
+  const base = DEFENSE_TOWER_BASE_STATS[towerId];
+  const extra = DEFENSE_TOWER_DATA[towerId];
+  DEFENSE_TOWER_TIER_STATS[towerId] = [];
+  for (let tier = 1; tier <= TOWER_TIER_MAX; tier += 1) {
+    const unitType = towerUnitTypeFor(towerId, tier);
+    const tierStats = applyTierStats(
+      { maxHealth: base.maxHealth, damage: base.damage, attackRange: base.attackRange, power: extra.power, manaCapacity: extra.manaCapacity },
+      tier
+    );
+    // 魔力量上限以 FACILITY_CONFIGS 为唯一权威（见下方 syncDefenseTowerManaCapacity）。
+    // 上面 applyTierStats 按功率给出的只是一个**起始推导值**，最终会被设施配置覆盖，
+    // 避免"测试读 A、运行时读 B"两个数值来源。
+    void tierStats.manaCapacity;
+    if (tier > 1) {
+      // 一级定义已经存在（保持既有 id 与既有数值不变），只追加二三级。
+      UNIT_DEFINITIONS[unitType] = {
+        name: `${UNIT_DEFINITIONS[towerId].name} ${['I', 'II', 'III'][tier - 1]}`,
+        role: 'ranged',
+        isBuilding: true,
+        canMove: false,
+        canReceiveBuffs: false,
+        immuneToStatusEffects: true,
+        defenseTowerId: towerId,
+        defenseTowerTier: tier,
+        art: {
+          modelKey: 'unit.arrowTower',
+          rig: 'building',
+          clips: {
+            idle: 'Idle',
+            attack: 'Tower_Shot',
+            hit: 'Hit',
+            death: 'Death'
+          },
+          timelines: {
+            attack: { ...extra.art.timelines.attack, events: { ...extra.art.timelines.attack.events } },
+            hit: { duration: 0.12 }
+          }
+        },
+        maxHealth: tierStats.maxHealth,
+        maxShield: 0,
+        speed: 0,
+        attackRange: tierStats.attackRange,
+        attackRate: base.attackRate,
+        damage: tierStats.damage,
+        armor: base.armor,
+        magicResistance: 0,
+        dodgeChance: 0,
+        knockback: base.knockback,
+        aggroRange: base.aggroRange,
+        projectileSpeed: base.projectileSpeed,
+        projectileType: extra.projectileType,
+        projectileColor: extra.projectileColor,
+        projectileHitHeight: base.hitHeight,
+        attackDamageType: extra.attackDamageType,
+        ...(extra.splash ? { attackSplash: { ...extra.splash } } : {}),
+        collisionRadius: base.collisionRadius,
+        weapon: {
+          name: UNIT_DEFINITIONS[towerId].name,
+          maxDurability: base.weaponDurability,
+          durabilityCost: 0
+        }
+      };
+    }
+    // 一级：把基准数值同步到定义上（shockTower 是新增，一级也在这里建立）。
+    if (tier === 1 && !UNIT_DEFINITIONS[towerId]) {
+      UNIT_DEFINITIONS[towerId] = {
+        name: towerId === 'shockTower' ? '震荡塔' : towerId,
+        role: 'ranged',
+        isBuilding: true,
+        canMove: false,
+        canReceiveBuffs: false,
+        immuneToStatusEffects: true,
+        defenseTowerId: towerId,
+        defenseTowerTier: 1,
+        art: {
+          modelKey: 'unit.arrowTower',
+          rig: 'building',
+          clips: { idle: 'Idle', attack: 'Tower_Shot', hit: 'Hit', death: 'Death' },
+          timelines: {
+            attack: { ...extra.art.timelines.attack, events: { ...extra.art.timelines.attack.events } },
+            hit: { duration: 0.12 }
+          }
+        },
+        maxHealth: base.maxHealth,
+        maxShield: 0,
+        speed: 0,
+        attackRange: base.attackRange,
+        attackRate: base.attackRate,
+        damage: base.damage,
+        armor: base.armor,
+        magicResistance: 0,
+        dodgeChance: 0,
+        knockback: base.knockback,
+        aggroRange: base.aggroRange,
+        projectileSpeed: base.projectileSpeed,
+        projectileType: extra.projectileType,
+        projectileColor: extra.projectileColor,
+        projectileHitHeight: base.hitHeight,
+        attackDamageType: extra.attackDamageType,
+        ...(extra.splash ? { attackSplash: { ...extra.splash } } : {}),
+        collisionRadius: base.collisionRadius,
+        weapon: { name: '塔身', maxDurability: base.weaponDurability, durabilityCost: 0 }
+      };
+    }
+    // 拍平字段：资源面板、类型面板、验收脚本都直接读它。
+    DEFENSE_TOWER_TIER_STATS[towerId].push({
+      tier,
+      unitType,
+      ...tierStats
+    });
+  }
+});
+
+// 能量球投射物：震荡塔用。复用既有 energyOrb 视觉，不新增纹理体系。
 Object.values(UNIT_DEFINITIONS).forEach((definition) => {
   const legacyDamage = Number.isFinite(definition.damage) ? definition.damage : 0;
   const primaryType = definition.attackDamageType === 'magic' ? 'magic' : 'physical';
@@ -4007,6 +4559,24 @@ export const BUFF_DEFINITIONS = {
       }
     ]
   },
+  // 震荡塔脉冲的短减速：最多 25%、约 0.7 秒，不做持续锁死。
+  // 具体倍率由脉冲现场算出来传给 `applyBuff` 的 overrides，默认值只是兜底，
+  // 与 `attackSplash.slowMaxRatio` 同源（capSlowRatio 在 AttackSystem 里夹）。
+  shockPulseSlow: {
+    name: '震荡余波',
+    category: 'status',
+    color: '#b79bff',
+    duration: 0.7,
+    hidden: true,
+    negative: true,
+    modifiers: [
+      {
+        stat: 'moveSpeed',
+        type: 'multiply',
+        factor: 0.8
+      }
+    ]
+  },
   armorShredded: {
     name: '破甲',
     category: 'status',
@@ -4227,7 +4797,9 @@ export const ENCHANTMENTS = {
   waveArmored: BUFF_DEFINITIONS.waveArmored,
   waveRush: BUFF_DEFINITIONS.waveRush,
   waveRanged: BUFF_DEFINITIONS.waveRanged,
-  waveSiege: BUFF_DEFINITIONS.waveSiege
+  waveSiege: BUFF_DEFINITIONS.waveSiege,
+  curse: BUFF_DEFINITIONS.curse,
+  frost: BUFF_DEFINITIONS.frost
 };
 
 export const PLAYER_ABILITY_DEFINITIONS = {
@@ -6602,6 +7174,23 @@ export const LEVEL_DEFINITIONS = [
     world: {
       sceneKey: 'island-survival'
     }
+  },
+  {
+    id: 'logic-demo',
+    name: '逻辑门演示',
+    subtitle: '临时场景：与门、或门、非门各一组，运输线按通断搬木头',
+    baseReward: 0,
+    targetTime: 600,
+    baseDifficulty: 1,
+    waveDifficultyGrowth: 1,
+    enemyPool: [],
+    elitePool: [],
+    bossPool: [],
+    routeCount: 1,
+    world: {
+      sceneKey: 'logic-demo',
+      usesEnemyCamp: false
+    }
   }
 ];
 
@@ -6618,6 +7207,7 @@ export const RESOURCE_TYPES = {
   stone: { id: 'stone', name: '石料', unit: '份', stackLimit: 200 },
   iron: { id: 'iron', name: '铁矿', unit: '份', stackLimit: 120 },
   food: { id: 'food', name: '食物', unit: '份', stackLimit: 120 },
+  grain: { id: 'grain', name: '谷物', unit: '袋', stackLimit: 120 },
   fiber: { id: 'fiber', name: '纤维', unit: '束', stackLimit: 120 }
 };
 
@@ -6662,6 +7252,20 @@ export const RESOURCE_NODE_DEFINITIONS = {
     id: 'fiberPlant', name: '纤维草', resource: 'fiber', amount: 12, tool: null,
     model: 'grass', scale: [0.85, 1.25], navRadius: 0, spacing: 2.0, groundOffset: 0,
     harvestSeconds: 0.7
+  },
+  // 外圈富铁矿：和普通铁矿一样用镐挖，只是更靠外、专门供给点货和附魔。
+  richIron: {
+    id: 'richIron', name: '富铁矿', resource: 'iron', amount: 28, tool: 'pickaxe',
+    model: 'ore', scale: [0.9, 1.4], navRadius: 0.9, spacing: 4.8, groundOffset: -0.06,
+    harvestSeconds: 2.4
+  },
+  // 谷物：菜圃成熟后在圃边长出的一片麦丛。需要一个逻辑作物节点，
+  // 视觉上的数株植株由 buildGrainGeometry 一次画完——植株数**不是**产量倍数。
+  // 徒手可收（tool: null），否则"没工具就永远收不上粮"，食品链会在最坏情况下断掉。
+  grainCrop: {
+    id: 'grainCrop', name: '谷物', resource: 'grain', amount: 3, tool: null,
+    model: 'crop', scale: [1.0, 1.35], navRadius: 0, spacing: 2.4, groundOffset: 0,
+    harvestSeconds: 1.4
   }
 };
 
@@ -6694,6 +7298,39 @@ export const RESOURCE_NODE_RULES = {
 };
 
 // ---------------------------------------------------------------------------
+// 贫矿址（docs/DSH_RESOURCE_SUSTAINABILITY.md「采完地表资源，转向建设与深采」）
+//
+// 「地表石料/铁矿耗尽是**富集层采完**，不是整片地质资源永远消失。」
+// 所以石料与铁矿节点采空后不再凭空消失：
+//   - 原地留下一个可辨认的贫矿址标记（低模碎石 + 灰化，不挡路、不触发碰撞）；
+//   - 该地址永久保留稳定 id / 类型 / 位置，供采石场、深矿井选址；
+//   - 只有石料与铁矿登记，木材/纤维/食物不登记（它们各有别的续航路径）。
+//
+// 深采设施建在贫矿址旁边就是"在这片地质上继续采"，产量与手续费见 PRODUCTION_RECIPES。
+// 贫矿址**不会**把地表产量免费恢复：它只提供设施选址资格。
+// ---------------------------------------------------------------------------
+export const DEPLETED_ORE_SITE_RESOURCES = ['stone', 'iron'];
+
+/** 贫矿址标记的视觉参数（低模、小体积、不抢资源节点辨识）。 */
+export const DEPLETED_ORE_SITE_VISUAL = {
+  /** 采空后原模型缩到这么大，表达"富集层没了，只剩残堆"。 */
+  shrinkScale: 0.72,
+  /** 标记：几块小碎石。 */
+  rubbleCount: 4,
+  rubbleRadius: 0.22,
+  /** 每块碎石的缩放范围，避免四块一模一样。 */
+  rubbleScale: [0.5, 1.05],
+  /** 碎石颜色（石材 / 铁矿两种，靠 kind 区分）。 */
+  rubbleColor: { stone: '#8b8577', iron: '#6f6b62' },
+  /** 矿脉原有的晶簇在贫化后要藏起来（"能看出这块已经不产矿"）。 */
+  hideCrystalNodeNames: ['IslandIronOre']
+};
+
+export function isDepletedOreSiteResource(resourceId) {
+  return DEPLETED_ORE_SITE_RESOURCES.includes(resourceId);
+}
+
+// ---------------------------------------------------------------------------
 // 树坑与种植（方案第 9 节：「单位取得种子/树苗，种植、等待生长、砍伐」）
 //
 // 一个完整回合：树坑消耗 1 棵树苗 → 等待生长 → 在坑边**生成一棵真实的资源节点**
@@ -6723,7 +7360,28 @@ export const PLANTING_CONFIGS = {
     // 生成位置离坑多远（找可走的空位）
     spawnRadius: 3.4,
     // 同时最多养几棵，防止无限铺开把地图塞满
-    maxGrownNodes: 2
+    maxGrownNodes: 2,
+    // 收获后由傀儡采收（树坑一直是）
+    saplingBased: true
+  },
+  // 菜圃：一块地一个逻辑作物节点，成熟必须由傀儡实际采收再搬运。
+  // 起始调参 120 秒成熟一次、总产谷物 3，收完回到生长周期（不是每株产 3）。
+  // 产能目标：一块菜圃在稳定采收+加工后供养约 4-6 人（见 docs 结果报告的吞吐表）。
+  cropPlot: {
+    id: 'cropPlot',
+    unitType: 'cropPlot',
+    name: '菜圃',
+    // 不消耗种子：田里留着根，收完自己复种。
+    // 理由：设计文档要求"菜圃、加工配方可在早期获得"，而一条要求"先有谷物才能种谷物"
+    // 的种子链会在最坏情况下和工具链一起锁死。所以菜圃的启动成本只在建造材料里。
+    saplingItemId: null,
+    saplingCost: 0,
+    reserveSaplings: 0,
+    growthSeconds: 120,
+    nodeDefinitionId: 'grainCrop',
+    spawnRadius: 2.6,
+    maxGrownNodes: 1,
+    saplingBased: false
   }
 };
 
@@ -6749,6 +7407,14 @@ export const ITEM_DEFINITIONS = {  wood: { id: 'wood', name: '木材', kind: 'st
     id: 'pickaxe', name: '木镐', kind: 'instance', stackLimit: 1, category: 'tool', tool: 'pickaxe',
     maxDurability: 100, durabilityCost: 1
   },
+  ironAxe: {
+    id: 'ironAxe', name: '铁斧', kind: 'instance', stackLimit: 1, category: 'tool', tool: 'axe',
+    maxDurability: 220, durabilityCost: 0.65, harvestRate: 1.55
+  },
+  ironPickaxe: {
+    id: 'ironPickaxe', name: '铁镐', kind: 'instance', stackLimit: 1, category: 'tool', tool: 'pickaxe',
+    maxDurability: 220, durabilityCost: 0.65, harvestRate: 1.55
+  },
   // 附魔石也是实例物品：instanceId 就是石头自己的 id，掉落/拾取搬的是同一块。
   // 等级、魔力经验与累计成长都在 data 里跟随，绝不能按 itemId 合并成一块。
   runeStone: { id: 'runeStone', name: '符文石', kind: 'instance', stackLimit: 1, category: 'rune' },
@@ -6766,6 +7432,8 @@ export const ITEM_DEFINITIONS = {  wood: { id: 'wood', name: '木材', kind: 'st
   // 深邃核心：只从刷怪点掉出来，是招募令的材料。做成可堆叠材料而不是实例，
   // 因为它没有需要跟随的个体数据，堆叠能省格子。
   deepCore: { id: 'deepCore', name: '深邃核心', kind: 'stack', stackLimit: 20, category: 'material' },
+  // 魔石：怪物死亡掉落的可堆叠材料，用来做附魔石。不是背包电池（魔力石），也不是巢穴奖励（深邃核心）。
+  magicStone: { id: 'magicStone', name: '魔石', kind: 'stack', stackLimit: 120, category: 'material' },
   // 魔力核心：开局自带，与木材合成木傀儡套件。
   manaCore: { id: 'manaCore', name: '魔力核心', kind: 'stack', stackLimit: 10, category: 'material' },
   // 招募令：野外招募的消耗品，一次招募用掉一张。
@@ -6780,6 +7448,12 @@ export const ITEM_DEFINITIONS = {  wood: { id: 'wood', name: '木材', kind: 'st
   },
   // 木炭：熔炉把木材加工出来的燃料。方案第 9 节：「建议木材产物命名为木炭」。
   charcoal: { id: 'charcoal', name: '木炭', kind: 'stack', stackLimit: 120, category: 'material' },
+  // 谷物：菜圃的作物产物。它和既有 'food'（浆果丛掉的食物）是两种东西：
+  // 谷物是**加工原料**，口粮是**成品**。两者都不与既有食物库存平行——
+  // 它们共用同一个 Inventory，只是不同 itemId。
+  grain: { id: 'grain', name: '谷物', kind: 'stack', stackLimit: 120, category: 'resource', resource: 'grain' },
+  // 口粮：部队随身携带的那一份。人类部队饱食度低于阈值时自动吃一份。
+  ration: { id: 'ration', name: '口粮', kind: 'stack', stackLimit: 120, category: 'consumable' },
   // 树苗：砍树时的副产物，树坑补种要消耗它。
   sapling: { id: 'sapling', name: '树苗', kind: 'stack', stackLimit: 40, category: 'material' },
   // 熔炉（打包状态）：放置后变成一座玩家建筑。`placeable` 是放置流程唯一需要的标记，
@@ -6830,6 +7504,42 @@ export const ITEM_DEFINITIONS = {  wood: { id: 'wood', name: '木材', kind: 'st
     category: 'building',
     placeable: { unitType: 'treePit' }
   },
+  // 菜圃：种下作物、等它长成一片可收的谷物。食品链的入口。
+  cropPlot: {
+    id: 'cropPlot',
+    name: '菜圃',
+    kind: 'stack',
+    stackLimit: 5,
+    category: 'building',
+    placeable: { unitType: 'cropPlot' }
+  },
+  // 食堂：既做口粮，又提供恢复光环（要口粮才工作）。
+  canteen: {
+    id: 'canteen',
+    name: '食堂',
+    kind: 'stack',
+    stackLimit: 5,
+    category: 'building',
+    placeable: { unitType: 'canteen' }
+  },
+  // 采石场 / 深矿井：地表富集层采完后的慢速深采设施。
+  // 两者分工，不是一炉同时产两种；都必须建在对应矿点旁边。
+  quarry: {
+    id: 'quarry',
+    name: '采石场',
+    kind: 'stack',
+    stackLimit: 5,
+    category: 'building',
+    placeable: { unitType: 'quarry' }
+  },
+  deepMine: {
+    id: 'deepMine',
+    name: '深矿井',
+    kind: 'stack',
+    stackLimit: 5,
+    category: 'building',
+    placeable: { unitType: 'deepMine' }
+  },
   // 箭塔与食堂：旧玩法里就有的两座建筑，现在可以用材料做出来放在岛上。
   arrowTower: {
     id: 'arrowTower',
@@ -6838,6 +7548,23 @@ export const ITEM_DEFINITIONS = {  wood: { id: 'wood', name: '木材', kind: 'st
     stackLimit: 5,
     category: 'building',
     placeable: { unitType: 'arrowTower' }
+  },
+  ballista: {
+    id: 'ballista',
+    name: '弩炮',
+    kind: 'stack',
+    stackLimit: 5,
+    category: 'building',
+    placeable: { unitType: 'ballista' }
+  },
+  // 震荡塔：短中距离、小范围魔力脉冲，处理密集敌群。功率约为同级箭塔 1.8 倍。
+  shockTower: {
+    id: 'shockTower',
+    name: '震荡塔',
+    kind: 'stack',
+    stackLimit: 5,
+    category: 'building',
+    placeable: { unitType: 'shockTower' }
   },
   repairStation: {
     id: 'repairStation',
@@ -6862,6 +7589,37 @@ export const ITEM_DEFINITIONS = {  wood: { id: 'wood', name: '木材', kind: 'st
     stackLimit: 5,
     category: 'building',
     placeable: { unitType: 'chest' }
+  },
+  andGate: {
+    id: 'andGate',
+    name: '与门',
+    kind: 'stack',
+    stackLimit: 5,
+    category: 'building',
+    placeable: { unitType: 'andGate' }
+  },
+  orGate: {
+    id: 'orGate',
+    name: '或门',
+    kind: 'stack',
+    stackLimit: 5,
+    category: 'building',
+    placeable: { unitType: 'orGate' }
+  },
+  notGate: {
+    id: 'notGate',
+    name: '非门',
+    kind: 'stack',
+    stackLimit: 5,
+    category: 'building',
+    placeable: { unitType: 'notGate' }
+  },
+  ironPuppetKit: {
+    id: 'ironPuppetKit',
+    name: '铁傀儡',
+    kind: 'stack',
+    stackLimit: 5,
+    category: 'consumable'
   },
 
   // -------------------------------------------------------------------------
@@ -7024,6 +7782,21 @@ export const ITEM_DEFINITIONS = {  wood: { id: 'wood', name: '木材', kind: 'st
       durabilityCost: 0.9,
       attackRate: 1
     }
+  },
+  puppetIronBlade: {
+    id: 'puppetIronBlade',
+    name: '傀儡铁刃',
+    kind: 'instance',
+    category: 'weapon',
+    weapon: {
+      family: 'puppetArm',
+      profile: { attackRange: 0.9, projectileType: null, attackAnimation: 'Attack' },
+      damage: 18,
+      damageType: 'physical',
+      maxDurability: 130,
+      durabilityCost: 0.75,
+      attackRate: 0.92
+    }
   }
 };
 
@@ -7031,6 +7804,7 @@ export const ITEM_DEFINITIONS = {  wood: { id: 'wood', name: '木材', kind: 'st
 export const RECRUITMENT_ORDER_ITEM_ID = 'recruitmentOrder';
 /** 合成出的木傀儡套件；使用后于基地旁召唤木傀儡。 */
 export const WOOD_PUPPET_KIT_ITEM_ID = 'woodPuppetKit';
+export const IRON_PUPPET_KIT_ITEM_ID = 'ironPuppetKit';
 
 // ---------------------------------------------------------------------------
 // 合成配方
@@ -7077,6 +7851,28 @@ export const RECIPES = {
     output: { itemId: 'pickaxe', count: 1 },
     description: '挖石料与铁矿用的木镐。做出来会放在基地库存里，需要到合成面板把它搬给傀儡。'
   },
+  ironAxe: {
+    id: 'ironAxe',
+    name: '铁斧',
+    tech: 'smithing',
+    inputs: [
+      { itemId: 'iron', count: 4 },
+      { itemId: 'wood', count: 2 }
+    ],
+    output: { itemId: 'ironAxe', count: 1 },
+    description: '砍树更快，也更耐用。仍然算斧，能砍所有需要斧的树。'
+  },
+  ironPickaxe: {
+    id: 'ironPickaxe',
+    name: '铁镐',
+    tech: 'smithing',
+    inputs: [
+      { itemId: 'iron', count: 4 },
+      { itemId: 'wood', count: 2 }
+    ],
+    output: { itemId: 'ironPickaxe', count: 1 },
+    description: '挖石头和铁矿更快，也更耐用。仍然算镐。'
+  },
   woodPuppet: {
     id: 'woodPuppet',
     name: '木傀儡',
@@ -7086,6 +7882,47 @@ export const RECIPES = {
     ],
     output: { itemId: 'woodPuppetKit', count: 1 },
     description: '用魔力核心与木材组装木傀儡。产物在快捷栏使用后在基地旁召唤。'
+  },
+  andGate: {
+    id: 'andGate',
+    name: '与门',
+    inputs: [
+      { itemId: 'stone', count: 8 },
+      { itemId: 'wood', count: 4 }
+    ],
+    output: { itemId: 'andGate', count: 1 },
+    description: '接上几只箱子。每一只都有货，门才通。不指定种类时，木头、石头或别的物品都算。'
+  },
+  orGate: {
+    id: 'orGate',
+    name: '或门',
+    inputs: [
+      { itemId: 'stone', count: 8 },
+      { itemId: 'wood', count: 4 }
+    ],
+    output: { itemId: 'orGate', count: 1 },
+    description: '接上几只箱子。任意一只里有货，门就通。'
+  },
+  notGate: {
+    id: 'notGate',
+    name: '非门',
+    inputs: [
+      { itemId: 'stone', count: 6 },
+      { itemId: 'wood', count: 4 }
+    ],
+    output: { itemId: 'notGate', count: 1 },
+    description: '接上一只箱子。箱子空着，门才通。'
+  },
+  ironPuppet: {
+    id: 'ironPuppet',
+    name: '铁傀儡',
+    inputs: [
+      { itemId: 'manaCore', count: 1 },
+      { itemId: 'deepCore', count: 1 },
+      { itemId: 'iron', count: 16 }
+    ],
+    output: { itemId: 'ironPuppetKit', count: 1 },
+    description: '比木傀儡更耐打、走得更快、采集更勤。遇敌仍会中断作业。'
   },
   furnace: {
     id: 'furnace',
@@ -7198,6 +8035,18 @@ export const RECIPES = {
     output: { itemId: 'puppetGlaive', count: 1 },
     description: '镶铁的傀儡武器，威力接近精钢剑。想让傀儡清掉刷怪点就得靠它。'
   },
+  puppetIronBlade: {
+    id: 'puppetIronBlade',
+    name: '傀儡铁刃',
+    tech: 'smithing',
+    inputs: [
+      { itemId: 'iron', count: 8 },
+      { itemId: 'wood', count: 4 },
+      { itemId: 'charcoal', count: 2 }
+    ],
+    output: { itemId: 'puppetIronBlade', count: 1 },
+    description: '比木刃更重。木傀儡和铁傀儡都能装，用来硬打外圈巢穴。'
+  },
   // 魔力石：把木炭里的魔力封进铁壳。产物是实例物品，每块占一格、效果叠加。
   manaStone: {
     id: 'manaStone',
@@ -7218,6 +8067,83 @@ export const RECIPES = {
     ],
     output: { itemId: 'arrowTower', count: 1 },
     description: '自动射击范围内敌人的箭塔。要消耗魔力，放在基地供能范围里才有用。'
+  },
+  // 震荡塔：短中距离的小范围魔力脉冲。成本与箭塔接近、加一点铁矿，
+  // 功率更高（同级箭塔 1.8 倍）——"投入更多燃料换密集敌群处理能力"。
+  shockTower: {
+    id: 'shockTower',
+    name: '震荡塔',
+    tech: 'shockDoctrine',
+    inputs: [
+      { itemId: 'wood', count: 22 },
+      { itemId: 'stone', count: 16 },
+      { itemId: 'iron', count: 4 }
+    ],
+    output: { itemId: 'shockTower', count: 1 },
+    description: '小范围魔力脉冲，处理密集敌群；对单体效率低于箭塔，功率约为箭塔的 1.8 倍。'
+  },
+  // 菜圃：早期就能做。成本只用木材/石料/纤维这类地上采得到的东西，
+  // 不绑远处巢穴或高阶科技——首次招募后必须在吃完 12 份口粮之前能把闭环建起来。
+  cropPlot: {
+    tech: 'fieldRations',
+    id: 'cropPlot',
+    name: '菜圃',
+    inputs: [
+      { itemId: 'wood', count: 14 },
+      { itemId: 'stone', count: 6 },
+      { itemId: 'fiber', count: 8 }
+    ],
+    output: { itemId: 'cropPlot', count: 1 },
+    description: '一块作物地。约 120 秒成熟一次、总产 3 份谷物，成熟后要派傀儡去收。'
+  },
+  // 食堂：食品加工设施，同时保留恢复光环。产物是口粮。
+  // 配方必须能自启动：谷物来自菜圃、木炭来自熔炉，两者都不需要先有食堂。
+  canteen: {
+    tech: 'fieldRations',
+    id: 'canteen',
+    name: '食堂',
+    inputs: [
+      { itemId: 'wood', count: 20 },
+      { itemId: 'stone', count: 14 },
+      { itemId: 'iron', count: 4 }
+    ],
+    output: { itemId: 'canteen', count: 1 },
+    description: '把谷物与木炭做成口粮，同时为附近友军恢复生命（要口粮才工作）。'
+  },
+  // 采石场：初始建设**不能依赖石料**（否则"最后一块石头用完"就再也建不起来）。
+  // 所以只用木材 + 纤维起步。它去烧木炭换石料，走的是已有燃料链。
+  quarry: {
+    id: 'quarry',
+    name: '采石场',
+    inputs: [
+      { itemId: 'wood', count: 26 },
+      { itemId: 'fiber', count: 10 }
+    ],
+    output: { itemId: 'quarry', count: 1 },
+    description: '慢速深采石料：每 45 秒吃 1 份木炭 + 活动魔力，出 4 份石料。要建在石堆旁边。'
+  },
+  // 深矿井：初始建设不能依赖铁矿，所以木材 + 石料起步（石料比铁矿更早拿得到）。
+  deepMine: {
+    id: 'deepMine',
+    name: '深矿井',
+    inputs: [
+      { itemId: 'wood', count: 28 },
+      { itemId: 'stone', count: 16 }
+    ],
+    output: { itemId: 'deepMine', count: 1 },
+    description: '慢速深采铁矿：每 45 秒吃 1 份木炭 + 活动魔力，出 2 份铁矿。要建在铁矿脉旁边。'
+  },
+  ballista: {
+    id: 'ballista',
+    name: '弩炮',
+    tech: 'siegeWorks',
+    inputs: [
+      { itemId: 'wood', count: 18 },
+      { itemId: 'stone', count: 24 },
+      { itemId: 'iron', count: 8 }
+    ],
+    output: { itemId: 'ballista', count: 1 },
+    description: '比箭塔打得远、打得重，射得慢。适合压在外圈巢穴的防守位外面。'
   },
   repairStation: {
     id: 'repairStation',
@@ -7311,34 +8237,199 @@ export const TECH_DEFINITIONS = {
     effects: {
       harvest: { perActionBonus: 2 }
     }
+  },
+  smithing: {
+    id: 'smithing',
+    name: '锻造',
+    description: '解锁铁斧、铁镐和傀儡铁刃。铁工具砍得更快，也更耐用。',
+    cost: [
+      { itemId: 'iron', count: 6 },
+      { itemId: 'charcoal', count: 4 },
+      { itemId: 'stone', count: 16 }
+    ],
+    requires: [],
+    unlocks: { recipes: ['ironAxe', 'ironPickaxe', 'puppetIronBlade'] }
+  },
+  siegeWorks: {
+    id: 'siegeWorks',
+    name: '攻城器械',
+    description: '解锁弩炮。它打得比箭塔远、比箭塔重，射速更慢。',
+    cost: [
+      { itemId: 'iron', count: 8 },
+      { itemId: 'wood', count: 16 },
+      { itemId: 'stone', count: 24 }
+    ],
+    requires: ['smithing'],
+    unlocks: { recipes: ['ballista'] }
+  },
+  // 震荡塔：短中距离的小范围魔力脉冲，专治密集敌群。
+  // 资格刻意做得浅（木材 + 石料 + 铁矿，不需要木炭），否则"用哪座塔"这件事
+  // 会在早期就只剩箭塔一个选项，防线选择也就不存在了。
+  shockDoctrine: {
+    id: 'shockDoctrine',
+    name: '震荡法阵',
+    description: '解锁震荡塔。短中距离的小范围魔力脉冲，处理密集敌群，但对单体效率低于箭塔。',
+    cost: [
+      { itemId: 'wood', count: 18 },
+      { itemId: 'stone', count: 22 },
+      { itemId: 'iron', count: 6 }
+    ],
+    requires: [],
+    unlocks: { recipes: ['shockTower'] }
+  },
+  // 伙食加工：食堂（口粮）与菜圃的门槛刻意做得极浅。
+  // 设计文档要求"菜圃、加工配方可在早期获得，不绑远处巢穴或高阶科技"，
+  // 所以这一项没有前置科技，成本只用地上采得到的东西。
+  fieldRations: {
+    id: 'fieldRations',
+    name: '野战口粮',
+    description: '解锁菜圃与食堂：种谷物、加工口粮，部队才能长期离基地作战。',
+    cost: [
+      { itemId: 'wood', count: 12 },
+      { itemId: 'fiber', count: 10 }
+    ],
+    requires: [],
+    unlocks: { recipes: ['cropPlot', 'canteen'] }
+  },
+  // ---------------------------------------------------------------------------
+  // 区域图纸科技（远征与区域成长）
+  //
+  // 这四项**不是**一开始就能研究的：每项都绑死一座内圈巢穴（`requiresNestId`），
+  // 只有那座巢穴被真正摧毁之后才拿得到"区域图纸"。图纸不新增背包物品、不做随机掉率，
+  // 权威事实就是 `spawnPoints.points[].cleared`（见 ResearchSystem.nestCleared）。
+  //
+  // 它们的消耗都取自岛上真实资源，且与既有科技一样整笔原子扣除。
+  // 效果走 `effects` 的统一入口：
+  //   attributes —— 给**己方单位实例**加属性修正（唯一 source，重复研究不会叠乘）；
+  //   harvest    —— 每次采集动作的加成（与「采集效率」相加）；
+  //   production —— 改生产配方的运转参数（与「高效烧炭」同一条路，可叠加）。
+  // ---------------------------------------------------------------------------
+  towerCalibration: {
+    id: 'towerCalibration',
+    name: '哨站测距',
+    description: '箭塔与弩炮的攻击距离 +1.5m（只对己方这两类建筑生效），用来撑住防守与攻城阵地。',
+    cost: [
+      { itemId: 'wood', count: 18 },
+      { itemId: 'iron', count: 8 },
+      { itemId: 'stone', count: 16 }
+    ],
+    requires: [],
+    requiresNestId: 'island-camp-north',
+    unlocks: { recipes: [] },
+    effects: {
+      attributes: [
+        { stat: 'attackRange', type: 'add', amount: 1.5, unitTypes: ['arrowTower', 'ballista'] }
+      ]
+    }
+  },
+  woodlandLogistics: {
+    id: 'woodlandLogistics',
+    name: '林地采运',
+    description: '傀儡每次采集动作多采 1 个资源，与「采集效率」的 +2 叠加（5 → 8）。',
+    cost: [
+      { itemId: 'wood', count: 24 },
+      { itemId: 'fiber', count: 16 },
+      { itemId: 'stone', count: 12 }
+    ],
+    requires: [],
+    requiresNestId: 'island-west-ridge',
+    unlocks: { recipes: [] },
+    effects: {
+      harvest: { perActionBonus: 1 }
+    }
+  },
+  armsMaintenance: {
+    id: 'armsMaintenance',
+    name: '军械保养',
+    description: '己方移动战斗单位（含傀儡）攻击时武器耐久消耗 ×0.8，远征能打得更久。',
+    cost: [
+      { itemId: 'iron', count: 12 },
+      { itemId: 'charcoal', count: 8 },
+      { itemId: 'fiber', count: 16 }
+    ],
+    requires: [],
+    requiresNestId: 'island-east-cape',
+    unlocks: { recipes: [] },
+    effects: {
+      // 只作用于**己方移动战斗单位**：建筑/基地/中立/敌人不拿这条修正。
+      // 采集工具的扣耗不走 attributes.durabilityCost（见 WorkSystem.spendWorkerToolWear），
+      // 所以这里不会改采集工具的磨损速度。
+      attributes: [
+        {
+          stat: 'durabilityCost',
+          type: 'multiply',
+          percent: -0.2,
+          mobileOnly: true,
+          excludeBuildings: true,
+          weaponOnly: true
+        }
+      ]
+    }
+  },
+  charcoalBellows: {
+    id: 'charcoalBellows',
+    name: '炭窑鼓风',
+    description: '烧炭周期从 8 秒压到 6 秒，输入与产出不变；已在运转的熔炉立即生效。',
+    cost: [
+      { itemId: 'stone', count: 20 },
+      { itemId: 'iron', count: 12 },
+      { itemId: 'charcoal', count: 12 }
+    ],
+    requires: [],
+    requiresNestId: 'island-south-woods',
+    unlocks: { recipes: [] },
+    effects: {
+      production: [
+        { recipeId: 'furnace', patch: { seconds: 6 } }
+      ]
+    }
   }
 };
 
-// 附魔台能做的附魔石：附魔种类 → 材料成本。
-// 用的是现有 ENCHANTMENTS 里的 id，所以做出来的石头和附魔卡生成的完全同一种。
-export const ENCHANT_RECIPES = [
-  {
-    enchantmentId: 'fire',
-    cost: [
-      { itemId: 'iron', count: 6 },
-      { itemId: 'charcoal', count: 4 }
-    ]
-  },
-  {
-    enchantmentId: 'thorns',
-    cost: [
-      { itemId: 'fiber', count: 20 },
-      { itemId: 'iron', count: 4 }
-    ]
-  },
-  {
-    enchantmentId: 'triumph',
-    cost: [
-      { itemId: 'deepCore', count: 1 },
-      { itemId: 'iron', count: 8 }
-    ]
+// 附魔台能做的附魔石：每一种 ENCHANTMENTS 都有一块对应的石头。
+// 做出来的石头和附魔卡生成的是同一种，放进傀儡背包后由符文系统挂上效果。
+// 一块石头要堆一大笔岛上资源。傀儡靠魔力运转，配方里不使用食物。
+function enchantStoneCost(entries) {
+  return entries.map(([itemId, count]) => ({ itemId, count }));
+}
+
+const ENCHANT_STONE_COST = {
+  fire: enchantStoneCost([['iron', 40], ['charcoal', 32]]),
+  thorns: enchantStoneCost([['fiber', 80], ['iron', 24]]),
+  triumph: enchantStoneCost([['magicStone', 8], ['iron', 48], ['stone', 60]]),
+  power: enchantStoneCost([['magicStone', 8], ['iron', 40], ['charcoal', 24]]),
+  lifesteal: enchantStoneCost([['fiber', 64], ['iron', 24], ['charcoal', 16]]),
+  bleed: enchantStoneCost([['fiber', 48], ['iron', 20]]),
+  toughness: enchantStoneCost([['stone', 80], ['iron', 24]])
+};
+
+// 改命、复活、范围爆发这一档：除了大宗材料，还要一堆怪物掉的魔石。
+const MAGIC_STONE_ENCHANTS = new Set([
+  'phoenix',
+  'rebirthTotem',
+  'selfDestruct',
+  'spiritWeapon',
+  'swordSaint',
+  'soulEater',
+  'undying',
+  'immortality',
+  'solarFlare',
+  'fireworks',
+  'overhealShield'
+]);
+
+function costForEnchantStone(enchantmentId) {
+  if (ENCHANT_STONE_COST[enchantmentId]) return ENCHANT_STONE_COST[enchantmentId];
+  if (MAGIC_STONE_ENCHANTS.has(enchantmentId)) {
+    return enchantStoneCost([['magicStone', 8], ['iron', 40], ['stone', 48], ['charcoal', 24]]);
   }
-];
+  return enchantStoneCost([['iron', 36], ['stone', 48], ['fiber', 40]]);
+}
+
+export const ENCHANT_RECIPES = Object.keys(ENCHANTMENTS).map((enchantmentId) => ({
+  enchantmentId,
+  cost: costForEnchantStone(enchantmentId)
+}));
 
 // 科技与附魔各自需要哪座建筑。做成配置而不是写死字符串：
 // 以后加科研站等级或别的台子只改这里。
@@ -7368,7 +8459,107 @@ export const FACILITY_CONFIGS = {
     drainPerSecond: 0,
     manaPerShot: 2,
     manaCapacity: 30,
-    restartRatio: 0.4
+    restartRatio: 0.4,
+    towerId: 'arrowTower',
+    tier: 1
+  },
+  arrowTowerII: {
+    id: 'arrowTowerII',
+    unitType: 'arrowTowerII',
+    name: '箭塔 II',
+    drainPerSecond: 0,
+    manaPerShot: 2.4,
+    manaCapacity: 36,
+    restartRatio: 0.4,
+    towerId: 'arrowTower',
+    tier: 2
+  },
+  arrowTowerIII: {
+    id: 'arrowTowerIII',
+    unitType: 'arrowTowerIII',
+    name: '箭塔 III',
+    drainPerSecond: 0,
+    manaPerShot: 2.9,
+    manaCapacity: 44,
+    restartRatio: 0.4,
+    towerId: 'arrowTower',
+    tier: 3
+  },
+  ballista: {
+    id: 'ballista',
+    unitType: 'ballista',
+    name: '弩炮',
+    drainPerSecond: 0,
+    manaPerShot: 3.5,
+    manaCapacity: 36,
+    restartRatio: 0.45,
+    towerId: 'ballista',
+    tier: 1
+  },
+  ballistaII: {
+    id: 'ballistaII',
+    unitType: 'ballistaII',
+    name: '弩炮 II',
+    drainPerSecond: 0,
+    manaPerShot: 4.2,
+    manaCapacity: 43,
+    restartRatio: 0.45,
+    towerId: 'ballista',
+    tier: 2
+  },
+  ballistaIII: {
+    id: 'ballistaIII',
+    unitType: 'ballistaIII',
+    name: '弩炮 III',
+    drainPerSecond: 0,
+    manaPerShot: 5.1,
+    manaCapacity: 52,
+    restartRatio: 0.45,
+    towerId: 'ballista',
+    tier: 3
+  },
+  shockTower: {
+    id: 'shockTower',
+    unitType: 'shockTower',
+    name: '震荡塔',
+    drainPerSecond: 0,
+    // 功率约为同级箭塔 1.8 倍：按每次脉冲的魔力消耗体现，直接对应燃料吞吐。
+    manaPerShot: 3.6,
+    manaCapacity: 48,
+    restartRatio: 0.42,
+    towerId: 'shockTower',
+    tier: 1
+  },
+  shockTowerII: {
+    id: 'shockTowerII',
+    unitType: 'shockTowerII',
+    name: '震荡塔 II',
+    drainPerSecond: 0,
+    manaPerShot: 4.3,
+    manaCapacity: 58,
+    restartRatio: 0.42,
+    towerId: 'shockTower',
+    tier: 2
+  },
+  shockTowerIII: {
+    id: 'shockTowerIII',
+    unitType: 'shockTowerIII',
+    name: '震荡塔 III',
+    drainPerSecond: 0,
+    manaPerShot: 5.2,
+    manaCapacity: 70,
+    restartRatio: 0.42,
+    towerId: 'shockTower',
+    tier: 3
+  },
+  canteen: {
+    id: 'canteen',
+    unitType: 'canteen',
+    name: '食堂',
+    // 加工时按生产配方的 drainPerSecond 吃魔；光环本身不再叠加 drain。
+    drainPerSecond: 0,
+    manaCapacity: 30,
+    restartRatio: 0.35
   },
   repairStation: {
     id: 'repairStation',
@@ -7381,8 +8572,24 @@ export const FACILITY_CONFIGS = {
 };
 
 // ---------------------------------------------------------------------------
-// 燃料供能设施（方案第 9 节：魔力炉「消耗燃料，为周围生产和战斗提供魔力」）
+// 防御终端的魔力量上限：FACILITY_CONFIGS 是唯一权威。
 //
+// 为什么在 FACILITY_CONFIGS 之后单独同步一次：等级表在文件前面生成（那里还不能
+// 引用后面的 FACILITY_CONFIGS，会触发 TDZ 错误），而塔的数值又有两个读者
+// ——测试与验收脚本读 DEFENSE_TOWER_TIER_STATS，运行时读 FACILITY_CONFIGS。
+// 让后者覆盖前者，两个读者就永远读到同一个数，不会出现 43.5 与 44 的分歧。
+// ---------------------------------------------------------------------------
+DEFENSE_TOWER_IDS.forEach((towerId) => {
+  for (let tier = 1; tier <= TOWER_TIER_MAX; tier += 1) {
+    const unitType = towerUnitTypeFor(towerId, tier);
+    const facility = FACILITY_CONFIGS[unitType];
+    const entry = DEFENSE_TOWER_TIER_STATS[towerId]?.[tier - 1];
+    if (facility && entry) entry.manaCapacity = facility.manaCapacity;
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 燃料供能设施（方案第 9 节：魔力炉「消耗燃料，为周围生产和战斗提供魔力」）
 // 与生产设施共用同一套周期推进（缺料停摆、空转不攒工作量），区别只在于产物是**魔力**：
 // 烧一份燃料换一段时间的供能功率，这段功率由 PowerSystem 按半径分配给接收者。
 //
@@ -7424,6 +8631,56 @@ export const PRODUCTION_RECIPES = {
     seconds: 8,
     drainPerSecond: 1,
     manaCapacity: 24
+  },
+  // 食堂：谷物 2 + 木炭 1 → 口粮 2，约 12 秒（设计文档第三节 B 第 4 条的起始配方）。
+  // 木炭走的是**燃料格**（既有生产架构里 input 是主料、燃料单独一格），
+  // 所以这里必须显式写 fuelPerCycle: 1；不写会落回全局 furnaceFuelPerCycle = 2，
+  // 变成"谷物 2 + 木炭 2 → 口粮 2"，与文档不符。
+  // 产物只进输出格、由输出运输线运走（与熔炉同一条链），所以"实际搬运"是真的。
+  canteen: {
+    id: 'canteen',
+    name: '伙食加工',
+    unitType: 'canteen',
+    input: { itemId: 'grain', count: 2 },
+    output: { itemId: 'ration', count: 2 },
+    seconds: 12,
+    fuelPerCycle: 1,
+    drainPerSecond: 0.8,
+    manaCapacity: 30
+  },
+  // 深采：慢速、吃木炭与活动魔力。产量刻意低于地表富矿采集——
+  // 深采让后期可持续，但不免费恢复原地图产量。
+  //
+  // 最终吞吐（本轮实测）：**45 秒一轮，木炭共 2（进料 1 + 燃料 1）→ 石料 4**，
+  // 另耗活动魔力 1.2/秒（54 点/轮）。
+  // 为什么是 2 份木炭而不是设计文档起始值写的 1 份：既有生产架构把"主料"
+  // （input 格）与"燃料"（fuel 格）分开，且 `fuelPerCycle` 被强制 ≥1
+  // （见 systems/production.js 的 normalizeProductionRecipe），
+  // 所以任何配方驱动设施每轮至少吃 1 份燃料。两者都取最小值 1，
+  // 总消耗就是这一类设施能压到的下限；替代方案（给深采开一条"不需燃料"的
+  // 旁路）会改动熔炉共用的稳定逻辑，收益不抵风险。
+  // 对照：地表富矿一次采集动作 5 份、约 1 秒，效率仍是深采的数十倍。
+  quarry: {
+    id: 'quarry',
+    name: '深采石料',
+    unitType: 'quarry',
+    input: { itemId: 'charcoal', count: 1 },
+    output: { itemId: 'stone', count: 4 },
+    seconds: 45,
+    fuelPerCycle: 1,
+    drainPerSecond: 1.2,
+    manaCapacity: 26
+  },
+  deepMine: {
+    id: 'deepMine',
+    name: '深采铁矿',
+    unitType: 'deepMine',
+    input: { itemId: 'charcoal', count: 1 },
+    output: { itemId: 'iron', count: 2 },
+    seconds: 45,
+    fuelPerCycle: 1,
+    drainPerSecond: 1.4,
+    manaCapacity: 28
   }
 };
 
@@ -7451,6 +8708,14 @@ export const ITEM_RULES = {
   furnaceFuelItemIds: ['wood', 'charcoal'],
   /** 熔炉产物缓冲格（单格；满且输出线运不走时停炉） */
   furnaceOutputSlots: 1,
+  /** 食堂进料格（谷物）/ 燃料格（木炭）/ 产物格（口粮）：与熔炉同构，各 1 格 */
+  canteenInputSlots: 1,
+  canteenFuelSlots: 1,
+  canteenOutputSlots: 1,
+  /** 深采设施的进料格（木炭）与产物格；与熔炉共用同一套格位规则 */
+  mineInputSlots: 1,
+  mineFuelSlots: 1,
+  mineOutputSlots: 1,
   /** 魔力炉燃料格（单格，仅接收木炭） */
   manaFurnaceFuelSlots: 1,
   /** 堆叠类物品单格上限（各物品 stackLimit 不超过此值） */
@@ -7466,24 +8731,56 @@ export const ITEM_RULES = {
 //
 // 已确认：基地为周围约 20m 提供魔力，半径做成配置参数，供能有功率上限。
 // 其余数值都是默认值，不是已批准的平衡值（文档里的 10/秒只是供需举例）。
+//
+// 本轮（防御/生存压力）实测后的取舍，三条一起看才成立（最终参数，
+// 由 scripts/test-power-budget.mjs 按纯规则模拟复核）：
+//   1. **一名起始傀儡基本作业能持续**：采集耗 2.2/s，基地实发 2.2/s，
+//      单接收者补能上限也正好 2.2/s，池子里有存量时收支刚好持平 →
+//      傀儡在起步阶段不掉储备，不会在做好熔炉之前永久断电。
+//   2. **无法同时轻松支撑多傀儡 + 熔炉 + 防塔**：基地总输出只有 2.2/s，
+//      两只采集傀儡合计要 4.4/s，缺口 2.2/s 只能吃池子里的 80 点存量，
+//      约 1 分钟见底 → 扩张必须去建木材 → 木炭 → 魔力炉与物流。
+//   3. **活动储备覆盖起步**：池子 80 点 ÷ 净缺口 0.6/s ≈ **133 秒满功率窗口**；
+//      池子见底后只剩 1.6/s 再生，傀儡转入约 73% 占空比继续作业
+//      （自身 40 点储备在池子见底后再撑约 67 秒，合计约 3.3 分钟后降速），
+//      足够完成燃料链自启动，又明显不再是"无限电"。
+// 原先 baseSupplyPerSecond = 2、workerManaCapacity = 60、maxRechargePerSecond = 2
+// 时，单傀儡采集净亏 0.2/s（补能上限低于采集耗魔），表现为"起步就在掉电"，
+// 与设计文档"基地持续供能要能支持一名起始傀儡基本作业"相矛盾。
 // ---------------------------------------------------------------------------
 export const POWER_RULES = {
-  // 基地魔力池：对外充能从这里扣，每秒自然恢复
-  baseManaCapacity: 100,
-  baseManaRegenPerSecond: 2,
+  // 基地魔力池：对外充能从这里扣，每秒自然恢复。
+  // 池子从 100/2 收到 80/1.6：能覆盖起步，但多傀儡并发更快见底，
+  // 让「扩产要配供能」这件事真的能被感知到。
+  baseManaCapacity: 80,
+  baseManaRegenPerSecond: 1.6,
   // 基地在供能半径内给接收者补魔的功率上限（同时受池子余量限制）
-  baseSupplyPerSecond: 2,
+  baseSupplyPerSecond: 2.2,
   // 文档明确「约 20m」，这条是已确认的，不是占位值
   baseSupplyRadius: 20,
-  workerManaCapacity: 60,
+  workerManaCapacity: 40,
   // 行为耗魔：待机不吃，移动/采集/搬运/战斗各不同
   workerDrainIdle: 0,
   workerDrainMove: 1.1,
   workerDrainHarvest: 2.2,
   workerDrainCarry: 1.7,
   workerDrainCombat: 1.6,
-  // 单个接收者每段最多补多少（与基地对外充能速率一致）
-  maxRechargePerSecond: 2,
+  /** 建筑维修：比搬运更费（工具、脚手架、活动魔力一起上），但不高于采集。 */
+  workerDrainRepair: 1.9,
+  /**
+   * 单个接收者每段最多补多少。
+   *
+   * 必须**不大于** `baseSupplyPerSecond`（基地自己也要遵守同一个上限），
+   * 否则会出现"魔力炉给一个接收者发的比基地还多"——同一档功率的供能源
+   * 却有不同的分发上限，燃料供能的净产出就变成了靠参数不一致赚来的。
+   * 这一条由 scripts/test-power-budget.mjs 断言。
+   *
+   * 最终取 2.2（与基地功率同值）：这样"一名起始傀儡满负荷采集"的收支
+   * 在池子有存量时刚好持平——设计文档要求基地能支持一名起始傀儡的基本作业。
+   * 取 2.0 时单傀儡每 tick 净亏 0.2/s，起步就开始掉储备，与文档口径冲突；
+   * 取大于 2.2 又会让接收者比基地供电源拿得还快，破坏上面的守恒前提。
+   */
+  maxRechargePerSecond: 2.2,
   // 低于容量的这个比例就提示该回供能区了
   lowManaRatio: 0.25,
   // 返程储备额外留出的秒数，用于覆盖采集收尾与装卸
@@ -7493,6 +8790,43 @@ export const POWER_RULES = {
   /** 每条运输线最多每秒搬运 1 个（同一格内逐个运） */
   transportSecondsPerMove: 1
 };
+
+// ---------------------------------------------------------------------------
+// 资源续航（docs/DSH_RESOURCE_SUSTAINABILITY.md）
+//
+// 有限地图要能持续经营，但不能靠"地图定时整批刷回原状"。三条一起构成兜底：
+//   1. 树坑/菜圃 的种植续航（见 PLANTING_CONFIGS）；
+//   2. 采石场/深矿井 的慢速深采（见 PRODUCTION_RECIPES）；
+//   3. **基础拾荒点**：极低效率的木材/石料恢复路径。
+//
+// 第 3 条为什么必须有：如果玩家把木材、石料、树苗和最后一把镐一起耗光，
+// 就没有任何路径能重做工具或补种树坑——"基地和工人活着，却永远没有任何
+// 资源恢复操作"是隐藏死局。拾荒产量刻意压到正规链的十分之一以下，
+// 而且需要傀儡实际去取，不是给基地无条件加钱。
+// ---------------------------------------------------------------------------
+export const SALVAGE_RULES = {
+  enabled: true,
+  /** 一个拾荒点的固定位置（出生区附近，玩家走得到）。 */
+  points: [
+    { id: 'salvage-north-driftwood', name: '搁浅木料', kind: 'wood', x: 8, z: 24 },
+    { id: 'salvage-west-rubble', name: '碎石滩', kind: 'stone', x: -24, z: 22 }
+  ],
+  /** 每次补充产出多少（远低于 5/次的采集）。 */
+  producePerEvent: 3,
+  /** 事件间隔（秒，模拟时间；暂停不产出）。 */
+  secondsPerEvent: 90,
+  /** 单个拾荒点在地上最多存多少；堆满就停，不会被无限刷。 */
+  maxOnGround: 9,
+  /** 傀儡必须走到这么近才装得进背包。 */
+  pickupRange: 2.6
+};
+
+// ---------------------------------------------------------------------------
+// 建筑回收（docs/DSH_RESOURCE_SUSTAINABILITY.md「材料回收缓冲失误」）
+//
+// 回收比例与"来自真实投入"的规则都在 systems/buildingRepair.js 的 RECYCLE_RULES，
+// 这里只放玩家可读的开关与说明，避免两处数值各写一份。
+// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // 海岛刷怪点
@@ -7513,6 +8847,10 @@ export const ISLAND_SPAWN_POINTS = [
     // 这是链条的起点（打掉它才拿到第一个深邃核心），必须先能打。
     nestHealth: 120,
     enemyPool: [{ type: 'goblinSoldier', weight: 3 }, { type: 'spider', weight: 1 }],
+    maxAlive: 2,
+    // 敌军内部路线锚点：夜袭单位先走到这里，再扑基地。
+    // 只在 `orderEnemyAttack` 里被读，**不是**玩家箭塔的预留位——玩家自由选址。
+    raidRally: { x: -4.5, z: 52.5 },
     // 深邃核心只从刷怪点掉：它是招募令的材料，而招募令是野外招募的门槛。
     drops: [
       { itemId: 'deepCore', count: 1 },
@@ -7536,6 +8874,8 @@ export const ISLAND_SPAWN_POINTS = [
     x: -47, z: -5,
     leashRadius: 24,
     enemyPool: [{ type: 'goblinSoldier', weight: 2 }, { type: 'goblinArcher', weight: 2 }, { type: 'wolf', weight: 1 }],
+    maxAlive: 2,
+    raidRally: { x: -21.5, z: 17.5 },
     drops: [{ itemId: 'deepCore', count: 1 }, { itemId: 'iron', count: 6 }],
     recruitReward: { types: ['spearman'], count: 1 },
     workerReward: { type: 'woodPuppet', count: 1 }
@@ -7546,6 +8886,8 @@ export const ISLAND_SPAWN_POINTS = [
     x: 56, z: 10,
     leashRadius: 24,
     enemyPool: [{ type: 'goblinSoldier', weight: 2 }, { type: 'goblinArcher', weight: 2 }, { type: 'shieldBearer', weight: 1 }],
+    maxAlive: 2,
+    raidRally: { x: 30, z: 25 },
     drops: [{ itemId: 'deepCore', count: 1 }, { itemId: 'iron', count: 6 }],
     recruitReward: { types: ['archer'], count: 1 },
     workerReward: { type: 'woodPuppet', count: 1 }
@@ -7556,10 +8898,65 @@ export const ISLAND_SPAWN_POINTS = [
     x: 3, z: -52,
     leashRadius: 28,
     enemyPool: [{ type: 'goblinSoldier', weight: 2 }, { type: 'goblinHunter', weight: 2 }, { type: 'ogre', weight: 1 }],
+    maxAlive: 2,
+    raidRally: { x: 3.5, z: -6 },
     drops: [{ itemId: 'deepCore', count: 1 }, { itemId: 'iron', count: 8 }],
     // 最难的一个点给两支（一支前排一支远程），作为「越往外越硬」的对应回报
     recruitReward: { types: ['raider', 'archer'], count: 2 },
     workerReward: { type: 'woodPuppet', count: 1 }
+  }
+];
+
+// ---------------------------------------------------------------------------
+// 四条远征路线（远征与区域成长）
+//
+// 这里**只写关系**：一条路线绑一座内巢、一座外巢和一项区域图纸科技。
+// 目标名、敌群、掉落数量、傀儡奖励、待招募兵种、图纸名全部在运行时从
+// `spawnPoints.points` / `UNIT_DEFINITIONS` / `ITEM_DEFINITIONS` / `TECH_DEFINITIONS`
+// 现读（见 expedition.js），不在这里抄一遍数字——抄一遍就一定会和点位数据漂移。
+//
+// 四条路线刻意对应四种敌型，不是四段相同的流程：
+//   north 起步：哥布林士兵 + 蜘蛛 → 盾卫 + 萨满    → 哨站测距（守家与攻城阵地）
+//   west  续航：哥布林混编 + 野狼 → 狼 + 熊          → 林地采运（扩大劳动力后的供料）
+//   east  远程：弓手 + 盾卫     → 弓手 + 毒弓手      → 军械保养（远征耐久）
+//   south 重甲：哥布林猎手 + 食人魔 → 猎手 + 食人魔  → 炭窑鼓风（烧炭产能）
+// ---------------------------------------------------------------------------
+export const SURVIVAL_EXPEDITIONS = [
+  {
+    id: 'north',
+    name: '北岬线',
+    direction: '北',
+    innerNestId: 'island-camp-north',
+    outerNestId: 'island-outer-north',
+    techId: 'towerCalibration',
+    strategy: '起步路线：北岬守军是哥布林士兵加蜘蛛，拆掉取得区域图纸「哨站测距」，到科研站投材料研究后箭塔与弩炮射程 +1.5m。'
+  },
+  {
+    id: 'west',
+    name: '西岭线',
+    direction: '西',
+    innerNestId: 'island-west-ridge',
+    outerNestId: 'island-outer-northwest',
+    techId: 'woodlandLogistics',
+    strategy: '采集续航：西岭是弓手加野狼的混编，拆掉取得图纸「林地采运」，研究后每次采集多 1 个资源，供养更多劳动力。'
+  },
+  {
+    id: 'east',
+    name: '东岬线',
+    direction: '东',
+    innerNestId: 'island-east-cape',
+    outerNestId: 'island-outer-east',
+    techId: 'armsMaintenance',
+    strategy: '军械远程：东岬以弓手与盾卫为主，拆掉取得图纸「军械保养」，研究后武器耐久消耗降到 0.8 倍，远征能打得更久。'
+  },
+  {
+    id: 'south',
+    name: '南林线',
+    direction: '南',
+    innerNestId: 'island-south-woods',
+    outerNestId: 'island-outer-southwest',
+    techId: 'charcoalBellows',
+    strategy: '重型目标与产能：南林有食人魔这类高血量敌人，拆掉取得图纸「炭窑鼓风」，研究后烧炭周期从 8 秒压到 6 秒。'
   }
 ];
 
@@ -7832,14 +9229,15 @@ export const BALANCE = {
       workers: 1,
       escorts: []
     },
-    // 昼夜：白天采集建设，黑夜才从刷怪点出兵。时长按用户定稿，增长按夜数可配。
+    // 昼夜：白天采集建设，黑夜才从刷怪点出兵。
+    // 第 1 夜用刷怪点自己的存活上限；之后每夜 +1 名额，每 3 夜再多一批。
     dayNight: {
       daySeconds: 5 * 60,
       nightSeconds: 3 * 60,
       nightfallDelaySeconds: 2,
-      extraAlivePerNight: 0,
+      extraAlivePerNight: 1,
       difficultyPerNight: 0.25,
-      extraPerTickEveryNights: 99
+      extraPerTickEveryNights: 3
     }
   }
 };

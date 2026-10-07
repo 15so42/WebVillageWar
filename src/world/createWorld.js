@@ -273,7 +273,8 @@ function applyCliffShader(material) {
   return material;
 }
 
-import { BALANCE, ISLAND_SPAWN_POINTS, RESOURCE_NODE_DEFINITIONS } from '../data/gameData.js';
+import { BALANCE, DEPLETED_ORE_SITE_VISUAL, ISLAND_SPAWN_POINTS, RESOURCE_NODE_DEFINITIONS } from '../data/gameData.js';
+import { islandOuterIronZones, islandOuterSpawnPoints } from '../systems/survivalExpansion.js';
 import { createIslandResourceModel, createIslandScatterMeshes, updateIslandWind } from '../art/islandProps.js';
 import {
   bakeWarmLighting,
@@ -423,6 +424,9 @@ let activeSnowTreeQueue = null;
 let activeSnowPlacement = null;
 // 本次构建产出的资源节点实例（含独立 ID、剩余量与模型句柄）
 let activeResourceNodes = null;
+// 贫矿址标记：nodeId → THREE.Group。每次重建世界都要清掉旧的引用，
+// 否则重开后新标记会被当成"已经建过"而跳过（画面里少一块残堆）。
+let depletedSiteMarkers = new Map();
 
 const DEFAULT_TERRAIN_PROFILE = {
   baseHeight: 0.25,
@@ -978,6 +982,71 @@ function snowHillZones(sceneKey = worldConfig().sceneKey) {
 }
 
 const WORLD_PRESETS = {
+  'logic-demo': {
+    sceneKey: 'logic-demo',
+    theme: 'plain',
+    paths: false,
+    seed: 7,
+    usesEnemyCamp: false,
+    ground: { width: 72, depth: 72 },
+    navigationBounds: { minX: -30, maxX: 30, minZ: -24, maxZ: 32 },
+    playerBasePosition: { x: 0, z: 22 },
+    enemyCampPosition: { x: 0, z: -20 },
+    sky: {
+      background: '#8fc4a4',
+      fog: '#c9e2cf',
+      fogNear: 40,
+      fogFar: 120,
+      sun: '#fff0cc',
+      hemiSky: '#d7f0df',
+      hemiGround: '#3d5a40',
+      realtimeShadows: false,
+      bakedShadows: true
+    },
+    palette: {
+      base: '#7eaa62',
+      side: '#6b9454',
+      north: '#628a4e',
+      valley: '#8eb872',
+      forest: '#4f7344',
+      high: '#d7d2c2',
+      snow: '#e7efe4',
+      path: '#c4b48a',
+      puddle: '#7eae9a'
+    },
+    pathWidth: 2.4,
+    pathPoints: [
+      { x: -22, z: 18 },
+      { x: -22, z: 6 },
+      { x: -22, z: -6 },
+      { x: -22, z: -16 }
+    ],
+    forestZones: [],
+    forestPassages: [],
+    clearings: [],
+    boulderClusters: [],
+    landmarkBoulders: [],
+    puddles: [],
+    altars: [],
+    wildlife: [],
+    cottages: [],
+    roadsideClusters: [],
+    legacyPathDecor: [],
+    resourceZones: [],
+    terrain: {
+      flat: true,
+      baseHeight: 0.2,
+      northRise: 0,
+      sideRise: 0,
+      sideNorthRise: 0,
+      roughnessScale: 0,
+      valleyFloorBase: 0.2,
+      valleyNorthRise: 0,
+      valleySideRise: 0,
+      hills: [],
+      ridges: []
+    }
+  },
   'snow-valley': {
     sceneKey: 'snow-valley',
     seed: 42,
@@ -2276,15 +2345,28 @@ const WORLD_PRESETS = {
       { node: 'stonePile', x: 40, z: -44, rx: 10, rz: 8.8, count: 16, spacing: 1.5 },
       { node: 'stonePile', x: -48, z: 28, rx: 9.2, rz: 8, count: 14, spacing: 1.5 },
       { node: 'stonePile', x: 16, z: -32, rx: 9.2, rz: 8, count: 14, spacing: 1.5 },
-      // 铁矿：数量刻意少，留给中期。东侧矿脉放到东岬，
-      // 和能量祭坛北面的浆果区分开，中间留出空草地。
+      // 铁矿：数量刻意少，留给中期。东侧矿脉放到东岬，和能量祭坛之间留出空草地。
       { node: 'ironVein', x: -36, z: -40, rx: 8, rz: 6.8, count: 10, spacing: 1.9 },
       { node: 'ironVein', x: 72, z: 32, rx: 6.5, rz: 5.5, count: 8, spacing: 1.9 },
-      // 食物与纤维：不需要工具，开局就能采
-      { node: 'berryBush', x: -16, z: 14, rx: 12, rz: 10, count: 20 },
-      { node: 'berryBush', x: 18, z: -4, rx: 8, rz: 7, count: 16 },
+      // 纤维：附魔和装备用。岛上不种浆果，傀儡靠魔力运转，不采集食物。
       { node: 'fiberPlant', x: -4, z: 52, rx: 12, rz: 9.2, count: 24 },
-      { node: 'fiberPlant', x: 28, z: 28, rx: 10, rz: 8.8, count: 20 }
+      { node: 'fiberPlant', x: 28, z: 28, rx: 10, rz: 8.8, count: 20 },
+      ...islandOuterIronZones(),
+      // 基地南侧的**安全起手林地**。
+      //
+      // 为什么必须补这一片：清场圈（`clearings` r=16）把所有资源挡在 16m 外，
+      // 而三处路边营地/野兽领地正好压在东（东林盗伙 23.3m − 9 = 14.3m）、
+      // 西（西坡狼窝 23.4 − 9 = 14.4m）、北（北路哨卡 21.6 − 9 = 12.6m）三个方向上。
+      // 于是"清场圈外、领地外"这条安全带在东西北几乎没有厚度：现存最近的木材
+      // `oak-2-16`(22.5,37.9) 距基地 18.6m、距领地边缘只有 1.0m。
+      // 真实实玩里玩家按 G 框选最近的树，唯一傀儡就在这条缝上被东林弓手咬死，
+      // 关卡 1:48 直接失败（`_dsh-freedom-accept2.json`）。
+      // 南侧没有任何营地，这里补一小片橡树，让开局有一条**明显安全**的木材路线。
+      // 东林/西坡照旧是风险与收益：不删敌人、不动夜袭、不加资源总量。
+      //
+      // 追加在数组**末尾**而不是插进中间：节点 id 含区号（`oak-18-0`），
+      // 插在中间会让所有后续区的 id 位移，旧存档里的枯竭记录就对不上了。
+      { node: 'oak', x: 3, z: 24, rx: 7, rz: 4.5, count: 10, spacing: 2.2 }
     ],
     forestPassages: [],
     clearings: [
@@ -2399,6 +2481,7 @@ export function createWorld(scene, worldOptions = {}) {
   activeStaticDecorationBatch = createStaticDecorationBatch();
   activeAnimatedDecorations = [];
   activeResourceNodes = null;
+  depletedSiteMarkers = new Map();
   activeSnowTreeQueue = config.sceneKey === 'snow-valley' ? [] : null;
   activeSnowPlacement = config.sceneKey === 'snow-valley' ? createSnowCanyonPlacement(
     // Keep the established placement plan independent of shallow valley relief.
@@ -2522,7 +2605,7 @@ export function createWorld(scene, worldOptions = {}) {
     decorate(scene, pathPoints);
   }
   // 第一关已经有可攻击的敌方营地；额外的怪物帐篷会被误认成第二个目标。
-  if (config.sceneKey !== 'snow-valley') {
+  if (config.sceneKey !== 'snow-valley' && config.sceneKey !== 'logic-demo') {
     createSnowMonsterCamp(scene);
   }
   flushSnowCanyonTrees(scene);
@@ -2608,6 +2691,9 @@ export function createWorld(scene, worldOptions = {}) {
     staticCulling,
     staticDecorationMeshes: staticDecorationResult.meshes,
     resourceNodes: activeResourceNodes ?? [],
+    // 贫矿址标记（nodeId → 残堆 Group）：验收脚本与调试面板要能读到
+    // "哪块地质采空后留下了什么"，而不是只能靠肉眼看截图。
+    depletedSiteMarkers,
     // 采空一个资源节点：隐藏模型、解除它登记的寻路阻挡，并只重采样那一小片网格。
     // 网格是构建时烘好的，不重采样的话 A* 会继续绕着一棵已经不存在的树走。
     releaseResourceNode: (nodeId) => {
@@ -2619,6 +2705,35 @@ export function createWorld(scene, worldOptions = {}) {
         navGrid?.refreshRegion(node.x, node.z, node.navRadius);
       }
       return true;
+    },
+    // 贫矿址：石料/铁矿采空后**不留下一个空洞**，原地换上一个可辨认的低模残堆。
+    //
+    // 三条约束（docs/DSH_RESOURCE_SUSTAINABILITY.md）：
+    //   1. 不改变寻路阻挡——releaseResourceNode 已经放开了那一格，标记只是视觉，
+    //      所以它既不挡路、也不影响旁边放采石场/深矿井；
+    //   2. 不参与任何资源结算——它是一块石头，不是资源节点，不进 resourceNodes，
+    //      所以不会让"这个矿区又活了"；
+    //   3. 重复调用安全：同一个 nodeId 只建一次标记，重载后由存档重建。
+    markDepletedResourceSite: (site) => {
+      if (!site?.nodeId || !scene) return null;
+      if (depletedSiteMarkers.has(site.nodeId)) return depletedSiteMarkers.get(site.nodeId);
+      const node = (activeResourceNodes ?? []).find((entry) => entry.id === site.nodeId);
+      // 富集层的模型已经通过 releaseResourceNode 隐藏了；这里把原模型缩小后重新显示，
+      // 让"采空"读起来是"没矿了"而不是"那里从来什么都没有"。
+      if (node?.object) {
+        node.object.visible = true;
+        node.object.scale.multiplyScalar(DEPLETED_ORE_SITE_VISUAL.shrinkScale);
+        DEPLETED_ORE_SITE_VISUAL.hideCrystalNodeNames.forEach((name) => {
+          node.object.traverse?.((child) => {
+            if (child?.name === name) child.visible = false;
+          });
+        });
+      }
+      const marker = createDepletedOreSiteMarker(site);
+      if (!marker) return null;
+      scene.add(marker);
+      depletedSiteMarkers.set(site.nodeId, marker);
+      return marker;
     },
     // 运行时新增一个资源节点（树坑长成的树）。
     // 与 build 时的 placeResourceNodes 走同一套模型/地形贴合/寻路阻挡，
@@ -5884,6 +5999,7 @@ function placeSnowRoadOverlap(scene, pathPoints) {
     return;
   }
   activeResourceNodes = null;
+  if (worldConfig().sceneKey === 'logic-demo') return;
   placeForests(scene, pathPoints, random);
   placeRocks(scene, pathPoints, random);
   placeBoulderClusters(scene, pathPoints, random);
@@ -7669,6 +7785,57 @@ function placeDesertScrub(scene, pathPoints, random) {
 // 某一棵被采空的树。代价是每个节点一次绘制调用，换来的是每个节点都能独立改变
 // 状态，也满足存档与联机快照需要「稳定逻辑 ID」的要求。
 // ---------------------------------------------------------------------------
+/**
+ * 贫矿址残堆：几块大小不一的低模碎石，颜色按矿种区分（石材偏灰、铁矿偏暗）。
+ *
+ * 为什么是独立的一小组碎石而不是"复用原模型"：原模型是这块地质富集时的样子，
+ * 缩一下只能表达"小了一点"，表达不了"富集层已经采完、这里只剩地质"。
+ * 碎石不登记寻路阻挡、不进 resourceNodes，所以它不参与任何结算。
+ */
+function createDepletedOreSiteMarker(site) {
+  if (!site) return null;
+  const visual = DEPLETED_ORE_SITE_VISUAL;
+  const group = new THREE.Group();
+  group.name = `DepletedOreSite:${site.nodeId}`;
+  const y = worldSurfaceHeightAt(site.x, site.z);
+  group.position.set(site.x, y, site.z);
+  group.userData.depletedOreSite = {
+    nodeId: site.nodeId,
+    resource: site.resource,
+    x: site.x,
+    z: site.z
+  };
+  const random = seededRandom(7411 + Math.round((site.x ?? 0) * 7 + (site.z ?? 0) * 13));
+  const color = visual.rubbleColor[site.resource] ?? visual.rubbleColor.stone;
+  const material = new THREE.MeshLambertMaterial({ color });
+  const geometry = new THREE.DodecahedronGeometry(visual.rubbleRadius, 0);
+  group.userData.disposeGeometries = [geometry];
+  group.userData.disposeMaterials = [material];
+  const count = Math.max(1, Math.floor(visual.rubbleCount));
+  for (let i = 0; i < count; i += 1) {
+    const mesh = new THREE.Mesh(geometry, material);
+    const angle = (i / count) * Math.PI * 2 + random() * 0.8;
+    const radius = 0.28 + random() * 0.55;
+    const [minScale, maxScale] = visual.rubbleScale;
+    mesh.position.set(
+      Math.cos(angle) * radius,
+      0.08 + random() * 0.12,
+      Math.sin(angle) * radius
+    );
+    mesh.scale.set(
+      minScale + random() * (maxScale - minScale),
+      (minScale + random() * (maxScale - minScale)) * 0.7,
+      minScale + random() * (maxScale - minScale)
+    );
+    mesh.rotation.set(random() * 0.6, random() * Math.PI * 2, random() * 0.6);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.layers.set(0);
+    group.add(mesh);
+  }
+  return group;
+}
+
 function createResourceNodeModel(definition, random, point = null) {
   const [minScale, maxScale] = definition.scale ?? [1, 1];
   const size = minScale + random() * Math.max(0, maxScale - minScale);
@@ -7771,6 +7938,14 @@ function placeResourceNodes(scene, pathPoints) {
   const zones = config.resourceZones ?? [];
   const random = seededRandom((config.seed ?? 42) + 6143);
   const nodes = [];
+  const keepClear = [];
+  ISLAND_SPAWN_POINTS.forEach((point) => keepClear.push({ x: point.x, z: point.z }));
+  islandOuterSpawnPoints().forEach((point) => {
+    keepClear.push({ x: point.x, z: point.z });
+    // 敌军内部路线锚点也保持空着：资源不压在上面，夜袭路线才走得通。
+    if (point.raidRally) keepClear.push({ x: point.raidRally.x, z: point.raidRally.z });
+  });
+  const clearOfNests = (x, z) => keepClear.every((spot) => Math.hypot(spot.x - x, spot.z - z) >= 4);
   zones.forEach((zone, zoneIndex) => {
     const definition = RESOURCE_NODE_DEFINITIONS[zone.node];
     if (!definition) return;
@@ -7781,6 +7956,7 @@ function placeResourceNodes(scene, pathPoints) {
       random,
       (point) => {
         if (!isDecorationClear(point.x, point.z, pathPoints, 1.6)) return false;
+        if (!clearOfNests(point.x, point.z)) return false;
         return nodes.every((other) => {
           if (!resourceKindsConflict(definition.resource, other.resource)) return true;
           return Math.hypot(other.x - point.x, other.z - point.z) >= 12;

@@ -127,20 +127,26 @@ export class PlantingSystem {
     const inventory = game?.baseInventory;
     if (!inventory) return { ok: false, reason: 'no_inventory' };
     const check = canPlant(record.config, {
-      saplings: inventory.countOf(record.config.saplingItemId),
+      saplings: record.config.saplingItemId ? inventory.countOf(record.config.saplingItemId) : 0,
       grownNodes: this.grownNodeCount(record),
       state: record.state
     });
     if (!check.ok) return check;
-    const spent = inventory.remove(record.config.saplingItemId, record.config.saplingCost);
-    if (!spent.ok) return { ok: false, reason: 'no_sapling' };
+    // 菜圃这类不需要种子的地块：`saplingItemId` 为 null 时整段扣费跳过，
+    // 而不是去 remove(null, 0)——那会在库存里制造一条无名条目。
+    if (record.config.saplingItemId && record.config.saplingCost > 0) {
+      const spent = inventory.remove(record.config.saplingItemId, record.config.saplingCost);
+      if (!spent.ok) return { ok: false, reason: 'no_sapling' };
+    }
     record.state = PLANTING_STATE.growing;
     record.progress = 0;
     this.stats.planted += 1;
     this.syncPlotVisual(record);
     game.baseStorage?.markDirty?.();
     game.hints?.setHintOnce?.(
-      `${record.config.name}已种下树苗，约 ${Math.round(record.config.growthSeconds)} 秒后长成`,
+      record.config.saplingItemId
+        ? `${record.config.name}已种下树苗，约 ${Math.round(record.config.growthSeconds)} 秒后长成`
+        : `${record.config.name}已播种，约 ${Math.round(record.config.growthSeconds)} 秒后成熟`,
       `plant:${record.unit.id}`
     );
     return { ok: true };

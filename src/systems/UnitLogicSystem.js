@@ -238,6 +238,14 @@ export class UnitLogicSystem {
           target.position ? targetRadius + stopDistance(unit, this.game.modifiers) : 0.2
         );
       }
+    } else if ((Number(unit.guardRadius) || 0) > 0
+      && unit.homePoint
+      && distance2D(unit.position, unit.homePoint) > 0.6) {
+      // 有领地的敌方单位（路边营地 / 野生动物）没目标时回自己的地盘。
+      // 没有这一条，它们被引出去之后就站在外面不回窝，"守卫领地"只做了一半。
+      unit.attackRangeHoldTargetId = null;
+      unit.aiState = 'returning';
+      unit.movement?.moveToward(unit.homePoint, dt, 0.34);
     } else if (unit.isWildlife) {
       unit.attackRangeHoldTargetId = null;
       unit.aiState = 'idle';
@@ -831,6 +839,19 @@ function hasRuntimeTrait(unit, trait) {
 }
 
 function completeMoveGoal(game, unit) {
+  const resume = unit.raidResumeGoal;
+  if (resume) {
+    unit.raidResumeGoal = null;
+    unit.moveGoal = resume;
+    unit.commandMoveGoal = null;
+    unit.moveGoalUsesDirectSteering = false;
+    unit.directMoveBlocked = false;
+    unit.directMoveBlockedTime = 0;
+    unit.navMoveTarget = null;
+    unit.navSteeringTarget = null;
+    game.clearUnitRoute?.(unit);
+    return;
+  }
   unit.moveGoal = null;
   unit.commandMoveGoal = null;
   unit.moveGoalUsesDirectSteering = false;

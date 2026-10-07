@@ -31,7 +31,13 @@ export function normalizeProductionRecipe(recipe) {
     output: { itemId: String(recipe.output.itemId), count: outputCount },
     seconds,
     drainPerSecond: Math.max(0, Number(recipe.drainPerSecond) || 0),
-    manaCapacity: Math.max(0, Number(recipe.manaCapacity) || 0)
+    manaCapacity: Math.max(0, Number(recipe.manaCapacity) || 0),
+    // 每个周期吃几份燃料。熔炉沿用全局 furnaceFuelPerCycle（保持既有行为与既有断言）；
+    // 食堂/深采这类新配方各自写小一点的数（1），否则"一份木炭换 4 份石料"会被
+    // 全局的 2 悄悄改成"两份木炭换 4 份石料"。
+    fuelPerCycle: Number.isFinite(Number(recipe.fuelPerCycle))
+      ? Math.max(1, Math.floor(Number(recipe.fuelPerCycle)))
+      : Math.max(1, Math.floor(Number(ITEM_RULES.furnaceFuelPerCycle) || 1))
   };
 }
 
@@ -156,18 +162,25 @@ export function countFurnaceFuel(fuelInv) {
   return total;
 }
 
-export function maxCyclesByFurnaceFuel(fuelInv, cyclesWanted) {
-  const per = Math.max(1, Math.floor(Number(ITEM_RULES.furnaceFuelPerCycle) || 1));
+export function maxCyclesByFurnaceFuel(fuelInv, cyclesWanted, fuelPerCycle = null) {
+  const per = fuelPerCycleOf(fuelPerCycle);
   const have = countFurnaceFuel(fuelInv);
   const byFuel = Math.floor(have / per);
   const want = Math.max(0, Math.floor(Number(cyclesWanted) || 0));
   return Math.min(byFuel, want);
 }
 
-export function consumeFurnaceFuel(fuelInv, cycles) {
+/** 显式传了就按配方走，否则退回全局 furnaceFuelPerCycle（熔炉的既有行为）。 */
+export function fuelPerCycleOf(explicit = null) {
+  const value = Number(explicit);
+  if (Number.isFinite(value) && value >= 1) return Math.floor(value);
+  return Math.max(1, Math.floor(Number(ITEM_RULES.furnaceFuelPerCycle) || 1));
+}
+
+export function consumeFurnaceFuel(fuelInv, cycles, fuelPerCycle = null) {
   const times = Math.max(0, Math.floor(Number(cycles) || 0));
   if (!fuelInv || times <= 0) return { ok: true, consumed: 0 };
-  const per = Math.max(1, Math.floor(Number(ITEM_RULES.furnaceFuelPerCycle) || 1));
+  const per = fuelPerCycleOf(fuelPerCycle);
   let need = times * per;
   const ids = new Set(furnaceFuelItemIds());
   for (let index = 0; index < fuelInv.slots.length && need > 0; index += 1) {
@@ -196,7 +209,7 @@ export function maxCyclesForFurnace(recipe, inputSlot, outputInv, { stackLimit =
   });
   let allowed = Math.min(byInput, byOutput);
   if (fuelInv) {
-    allowed = Math.min(allowed, maxCyclesByFurnaceFuel(fuelInv, allowed));
+    allowed = Math.min(allowed, maxCyclesByFurnaceFuel(fuelInv, allowed, normalized.fuelPerCycle));
   }
   return allowed;
 }

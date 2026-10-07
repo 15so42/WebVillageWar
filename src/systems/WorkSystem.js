@@ -32,6 +32,7 @@ import {
 } from './workerInventory.js';
 import { itemMaxDurability, slotDurability } from './items.js';
 import { RESOURCE_ERROR } from './ResourceNodeSystem.js';
+import { toolHarvestRate } from './resources.js';
 import {
   advanceHarvestProgress,
   planWorkerManaStep,
@@ -45,7 +46,8 @@ import {
   workerInventoryFull,
   workerManaDepleted,
   workerManaRatio,
-  isWorkerAutonomous
+  isWorkerAutonomous,
+  workerHarvestSeconds
 } from './workOrders.js';
 import {
   applyRepairToToolZone,
@@ -161,6 +163,16 @@ export class WorkSystem {
      * 2.0 折算成距离大约是"单一敌人 6.3m 以内"。
      */
     this.maxNodeThreat = Number.isFinite(options.maxNodeThreat) ? options.maxNodeThreat : 2;
+    /**
+     * 敌人领地判定的余量（米），见 `nodeInEnemyTerritory`。
+     *
+     * 2m 覆盖三件实际会发生的事：寻路落脚点不落在节点圆心、采集站位的抖动、
+     * 以及敌人在自己领地边缘来回巡游。没有余量时"领地外 0.3m 的点"会在
+     * 傀儡走过去的一瞬间变成"领地内"，而这正是本轮实玩里唯一工人被打死的位置。
+     */
+    this.territoryMargin = Number.isFinite(options.territoryMargin) ? options.territoryMargin : 2;
+    /** `enemyTerritories()` 的一帧缓存 `{ stamp, list }`。 */
+    this.territoryCache = null;
     this.tasks = new Map();
     // 玩家框选出来的资源点：nodeId -> 优先级 1..12（数字小的先做）。
     // 没有标记就不派活。旧的「按资源种类需求自动采集」不再驱动傀儡。
@@ -334,6 +346,8 @@ export class WorkSystem {
     const unit = record?.unit ?? (typeof unitOrId === 'object' ? unitOrId : null);
     if (record?.errand) this.clearErrand(record);
     if (record) cancelSwing(record.swing);
+    // 单位死亡/销毁时把维修预留一并放掉（不能留一个永远"有人修"的空名额）
+    this.game?.repairDispatch?.releaseWorkerEverywhere?.(unitId);
     this.game?.power?.unregisterReceiver?.(unitId);
     this.board.release(unitId);
     this.tasks.delete(unitId);
@@ -494,7 +508,13 @@ export class WorkSystem {
     const errand = record.errand;
     record.errand = null;
     record.progress = 0;
-    this.game?.stations?.releaseClaim?.(errand);
+    if (errand.kind === 'repairBuilding') {
+      // 预留必须和这一趟一起放掉，否则那栋建筑会永远显示"傀儡维修中"，
+      // 而实际没有任何人在修（这一条正是"重开/取消/死亡不永久锁住任务"的判据）。
+      this.game?.repairDispatch?.release?.(errand.buildingId, record.unitId);
+    } else {
+      this.game?.stations?.releaseClaim?.(errand);
+    }
     resetMoveGoal(record);
     return true;
   }
@@ -530,6 +550,86 @@ export class WorkSystem {
     if (errand.kind === 'store') {
       this.tickHaulErrand(record, unit, station, range, dt);
     }
+  }
+
+  /**
+   * 建筑维修一趟。
+   *
+   * 三个阶段：**取料 → 走到建筑旁 → 按批修**。
+   * 材料必须真的在傀儡背包里：远程隔空从基地库存扣材料就等于第二个库存权威，
+   * 而且会让"维修要跑一趟"这件事消失。
+   *
+   * 中途被打断（重新交战、目标死亡、材料没了、预留被别人抢）一律走 clearErrand，
+   * 它会调 dispatch.release，因此不会出现"预留泄漏、任务永久锁住"。
+   */
+  tickRepairErrand(record, unit, dt) {
+    const dispatch = this.game?.repairDispatch;
+    const errand = record?.errand;
+    if (!dispatch || !errand) {
+      this.clearErrand(record);
+      return;
+    }
+    const request = dispatch.requestFor(errand.buildingId);
+    if (!request) {
+      this.clearErrand(record);
+      return;
+    }
+    if (!errand.material) {
+      const resolved = dispatch.resolveRepairMaterial(unit, request);
+      errand.material = resolved.material;
+      if (!resolved.ok) {
+        // 没有材料：这一趟不成立，把预留放掉，让调度器改派别人或换目标。
+        // 不弹窗、不反复取不存在的材料（设计文档明确要求）。
+        this.setLastError(record, resolved.reason, resolved.material ?? null);
+        this.clearErrand(record);
+        return;
+      }
+      errand.phase = 'carry';
+      resetMoveGoal(record);
+    }
+
+    this.clearTransientTargets(unit);
+    unit.visualState = 'idle';
+    unit.aiState = 'working';
+    const target = request.unit;
+    const point = buildingPoint(target);
+    const here = { x: unitPositionX(unit), z: unitPositionZ(unit) };
+    const range = Math.max(1.5, Number(dispatch.rules?.repairRange) || 3.4);
+
+    if (distance2D(here.x, here.z, point.x, point.z) > range) {
+      unit.drainPerSecond = POWER_RULES.workerDrainMove;
+      this.applyMove(record, unit, point, 'building', dt);
+      record.lastPlan = {
+        state: WORK_STATE.movingToRepair,
+        reason: WORK_REASON.none,
+        action: WORK_ACTION.moveToRepair,
+        target: point,
+        note: workStateLabel(WORK_STATE.movingToRepair),
+        gear: null,
+        buildingId: target.id
+      };
+      return;
+    }
+
+    this.holdPosition(record, unit);
+    unit.drainPerSecond = POWER_RULES.workerDrainRepair ?? POWER_RULES.workerDrainHarvest;
+    const result = dispatch.applyRepairBatch(unit, request);
+    record.progress = 0;
+    record.lastPlan = {
+      state: WORK_STATE.repairingBuilding,
+      reason: result.ok ? WORK_REASON.none : (result.reason ?? WORK_REASON.missingMaterial),
+      action: WORK_ACTION.repairBuilding,
+      target: point,
+      note: result.ok
+        ? `维修 ${result.material} ×${result.materials}`
+        : (result.label ?? workStateLabel(WORK_STATE.repairingBuilding, WORK_REASON.missingMaterial)),
+      gear: null,
+      buildingId: target.id
+    };
+    // 打完这一批就结束这一趟：下一趟由调度器按最新缺口重新排优先级，
+    // 这样"基地快塌了"能立刻抢在"普通仓库擦伤"前面。
+    this.clearErrand(record);
+    this.markPackDirty(record);
   }
 
   tickCraftErrand(record, unit, station, range, dt) {
@@ -842,6 +942,14 @@ export class WorkSystem {
       return true;
     }
     record.engaging = false;
+
+    // 建筑维修：排在补魔与工具维修之后、自卫/索敌之前。
+    // 放在自卫之后返 false 的话，脱战窗口永远会被零散敌人打断；
+    // 放在补魔之前又会让"没电的傀儡去修供能节点"变成死循环。
+    if (action !== 'flee' && !manaDepleted && record.errand?.kind === 'repairBuilding') {
+      this.tickRepairErrand(record, unit, step);
+      return true;
+    }
 
     // 合成 / 存放 / 取出不走采集状态机。逃跑仍交给下面的 planWorkerStep。
     if (action !== 'flee' && record.errand && !manaDepleted) {
@@ -1583,10 +1691,13 @@ export class WorkSystem {
       return false;
     }
 
+    const nodeSeconds = resourceNodeHarvestSeconds(node.definitionId);
+    const requiredTool = RESOURCE_NODE_DEFINITIONS[node.definitionId]?.tool ?? null;
+    const harvestRate = toolHarvestRate(record.inventory?.slots, requiredTool);
     const advance = advanceHarvestProgress(
       record.progress,
       dt,
-      resourceNodeHarvestSeconds(node.definitionId)
+      workerHarvestSeconds(nodeSeconds, unit) / harvestRate
     );
     record.progress = advance.progress;
     if (advance.completions <= 0) return false;
@@ -1774,7 +1885,10 @@ export class WorkSystem {
       combatPhase: record.combat?.phase ?? null,
       combatReason: record.combat?.reason ?? null,
       combatFoeId: record.combat?.foeId ?? null,
-      cornered: record.combat?.cornered === true
+      cornered: record.combat?.cornered === true,
+      // 建筑维修：验收脚本与 HUD 直接读这几项，不必反推 plan 的字符串
+      errandKind: record.errand?.kind ?? null,
+      repairBuildingId: record.errand?.kind === 'repairBuilding' ? record.errand.buildingId : null
     };
   }
 
@@ -2144,11 +2258,12 @@ export class WorkSystem {
   // 活只来自玩家框选的资源点，按优先级从 1 到 12，同级里挑更近、更安全的。
   updateAutoAssign(dt) {
     if (!this.records.size) return;
-    // 框选采集、合成、存放、取出共用这一次节流。数字越小越先做。
+    // 框选采集、合成、存放、取出、建筑维修共用这一次节流。数字越小越先做。
     this.autoAssignCooldown = Math.max(0, (this.autoAssignCooldown ?? 0) - Math.max(0, dt));
     if (this.autoAssignCooldown > 0) return;
     this.autoAssignCooldown = AUTO_ASSIGN_INTERVAL_SECONDS;
     this.game?.stations?.assignIdleWorkers?.(this);
+    this.assignRepairErrands();
     if (!this.markedNodes.size) return;
 
     const idle = [...this.records.entries()]
@@ -2175,14 +2290,115 @@ export class WorkSystem {
   }
 
   /**
+   * 把建筑维修派给空闲傀儡。
+   *
+   * 三个必须守住的边界：
+   *   1. **不抢玩家命令**：只挑"完全空闲"（standby 未开启、没有支架会战、没有任务与差事）的傀儡；
+   *   2. **不拖停生产链**：一次只派「每栋建筑一个名额」，而且急修排前面；
+   *      普通低损维修不会把全部工人吃光（见 maxWorkersFor）；
+   *   3. **不重复预留**：预留失败就跳过，绝不出现两名傀儡各扣一次材料修同一份缺口。
+   */
+  assignRepairErrands() {
+    const dispatch = this.game?.repairDispatch;
+    if (!dispatch || !dispatch.enabled) return 0;
+    const idle = [...this.records.values()]
+      .filter((record) => (
+        isWorkerAutonomous(record.unit)
+        && record.unit?.workerStandby !== true
+        && !record.rally && !record.task && !record.errand && record.unit?.alive !== false
+      ));
+    if (!idle.length) return 0;
+    let assigned = 0;
+    idle.forEach((record) => {
+      const request = dispatch.pickFor(record.unit);
+      if (!request) return;
+      if (!dispatch.reserve(request, record.unitId)) return;
+      record.errand = {
+        kind: 'repairBuilding',
+        buildingId: request.id,
+        phase: 'carry',
+        material: null,
+        reservedAt: this.game?.elapsedTime ?? 0
+      };
+      this.prepareErrand(record);
+      assigned += 1;
+    });
+    return assigned;
+  }
+
+  /**
    * 一个资源点现在能不能派活。
+   *
+   * 两条**互相独立**的判据，缺一不可：
+   *   1. 不能落在敌人的地盘里（`nodeInEnemyTerritory`）——这是硬的规则边界，
+   *      因为索敌本身就是按领地过滤的（`TargetingSystem.isInsideGuardZone`）；
+   *   2. 威胁值要低于 `maxNodeThreat`——覆盖没有领地的敌人（巢穴夜袭单位）
+   *      和"路过但很危险"的地方。
    *
    * `nodeWorkScore` 给危险节点打了极大的分，但**光靠评分是不够的**：
    * `pool.sort(score)[0]` 总会挑出一个来，全是危险节点时照样会派。
    * 所以派活的池子必须显式过滤掉它们（见 updateAutoAssign）。
    */
   nodeIsWorkable(node) {
+    if (this.nodeInEnemyTerritory(node)) return false;
     return this.nodeThreatAt(node) < this.maxNodeThreat;
+  }
+
+  /**
+   * 有领地的敌人（路边营地成员 / 野生动物）的地盘清单。
+   *
+   * 圆心是 `homePoint`、半径是 `guardRadius`，与 `TargetingSystem.isInsideGuardZone`
+   * **完全同源**。那边决定"它会不会动手"，这里决定"傀儡能不能去干活"；两处必须用
+   * 同一把尺子，否则就会出现"AI 认为安全、走过去却被咬"的缝。
+   *
+   * 按 `elapsedTime` 缓存一帧：`nodeIsWorkable` 在池子排序里会被反复调用，
+   * 每次重扫 `enemyUnits` 是没必要的 O(节点 × 敌人)。
+   */
+  enemyTerritories() {
+    const stamp = this.game?.elapsedTime ?? -1;
+    if (this.territoryCache && this.territoryCache.stamp === stamp) return this.territoryCache.list;
+    const list = [];
+    const enemies = this.game?.enemyUnits ?? [];
+    for (let i = 0; i < enemies.length; i += 1) {
+      const unit = enemies[i];
+      if (!unit?.alive) continue;
+      const radius = Number(unit.guardRadius) || 0;
+      const home = unit.homePoint;
+      if (radius <= 0 || !home) continue;
+      list.push({ x: home.x, z: home.z, radius, unit });
+    }
+    this.territoryCache = { stamp, list };
+    return list;
+  }
+
+  /**
+   * 资源点是否落在某个敌人的地盘里（含 `territoryMargin` 的余量）。
+   *
+   * 为什么在威胁值之外还要这条硬判据：威胁数组用**索敌半径**加线性衰减，
+   * 在领地边缘会衰减到很低。实测（`_dsh-diag-nodes.json`）东林弓手领地外 1m 的
+   * `oak-2-16` 威胁值只有 2.17、领地外 0.7m 的 `oak-2-12` 只有 1.76，都低于
+   * `maxNodeThreat = 2`。但弓手的索敌**是按领地过滤**的：傀儡只要再挪一步跨进
+   * 9m 领地就会被锁定。真实实玩里唯一工人就死在这条缝上（`oak-2-12` 一带被
+   * 弓手 + 狼咬死，t≈107，关卡直接失败）。
+   */
+  nodeInEnemyTerritory(node, margin = this.territoryMargin) {
+    if (!node) return false;
+    const territories = this.enemyTerritories();
+    for (let i = 0; i < territories.length; i += 1) {
+      const zone = territories[i];
+      if (Math.hypot(node.x - zone.x, node.z - zone.z) < zone.radius + margin) return true;
+    }
+    return false;
+  }
+
+  /** 这批节点里有多少个落在敌人地盘内（框选提示用，让玩家知道傀儡为什么不去）。 */
+  countNodesInEnemyTerritory(nodeIds) {
+    let count = 0;
+    (nodeIds ?? []).forEach((nodeId) => {
+      const node = this.game?.resourceNodes?.nodeById?.(nodeId) ?? null;
+      if (node && this.nodeInEnemyTerritory(node)) count += 1;
+    });
+    return count;
   }
 
   nodeThreatAt(node) {

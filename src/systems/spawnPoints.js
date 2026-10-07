@@ -136,9 +136,28 @@ export function normalizeSpawnPoint(definition, index = 0, rules = SPAWN_POINT_R
     // 巢穴血量的按点覆盖：0/缺省表示用 unit 定义里的值。起始点靠它压低，
     // 保证出生部队打得掉第一座巢穴（否则招募链是死循环）。
     nestHealth: Number(definition.nestHealth) > 0 ? Number(definition.nestHealth) : 0,
+    // 敌军内部路线锚点（夜袭单位先到这里再扑基地）。
+    // 与玩家建筑完全无关：没有吸附、没有标签、没有建成状态。
+    raidRally: normalizeRaidRally(definition.raidRally),
+    // 外圈巢穴：对应的内圈点还在时不出兵。空表示随时可以出。
+    gateNestId: definition.gateNestId ? String(definition.gateNestId) : null,
     cleared: definition.cleared === true,
     timer: initialTimer
   };
+}
+
+/**
+ * 夜袭路线锚点：只有 x/z 有意义。
+ *
+ * 刻意**不**带 `building` 与 `built`：曾经它们让这个字段看起来像"玩家的箭塔位"，
+ * 玩家明确否定预设塔位，所以字段与语义一起收干净。缺 x/z 一律视为没有锚点。
+ */
+function normalizeRaidRally(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const x = Number(raw.x);
+  const z = Number(raw.z);
+  if (!Number.isFinite(x) || !Number.isFinite(z)) return null;
+  return { x, z };
 }
 
 /** 清点奖励：傀儡来源（方案第 6.1 条）。数量上下限与 normalizeSpawnPoint 同口径。 */
@@ -265,18 +284,20 @@ export function planSpawns(points = [], {
   rules = SPAWN_POINT_RULES,
   extraAlive = 0,
   extraPerTick = 0,
-  allowSpawn = true
+  allowSpawn = true,
+  pointAllowed = null
 } = {}) {
   const results = [];
   points.forEach((point) => {
     const aliveCount = Math.max(0, aliveByPoint[point.id] ?? 0);
+    const open = typeof pointAllowed === 'function' ? pointAllowed(point) !== false : true;
     const advanced = advanceSpawnPoint(point, {
       dt,
       aliveCount,
       rules,
       extraAlive,
       extraPerTick,
-      allowSpawn
+      allowSpawn: allowSpawn && open
     });
     results.push({
       id: point.id,

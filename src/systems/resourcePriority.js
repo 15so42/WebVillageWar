@@ -68,7 +68,11 @@ export function priorityLabel(priority) {
 export function gatherableResources() {
   const found = new Set();
   Object.values(RESOURCE_NODE_DEFINITIONS).forEach((node) => {
-    if (node?.resource) found.add(String(node.resource));
+    // 食物与谷物节点不进入采集表：傀儡靠魔力运转，不派去采粮。
+    // 菜圃成熟后由玩家自己框选采收，和浆果丛是同一条手动路径。
+    if (!node?.resource) return;
+    if (node.resource === 'food' || node.resource === 'grain') return;
+    found.add(String(node.resource));
   });
   return [...found].sort();
 }
@@ -91,11 +95,19 @@ export function gatherableInputsFor(itemId, { gatherable = null, depth = 0, memo
   const cacheKey = String(itemId);
   if (memo.has(cacheKey)) return memo.get(cacheKey);
   if (depth > 6) return [];
+  // **可采集的原始资源必须就地终止**，不能继续查配方表。
+  // 否则"木材"会撞上"烧炭（木材 → 木炭）"这类配方，被倒着展开成它的产物，
+  // 于是熔炉要的 30 石料变成了 0.5 木材——这是递归展开最容易写错的一处：
+  // 同样是"从配方表里找产出这件物品的条目"，方向对加工品是对的，对原料是反的。
+  if (allowed.has(cacheKey)) {
+    const leaf = [{ itemId: cacheKey, count: 1 }];
+    memo.set(cacheKey, leaf);
+    return leaf;
+  }
   const recipe = findRecipeOutputting(cacheKey);
   if (!recipe) {
-    const result = allowed.has(cacheKey) ? [{ itemId: cacheKey, count: 1 }] : [];
-    memo.set(cacheKey, result);
-    return result;
+    memo.set(cacheKey, []);
+    return [];
   }
   const totals = new Map();
   const outputCount = Math.max(1, Math.floor(Number(recipe.output?.count) || 1));
@@ -117,11 +129,21 @@ export function gatherableInputsFor(itemId, { gatherable = null, depth = 0, memo
 /**
  * 找"产出这件物品"的配方，把合成表与生产表统一成 `{inputs, output}`。
  * 生产表用的是单数 `input`，合成表用的是复数 `inputs`——两种写法都要接住。
+ *
+ * 两条判据不能少：
+ *   1. **能被手搓的优先**。生产表里的 `furnace` 配方产的是**熔炉自己**
+ *      （`input: wood → output: charcoal` 才是烧炭那条），所以按 id 找会先撞上
+ *      "产出一件叫 furnace 的东西"，把"熔炉要 30 石料"错算成"熔炉要木材"。
+ *      合成表有同名条目时以合成表为准，语义就是"这件物品怎么造出来"。
+ *   2. **跳过 `output.itemId === unitType` 的生产配方**。那是"某座设施把原料
+ *      变成产物"，不是"这件物品的配方"。
  */
 export function findRecipeOutputting(itemId) {
   const crafted = Object.values(RECIPES).find((entry) => entry?.output?.itemId === itemId);
   if (crafted) return { inputs: crafted.inputs ?? [], output: crafted.output };
-  const produced = Object.values(PRODUCTION_RECIPES).find((entry) => entry?.output?.itemId === itemId);
+  const produced = Object.values(PRODUCTION_RECIPES).find((entry) => (
+    entry?.output?.itemId === itemId && entry.unitType !== entry.output.itemId
+  ));
   if (produced) {
     return {
       inputs: produced.input ? [produced.input] : (produced.inputs ?? []),
@@ -177,14 +199,12 @@ export function resourcePriorityRows({
 }
 
 /**
- * 默认优先级：木材最高、石料次之、食物再次，其余 0。
- * 与旧版硬编码的 `auto-wood 50 / auto-stone 30 / auto-food 20` 是同一套意图，
- * 只是换算到了 0..5 的刻度上（换算结果见 test-resource-priority.mjs 的标定断言）。
+ * 默认优先级：木材最高、石料次之，其余 0。
+ * 傀儡靠魔力运转，开局不派去采食物。
  */
 export function defaultPriorityFor(resource) {
   if (resource === 'wood') return 3;
   if (resource === 'stone') return 2;
-  if (resource === 'food') return 1;
   return 0;
 }
 

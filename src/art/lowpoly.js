@@ -2338,16 +2338,58 @@ export function createToolModel(kind = 'axe') {
   return enableShadows(group);
 }
 
-export function createArrowTowerModel(team = 'player') {
+/**
+ * 防御终端模型：箭塔 / 弩炮 / 震荡塔 × I/II/III 级。
+ *
+ * 形状差异（不是换色）：
+ *   - arrowTower：四腿木架 + 弧形弓，高频单体；
+ *   - ballista：更矮更宽的弩机箱，两根扭转臂 + 长滑轨，慢速重击；
+ *   - shockTower：开放式骨架 + 顶部悬浮的魔力球，短距小范围脉冲。
+ * 等级差异（材质与构件，不是文字标签）：
+ *   - I 级：纯木结构；
+ *   - II 级：四角加铁箍、基座加铁环；
+ *   - III 级：石砌基座 + 更明确的机械构件（齿轮环、加固横梁）。
+ */
+export function createArrowTowerModel(team = 'player', options = {}) {
+  const variant = options.variant === 'ballista' || options.variant === 'shockTower'
+    ? options.variant
+    : 'arrowTower';
+  const tier = Math.max(1, Math.min(3, Math.floor(Number(options.tier) || 1)));
   const group = new THREE.Group();
   const wood = mat(team === 'player' ? '#6d4a30' : '#5a3228');
   const darkWood = mat('#3c2a22');
   const roofMat = mat(team === 'player' ? '#7b9ebc' : '#8c6b6d');
   const stone = mat('#777d78');
+  const iron = mat('#8f9a9b', { metalness: 0.22 });
+  const glow = mat(variant === 'shockTower' ? '#b79bff' : '#9dd8ff', {
+    emissive: variant === 'shockTower' ? '#7d55ff' : '#4aa8d8',
+    emissiveIntensity: 0.42,
+    transparent: true,
+    opacity: 0.9
+  });
 
-  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.78, 0.92, 0.36, 8), stone);
-  base.position.y = 0.18;
+  // 基座：II 级起加铁环，III 级换成石砌并加厚
+  const baseRadius = tier >= 3 ? 1.02 : 0.78;
+  const baseHeight = tier >= 3 ? 0.62 : 0.36;
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(baseRadius * 0.86, baseRadius + 0.14, baseHeight, 8), tier >= 3 ? stone : stone);
+  base.position.y = baseHeight / 2;
   group.add(base);
+  if (tier >= 2) {
+    const band = new THREE.Mesh(new THREE.TorusGeometry(baseRadius + 0.02, 0.05, 5, 16), iron);
+    band.rotation.x = Math.PI / 2;
+    band.position.y = baseHeight * 0.72;
+    group.add(band);
+  }
+  if (tier >= 3) {
+    // 石基上的四块压石：轮廓上明确区分三级
+    for (let i = 0; i < 4; i += 1) {
+      const angle = (i / 4) * Math.PI * 2 + Math.PI / 4;
+      const block = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.22, 0.3), stone);
+      block.position.set(Math.cos(angle) * (baseRadius + 0.06), baseHeight + 0.08, Math.sin(angle) * (baseRadius + 0.06));
+      block.rotation.y = angle;
+      group.add(block);
+    }
+  }
 
   const legPositions = [
     [-0.48, -0.48],
@@ -2355,16 +2397,20 @@ export function createArrowTowerModel(team = 'player') {
     [-0.48, 0.48],
     [0.48, 0.48]
   ];
+  const legHeight = variant === 'ballista' ? 1.95 : 2.55;
+  const legBaseY = baseHeight + legHeight / 2 - 0.06;
   legPositions.forEach(([x, z]) => {
-    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.16, 2.55, 0.16), wood);
-    leg.position.set(x, 1.55, z);
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.16, legHeight, 0.16), wood);
+    leg.position.set(x, legBaseY, z);
     leg.rotation.z = x * -0.05;
     leg.rotation.x = z * 0.05;
     group.add(leg);
   });
 
-  for (let i = 0; i < 3; i += 1) {
-    const y = 0.85 + i * 0.68;
+  // 横梁：II 级起每层加铁箍
+  const tiers = variant === 'ballista' ? 2 : 3;
+  for (let i = 0; i < tiers; i += 1) {
+    const y = baseHeight + 0.5 + i * 0.68;
     const front = new THREE.Mesh(new THREE.BoxGeometry(1.26, 0.12, 0.14), darkWood);
     front.position.set(0, y, 0.58);
     const back = front.clone();
@@ -2374,38 +2420,123 @@ export function createArrowTowerModel(team = 'player') {
     const right = left.clone();
     right.position.x = 0.58;
     group.add(front, back, left, right);
+    if (tier >= 2) {
+      const brace = new THREE.Mesh(new THREE.BoxGeometry(1.34, 0.07, 0.07), iron);
+      brace.position.set(0, y + 0.12, 0.58);
+      const braceBack = brace.clone();
+      braceBack.position.z = -0.58;
+      group.add(brace, braceBack);
+    }
   }
 
+  const platformY = baseHeight + 0.5 + (tiers - 1) * 0.68 + 0.25 + (variant === 'ballista' ? 0.9 : 0);
   const platform = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.22, 1.55), wood);
-  platform.position.y = 2.9;
+  platform.position.y = platformY;
   group.add(platform);
 
-  const cabin = new THREE.Mesh(
-    new THREE.DodecahedronGeometry(0.72, 0),
-    mat(team === 'player' ? '#84613f' : '#714232')
-  );
-  cabin.position.y = 3.22;
-  cabin.scale.set(1.18, 0.72, 1.04);
-  group.add(cabin);
+  const parts = {};
 
-  const roof = new THREE.Mesh(new THREE.ConeGeometry(1.08, 0.78, 6), roofMat);
-  roof.position.y = 3.9;
-  roof.rotation.y = Math.PI / 6;
-  group.add(roof);
+  if (variant === 'ballista') {
+    // 弩机箱 + 扭转臂 + 滑轨
+    const housing = new THREE.Mesh(new THREE.BoxGeometry(1.18, 0.36, 0.72), darkWood);
+    housing.position.y = platformY + 0.3;
+    group.add(housing);
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.1, 1.72), tier >= 2 ? iron : darkWood);
+    rail.position.set(0, platformY + 0.52, 0.55);
+    group.add(rail);
+    [-1, 1].forEach((side) => {
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.92), darkWood);
+      arm.position.set(side * 0.66, platformY + 0.4, 0.1);
+      arm.rotation.y = side * 0.42;
+      arm.rotation.z = side * 0.16;
+      group.add(arm);
+      if (tier >= 2) {
+        const cap = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.14), iron);
+        cap.position.set(side * 0.86, platformY + 0.42, 0.32);
+        group.add(cap);
+      }
+    });
+    // 三级：尾部齿轮环，明确"更多机械构件"
+    if (tier >= 3) {
+      const gear = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.06, 5, 12), iron);
+      gear.position.set(0, platformY + 0.34, -0.42);
+      group.add(gear);
+    }
+    const socket = new THREE.Group();
+    socket.name = 'arrowTowerSocket';
+    socket.position.set(0, platformY + 0.56, 1.28);
+    group.add(socket);
+    parts.projectileSocket = socket;
+  } else if (variant === 'shockTower') {
+    // 开放骨架 + 悬浮魔力球：球心高度就是伤害作用中心
+    const frame = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.07, 5, 14), tier >= 3 ? iron : darkWood);
+    frame.rotation.x = Math.PI / 2;
+    frame.position.y = platformY + 0.18;
+    group.add(frame);
+    const core = new THREE.Mesh(new THREE.DodecahedronGeometry(0.42, 0), glow);
+    core.position.y = platformY + 1.02;
+    group.add(core);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.56, 0.045, 5, 18), glow);
+    ring.position.y = platformY + 1.02;
+    ring.rotation.z = Math.PI / 2.6;
+    group.add(ring);
+    if (tier >= 2) {
+      for (let i = 0; i < 4; i += 1) {
+        const angle = (i / 4) * Math.PI * 2;
+        const rod = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.86, 0.07), iron);
+        rod.position.set(Math.cos(angle) * 0.52, platformY + 0.62, Math.sin(angle) * 0.52);
+        rod.rotation.x = Math.sin(angle) * -0.12;
+        rod.rotation.z = Math.cos(angle) * 0.12;
+        group.add(rod);
+      }
+    }
+    if (tier >= 3) {
+      const outerRing = new THREE.Mesh(new THREE.TorusGeometry(0.78, 0.05, 5, 20), iron);
+      outerRing.position.y = platformY + 1.02;
+      outerRing.rotation.x = Math.PI / 3.2;
+      group.add(outerRing);
+    }
+    const socket = new THREE.Group();
+    socket.name = 'arrowTowerSocket';
+    socket.position.set(0, platformY + 1.02, 0.42);
+    group.add(socket);
+    parts.projectileSocket = socket;
+  } else {
+    const cabin = new THREE.Mesh(
+      new THREE.DodecahedronGeometry(0.72, 0),
+      mat(team === 'player' ? '#84613f' : '#714232')
+    );
+    cabin.position.y = platformY + 0.32;
+    cabin.scale.set(1.18, 0.72, 1.04);
+    group.add(cabin);
 
-  const bow = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.035, 6, 18, Math.PI), darkWood);
-  bow.position.set(0, 3.25, 0.78);
-  bow.rotation.x = Math.PI / 2;
-  group.add(bow);
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(1.08, 0.78, 6), roofMat);
+    roof.position.y = platformY + 1;
+    roof.rotation.y = Math.PI / 6;
+    group.add(roof);
 
-  const projectileSocket = new THREE.Group();
-  projectileSocket.name = 'arrowTowerSocket';
-  projectileSocket.position.set(0, 3.94, 0.92);
-  group.add(projectileSocket);
+    const bow = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.035, 6, 18, Math.PI), darkWood);
+    bow.position.set(0, platformY + 0.35, 0.78);
+    bow.rotation.x = Math.PI / 2;
+    group.add(bow);
+    if (tier >= 3) {
+      // 三级：抬高的机械绞盘，替代纯木弓座
+      const winch = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.46, 8), iron);
+      winch.position.set(0, platformY + 0.62, -0.34);
+      winch.rotation.z = Math.PI / 2;
+      group.add(winch);
+    }
 
-  group.userData.parts = {
-    projectileSocket
-  };
+    const socket = new THREE.Group();
+    socket.name = 'arrowTowerSocket';
+    socket.position.set(0, platformY + 1.04, 0.92);
+    group.add(socket);
+    parts.projectileSocket = socket;
+  }
+
+  group.userData.parts = parts;
+  group.userData.towerVariant = variant;
+  group.userData.towerTier = tier;
   return enableShadows(group);
 }
 

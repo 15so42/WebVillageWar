@@ -19,6 +19,7 @@ import { readFileSync } from 'node:fs';
 import * as THREE from 'three';
 import { createWorld } from '../src/world/createWorld.js';
 import { ISLAND_SPAWN_POINTS } from '../src/data/gameData.js';
+import { islandOuterIronZones, islandOuterSpawnPoints } from '../src/systems/survivalExpansion.js';
 
 const report = [];
 function check(name, fn) {
@@ -47,6 +48,10 @@ config.pathPoints.forEach((p, i) => keyPoints.push({ label: `主路#${i}`, x: p.
 (config.wildlife ?? []).forEach((w, i) => keyPoints.push({ label: `野生#${i}`, x: w.x, z: w.z }));
 (config.resourceZones ?? []).forEach((z2, i) => keyPoints.push({ label: `资源区#${i}(${z2.node})`, x: z2.x, z: z2.z }));
 ISLAND_SPAWN_POINTS.forEach((p) => keyPoints.push({ label: `刷怪点${p.id}`, x: p.x, z: p.z }));
+islandOuterSpawnPoints().forEach((p) => {
+  keyPoints.push({ label: `外圈巢穴${p.id}`, x: p.x, z: p.z });
+  if (p.raidRally) keyPoints.push({ label: `夜袭锚点${p.id}`, x: p.raidRally.x, z: p.raidRally.z });
+});
 // 可招募单位不再在地图生成时摆出来（它们的来源是清点奖励），所以这里没有"招募点"这一类。
 if (config.monsterCamp) keyPoints.push({ label: '怪物营地', x: config.monsterCamp.x, z: config.monsterCamp.z });
 
@@ -182,19 +187,24 @@ check(`全部 ${keyPoints.length} 个关键点都在水面之上（缩放没有�
   );
 });
 
-check('四个刷怪点落在干净的可走地面上（不压在资源节点里）', () => {
+check('刷怪点和夜袭锚点落在干净的可走地面上（不压在资源节点里）', () => {
   const nodes = world.resourceNodes ?? [];
   const nearestNode = (x, z) => nodes.reduce(
     (best, node) => Math.min(best, Math.hypot((node.x ?? 0) - x, (node.z ?? 0) - z)),
     Infinity
   );
+  const spots = [];
+  ISLAND_SPAWN_POINTS.forEach((point) => spots.push({ id: point.id, x: point.x, z: point.z }));
+  islandOuterSpawnPoints().forEach((point) => {
+    spots.push({ id: point.id, x: point.x, z: point.z });
+    if (point.raidRally) spots.push({ id: `${point.id}:rally`, x: point.raidRally.x, z: point.raidRally.z });
+  });
   const problems = [];
-  ISLAND_SPAWN_POINTS.forEach((point) => {
+  spots.forEach((point) => {
     if (!world.isWalkable({ x: point.x, z: point.z })) {
       problems.push(`${point.id} 不可走`);
       return;
     }
-    // 巢穴会长在这个点上，压在树上或矿脉上会显得像穿模，也会和节点争夺那块格子。
     const clearance = nearestNode(point.x, point.z);
     if (clearance < 4) problems.push(`${point.id} 离资源节点只有 ${clearance.toFixed(1)}m`);
   });
@@ -246,10 +256,35 @@ check('资源区中心在水面之上，且紧邻就有可走地面', () => {
 
 // ---- 4) 密度是有意调过的，且没有失控 ----
 
-check('资源节点总数恰好翻倍，并且有上限', () => {
+check('资源节点总数含外圈富铁矿，并且有上限', () => {
+  const ironCount = islandOuterIronZones().reduce((sum, zone) => sum + (zone.count ?? 0), 0);
   const total = (config.resourceZones ?? []).reduce((sum, zone) => sum + (zone.count ?? 0), 0);
-  assert.equal(total, 282, `节点总数应为 141 的两倍（282），实际 ${total}`);
+  assert.equal(ironCount, 11, `外圈富铁矿规划应为 11，实际 ${ironCount}`);
+  // 264 → 274：本轮在基地南侧补了 10 棵"安全起手林地"橡树（见
+  // src/world/createWorld.js 里 resourceZones 末尾的注释）。上限仍是 320。
+  assert.equal(total - ironCount, 274, `富铁矿以外的节点预算应保持 274，实际 ${total - ironCount}`);
+  assert.equal(total, 285, `加上 11 个富铁矿后总数应为 285，实际 ${total}`);
   assert.ok(total <= 320, `节点总数 ${total} 超出预算上限，放大后同屏网格与寻路阻挡会顶不住`);
+});
+
+check('外圈富铁矿按规划数量生成，产出铁矿，并且旁边能站人', () => {
+  const wanted = islandOuterIronZones().reduce((sum, zone) => sum + (zone.count ?? 0), 0);
+  const crystals = (world.resourceNodes ?? []).filter((node) => node.definitionId === 'richIron');
+  assert.equal(crystals.length, wanted, `实际生成 ${crystals.length}，规划 ${wanted}`);
+  const problems = [];
+  crystals.forEach((node) => {
+    if (node.resource !== 'iron') problems.push(`${node.id} 资源不是铁矿`);
+    if (world.heightAt(node.x, node.z) <= waterHeight + 0.05) {
+      problems.push(`${node.id} 在水里`);
+      return;
+    }
+    let free = false;
+    for (const [dx, dz] of [[1.6, 0], [-1.6, 0], [0, 1.6], [0, -1.6], [2.2, 2.2]]) {
+      if (world.isWalkable({ x: node.x + dx, z: node.z + dz })) { free = true; break; }
+    }
+    if (!free) problems.push(`${node.id}(${node.x.toFixed(1)},${node.z.toFixed(1)}) 旁边没有可走地面`);
+  });
+  assert.equal(problems.length, 0, problems.join('、'));
 });
 
 // ---- 5) 平坦必须同时落在地形与着色器两处 ----

@@ -87,12 +87,24 @@ if (report.started) {
       visible: node.handle?.object?.visible !== false
     };
     const totals = system.totals();
+    // 贫矿址：石料/铁矿采空后会换成"残堆标记"（资源续航要求：
+    // 「留下可识别的矿址或贫矿标记」），所以这两类采空后模型**仍然可见**，
+    // 但它不再阻挡寻路、也不再是资源节点。木材/纤维/食物照旧隐藏。
+    const oreSiteResources = ['stone', 'iron'];
+    const poorSite = system.depletedOreSiteByNodeId?.(node.id) ?? null;
+    const poorSiteMarker = poorSite
+      ? Boolean(world.depletedSiteMarkers?.get?.(node.id) ?? null)
+      : null;
     return JSON.stringify({
       nodeId: node.id,
       definitionId: node.definitionId,
+      resource: node.resource,
       tool,
       before,
       after,
+      expectsVisibleAfterDepletion: oreSiteResources.includes(node.resource),
+      poorSite,
+      poorSiteMarker,
       noToolError: noTool.ok ? null : noTool.error,
       swings,
       lastTaken: last?.taken ?? 0,
@@ -113,9 +125,16 @@ const h = report.harvest;
 report.verdict = h && !h.error ? {
   // 没工具时必须被拒
   noToolRejected: h.noToolError === 'needs_tool',
-  // 采空后模型必须隐藏
-  modelHidden: h.after.visible === false,
-  // 采空后寻路查询不再被挡
+  /**
+   * 采空后的可见性按矿种分开判：
+   *   - 石料/铁矿：换成贫矿址残堆，模型仍然可见（可识别矿址），
+   *     并且必须登记成贫矿址 + 有世界标记；
+   *   - 木材/食物/纤维：模型隐藏。
+   */
+  modelVisibility: h.expectsVisibleAfterDepletion
+    ? (h.after.visible === true && Boolean(h.poorSite) && h.poorSiteMarker === true)
+    : h.after.visible === false,
+  // 采空后寻路查询不再被挡（贫矿址标记不登记寻路阻挡）
   queryUnblocked: h.before.queryWalkable === false && h.after.queryWalkable === true,
   // 采空后导航网格那一片被重新采样回可走
   gridRefreshed: h.before.cellWalkable === false && h.after.cellWalkable === true,

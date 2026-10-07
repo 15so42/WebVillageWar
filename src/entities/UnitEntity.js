@@ -73,6 +73,9 @@ export class UnitEntity {
     // 返回位置：单位追击/作战结束后会回到这里（出生点或上一个移动目的地）。
     // 不再有"驻守模式"和追击半径，追击无视距离，结束后统一回到该点。
     this.homePoint = null;
+    // 守卫领地半径（>0 才生效）：路边营地与野生动物用它把追击限制在自己的地盘内。
+    // 0 表示不限制——巢穴夜袭单位走的就是这条路，它们要一路扑基地。
+    this.guardRadius = 0;
     this.selected = false;
     this.selectedByPlayerId = null;
     this.networkSelectionRing = null;
@@ -370,6 +373,12 @@ export class UnitEntity {
     if (this.health < previousHealth) {
       this.registerHealthLoss(previousHealth);
       this.statusUiDirty = true;
+      // 脱战维修的时间戳只有一个权威：这里。
+      // 放在 takeRawDamage 而不是各处伤害结算里，是因为它就是"最后一次受伤"的定义本身，
+      // 而维修调度只需要事实，不需要知道那一击是谁打的。
+      if (this.isBuilding === true) {
+        this.lastCombatAt = Number.isFinite(this.game?.elapsedTime) ? this.game.elapsedTime : 0;
+      }
     }
     if (this.health <= 0) {
       this.health = 0;
@@ -804,8 +813,13 @@ function refreshStatusElement(unit, dt = 0) {
     .filter((enchantment) => !enchantment.hidden)
     .map(formatEnchantmentStatus);
   const enchantmentText = wrapEnchantmentStatuses(enchantmentStatuses);
-  element.parts.enchantments.textContent = enchantmentText;
-  element.parts.enchantments.hidden = enchantmentText.length === 0;
+  const brownout = unit.poweredDown === true && (unit.type === 'arrowTower' || unit.type === 'ballista');
+  const statusText = brownout
+    ? (enchantmentText ? `停火 ${enchantmentText}` : '停火')
+    : enchantmentText;
+  element.parts.enchantments.textContent = statusText;
+  element.parts.enchantments.hidden = statusText.length === 0;
+  element.parts.enchantments.classList.toggle('is-brownout', brownout);
 }
 
 // 活动魔力条上一次真正写入 DOM 的比例。

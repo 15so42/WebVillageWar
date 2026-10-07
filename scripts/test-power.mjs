@@ -187,8 +187,15 @@ check('傀儡用自己的储备干活：供给充足时储备回满', () => {
 
   const first = system.tick(1);
   assert.equal(first.consumed, 0, '本用例不模拟行为耗魔');
-  assert.equal(first.supplied, 2, '补魔受最大充能速率限制');
-  assert.equal(worker.activityMana, 22);
+  // 基地供给功率是 2.2/s（POWER_RULES.baseSupplyPerSecond），单接收者的补魔上限
+  // 与它同源（maxRechargePerSecond），所以这里读规则而不是写死 2——
+  // 写死数字会在"起步可玩、扩张要供给"那一轮调参之后变成假失败。
+  assert.equal(
+    first.supplied,
+    POWER_RULES.maxRechargePerSecond,
+    '补魔受最大充能速率限制'
+  );
+  assert.equal(worker.activityMana, 20 + POWER_RULES.maxRechargePerSecond);
   assert.equal(first.overBudget, false);
 
   // 连续跑够久，储备应当回满且不溢出

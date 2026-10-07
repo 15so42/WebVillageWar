@@ -48,7 +48,7 @@ export function isKnownItem(itemId) {
 // 直接就是库存里的 itemId。这里把两者的一致性做成可断言的事实。
 export function resourceItemId(resourceId) {
   const definition = Object.values(ITEM_DEFINITIONS)
-    .find((item) => item.category === 'resource' && item.resource === resourceId);
+    .find((item) => item.resource === resourceId);
   return definition?.id ?? null;
 }
 

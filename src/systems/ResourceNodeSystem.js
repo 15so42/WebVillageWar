@@ -7,6 +7,7 @@
 // 采集产物目前先落在一个内部账本（bank）里：物品与库存系统（阶段 A）接入后
 // 由库存接管，这里不做第二份所有权。
 import {
+  depletedOreSiteFromNode,
   normalizeResourceNodeState,
   resolveHarvest,
   resourceAmountsByType,
@@ -88,7 +89,15 @@ export class ResourceNodeSystem {
     this.bankDeposit = new BankDeposit();
     this.depositTarget = options.depositTarget ?? this.bankDeposit;
     this.world = null;
-    this.stats = { harvested: 0, depleted: 0, rejected: 0 };
+    /**
+     * 贫矿址：采空的石料/铁矿节点。`nodeId → { id, definitionId, resource, x, z, depletedAt }`。
+     *
+     * 为什么要有这一份独立的登记：`activeNodes()` 明确过滤掉采空节点（采集、寻路都不能
+     * 再看见它们），而"深采设施可以建在矿址旁"需要的是一个**不同的**问题——
+     * "这里曾经是矿，地质还在"。把两件事挤进同一个列表会让其中一件必然写错。
+     */
+    this.depletedOreSites = new Map();
+    this.stats = { harvested: 0, depleted: 0, rejected: 0, oreSitesMarked: 0 };
   }
 
   // 换上真正的库存容器（需要实现 canAccept / add / countOf / countsByItem）。
@@ -115,13 +124,20 @@ export class ResourceNodeSystem {
   attach(world) {
     this.world = world ?? null;
     this.state.clear();
+    this.depletedOreSites.clear();
     (world?.resourceNodes ?? []).forEach((node) => {
       if (!node?.id) return;
       this.state.set(node.id, normalizeResourceNodeState(node, node));
       const entry = this.state.get(node.id);
       entry.handle = node;
       const root = node?.object;
-      if (root) root.userData.resourceNodeId = node.id;
+      // userData 不是必然存在：世界对象由 three 创建时一定有，但只读测试/工具传入的
+      // 轻量节点桩可能没有。缺 userData 只影响"点模型反查节点"这一条便利路径，
+      // 不该让 attach 整个抛异常、连带采集状态表都建不起来。
+      if (root?.userData) root.userData.resourceNodeId = node.id;
+      // 世界本身可能带着"已经采空"的节点（关卡预设）：attach 时就要把矿址登记上，
+      // 否则重载之后这些地方会失去深采选址资格。
+      if (resourceNodeIsDepleted(entry)) this.markDepletedOreSite(entry, { from: 'attach' });
     });
     return this;
   }
@@ -140,7 +156,7 @@ export class ResourceNodeSystem {
     const entry = normalizeResourceNodeState(node, node);
     entry.handle = node;
     const root = node?.object;
-    if (root) root.userData.resourceNodeId = node.id;
+    if (root?.userData) root.userData.resourceNodeId = node.id;
     this.state.set(node.id, entry);
     return entry;
   }
@@ -287,7 +303,60 @@ export class ResourceNodeSystem {
     if (handle && !handle.released) {
       this.world?.releaseResourceNode?.(nodeId);
     }
+    // 石料/铁矿采空 → 登记贫矿址并换上可辨认的残堆标记。
+    // 这一步必须在 releaseResourceNode 之后：world 那边先把寻路阻挡放开，
+    // 标记才有机会落在原地而不制造一堵看不见的墙。
+    this.markDepletedOreSite(node);
     return true;
+  }
+
+  /**
+   * 登记/刷新一个贫矿址。非石料铁矿返回 `null`。
+   * 重复调用只更新位置，`marked` 事件只发一次——反复 release、重载、快照往来
+   * 都不会重复发事件或重复造资源。
+   */
+  markDepletedOreSite(node, { from = 'harvest' } = {}) {
+    const site = depletedOreSiteFromNode(node);
+    if (!site) return null;
+    const existing = this.depletedOreSites.get(site.nodeId);
+    if (existing) {
+      // 位置以最新状态为准（节点不会移动，但快照恢复会重建状态对象）
+      existing.x = site.x;
+      existing.z = site.z;
+      existing.definitionId = site.definitionId;
+      existing.siteRadius = site.siteRadius;
+      return existing;
+    }
+    const record = { ...site, markedAt: this.game?.elapsedTime ?? 0, from };
+    this.depletedOreSites.set(record.nodeId, record);
+    this.stats.oreSitesMarked += 1;
+    // 视觉交给 world：它持有模型句柄。拿不到 world（纯逻辑测试）时静默跳过，
+    // 状态登记照常完成——规则不该依赖渲染。
+    this.world?.markDepletedResourceSite?.(record);
+    return record;
+  }
+
+  depletedOreSitesFor(resourceId) {
+    const list = [...this.depletedOreSites.values()];
+    if (!resourceId) return list;
+    return list.filter((site) => site.resource === resourceId);
+  }
+
+  depletedOreSiteByNodeId(nodeId) {
+    return this.depletedOreSites.get(nodeId) ?? null;
+  }
+
+  /** 某个点附近的贫矿址（深采设施选址用）。 */
+  depletedOreSiteNear(resourceId, point, radius = 8) {
+    if (!point) return null;
+    const reach = Math.max(0, Number(radius) || 0);
+    let best = null;
+    this.depletedOreSitesFor(resourceId).forEach((site) => {
+      const distance = Math.hypot((site.x ?? 0) - point.x, (site.z ?? 0) - point.z);
+      if (distance > reach) return;
+      if (!best || distance < best.distance) best = { site, distance };
+    });
+    return best;
   }
 
   bankAmount(resourceId) {
@@ -307,12 +376,25 @@ export class ResourceNodeSystem {
       harvestedTotal: this.stats.harvested,
       activeNodes: this.activeNodes().length,
       nodes: nodes.length,
-      depletedNodes: nodes.filter((node) => node.released).length
+      depletedNodes: nodes.filter((node) => node.released).length,
+      depletedOreSites: this.depletedOreSites.size
     };
   }
 
   serializeForSlot() {
-    const payload = { nodes: this.allNodes().map(serializeResourceNodeState) };
+    const payload = {
+      nodes: this.allNodes().map(serializeResourceNodeState),
+      // 贫矿址必须随存档走：重载后深采设施要能继续建在原地。
+      // 只存 id/位置/类型，模型由 world 按该记录重建。
+      depletedOreSites: this.depletedOreSitesFor().map((site) => ({
+        id: site.id,
+        nodeId: site.nodeId,
+        definitionId: site.definitionId,
+        resource: site.resource,
+        x: site.x,
+        z: site.z
+      }))
+    };
     // 只有内部账本才随资源系统一起序列化；真正的库存有自己的存档路径，
     // 两边都存会让「谁拥有这批资源」出现两个答案。
     if (this.usesInternalBank()) payload.bank = this.bankDeposit.countsByItem();
@@ -337,6 +419,21 @@ export class ResourceNodeSystem {
       if (normalized.released) this.release(node.id);
       else node.released = false;
     });
+    // 快照里的贫矿址：以存档为准重建登记（清掉快照里没有的），
+    // 这样"采空 → 存档 → 重载"不会丢掉选址资格，也不会留下幽灵矿址。
+    if (Array.isArray(snapshot.depletedOreSites)) {
+      this.depletedOreSites.clear();
+      snapshot.depletedOreSites.forEach((raw) => {
+        const node = this.nodeById(raw?.nodeId);
+        if (!node) return;
+        const record = depletedOreSiteFromNode({ ...node, resource: raw.resource ?? node.resource });
+        if (!record) return;
+        record.markedAt = this.game?.elapsedTime ?? 0;
+        record.from = 'snapshot';
+        this.depletedOreSites.set(record.nodeId, record);
+        this.world?.markDepletedResourceSite?.(record);
+      });
+    }
     if (snapshot.bank && this.usesInternalBank()) {
       this.bankDeposit.restore(snapshot.bank);
     }

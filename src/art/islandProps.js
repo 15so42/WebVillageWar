@@ -581,6 +581,43 @@ function buildFiberPlantGeometry(variant) {
 }
 
 // ---------------------------------------------------------------------------
+// 谷物：菜圃长成的金黄麦丛。和纤维草同一套叶片写法，靠暖金色与更饱满的
+// 穗子区分——俯视下"这一片能收粮"必须一眼可读。
+// ---------------------------------------------------------------------------
+function buildGrainGeometry(variant) {
+  const random = createRandom(6200 + variant * 37);
+  const builder = new FacetBuilder();
+  const baseColor = color('#7d8a37');
+  const tipColor = color('#e8c765');
+  const seedColor = color('#f6e2a0');
+  const blades = 13 + variant * 2;
+  const seedGeometry = new THREE.OctahedronGeometry(0.05, 0);
+  for (let index = 0; index < blades; index += 1) {
+    const angle = (index / blades) * Math.PI * 2 + random() * 0.42;
+    const tip = appendBlade(builder, {
+      angle,
+      lean: 0.12 + random() * 0.24,
+      height: 0.78 + random() * 0.34,
+      width: 0.075 + random() * 0.02,
+      baseColor,
+      tipColor,
+      offsetX: Math.cos(angle) * 0.07,
+      offsetZ: Math.sin(angle) * 0.07
+    });
+    // 每两根出一枚穗子：穗子密度就是"产量"的视觉对应，不能比视觉植株数还多
+    if (index % 2 === 0) {
+      builder.append(
+        seedGeometry.clone(),
+        composeMatrix(tip.x, tip.y + 0.06, tip.z, 1, 2.8, 1),
+        (normal) => seedColor.clone().multiplyScalar(0.82 + Math.max(0, normal.y) * 0.28)
+      );
+    }
+  }
+  seedGeometry.dispose();
+  return builder.build();
+}
+
+// ---------------------------------------------------------------------------
 // 资源节点工厂
 // ---------------------------------------------------------------------------
 const NODE_BUILDERS = {
@@ -589,7 +626,8 @@ const NODE_BUILDERS = {
   rock: { variants: 4, build: buildStonePileGeometry },
   ore: { variants: 4, build: buildIronRockGeometry },
   bush: { variants: 3, build: buildBerryBushGeometry },
-  grass: { variants: 3, build: buildFiberPlantGeometry }
+  grass: { variants: 3, build: buildFiberPlantGeometry },
+  crop: { variants: 3, build: buildGrainGeometry }
 };
 
 function nodeMaterial() {
@@ -616,7 +654,10 @@ export function createIslandResourceModel(definition, size, x = 0, z = 0) {
   let variant = pickVariant(x, z, entry.variants - (kind === 'tree' ? 1 : 0), kind.length);
   if (kind === 'tree' && hashUnit(x * 1.37 - 4.1, z * 0.91 + 8.3) < AUTUMN_OAK_CHANCE) variant = OAK_PALETTES.length - 1;
   const geometry = cachedGeometry(`${kind}:${variant}`, () => entry.build(variant));
-  const material = kind === 'grass' ? outlineExemptMaterial('island-node-foliage') : nodeMaterial();
+  // 草与谷物都是成片薄叶，加轮廓会把整丛糊成一团，所以共用免轮廓材质。
+  const material = kind === 'grass' || kind === 'crop'
+    ? outlineExemptMaterial('island-node-foliage')
+    : nodeMaterial();
   const object = new THREE.Mesh(geometry, material);
   object.name = `IslandResource:${definition.id}`;
   object.scale.setScalar(size);

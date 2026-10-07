@@ -96,6 +96,16 @@ const ICONS = {
     + `<path d="M5 12c6-6 16-6 22 0-3 3-8 4-11 4s-8-1-11-4z" fill="${P.metal}"/>`
     + `<path d="M7 12c5-4 13-4 18 0-3 1-6 2-9 2s-6-1-9-2z" fill="#eef3f7"/>`
   ),
+  ironAxe: wrap(
+    `<rect x="14" y="6" width="3" height="21" rx="1.5" fill="${P.woodDark ?? P.wood}" transform="rotate(18 15.5 16.5)"/>`
+    + `<path d="M8 6c6-4 12-2 15 2-4 5-9 7-15 4z" fill="#8d97a3"/>`
+    + `<path d="M8 6c5-3 9-2 12 1-3 2-7 3-12 1z" fill="#d5dde6"/>`
+  ),
+  ironPickaxe: wrap(
+    `<rect x="14.5" y="9" width="3" height="19" rx="1.5" fill="${P.wood}" transform="rotate(12 16 18)"/>`
+    + `<path d="M4 12c7-7 17-7 24 0-4 4-9 5-12 5s-8-1-12-5z" fill="#8d97a3"/>`
+    + `<path d="M6 12c6-4 14-4 20 0-3 2-7 2-10 2s-7 0-10-2z" fill="#d5dde6"/>`
+  ),
   runeStone: wrap(
     `<polygon points="16,4 26,11 23,25 9,25 6,11" fill="rgba(183,140,255,0.9)"/>`
     + `<polygon points="16,8 22,12 20,21 12,21 10,12" fill="rgba(226,209,255,0.85)"/>`
@@ -105,6 +115,11 @@ const ICONS = {
     `<polygon points="16,3 27,12 22,28 10,28 5,12" fill="${P.manaDark}"/>`
     + `<polygon points="16,7 23,13 19,25 13,25 9,13" fill="${P.mana}"/>`
     + `<polygon points="16,11 20,15 17,22 15,22 12,15" fill="${P.manaHot}"/>`
+  ),
+  magicStone: wrap(
+    `<polygon points="16,5 25,12 22,24 10,24 7,12" fill="#6a3d86"/>`
+    + `<polygon points="16,8 22,13 19,21 13,21 10,13" fill="#c46bff"/>`
+    + `<polygon points="16,11 19,14 17,19 15,19 13,14" fill="#ffe3a1"/>`
   ),
   deepCore: wrap(
     `<circle cx="16" cy="16" r="9" fill="#2b1b47"/>`
@@ -162,6 +177,12 @@ const ICONS = {
     + `<rect x="9" y="7" width="14" height="4" rx="1.6" fill="${P.woodLight}"/>`
     + `<rect x="9" y="24" width="14" height="3.4" rx="1.4" fill="${P.woodDark}"/>`
     + `<path d="M16 2v8M16 2l-3 3M16 2l3 3" stroke="${P.metal}" stroke-width="2" stroke-linecap="round"/>`
+  ),
+  ballista: wrap(
+    `<rect x="6" y="18" width="20" height="5" rx="1.6" fill="${P.woodDark}"/>`
+    + `<rect x="14" y="8" width="4" height="16" rx="1.2" fill="${P.wood}"/>`
+    + `<path d="M6 12c6-6 14-6 20 0" stroke="#8d97a3" stroke-width="2.4" fill="none"/>`
+    + `<path d="M16 6v8" stroke="#d5dde6" stroke-width="2" stroke-linecap="round"/>`
   ),
   canteen: wrap(
     `<path d="M6 16h20c0 7-4 11-10 11S6 23 6 16z" fill="#5c5a55"/>`

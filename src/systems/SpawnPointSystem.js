@@ -70,13 +70,15 @@ export class SpawnPointSystem {
 
     const alive = this.aliveByPoint();
     const raid = this.game?.nightRaidModifiers?.() ?? { extraAlive: 0, extraPerTick: 0 };
+    const clearedIds = new Set(this.points.filter((point) => point.cleared).map((point) => point.id));
     const results = planSpawns(this.points, {
       dt: planDt,
       aliveByPoint: alive,
       rules: this.rules,
       extraAlive: raid.extraAlive,
       extraPerTick: raid.extraPerTick,
-      allowSpawn: this.game?.canRaidSpawn?.() !== false
+      allowSpawn: this.game?.canRaidSpawn?.() !== false,
+      pointAllowed: (point) => !point.gateNestId || clearedIds.has(point.gateNestId)
     });
     results.forEach((result) => {
       for (let i = 0; i < result.spawnCount; i += 1) {

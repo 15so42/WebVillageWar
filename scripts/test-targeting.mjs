@@ -140,4 +140,89 @@ assert.equal(
   'wildlife uses the same in-range acquire rule as other enemies'
 );
 
+// ---------------------------------------------------------------------------
+// 守卫领地：路边营地与野生动物只打进入自己地盘的目标，不会跨岛追进基地。
+// 巢穴夜袭单位没有 guardRadius，仍然是"接上目标就一直追"。
+// ---------------------------------------------------------------------------
+const HOME = { x: -14, y: 0, z: 52 };
+const guarded = {
+  id: 9,
+  alive: true,
+  team: TEAMS.ENEMY,
+  position: { x: -14, y: 0, z: 52 },
+  guardRadius: 9,
+  homePoint: HOME
+};
+const nestRaider = {
+  id: 10,
+  alive: true,
+  team: TEAMS.ENEMY,
+  position: { x: -14, y: 0, z: 52 },
+  guardRadius: 0,
+  homePoint: null
+};
+const nearWorker = {
+  id: 11,
+  alive: true,
+  team: TEAMS.PLAYER,
+  position: { x: -14, y: 0, z: 46 },
+  collisionRadius: 0,
+  definition: {}
+};
+const farWorker = {
+  id: 12,
+  alive: true,
+  team: TEAMS.PLAYER,
+  position: { x: 0.4, y: 0, z: 43.4 },
+  collisionRadius: 0,
+  definition: {}
+};
+const guardGame = {
+  modifiers: { getAggroRange: () => 12 },
+  unitRegistry: { allUnits: [guarded, nestRaider] },
+  playerBase: null,
+  enemyCamp: null
+};
+const guardTargeting = new TargetingSystem(guardGame);
+guarded.target = farWorker;
+assert.equal(
+  guardTargeting.isCurrentTargetValid(guarded, farWorker),
+  false,
+  '有领地的敌人不该追出领地（这正是"追进基地死循环"的根因）'
+);
+assert.equal(
+  guardTargeting.isCurrentTargetValid(guarded, nearWorker),
+  true,
+  '进入领地的目标照打'
+);
+assert.equal(
+  guardTargeting.isCurrentTargetValid(nestRaider, farWorker),
+  true,
+  '没有 guardRadius 的夜袭单位必须保持原来的永不脱战'
+);
+assert.equal(
+  guardTargeting.isInsideGuardZone(guarded, nearWorker),
+  true,
+  '领地判定用目标位置：目标在领地内 → 允许'
+);
+assert.equal(
+  guardTargeting.isInsideGuardZone(nestRaider, farWorker),
+  true,
+  '半径 ≤0 视为不限制'
+);
+guardGame.unitRegistry.allUnits = [guarded, farWorker];
+guardTargeting.rebuild();
+assert.equal(
+  guardTargeting.acquireTarget(guarded),
+  null,
+  '领地外的玩家单位不该被索敌（出生点旁的守卫不该开局就锁住傀儡）'
+);
+guardGame.unitRegistry.allUnits = [guarded, nearWorker];
+guardTargeting.rebuild();
+assert.equal(
+  guardTargeting.acquireTarget(guarded),
+  nearWorker,
+  '走进领地的玩家单位会被索敌'
+);
+
 console.log('Nearest-unit targeting checks passed.');

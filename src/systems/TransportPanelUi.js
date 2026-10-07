@@ -2,6 +2,7 @@
 import { itemArtForSlot } from './itemArt.js';
 import { itemName } from './items.js';
 import { STATION_KIND } from './StationSystem.js';
+import { isLogicGate } from './logisticsStations.js';
 import { mountStationStoragePane } from './stationStorageUi.js';
 import { transportStationLabel } from './transport.js';
 
@@ -255,6 +256,49 @@ export class TransportLinkPanelUi {
       filterHintBlacklist: '黑名单：除名单外都运；空名单=任意种类。可从背包/箱子拖物品到下方登记。',
       datasets: LINK_DATASETS
     });
+    this.renderLogicGateBind(host, link);
+  }
+
+  renderLogicGateBind(host, link) {
+    const names = { andGate: '与门', orGate: '或门', notGate: '非门', logicGate: '门' };
+    const gates = [];
+    this.game?.stations?.stations?.forEach?.((station) => {
+      if (isLogicGate(station) && station.unit?.alive !== false) gates.push(station);
+    });
+    const block = document.createElement('div');
+    block.className = 'backpack-grid-block';
+    const hint = document.createElement('p');
+    hint.className = 'backpack-grid-hint';
+    hint.textContent = gates.length
+      ? '门通的时候只走「通」这条线，不通时只走「不通」这条线。不选则这条线始终可运。'
+      : '放下与门、或门或非门之后，可以让这条线服从它通或不通。';
+    block.appendChild(hint);
+    const row = document.createElement('div');
+    row.className = 'backpack-worker-combat-mode-options';
+    const clear = document.createElement('button');
+    clear.type = 'button';
+    clear.className = 'backpack-worker-combat-mode-btn';
+    clear.dataset.linkGate = '';
+    clear.textContent = '不受门控制';
+    if (!link.gateStationId) clear.classList.add('is-active');
+    row.appendChild(clear);
+    gates.forEach((gate) => {
+      const name = names[gate.kind] ?? '门';
+      ['then', 'else'].forEach((branch) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'backpack-worker-combat-mode-btn';
+        button.dataset.linkGate = gate.id;
+        button.dataset.linkGateBranch = branch;
+        button.textContent = `${branch === 'then' ? '通' : '不通'} · ${name}`;
+        if (link.gateStationId === gate.id && (link.gateBranch ?? 'then') === branch) {
+          button.classList.add('is-active');
+        }
+        row.appendChild(button);
+      });
+    });
+    block.appendChild(row);
+    host.appendChild(block);
   }
 
   onClick(event) {
@@ -281,6 +325,15 @@ export class TransportLinkPanelUi {
     if (chip && !this.suppressClick) {
       event.preventDefault();
       this.game?.transport?.removeFilterItem?.(this.linkId, chip.dataset.transportLinkFilterItem);
+    }
+    const gateButton = event.target.closest('[data-link-gate]');
+    if (gateButton) {
+      event.preventDefault();
+      this.game?.transport?.setLinkGate?.(this.linkId, {
+        gateStationId: gateButton.dataset.linkGate || null,
+        gateBranch: gateButton.dataset.linkGateBranch || 'then'
+      });
+      this.refresh();
     }
     this.suppressClick = false;
   }

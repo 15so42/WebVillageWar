@@ -976,6 +976,76 @@ body.is-game-active .backpack-priority-button:disabled {
   overflow-y: auto;
 }
 
+/* ---------------------------------------------------------------------------
+   防御终端界面：沿用**棕灰中世纪**材质语言（`#77736b` 边框 / `#454845→#292c2b`
+   灰底 / `#e8ddca` 文字），与远征面板、暂停台同一套。不用紫蓝渐变。
+
+   为什么单独覆盖而不是直接用设施面板的青绿：塔是石木铁结构，
+   青绿面板会让"这是防御终端"和"这是魔法设施"读起来是同一个东西。
+   --------------------------------------------------------------------------- */
+.tower-panel .facility-frame {
+  border-color: #77736b;
+  background: linear-gradient(180deg, #454845, #292c2b);
+  box-shadow:
+    inset 0 0 0 1px #191c1b,
+    0 22px 60px rgba(0, 0, 0, 0.55);
+}
+
+.tower-panel .backpack-title,
+.tower-panel .backpack-card-name {
+  color: #e8ddca;
+}
+
+.tower-panel .backpack-pane-title {
+  color: #f2dfae;
+}
+
+.tower-card-info {
+  border-color: #5f5b53;
+}
+
+.tower-gates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.tower-gate {
+  padding: 2px 8px;
+  border: 1px solid #5f5b53;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 18px;
+  color: #b3a98a;
+}
+
+.tower-gate.is-ok {
+  border-color: #6f8f74;
+  color: #cfe3c9;
+}
+
+.tower-gate.is-missing {
+  border-color: #8d6a54;
+  color: #e3bda6;
+}
+
+.tower-progress {
+  height: 8px;
+  margin-top: 8px;
+  border: 1px solid #5f5b53;
+  border-radius: 4px;
+  background: #222524;
+  overflow: hidden;
+}
+
+.tower-progress-fill {
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, #c9b98f, #9a8552);
+  transition: width 120ms linear;
+}
+
 .station-panel {
   position: fixed;
   inset: 0;

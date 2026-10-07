@@ -208,6 +208,17 @@ check('可招募奖励进白名单：配了就拿得到，配坏了不产生空�
   );
 });
 
+check('夜袭路线锚点进白名单，缺坐标则丢掉；不再有塔位/建成状态', () => {
+  const point = makePoint({ raidRally: { x: 12, z: -3 } });
+  assert.deepEqual(point.raidRally, { x: 12, z: -3 });
+  assert.equal(makePoint({}).raidRally, null);
+  assert.equal(makePoint({ raidRally: { z: -3 } }).raidRally, null);
+  // 旧字段被彻底丢掉：留着它就会重新长出"预设箭塔位"的语义。
+  assert.equal(makePoint({ defenseSlot: { x: 1, z: 2, building: 'arrowTower' } }).defenseSlot, undefined);
+  assert.equal(makePoint({ raidRally: { x: 1, z: 2 } }).raidRally.built, undefined);
+  assert.equal(makePoint({ raidRally: { x: 1, z: 2 } }).raidRally.building, undefined);
+});
+
 check('海岛四个点都配了可招募奖励（否则那个点打下来什么都没多）', () => {
   ISLAND_SPAWN_POINTS.forEach((point) => {
     const normalized = normalizeSpawnPoint(point, 0);

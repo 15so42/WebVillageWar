@@ -76,8 +76,16 @@ if (report.started) {
     };
 
     const beforeDay = spawnEnemies().length;
+    // "白天不出兵"要量的是**有没有新刷出来**，不是"场上数量有没有变"：
+    // 白天一只开局驻军被打死，数量就会掉，旧写法（afterDay === beforeDay）会把它
+    // 误判成"白天刷怪了"。所以这里同时看新 id 与刷怪点的真实出兵计数。
+    const dayIdsBefore = new Set(spawnEnemies().map((u) => u.id));
+    const daySpawnedStatsBefore = game.spawnPoints?.stats?.spawned ?? 0;
     for (let i = 0; i < 400; i += 1) game.tick();
-    const afterDay = spawnEnemies().length;
+    const dayEnemiesAfter = spawnEnemies();
+    const afterDay = dayEnemiesAfter.length;
+    const dayNew = dayEnemiesAfter.filter((u) => !dayIdsBefore.has(u.id)).length;
+    const daySpawnedStatsDelta = (game.spawnPoints?.stats?.spawned ?? 0) - daySpawnedStatsBefore;
 
     if (clock) {
       clock.phase = 'night';
@@ -89,6 +97,11 @@ if (report.started) {
       label: document.querySelector('#battle-time-label')?.textContent ?? '',
       time: document.querySelector('#battle-time')?.textContent ?? ''
     };
+    // 量的必须是"这一夜**新刷出来**几个"，不是"场上总共活着几个"：
+    // 开局本来就有中立/营地驻军（实测白天有 6 个 isHostileEnemy），
+    // 第 1 夜从 6 涨到 10、第 2 夜从 0 涨到 4，两者的基线根本不同——
+    // 旧写法拿总数比大小（10 >= 4 过、4 >= 10 挂），量到的其实是基线差，不是刷新量。
+    const night1IdsBefore = new Set(spawnEnemies().map((u) => u.id));
     for (let i = 0; i < 8; i += 1) game.tick();
     const hudAfterNightTick = {
       label: document.querySelector('#battle-time-label')?.textContent ?? '',
@@ -98,6 +111,7 @@ if (report.started) {
     const night1 = spawnEnemies();
     const night1Health = night1[0]?.maxHealth ?? 0;
     const night1Count = night1.length;
+    const night1New = night1.filter((u) => !night1IdsBefore.has(u.id)).length;
 
     spawnEnemies().forEach((u) => { u.alive = false; });
     if (clock) {
@@ -106,9 +120,11 @@ if (report.started) {
       clock.dayNumber = 2;
       game.prepareNightRaid?.();
     }
+    const night2IdsBefore = new Set(spawnEnemies().map((u) => u.id));
     for (let i = 0; i < 400; i += 1) game.tick();
     const night2 = spawnEnemies();
     const night2Health = night2[0]?.maxHealth ?? 0;
+    const night2New = night2.filter((u) => !night2IdsBefore.has(u.id)).length;
 
     game.clock.getDelta = originalDelta;
     return JSON.stringify({
@@ -118,8 +134,12 @@ if (report.started) {
       hudAfterNightTick,
       beforeDay,
       afterDay,
+      dayNew,
+      daySpawnedStatsDelta,
       night1Count,
+      night1New,
       night2Count: night2.length,
+      night2New,
       night1Health,
       night2Health,
       bodyNightClass: document.body.classList.contains('is-survival-night'),
@@ -133,11 +153,12 @@ report.verdict = r ? {
   booted: report.started === true,
   clockPresent: r.dayRules?.phase === 'day' && r.dayRules?.daySeconds === 300 && r.dayRules?.nightSeconds === 180,
   dayHud: String(r.hudAtBoot?.label ?? '').includes('天'),
-  noSpawnByDay: r.afterDay === r.beforeDay,
+  noSpawnByDay: r.dayNew === 0 && r.daySpawnedStatsDelta === 0,
   nightHud: String(r.hudAfterNightTick?.label ?? '').includes('夜'),
-  nightSpawns: r.night1Count > 0,
+  nightSpawns: r.night1New > 0,
   laterNightStronger: r.night2Health > r.night1Health,
-  laterNightMore: r.night2Count >= r.night1Count,
+  // 后一夜的**新刷出量**不能比前一夜少（当前设计只抬难度、不抬数量，所以允许相等）
+  laterNightMore: r.night2New >= r.night1New,
   lightingDarkens: Number(r.sunIntensity) > 0 && Number(r.sunIntensity) < 3
 } : null;
 console.log(JSON.stringify(report, null, 2));

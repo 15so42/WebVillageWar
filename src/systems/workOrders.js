@@ -24,7 +24,10 @@ export const WORK_STATE = {
   fleeing: 'fleeing',
   // 附近有威胁，但战力判断认为打得过：这一帧交回常规战斗 AI。
   engaging: 'engaging',
-  repairing: 'repairing'
+  repairing: 'repairing',
+  /** 去修**建筑**（不是修自己的工具）：去程与施工分开，HUD 能说清在干什么。 */
+  movingToRepair: 'moving_to_repair',
+  repairingBuilding: 'repairing_building'
 };
 
 export const WORK_REASON = {
@@ -39,7 +42,11 @@ export const WORK_REASON = {
   containerFull: 'container_full',
   threatNearby: 'threat_nearby',
   needRepair: 'need_repair',
-  noRepairStation: 'no_repair_station'
+  noRepairStation: 'no_repair_station',
+  /** 维修材料不够：保留请求为「待材料」，傀儡转做别的，不反复空跑。 */
+  missingMaterial: 'missing_material',
+  /** 那栋建筑还在交战窗口里，脱战前不派活。 */
+  inCombat: 'in_combat'
 };
 
 export const WORK_ACTION = {
@@ -50,7 +57,9 @@ export const WORK_ACTION = {
   deposit: 'deposit',
   flee: 'flee',
   moveToRepair: 'move_to_repair',
-  repair: 'repair'
+  repair: 'repair',
+  moveToBuilding: 'move_to_building',
+  repairBuilding: 'repair_building'
 };
 
 const STATE_LABELS = {
@@ -63,7 +72,9 @@ const STATE_LABELS = {
   [WORK_STATE.lowPower]: '魔力不足',
   [WORK_STATE.fleeing]: '逃跑',
   [WORK_STATE.engaging]: '迎战',
-  [WORK_STATE.repairing]: '维修装备'
+  [WORK_STATE.repairing]: '维修装备',
+  [WORK_STATE.movingToRepair]: '前往维修',
+  [WORK_STATE.repairingBuilding]: '维修建筑'
 };
 
 const REASON_LABELS = {
@@ -78,7 +89,9 @@ const REASON_LABELS = {
   [WORK_REASON.containerFull]: '容器已满',
   [WORK_REASON.threatNearby]: '附近有敌人',
   [WORK_REASON.needRepair]: '工具耐久偏低',
-  [WORK_REASON.noRepairStation]: '没有可用的维修站'
+  [WORK_REASON.noRepairStation]: '没有可用的维修站',
+  [WORK_REASON.missingMaterial]: '维修材料不足',
+  [WORK_REASON.inCombat]: '交战中不维修'
 };
 
 export const WORK_RULES = {
@@ -142,6 +155,12 @@ export function workerManaDepleted(worker) {
 /** 木傀儡是否处于自律作业（默认 true）。为 false 时由玩家像战斗单位一样指挥。 */
 export function isWorkerAutonomous(unit) {
   return unit?.isWorker === true && unit.workerAutonomous !== false;
+}
+
+/** 铁傀儡等工作速率高于 1 时，同一节点的采集秒数按比例缩短。 */
+export function workerHarvestSeconds(nodeSeconds, unit) {
+  const rate = Math.max(0.25, Number(unit?.definition?.workRate) || 1);
+  return Math.max(0.05, (Number(nodeSeconds) || 0) / rate);
 }
 
 /**

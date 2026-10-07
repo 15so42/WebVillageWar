@@ -37,9 +37,17 @@ export const PLANTING_ERROR_LABELS = {
 };
 
 export function normalizePlantingConfig(config) {
-  if (!config?.id || !config.saplingItemId || !config.nodeDefinitionId) return null;
-  const saplingCost = Math.max(1, Math.floor(Number(config.saplingCost) || 1));
-  const reserveSaplings = Math.max(0, Math.floor(Number(config.reserveSaplings) || 0));
+  if (!config?.id || !config.nodeDefinitionId) return null;
+  // `saplingItemId: null` 是**合法**配置，表示"这块地不需要种子"（菜圃）。
+  // 这不是特例补丁：一条要求"先有谷物才能种谷物"的种子链会在最坏情况下
+  // 和工具链一起锁死，而设计文档要求菜圃与加工配方在早期就能建立闭环。
+  const saplingItemId = config.saplingItemId ? String(config.saplingItemId) : null;
+  const saplingCost = saplingItemId
+    ? Math.max(1, Math.floor(Number(config.saplingCost) || 1))
+    : 0;
+  const reserveSaplings = saplingItemId
+    ? Math.max(0, Math.floor(Number(config.reserveSaplings) || 0))
+    : 0;
   const growthSeconds = Number(config.growthSeconds);
   const spawnRadius = Number(config.spawnRadius);
   const maxGrownNodes = Math.max(1, Math.floor(Number(config.maxGrownNodes) || 1));
@@ -49,7 +57,7 @@ export function normalizePlantingConfig(config) {
     id: String(config.id),
     unitType: config.unitType != null ? String(config.unitType) : null,
     name: config.name != null ? String(config.name) : String(config.id),
-    saplingItemId: String(config.saplingItemId),
+    saplingItemId,
     saplingCost,
     reserveSaplings,
     growthSeconds,
@@ -88,6 +96,10 @@ export function canPlant(config, { saplings = 0, grownNodes = 0, state = PLANTIN
   if (!normalized) return { ok: false, reason: PLANTING_ERROR.unknownConfig };
   if (state === PLANTING_STATE.growing) return { ok: false, reason: PLANTING_ERROR.alreadyPlanted };
   if (grownNodes >= normalized.maxGrownNodes) return { ok: false, reason: PLANTING_ERROR.plotFull };
+  // 不需要种子的地块（菜圃）：只要有空位就能补种。
+  if (!normalized.saplingItemId || normalized.saplingCost <= 0) {
+    return { ok: true, reason: PLANTING_ERROR.none };
+  }
   const have = Math.max(0, Math.floor(Number(saplings) || 0));
   if (have < normalized.saplingCost) return { ok: false, reason: PLANTING_ERROR.noSapling };
   if (have < normalized.saplingCost + normalized.reserveSaplings) {

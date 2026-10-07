@@ -4,9 +4,11 @@
 // 它的状态机（剩余量、采空、工具校验、序列化）必须能在没有渲染的情况下单独测试。
 // 场景模型与寻路阻挡由 world 提供句柄，系统层只负责状态与守恒。
 import {
+  ITEM_DEFINITIONS,
   RESOURCE_NODE_DEFINITIONS,
   RESOURCE_NODE_RULES,
-  RESOURCE_TYPES
+  RESOURCE_TYPES,
+  isDepletedOreSiteResource
 } from '../data/gameData.js';
 
 export function resourceTypeDefinition(resourceId) {
@@ -38,6 +40,35 @@ export function resourceNodeIsDepleted(node) {
   return (node.amount ?? 0) <= 0;
 }
 
+/**
+ * 采空节点 → 贫矿址记录。`null` 表示这个资源不该留矿址（木材/纤维/食物）。
+ *
+ * 「留下可识别的矿址或贫矿标记，保存稳定 id、类型与位置」——位置与 id 都来自
+ * 节点自身，所以不受建筑/单位压在上面影响，也不会因为重载而漂移。
+ */
+export function depletedOreSiteFromNode(node) {
+  if (!node?.id) return null;
+  if (!isDepletedOreSiteResource(node.resource)) return null;
+  return {
+    id: `poor-site:${node.id}`,
+    nodeId: node.id,
+    definitionId: node.definitionId ?? null,
+    resource: node.resource,
+    x: Number(node.x) || 0,
+    z: Number(node.z) || 0,
+    // 贫矿址的选址半径比地表节点略宽：地表富集层没了，玩家要能在残堆周围
+    // 找一块真正放得下建筑的空地，而不是被原来的 navRadius 卡住。
+    siteRadius: Math.max(3, Number(node.navRadius) || 0) + 2.5,
+    depleted: true
+  };
+}
+
+/** 一个贫矿址是不是在 `point` 的选址半径内。 */
+export function depletedOreSiteDistance(site, point) {
+  if (!site || !point) return Infinity;
+  return Math.hypot((site.x ?? 0) - point.x, (site.z ?? 0) - point.z);
+}
+
 // 采集结算：从节点剩余量里取出不超过请求量与剩余量的部分。
 // 返回新的剩余量而不是就地修改，调用方负责写回，避免中途抛错时状态半更新。
 export function resolveHarvest(node, requested, rules = RESOURCE_NODE_RULES) {
@@ -67,6 +98,19 @@ export function resourceNodeRequiredToolName(definitionId) {
   const required = RESOURCE_NODE_DEFINITIONS[definitionId]?.tool;
   if (!required) return null;
   return required === 'axe' ? '木斧' : required === 'pickaxe' ? '木镐' : required;
+}
+
+/** 背包里符合该节点的工具里，最快的那把。没有加成时是 1。 */
+export function toolHarvestRate(slots, requiredTool) {
+  let best = 1;
+  (slots ?? []).forEach((slot) => {
+    const def = ITEM_DEFINITIONS[slot?.itemId];
+    if (!def?.tool) return;
+    if (requiredTool && def.tool !== requiredTool) return;
+    const rate = Number(def.harvestRate);
+    if (Number.isFinite(rate) && rate > best) best = rate;
+  });
+  return best;
 }
 
 export function resourceNodeDistance(node, point) {

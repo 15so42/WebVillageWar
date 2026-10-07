@@ -90,6 +90,21 @@ function createSharedRaiderVisual() {
   });
 }
 
+// 防御终端：三种定位 × 三级投资。同一个工厂按 variant + tier 出形状与材质都不同的模型，
+// 不靠悬浮文字或换色充当差异（见 createArrowTowerModel 的注释）。
+const TOWER_VARIANTS = {
+  arrowTower: 'arrowTower',
+  ballista: 'ballista',
+  shockTower: 'shockTower'
+};
+const TOWER_VISUAL_FACTORIES = {};
+Object.entries(TOWER_VARIANTS).forEach(([towerId, variant]) => {
+  for (let tier = 1; tier <= 3; tier += 1) {
+    const unitType = tier <= 1 ? towerId : `${towerId}${['I', 'II', 'III'][tier - 1]}`;
+    TOWER_VISUAL_FACTORIES[unitType] = ({ team }) => createArrowTowerModel(team, { variant, tier });
+  }
+});
+
 const UNIT_FACTORIES = {
   knight: ({ team }) => createKnightModel(team),
   spearman: ({ team }) => createSpearmanModel(team),
@@ -105,6 +120,10 @@ const UNIT_FACTORIES = {
   engineer: ({ team }) => createEngineerModel(team),
   // 木傀儡：非战斗后勤单位。不注册会静默回落到 raider 模型
   woodPuppet: ({ team }) => createWoodPuppetModel(team),
+  ironPuppet: ({ team }) => createWoodPuppetModel(team),
+  andGate: ({ team }) => createChestModel(team),
+  orGate: ({ team }) => createChestModel(team),
+  notGate: ({ team }) => createChestModel(team),
   physician: ({ team }) => createPhysicianModel(team),
   purifier: ({ team }) => createPurifierModel(team),
   warder: ({ team }) => createWarderModel(team),
@@ -145,7 +164,7 @@ const UNIT_FACTORIES = {
   frostWolfBoss: () => createWolfModel({ boss: true }),
   frostOracleBoss: () => createFrostOracleBossModel(),
   bear: () => createBearModel(),
-  arrowTower: ({ team }) => createArrowTowerModel(team),
+  ...TOWER_VISUAL_FACTORIES,
   miniTurret: ({ team }) => createMiniTurretModel(team),
   repairStation: ({ team }) => createRepairStationModel(team),
   canteen: ({ team }) => createCanteenModel(team),
@@ -157,8 +176,12 @@ const UNIT_FACTORIES = {
   // 科研站 / 附魔台：科技解锁链上的两座设施
   researchStation: ({ team }) => createResearchStationModel(team),
   enchantTable: ({ team }) => createEnchantTableModel(team),
-  // 树坑：种下树苗、等它长成一棵可砍的树
+  // 树坑 / 菜圃：种植地块。菜圃也复用树坑的苗床轮廓，靠作物节点区分产物。
   treePit: ({ team }) => createTreePitModel(team),
+  cropPlot: ({ team }) => createTreePitModel(team),
+  // 采石场 / 深矿井：地表资源采完后的慢速深采设施，复用石堆构型区分职能。
+  quarry: ({ team }) => createFurnaceModel(team),
+  deepMine: ({ team }) => createManaFurnaceModel(team),
   manualWorkbench: ({ team }) => createManualWorkbenchModel(team),
   chest: ({ team }) => createChestModel(team)
 };
@@ -179,6 +202,8 @@ const PROJECTILE_FACTORIES = {
   holyBolt: ({ color }) => createHolyBoltModel(color),
   wardSigil: ({ color }) => createWardSigilModel(color),
   energyOrb: ({ color }) => createEnergyOrbModel(color),
+  // 震荡塔的魔力脉冲：复用同一份能量球模型与材质，不新增纹理体系。
+  shockPulse: ({ color }) => createEnergyOrbModel(color),
   waterOrb: ({ color }) => createWaterOrbModel(color)
 };
 
@@ -470,7 +495,7 @@ export function updateUnitAnimation(unit, dt) {
     applySpearmanStance(root, time, unitIsWalking(unit), unit.id);
     return;
   }
-  if (unit.type === 'woodPuppet') {
+  if (unit.type === 'woodPuppet' || unit.type === 'ironPuppet') {
     applyWoodPuppetStance(root, time, unitIsWalking(unit), unit.id);
     return;
   }
@@ -511,7 +536,7 @@ function applyOneShot(unit, root, name, t, state = null) {
   // 目前只有木傀儡会播；别的单位万一被要求播，退化成一次普通挥击，
   // 而不是静默什么都不做（那会表现成"命令没反应"）。
   if (name === 'chop' || name === 'mine') {
-    if (unit.type === 'woodPuppet') {
+    if (unit.type === 'woodPuppet' || unit.type === 'ironPuppet') {
       applyWoodPuppetSwing(root, name, t);
       return;
     }
@@ -521,7 +546,7 @@ function applyOneShot(unit, root, name, t, state = null) {
     return;
   }
   if (name === 'attack') {
-    if (unit.type === 'woodPuppet') {
+    if (unit.type === 'woodPuppet' || unit.type === 'ironPuppet') {
       applyWoodPuppetAttack(root, t);
       return;
     }

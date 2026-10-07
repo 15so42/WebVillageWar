@@ -43,6 +43,9 @@ export class FacilitySystem {
     unit.activityMana = resolved.manaCapacity;
     unit.drainPerSecond = resolved.drainPerSecond;
     unit.poweredDown = false;
+    // 设施配置要带过来：升级时按等级换算"每发耗魔 / 容量"就靠它，
+    // 不能在升级逻辑里另写一份 towerId → manaPerShot 的表。
+    unit.facilityConfigId = resolved.id;
     this.game?.power?.registerReceiver?.(unit, {
       positionOf: () => ({ x: unit.position?.x ?? 0, z: unit.position?.z ?? 0 })
     });

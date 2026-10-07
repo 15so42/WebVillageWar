@@ -17,7 +17,9 @@ import {
   syncInventoryCursorGhostPosition,
   updateInventoryCursorGhost
 } from './inventoryCursorUi.js';
-import { STATION_KIND } from './StationSystem.js';import { mountStationStoragePane, STATION_STORAGE_DATASETS } from './stationStorageUi.js';
+import { STATION_KIND, stationUsesFuelSlots } from './StationSystem.js';
+import { isLogicGate } from './logisticsStations.js';
+import { mountStationStoragePane, STATION_STORAGE_DATASETS } from './stationStorageUi.js';
 import { CRAFT_IDLE_PRIORITY, CRAFT_READY_PRIORITY, resolveStorePriority } from './workTasks.js';
 
 const REFRESH_INTERVAL_MS = 400;
@@ -241,6 +243,17 @@ export class StationPanelUi {
     )).join('|');
     return JSON.stringify({
       kind: station.kind,
+      op: station.op,
+      active: station.active,
+      inputs: station.inputs,
+      watchStationId: station.watchStationId,
+      compare: station.compare,
+      threshold: station.threshold,
+      mode: station.mode,
+      registerStationId: station.registerStationId,
+      zeroStationId: station.zeroStationId,
+      continueStationId: station.continueStationId,
+      pulseOutStationId: station.pulseOutStationId,
       priority: station.craftPriority,
       filter: station.filter,
       storePriority: resolveStorePriority(station),
@@ -262,12 +275,16 @@ export class StationPanelUi {
     this.parts.right.hidden = false;
     this.parts.left.className = 'station-side';
     this.parts.right.className = 'station-side';
-    if (station.kind === STATION_KIND.furnace) {
+    if (stationUsesFuelSlots(station.kind)) {
       this.renderFurnace(station);
       return;
     }
     if (station.kind === STATION_KIND.manaFurnace) {
       this.renderManaFurnace(station);
+      return;
+    }
+    if (isLogicGate(station)) {
+      this.renderLogicStation(station);
       return;
     }
     if (station.kind === STATION_KIND.manualWorkbench) {
@@ -289,6 +306,41 @@ export class StationPanelUi {
         : '左侧是箱子里的真实库存；名单只决定傀儡还要搬进哪些种类。'
     });
     this.renderStorageSettings(station);
+    this.parts.base.hidden = true;
+    this.parts.base.textContent = '';
+  }
+
+  renderLogicStation(station) {
+    const labels = { and: '与门', or: '或门', not: '非门' };
+    const op = station.op === 'or' || station.op === 'not' ? station.op : 'and';
+    const inputs = Array.isArray(station.inputs) ? station.inputs : [];
+    this.parts.subtitle.textContent = `${labels[op]} · ${station.active ? '通' : '不通'} · 已接 ${inputs.length} 路`;
+    this.parts.right.hidden = true;
+    this.parts.left.className = 'station-side';
+    this.parts.left.textContent = '';
+    const hint = document.createElement('p');
+    hint.className = 'backpack-grid-hint';
+    hint.textContent = op === 'and'
+      ? '点箱子把它们接成输入。每一只都有货，门才通。不指定种类时，任何物品都算有货。'
+      : (op === 'or'
+        ? '点箱子把它们接成输入。任意一只里有货，门就通。'
+        : '点一只箱子。这只箱子是空的，门才通。');
+    this.parts.left.appendChild(hint);
+    const row = document.createElement('div');
+    row.className = 'backpack-worker-combat-mode-options';
+    this.game?.stations?.stations?.forEach?.((other) => {
+      if (!other || other.id === station.id || other.kind !== STATION_KIND.chest) return;
+      const active = inputs.some((input) => input?.stationId === other.id && !input?.itemId);
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'backpack-worker-combat-mode-btn';
+      if (active) button.classList.add('is-active');
+      button.dataset.logicField = 'toggleInput';
+      button.dataset.logicTarget = other.id;
+      button.textContent = `${active ? '已接' : '接入'} ${other.id}`;
+      row.appendChild(button);
+    });
+    this.parts.left.appendChild(row);
     this.parts.base.hidden = true;
     this.parts.base.textContent = '';
   }
@@ -518,6 +570,24 @@ export class StationPanelUi {
     if (mode) {
       event.preventDefault();
       this.game?.stations?.setFilterMode?.(this.station(), mode.dataset.stationMode);
+      return;
+    }
+    const logicMode = event.target.closest('[data-logic-mode]');
+    if (logicMode) {
+      event.preventDefault();
+      this.game?.stations?.configureLogicStation?.(this.station()?.id, { mode: logicMode.dataset.logicMode });
+      this.lastSignature = '';
+      this.sync();
+      return;
+    }
+    const logicTarget = event.target.closest('[data-logic-field]');
+    if (logicTarget) {
+      event.preventDefault();
+      this.game?.stations?.configureLogicStation?.(this.station()?.id, {
+        toggleInput: { stationId: logicTarget.dataset.logicTarget, itemId: null }
+      });
+      this.lastSignature = '';
+      this.sync();
       return;
     }
     const priorityBtn = event.target.closest('[data-station-priority-delta]');

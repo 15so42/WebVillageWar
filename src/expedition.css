@@ -1,0 +1,381 @@
+/* 远征路线面板（生存玩法）。
+ *
+ * 皮肤：沿用现有**棕灰中世纪**那一套（`#77736b` 边框 / `#454845→#292c2b` 灰底 /
+ * `#e8ddca` 文字，与 `.run-shop-toggle`、暂停台同一材质语言）。不做紫蓝渐变，
+ * 也不做卡片套卡片——面板本身就是最后一级容器。
+ *
+ * 三条不要做的事：
+ *   1. 容器 `.expedition-panel` 不接指针（地图手势照常），只有 `.expedition-frame` 接；
+ *   2. 不铺全屏遮罩 + 背景压暗，那会把"可收起、非暂停"变成模态；
+ *   3. 手机上横向不溢出：`overflow-wrap: anywhere` + `min-width: 0`，纵向可滚动。
+ */
+
+/* ---- HUD 入口按钮 ----------------------------------------------------------
+ *
+ * 它**不在**左侧 HUD 列里了：`.wave-command-panel` 是 `position: fixed`（脱离文档流），
+ * 所以 `.hud-primary-top` 的高度塌成 0，而 `position: static; width: 100%` 的按钮
+ * 会被拉成整个视口的横幅，文字「远征」孤零零压在所有界面之上（实测 rect
+ * `[0, 4, 1280, 37]`）。改法：固定在自己的一角、用内容宽度（`width: max-content`），
+ * 和右上角工具条同一材质，并且只在有内容可看时由 ExpeditionPanelUi 打开显示。
+ * ------------------------------------------------------------------------- */
+.expedition-toggle {
+  position: fixed;
+  z-index: 26;
+  /* 顶部右侧是设置 / 帮助 / FPS 那条工具条的专属位置（移动端还会缩放整条），
+     所以这个入口放左下角：那里没有别的常驻控件，也不会遮住基地与战场中心。 */
+  top: auto;
+  right: auto;
+  bottom: 108px;
+  left: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: max-content;
+  max-width: 40vw;
+  min-width: 0;
+  min-height: 34px;
+  margin: 0;
+  padding: 0 12px;
+  border: 1px solid #77736b;
+  clip-path: polygon(5px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 5px), calc(100% - 5px) 100%, 5px 100%, 0 calc(100% - 5px), 0 5px);
+  color: #e8ddca;
+  background:
+    linear-gradient(112deg, rgba(255, 255, 255, 0.075), transparent 38%),
+    linear-gradient(180deg, #454845, #292c2b);
+  box-shadow:
+    inset 0 0 0 1px #191c1b,
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    0 4px 0 #171919,
+    0 9px 14px rgba(0, 0, 0, 0.38);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.expedition-toggle:hover {
+  border-color: #aaa08f;
+  filter: brightness(1.08);
+  transform: translateY(-2px);
+}
+
+.expedition-toggle:active {
+  transform: translateY(1px);
+}
+
+.expedition-toggle.is-active {
+  border-color: #c9b98f;
+  color: #fdf3d8;
+  background:
+    linear-gradient(112deg, rgba(255, 255, 255, 0.1), transparent 38%),
+    linear-gradient(180deg, #5a5643, #35322a);
+}
+
+.expedition-toggle[hidden] {
+  display: none !important;
+}
+
+.expedition-toggle-label {
+  white-space: nowrap;
+}
+
+/* ---- 面板：贴右侧、可收起、不吃全屏指针 ---- */
+.expedition-panel {
+  position: fixed;
+  top: 96px;
+  right: 12px;
+  bottom: 96px;
+  z-index: 11;
+  display: flex;
+  justify-content: flex-end;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.expedition-panel.is-open {
+  opacity: 1;
+}
+
+.expedition-panel[hidden] {
+  display: none;
+}
+
+.expedition-frame {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(430px, calc(100vw - 24px));
+  max-height: 100%;
+  min-height: 0;
+  padding: 12px 14px 14px;
+  border: 1px solid #77736b;
+  border-radius: 10px;
+  background:
+    linear-gradient(112deg, rgba(255, 255, 255, 0.05), transparent 42%),
+    linear-gradient(180deg, #3c3f3d, #222524);
+  box-shadow:
+    inset 0 0 0 1px #191c1b,
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 18px 44px rgba(0, 0, 0, 0.52);
+  overflow: hidden;
+}
+
+.expedition-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.expedition-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.expedition-kicker {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  color: #b3a98a;
+}
+
+.expedition-title {
+  font-size: 15px;
+  color: #f0e6d2;
+}
+
+.expedition-tracked {
+  flex: 1 1 110px;
+  min-width: 0;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: rgba(232, 221, 202, 0.62);
+  overflow-wrap: anywhere;
+}
+
+.expedition-tracked.is-active {
+  color: #f2dfae;
+}
+
+.expedition-close {
+  margin-left: auto;
+  width: 26px;
+  height: 26px;
+  border: 1px solid #77736b;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #454845, #292c2b);
+  color: #e8ddca;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.expedition-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: rgba(232, 221, 202, 0.58);
+}
+
+.expedition-forecast {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid #5f5b53;
+  border-radius: 8px;
+  background: rgba(20, 22, 21, 0.72);
+}
+
+.expedition-forecast-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: #f0e6d2;
+}
+
+.expedition-forecast-head span {
+  font-size: 10.5px;
+  color: rgba(232, 221, 202, 0.68);
+}
+
+.expedition-forecast-counts,
+.expedition-forecast-line {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: rgba(232, 221, 202, 0.8);
+  overflow-wrap: anywhere;
+}
+
+.expedition-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+}
+
+.expedition-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid #565249;
+  border-radius: 8px;
+  background: rgba(30, 33, 31, 0.82);
+}
+
+.expedition-card.is-tracked {
+  border-color: #c9b98f;
+}
+
+.expedition-card.is-cleared {
+  border-color: #6f8f74;
+  background: rgba(28, 40, 32, 0.82);
+}
+
+.expedition-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.expedition-card-name {
+  font-size: 12.5px;
+  font-weight: 800;
+  color: #f0e6d2;
+}
+
+.expedition-card-state {
+  font-size: 11px;
+  font-weight: 700;
+  color: #c9b98f;
+}
+
+.expedition-card-target,
+.expedition-card-strategy,
+.expedition-card-payoff {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: rgba(232, 221, 202, 0.8);
+  overflow-wrap: anywhere;
+}
+
+.expedition-card-payoff {
+  color: rgba(203, 210, 172, 0.9);
+}
+
+.expedition-card-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+}
+
+.expedition-card-facts div {
+  display: flex;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.expedition-card-facts dt {
+  flex: 0 0 auto;
+  color: #c9b98f;
+  font-weight: 700;
+}
+
+.expedition-card-facts dd {
+  margin: 0;
+  min-width: 0;
+  color: rgba(232, 221, 202, 0.84);
+  overflow-wrap: anywhere;
+}
+
+.expedition-card-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* 按钮沿用中世纪灰：`.expedition-action` 同时带 `.backpack-action`，
+   这里把背包那套青色压回棕灰，避免同一块面板里出现两种材质。 */
+.expedition-action {
+  min-width: 84px;
+  padding: 4px 12px;
+  border: 1px solid #77736b;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #454845, #292c2b);
+  color: #e8ddca;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.expedition-action:hover:not(:disabled) {
+  border-color: #aaa08f;
+  filter: brightness(1.08);
+}
+
+.expedition-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 手机上：自下而上的滚动面板，横向绝不溢出。 */
+@media (max-width: 640px) {
+  /* 窄屏时底部被快捷栏与移动工具占着，入口挪到左上角，
+     仍在视口内、不与顶部中央的目标句重叠。 */
+  .expedition-toggle {
+    top: calc(8px + env(safe-area-inset-top));
+    right: auto;
+    bottom: auto;
+    left: 8px;
+    max-width: 30vw;
+    min-height: 30px;
+    padding: 0 9px;
+    font-size: 12px;
+  }
+
+  .expedition-panel {
+    top: 84px;
+    right: 8px;
+    left: 8px;
+    bottom: 84px;
+  }
+
+  .expedition-frame {
+    width: 100%;
+    max-height: 100%;
+    padding: 10px 10px 12px;
+  }
+
+  .expedition-card-actions {
+    gap: 6px;
+  }
+
+  .expedition-action {
+    flex: 1 1 40%;
+    min-width: 0;
+  }
+}
+
+/* 触屏：面板里纵向滚动是浏览，不是地图手势。 */
+@media (pointer: coarse) {
+  .expedition-frame {
+    touch-action: pan-y;
+  }
+}

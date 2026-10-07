@@ -6,6 +6,8 @@ import './backpack.css';
 import './unitActionMenu.css';
 import './hotbar.css';
 import './survivalUi.css';
+import './expedition.css';
+import './help.css';
 import { AnimationPreviewScene } from './systems/AnimationPreviewScene.js';
 import { DebugScene, createDebugSession } from './systems/DebugScene.js';
 import { Game } from './systems/Game.js';

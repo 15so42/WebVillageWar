@@ -13,7 +13,8 @@ export const RESEARCH_ERROR = {
   alreadyResearched: 'already_researched',
   missingPrerequisites: 'missing_prerequisites',
   missingInputs: 'missing_inputs',
-  noStation: 'no_station'
+  noStation: 'no_station',
+  missingBlueprint: 'missing_blueprint'
 };
 
 export const RESEARCH_ERROR_LABELS = {
@@ -21,7 +22,8 @@ export const RESEARCH_ERROR_LABELS = {
   [RESEARCH_ERROR.alreadyResearched]: '已经研究过了',
   [RESEARCH_ERROR.missingPrerequisites]: '前置科技还没研究',
   [RESEARCH_ERROR.missingInputs]: '材料不够',
-  [RESEARCH_ERROR.noStation]: '需要先建好科研站'
+  [RESEARCH_ERROR.noStation]: '需要先建好科研站',
+  [RESEARCH_ERROR.missingBlueprint]: '还没有区域图纸'
 };
 
 export const ENCHANT_ERROR = {
@@ -50,6 +52,9 @@ export function normalizeTech(tech) {
         count: Math.max(1, Math.floor(Number(entry.count) || 1))
       })),
     requires: (tech.requires ?? []).map((id) => String(id)),
+    // 区域图纸：绑定的内圈巢穴 id。缺省 null = 这项科技不看图纸（老科技行为不变）。
+    // 必须显式带过来：normalizeTech 是白名单，漏登记等于运行时永远拿不到这个字段。
+    requiresNestId: tech.requiresNestId ? String(tech.requiresNestId) : null,
     unlocks: {
       recipes: (tech.unlocks?.recipes ?? []).map((id) => String(id))
     },
@@ -61,7 +66,32 @@ export function normalizeTech(tech) {
         .map((entry) => ({ recipeId: String(entry.recipeId), patch: { ...entry.patch } })),
       harvest: {
         perActionBonus: Math.max(0, Math.floor(Number(tech.effects?.harvest?.perActionBonus) || 0))
-      }
+      },
+      // 单位属性修正（哨站测距 / 军械保养走这里）。
+      // 形状与 AttributeSet.addModifiers 兼容：{ stat, type, amount|percent, unitTypes? }。
+      // 只有"能被改写"的项才留下来：stat 必须有名字，type 只认 add/multiply，
+      // 数值必须是有限数，否则静默丢掉而不是在运行时制造 NaN。
+      attributes: (tech.effects?.attributes ?? [])
+        .filter((entry) => entry?.stat)
+        .map((entry) => {
+          const type = entry.type === 'multiply' ? 'multiply' : 'add';
+          const numeric = type === 'multiply'
+            ? (Number.isFinite(entry.percent) ? { percent: Number(entry.percent) } : (Number.isFinite(entry.factor) ? { factor: Number(entry.factor) } : null))
+            : (Number.isFinite(entry.amount) ? { amount: Number(entry.amount) } : null);
+          if (!numeric) return null;
+          return {
+            stat: String(entry.stat),
+            type,
+            ...numeric,
+            unitTypes: (entry.unitTypes ?? []).map((value) => String(value)),
+            excludeUnitTypes: (entry.excludeUnitTypes ?? []).map((value) => String(value)),
+            // 作用域开关：由 unitTechModifiersFor 在纯规则层判定，不交给 AttributeSet 猜。
+            mobileOnly: entry.mobileOnly === true,
+            excludeBuildings: entry.excludeBuildings === true,
+            weaponOnly: entry.weaponOnly === true
+          };
+        })
+        .filter(Boolean)
     }
   };
 }
@@ -98,10 +128,26 @@ export function missingPrerequisites(tech, researched) {
 }
 
 /**
+ * 区域图纸缺口：这项科技绑定的内巢还没被打掉时返回那座巢穴的 id，否则 null。
+ *
+ * **拿不到权威来源时按"锁着"处理**（返回巢穴 id）：区域图纸是一项真实门槛，
+ * 默认放行等于在没有点位数据的运行时白送四项能力。老科技没有 `requiresNestId`，
+ * 所以既有门槛完全不受影响（它们根本走不到这里）。
+ */
+export function missingBlueprint(tech, context = {}) {
+  const normalized = normalizeTech(tech);
+  if (!normalized?.requiresNestId) return null;
+  const { nestCleared = null } = context;
+  if (typeof nestCleared !== 'function') return normalized.requiresNestId;
+  return nestCleared(normalized.requiresNestId) === true ? null : normalized.requiresNestId;
+}
+
+/**
  * 能不能研究这项科技。`context` 由运行时提供：
  *   - researched：已研究集合
  *   - countOf：库存查询
  *   - stationReady：科研站是否已建成（不是施工中）
+ *   - nestCleared：(nestId) => boolean，区域图纸权威（缺省时视为"没有图纸"）
  */
 export function canResearch(techOrId, context = {}) {
   const tech = typeof techOrId === 'string' ? techById(techOrId) : normalizeTech(techOrId);
@@ -110,6 +156,16 @@ export function canResearch(techOrId, context = {}) {
   const owned = researched instanceof Set ? researched : new Set(researched ?? []);
   if (owned.has(tech.id)) return { ok: false, reason: RESEARCH_ERROR.alreadyResearched, missing: [], tech };
   if (!stationReady) return { ok: false, reason: RESEARCH_ERROR.noStation, missing: [], tech };
+  const nestId = missingBlueprint(tech, context);
+  if (nestId) {
+    return {
+      ok: false,
+      reason: RESEARCH_ERROR.missingBlueprint,
+      missing: [],
+      requiresNestId: nestId,
+      tech
+    };
+  }
   const prereq = missingPrerequisites(tech, owned);
   if (prereq.length) {
     return { ok: false, reason: RESEARCH_ERROR.missingPrerequisites, missing: [], prerequisites: prereq, tech };
@@ -200,6 +256,56 @@ export function harvestPerActionBonus(researched) {
   return allTechs().reduce((sum, tech) => (
     owned.has(tech.id) ? sum + tech.effects.harvest.perActionBonus : sum
   ), 0);
+}
+
+/**
+ * 已研究科技给**某个单位实例**的属性修正（哨站测距 / 军械保养）。
+ *
+ * 入参是描述符而不是活单位，这样纯规则层能单独断言：
+ *   - team：'player' | 'enemy'（默认要求 player）
+ *   - type：单位类型
+ *   - canMove / isBuilding / hasWeapon：用于 mobileOnly / excludeBuildings / weaponOnly
+ *
+ * 只做过滤，不碰 AttributeSet：真正的挂载（按唯一 source 先移除再加）在 ResearchSystem，
+ * 保证重复调用、换武器、招募归队都不会把修正叠乘起来。
+ */
+export function unitTechModifiersFor(descriptor = {}, researched) {
+  const owned = researched instanceof Set ? researched : new Set(researched ?? []);
+  if (!owned.size) return [];
+  const team = descriptor.team ?? 'player';
+  const type = descriptor.type != null ? String(descriptor.type) : '';
+  const canMove = descriptor.canMove !== false;
+  const isBuilding = descriptor.isBuilding === true;
+  const hasWeapon = descriptor.hasWeapon !== false;
+  const modifiers = [];
+  allTechs().forEach((tech) => {
+    if (!owned.has(tech.id)) return;
+    tech.effects.attributes.forEach((effect) => {
+      // 只给己方单位：敌方/中立单位不享受玩家科技。
+      if (team !== 'player') return;
+      if (effect.mobileOnly && !canMove) return;
+      if (effect.excludeBuildings && isBuilding) return;
+      if (effect.weaponOnly && !hasWeapon) return;
+      if (effect.unitTypes.length && !effect.unitTypes.includes(type)) return;
+      if (effect.excludeUnitTypes.length && effect.excludeUnitTypes.includes(type)) return;
+      modifiers.push({
+        stat: effect.stat,
+        type: effect.type,
+        ...(effect.amount != null ? { amount: effect.amount } : {}),
+        ...(effect.percent != null ? { percent: effect.percent } : {}),
+        ...(effect.factor != null ? { factor: effect.factor } : {}),
+        unitTypes: [...effect.unitTypes],
+        excludeUnitTypes: [...effect.excludeUnitTypes]
+      });
+    });
+  });
+  return modifiers;
+}
+
+/** 一项科技绑定的内巢 id（没有图纸门槛时为 null）。 */
+export function techNestRequirement(techOrId) {
+  const tech = typeof techOrId === 'string' ? techById(techOrId) : normalizeTech(techOrId);
+  return tech?.requiresNestId ?? null;
 }
 
 /**

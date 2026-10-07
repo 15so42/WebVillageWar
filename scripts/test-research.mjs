@@ -146,7 +146,7 @@ check('附魔材料不够时报清缺口，够了才放行', () => {
   const short = canEnchant('fire', { countOf: counts({ iron: 5, charcoal: 1 }), tableReady: true });
   assert.equal(short.ok, false);
   assert.equal(short.reason, ENCHANT_ERROR.missingInputs);
-  const full = canEnchant('fire', { countOf: counts({ iron: 6, charcoal: 4 }), tableReady: true });
+  const full = canEnchant('fire', { countOf: counts({ iron: 40, charcoal: 32 }), tableReady: true });
   assert.equal(full.ok, true);
 });
 
@@ -156,8 +156,10 @@ check('missingTechInputs / missingEnchantInputs 的 need/have/missing 口径一�
   assert.equal(missing.length, 2);
   const stone = missing.find((entry) => entry.itemId === 'stone');
   assert.deepEqual(stone, { itemId: 'stone', need: 40, have: 10, missing: 30 });
-  const enchant = missingEnchantInputs(enchantRecipeById('thorns'), counts({ fiber: 20, iron: 1 }));
-  assert.deepEqual(enchant, [{ itemId: 'iron', need: 4, have: 1, missing: 3 }]);
+  const enchant = missingEnchantInputs(enchantRecipeById('thorns'), counts({ fiber: 80, iron: 1 }));
+  assert.deepEqual(enchant, [
+    { itemId: 'iron', need: 24, have: 1, missing: 23 }
+  ]);
 });
 
 check('没被科技解锁的配方不算解锁，没有 tech 字段的默认解锁', () => {
