@@ -846,6 +846,14 @@ const DEVELOPMENT_CHANGELOG_ARCHIVE = [
 
 const CHANGELOG_ENTRIES = [
   {
+    date: '2026-10-15',
+    title: '无 GPU 低画质测试模式',
+    items: [
+      '检测到 SwiftShader、llvmpipe 等软件渲染器时自动进入低画质：绘制边长不超过 960、关闭抗锯齿和实时阴影，改用烘焙阴影，并跳过后处理直接绘制场景。',
+      '地址栏可用 `?quality=software` 或 `?nogpu=1` 强制开启，`?gpu=1` 或 `?quality=high` 强制关闭。画面左上角显示「低画质 · 无 GPU」。'
+    ]
+  },
+  {
     date: '2026-10-07',
     title: '自由建塔、防御升级维修与资源续航',
     items: [
