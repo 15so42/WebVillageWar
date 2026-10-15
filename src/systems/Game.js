@@ -564,6 +564,7 @@ const COMBAT_PROFILE_LABELS = {
 };
 const DESKTOP_RENDER_PIXEL_RATIO = 1.5;
 const MOBILE_RENDER_PIXEL_RATIO = 1;
+const SOFTWARE_RENDER_MAX_EDGE = 960;
 const DEFAULT_FPS_LIMIT = 60;
 const MIN_FPS_LIMIT = 30;
 const MAX_FPS_LIMIT = 90;
@@ -876,13 +877,25 @@ export class Game {
     this.currentFrameStep = null;
     this.eventController = new AbortController();
     this.renderSettings = loadRenderSettings();
-    this.renderQuality = createRenderQualityProfile(this.renderSettings);
+    this.renderQuality = createRenderQualityProfile(this.renderSettings, {
+      software: resolveSoftwareRenderMode()
+    });
     this.frameLimitMs = 1000 / this.renderSettings.fpsLimit;
     this.lastAnimationFrameTime = null;
     this.worldConfig = {
       ...(this.levelSession.level.world ?? BALANCE.world)
     };
     this.worldConfig = applyRenderQualityToWorldConfig(this.worldConfig, this.renderQuality);
+    if (this.renderQuality.software) {
+      this.worldConfig = {
+        ...this.worldConfig,
+        sky: {
+          ...(this.worldConfig.sky ?? {}),
+          realtimeShadows: false,
+          bakedShadows: true
+        }
+      };
+    }
     if ((this.worldConfig.sceneKey ?? this.levelSession?.level?.world?.sceneKey) === 'island-survival') {
       this.dayNight = createDayNightState(BALANCE.world?.dayNight ?? {});
     }
@@ -896,7 +909,8 @@ export class Game {
       canvas,
       antialias: this.renderQuality.antialias,
       alpha: false,
-      preserveDrawingBuffer: false
+      // 软件渲染截图和像素回读需要保留绘制缓冲，否则无头浏览器读到的是清掉的黑帧。
+      preserveDrawingBuffer: this.renderQuality.software
     });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -907,7 +921,19 @@ export class Game {
     this.renderer.shadowMap.autoUpdate = useRealtimeShadows;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-    // Initialize post-processing pipeline for Screen Space Ambient Occlusion (AO)
+    // 无 GPU / SwiftShader 上 EffectComposer（SAO、泛光、描边）会把整帧合成成黑色。
+    // 测试模式直接画主场景：低分辨率、无抗锯齿、烘焙阴影，不分配后处理目标。
+    if (this.renderQuality.software) {
+      this.composer = null;
+      this.saoPass = null;
+      this.bloomPass = null;
+      this.outlinePass = null;
+      this.vignettePass = null;
+      this.resourceGatherOutlinePass = null;
+      this.hoverOutlinePass = null;
+      bindHoverOutlinePasses({ hover: null, resource: null });
+      ensureSoftwareRenderBadge();
+    } else {
     this.composer = new EffectComposer(this.renderer);
     this.composer.setSize(window.innerWidth, window.innerHeight);
 
@@ -1021,7 +1047,9 @@ export class Game {
 
     const outputPass = new OutputPass();
     this.composer.addPass(outputPass);
+    }
 
+    document.documentElement.dataset.renderMode = this.renderQuality.mode;
     this.worldUi = ensureWorldUiElement();
     this.cameraTarget = new THREE.Vector3(0, 4, 18);
     this.cameraOffsetDirection = new THREE.Vector3(0, 30, 37.2).normalize();
@@ -1654,6 +1682,8 @@ export class Game {
     if (this.dom.settingsButton) this.dom.settingsButton.hidden = true;
     if (this.dom.helpButton) this.dom.helpButton.hidden = true;
     if (this.dom.fpsMeter) this.dom.fpsMeter.hidden = true;
+    document.querySelector('#software-render-badge')?.remove();
+    delete document.documentElement.dataset.renderMode;
     if (this.dom.pauseOverlay) this.dom.pauseOverlay.hidden = true;
     if (this.dom.perfPanel) this.dom.perfPanel.hidden = true;
     this.canvas.style.filter = '';
@@ -2391,7 +2421,9 @@ export class Game {
         MIN_DPR,
         MAX_DPR
       );
-      this.renderQuality = createRenderQualityProfile(this.renderSettings);
+      this.renderQuality = createRenderQualityProfile(this.renderSettings, {
+        software: this.renderQuality?.software === true
+      });
       this.renderer.setPixelRatio(this.renderQuality.pixelRatio);
       this.resize();
     }
@@ -2562,6 +2594,10 @@ export class Game {
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height, false);
+    if (this.renderQuality?.software) {
+      this.renderQuality.pixelRatio = softwarePixelRatio();
+      this.renderer.setPixelRatio(this.renderQuality.pixelRatio);
+    }
     if (this.composer) {
       this.composer.setSize(width, height);
     }
@@ -10851,19 +10887,24 @@ function initialPerfJsonEnabled() {
   }
 }
 
-function createRenderQualityProfile(settings = loadRenderSettings()) {
+function createRenderQualityProfile(settings = loadRenderSettings(), options = {}) {
+  const software = options.software === true;
   const override = readRenderQualityOverride();
-  const mobile = override === 'low' || (override !== 'high' && isProbablyMobileDevice());
+  const mobile = software || override === 'low' || (override !== 'high' && isProbablyMobileDevice());
   const rawPixelRatio = window.devicePixelRatio || 1;
-  const pixelRatio = settings.dpr ?? (mobile ? MOBILE_RENDER_PIXEL_RATIO : DESKTOP_RENDER_PIXEL_RATIO);
+  const pixelRatio = software
+    ? softwarePixelRatio()
+    : (settings.dpr ?? (mobile ? MOBILE_RENDER_PIXEL_RATIO : DESKTOP_RENDER_PIXEL_RATIO));
   return {
-    mode: mobile ? 'mobile' : 'desktop',
-    pixelRatio: clamp(pixelRatio, MIN_DPR, MAX_DPR),
+    mode: software ? 'software' : (mobile ? 'mobile' : 'desktop'),
+    software,
+    pixelRatio: software ? pixelRatio : clamp(pixelRatio, MIN_DPR, MAX_DPR),
     nativePixelRatio: rawPixelRatio,
     antialias: !mobile,
     // 半烘焙半实时：桌面端走实时阴影（山体/装饰物/单位能正确接收与投射阴影），
-    // 移动端关掉实时阴影贴图、回落到烘焙地面遮罩以省算力（手机顶不住每帧阴影渲染）。
-    realtimeShadows: !mobile
+    // 移动端和无 GPU 测试模式关掉实时阴影贴图、回落到烘焙地面遮罩。
+    realtimeShadows: !mobile,
+    postProcessing: !software && !mobile
   };
 }
 
@@ -11052,6 +11093,66 @@ function readRenderQualityOverride() {
     // Keep the default auto mode when URLSearchParams is unavailable.
   }
   return 'auto';
+}
+
+const SOFTWARE_WEBGL_RENDERER_PATTERN = /swiftshader|llvmpipe|softpipe|lavapipe|microsoft basic render|software rasterizer/i;
+
+function readSoftwareRenderOverride() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('gpu') === '1') return 'off';
+    if (params.has('nogpu') && params.get('nogpu') !== '0') return 'force';
+    const value = (params.get('quality') ?? params.get('renderQuality') ?? '').toLowerCase();
+    if (['software', 'swiftshader', 'nogpu', 'cpu'].includes(value)) return 'force';
+    if (['high', 'desktop', 'quality'].includes(value)) return 'off';
+  } catch {
+    // Fall through to automatic software-renderer detection.
+  }
+  return 'auto';
+}
+
+function webglRendererName(gl) {
+  try {
+    const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+    if (debugInfo) return String(gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) || '');
+    return String(gl.getParameter(gl.RENDERER) || '');
+  } catch {
+    return '';
+  }
+}
+
+function probeSoftwareWebGL() {
+  const canvas = document.createElement('canvas');
+  const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+  if (!gl) return false;
+  const software = SOFTWARE_WEBGL_RENDERER_PATTERN.test(webglRendererName(gl));
+  gl.getExtension('WEBGL_lose_context')?.loseContext();
+  return software;
+}
+
+function softwarePixelRatio() {
+  const longest = Math.max(window.innerWidth || 1, window.innerHeight || 1);
+  const ratio = SOFTWARE_RENDER_MAX_EDGE / longest;
+  return Math.min(1, Math.max(0.4, ratio));
+}
+
+function resolveSoftwareRenderMode() {
+  const override = readSoftwareRenderOverride();
+  if (override === 'force') return true;
+  if (override === 'off') return false;
+  return probeSoftwareWebGL();
+}
+
+function ensureSoftwareRenderBadge() {
+  let badge = document.querySelector('#software-render-badge');
+  if (!badge) {
+    badge = document.createElement('div');
+    badge.id = 'software-render-badge';
+    badge.className = 'software-render-badge';
+    badge.textContent = '低画质 · 无 GPU';
+    document.querySelector('#app')?.appendChild(badge);
+  }
+  badge.hidden = false;
 }
 
 function isProbablyMobileDevice() {

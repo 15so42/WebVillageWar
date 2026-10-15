@@ -889,6 +889,24 @@ body.is-meta-open .resource-box-select-hud {
   display: none;
 }
 
+.software-render-badge {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  z-index: 30;
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 242, 199, 0.35);
+  border-radius: 6px;
+  color: #fff2c7;
+  background: rgba(18, 24, 20, 0.72);
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0;
+  pointer-events: none;
+  user-select: none;
+}
+
 .hud-primary {}
 
 .hud-primary-top {

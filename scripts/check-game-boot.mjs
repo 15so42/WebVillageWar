@@ -76,6 +76,22 @@ if (report.menuReached) {
   }
   report.canvas = await ev(`(document.querySelector('#game-canvas')?.width ?? 0) > 400`);
   report.sceneKey = await ev(`window.__VILLAGE_WAR_DEBUG__?.game?.world?.config?.sceneKey ?? null`);
+  report.render = JSON.parse(await ev(`JSON.stringify({
+    mode: window.__VILLAGE_WAR_DEBUG__?.game?.renderQuality?.mode ?? null,
+    software: window.__VILLAGE_WAR_DEBUG__?.game?.renderQuality?.software === true,
+    composer: Boolean(window.__VILLAGE_WAR_DEBUG__?.game?.composer),
+    antialias: window.__VILLAGE_WAR_DEBUG__?.game?.renderQuality?.antialias === true,
+    realtimeShadows: window.__VILLAGE_WAR_DEBUG__?.game?.renderQuality?.realtimeShadows === true,
+    badge: document.querySelector('#software-render-badge')?.textContent ?? null,
+    pixels: window.__VILLAGE_WAR_DEBUG__?.game?.samplePixels?.() ?? []
+  })`));
+  if (report.render.software) {
+    try {
+      mkdirSync('outputs', { recursive: true });
+      const shot = await send('Page.captureScreenshot', { format: 'png', fromSurface: true });
+      writeFileSync('outputs/boot-software.png', Buffer.from(shot.data, 'base64'));
+    } catch { /* 截图失败不影响启动判定 */ }
+  }
   // 进入场景之后：卡牌时代的流程与界面都不该出现。
   // 可见性判定**沿祖先链检查**——只读元素自身的 computed style 会把"父元素带 hidden"
   // 的节点误报成可见（银币就被这么误报过一次，害我顺着错线索改了一轮 CSS）。
@@ -153,6 +169,10 @@ const survivalUiClean = Boolean(g)
   && g.ui.spawnPointMeter === 'VISIBLE';
 if (!survivalFlowClean) console.log('--- 卡牌时代流程仍触发:', JSON.stringify(g));
 if (!survivalUiClean) console.log('--- 界面状态不符:', JSON.stringify(g?.ui));
+const softwarePixelsLit = !report.render?.software || pixelsAreLit(report.render.pixels);
+if (report.render?.software && !softwarePixelsLit) {
+  console.log('--- 无 GPU 低画质仍是黑帧:', JSON.stringify(report.render.pixels));
+}
 process.exit(
   problems.length === 0
   && report.gameStarted
@@ -160,6 +180,13 @@ process.exit(
   && lingeringLegacy.length === 0
   && survivalFlowClean
   && survivalUiClean
+  && softwarePixelsLit
     ? 0
     : 1
 );
+
+function pixelsAreLit(pixels) {
+  return Array.isArray(pixels) && pixels.some((pixel) => (
+    Array.isArray(pixel) && (pixel[0] + pixel[1] + pixel[2]) > 24
+  ));
+}
